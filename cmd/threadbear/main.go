@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -25,6 +26,10 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 	}
 	if err != nil {
 		result := output.ErrorResult{Operation: "parse", ErrorCode: "invalid_arguments"}
+		if errors.Is(err, app.ErrUnknownCommand) {
+			result.Operation = string(request.Command)
+			result.ErrorCode = "unknown_command"
+		}
 		if writeErr := output.Write(stdout, format, result); writeErr != nil {
 			fmt.Fprintf(stderr, "ThreadBear couldn't write its result: %v\n", writeErr)
 			return 1
@@ -59,6 +64,9 @@ func parseRequest(args []string) (app.Request, error) {
 	}
 	if err := flags.Parse(commandArgs); err != nil {
 		return request, err
+	}
+	if !request.Command.Valid() {
+		return request, fmt.Errorf("%w: %q", app.ErrUnknownCommand, request.Command)
 	}
 	remaining := flags.Args()
 	switch request.Command {
