@@ -189,9 +189,9 @@ func minimumBatchGroups(candidates []packingCandidate, capacity int) [][]TaskEvi
 		}
 	}
 	search(0, nil, 0)
-	if exhausted {
-		return greedy
-	}
+	// best starts as the greedy grouping and is only replaced by complete
+	// packings, so it is always valid and never worse than greedy — including
+	// when the bounded search exhausts its node limit (BEAR-17).
 	return best
 }
 
