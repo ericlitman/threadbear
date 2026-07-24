@@ -5,6 +5,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"fmt"
 	"go/parser"
 	"go/token"
 	"io/fs"
@@ -58,6 +59,67 @@ func TestIndexFailsClosedOnUnboundedHigherVersion(t *testing.T) {
 	_, err := OpenIndex(home)
 	if !errors.Is(err, ErrSchema) {
 		t.Fatalf("OpenIndex() error = %v, want ErrSchema", err)
+	}
+}
+
+func TestConfigSQLiteHomeAcceptsFullTOMLForms(t *testing.T) {
+	cases := []struct {
+		name   string
+		config string
+	}{
+		{"quoted key", "\"sqlite_home\" = %s\n"},
+		{"multiline basic string", "sqlite_home = \"\"\"%s\"\"\"\n"},
+		{"literal string", "sqlite_home = '%s'\n"},
+	}
+	for _, testCase := range cases {
+		t.Run(testCase.name, func(t *testing.T) {
+			root := t.TempDir()
+			codexHome := filepath.Join(root, "codex")
+			configHome := filepath.Join(root, "config-sqlite")
+			environmentHome := filepath.Join(root, "environment-sqlite")
+			for _, directory := range []string{codexHome, configHome, environmentHome} {
+				if err := os.Mkdir(directory, 0700); err != nil {
+					t.Fatal(err)
+				}
+			}
+			copyFixture(t, "state_5.sqlite", filepath.Join(configHome, "state_6.sqlite"))
+			copyFixture(t, "state_5.sqlite", filepath.Join(environmentHome, "state_7.sqlite"))
+			config := testCase.config
+			if strings.Contains(config, "%s\"\"\"") || strings.Contains(config, "'%s'") {
+				config = fmt.Sprintf(config, configHome)
+			} else {
+				config = fmt.Sprintf(config, strconv.Quote(configHome))
+			}
+			if err := os.WriteFile(filepath.Join(codexHome, "config.toml"), []byte(config), 0600); err != nil {
+				t.Fatal(err)
+			}
+			t.Setenv("CODEX_HOME", codexHome)
+			t.Setenv("CODEX_SQLITE_HOME", environmentHome)
+			index, err := OpenDefaultIndex()
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer index.Close()
+			if got, want := index.Path(), filepath.Join(configHome, "state_6.sqlite"); got != want {
+				t.Fatalf("Path() = %q, want config sqlite_home %q for %s", got, want, testCase.name)
+			}
+		})
+	}
+}
+
+func TestConfigTOMLSyntaxErrorFailsClosed(t *testing.T) {
+	root := t.TempDir()
+	codexHome := filepath.Join(root, "codex")
+	if err := os.Mkdir(codexHome, 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(codexHome, "config.toml"), []byte("sqlite_home = [unclosed\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("CODEX_HOME", codexHome)
+	t.Setenv("CODEX_SQLITE_HOME", root)
+	if _, err := OpenDefaultIndex(); err == nil {
+		t.Fatal("expected syntax error to fail closed, not fall back to environment")
 	}
 }
 

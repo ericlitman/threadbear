@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"github.com/BurntSushi/toml"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -257,149 +258,22 @@ func compareDatabaseVersions(left, right string) int {
 }
 
 func sqliteHomeFromConfig(data []byte) (string, bool, error) {
-	inTable := false
-	multiline := ""
-	for _, line := range strings.Split(string(data), "\n") {
-		if multiline != "" {
-			if strings.Contains(line, multiline) {
-				multiline = ""
-			}
-			continue
-		}
-		if delimiter := openedMultilineTOMLString(line); delimiter != "" {
-			multiline = delimiter
-			continue
-		}
-		line = strings.TrimSpace(trimTOMLComment(line))
-		if line == "" {
-			continue
-		}
-		if strings.HasPrefix(line, "[") {
-			inTable = true
-			continue
-		}
-		if inTable {
-			continue
-		}
-		key, value, found := strings.Cut(line, "=")
-		if !found || strings.TrimSpace(key) != "sqlite_home" {
-			continue
-		}
-		parsed, err := parseTOMLString(strings.TrimSpace(value))
-		if err != nil {
-			return "", false, err
-		}
-		if strings.TrimSpace(parsed) == "" {
-			return "", false, errors.New("sqlite_home must not be empty")
-		}
-		return parsed, true, nil
+	// Codex loads config.toml with a full TOML parser; matching its semantics
+	// (quoted keys, multiline strings, escapes) requires the same, not a
+	// hand-written line scanner.
+	var config struct {
+		SQLiteHome *string `toml:"sqlite_home"`
 	}
-	return "", false, nil
-}
-
-func openedMultilineTOMLString(value string) string {
-	for index := 0; index < len(value); {
-		switch value[index] {
-		case '#':
-			return ""
-		case '"':
-			delimiter := `"""`
-			if strings.HasPrefix(value[index:], delimiter) {
-				remainder := value[index+len(delimiter):]
-				closing := strings.Index(remainder, delimiter)
-				if closing < 0 {
-					return delimiter
-				}
-				index += len(delimiter) + closing + len(delimiter)
-				continue
-			}
-			index++
-			escaped := false
-			for index < len(value) {
-				char := value[index]
-				index++
-				if escaped {
-					escaped = false
-					continue
-				}
-				if char == '\\' {
-					escaped = true
-					continue
-				}
-				if char == '"' {
-					break
-				}
-			}
-		case '\'':
-			delimiter := "'''"
-			if strings.HasPrefix(value[index:], delimiter) {
-				remainder := value[index+len(delimiter):]
-				closing := strings.Index(remainder, delimiter)
-				if closing < 0 {
-					return delimiter
-				}
-				index += len(delimiter) + closing + len(delimiter)
-				continue
-			}
-			index++
-			for index < len(value) && value[index] != '\'' {
-				index++
-			}
-			if index < len(value) {
-				index++
-			}
-		default:
-			index++
-		}
+	if err := toml.Unmarshal(data, &config); err != nil {
+		return "", false, fmt.Errorf("parse config.toml: %w", err)
 	}
-	return ""
-}
-
-func trimTOMLComment(value string) string {
-	var quote byte
-	escaped := false
-	for index := 0; index < len(value); index++ {
-		char := value[index]
-		if quote == '"' && escaped {
-			escaped = false
-			continue
-		}
-		if quote == '"' && char == '\\' {
-			escaped = true
-			continue
-		}
-		if quote != 0 {
-			if char == quote {
-				quote = 0
-			}
-			continue
-		}
-		if char == '"' || char == '\'' {
-			quote = char
-			continue
-		}
-		if char == '#' {
-			return value[:index]
-		}
+	if config.SQLiteHome == nil {
+		return "", false, nil
 	}
-	return value
-}
-
-func parseTOMLString(value string) (string, error) {
-	if len(value) < 2 {
-		return "", errors.New("sqlite_home must be a TOML string")
+	if strings.TrimSpace(*config.SQLiteHome) == "" {
+		return "", false, errors.New("sqlite_home must not be empty")
 	}
-	if value[0] == '\'' && value[len(value)-1] == '\'' {
-		return value[1 : len(value)-1], nil
-	}
-	if value[0] != '"' || value[len(value)-1] != '"' {
-		return "", errors.New("sqlite_home must be a TOML string")
-	}
-	parsed, err := strconv.Unquote(value)
-	if err != nil {
-		return "", fmt.Errorf("parse sqlite_home: %w", err)
-	}
-	return parsed, nil
+	return *config.SQLiteHome, true, nil
 }
 
 func readOnlyURI(path string) string {
