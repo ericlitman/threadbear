@@ -78,6 +78,9 @@ type fakeClient struct {
 func (f *fakeClient) ReadLatestTurn(_ context.Context, taskID, _ string) (appserver.RecentEvidence, error) {
 	f.latestReads = append(f.latestReads, taskID)
 	value, ok := f.latest[taskID]
+	if !ok && taskID == "control" {
+		return appserver.RecentEvidence{}, nil
+	}
 	if !ok {
 		return appserver.RecentEvidence{}, errors.New("missing evidence")
 	}
@@ -109,8 +112,11 @@ func (f *fakeClient) Archive(_ context.Context, taskID string) error {
 	}
 	return nil
 }
-func (f *fakeClient) InsertNotice(_ context.Context, _ string, text string) error {
-	f.notices = append(f.notices, text)
+func (f *fakeClient) InsertNotice(_ context.Context, taskID string, text string) error {
+	if !f.failNotice {
+		f.notices = append(f.notices, text)
+		f.latest[taskID] = appserver.RecentEvidence{Latest: &appserver.EvidenceTurn{ID: "notice", Status: "completed", AgentMessage: text}}
+	}
 	if f.failNotice {
 		return errors.New("notice response lost")
 	}
@@ -258,6 +264,77 @@ func TestHeartbeatDeterministicRuntimeAndPartialSiblingFailure(t *testing.T) {
 	stored, loadErr := deps.store.store.LoadState()
 	if loadErr != nil || stored.Tasks["task-b"].Retry == nil || stored.Tasks["task-a"].Status != state.StatusRunning {
 		t.Fatalf("state=%+v err=%v", stored, loadErr)
+	}
+}
+
+func TestArchiveEligibleChangedTaskIsReclassified(t *testing.T) {
+	now := time.Date(2026, 7, 24, 12, 0, 0, 0, time.UTC)
+	task := codex.Task{TaskID: "changed", Revision: "2", Title: "✅ Changed", Source: "vscode"}
+	committed := state.New()
+	committed.LastUpdateCheck = timePointer(now)
+	previous := record(codex.Task{TaskID: task.TaskID, Revision: "1", Title: task.Title}, state.StatusComplete, now.Add(-15*24*time.Hour))
+	previous.StateStartedAt = now.Add(-15 * 24 * time.Hour)
+	committed.Tasks[task.TaskID] = previous
+	runner, deps := testRunner(t, now, []codex.Task{task}, committed)
+	activeAt := now.Unix()
+	deps.client.latest[task.TaskID] = appserver.RecentEvidence{ThreadStatus: appserver.ThreadStatus{Type: "active"}, RecencyAt: &activeAt, Latest: &appserver.EvidenceTurn{ID: "turn", Status: "inProgress"}}
+	if _, err := runner.Run(context.Background(), false); err != nil {
+		t.Fatal(err)
+	}
+	stored, _ := deps.store.store.LoadState()
+	if stored.Tasks[task.TaskID].Status != state.StatusRunning || len(deps.client.archives) != 0 {
+		t.Fatalf("state=%+v archives=%v", stored.Tasks[task.TaskID], deps.client.archives)
+	}
+}
+
+func TestCyclePreservesUnchangedManagedAction(t *testing.T) {
+	now := time.Date(2026, 7, 24, 12, 0, 0, 0, time.UTC)
+	tasks := []codex.Task{{TaskID: "sibling", Revision: "2", Title: "Sibling", Source: "vscode"}, {TaskID: "unchanged", Revision: "1", Title: "➡️ Ship → deploy production", Source: "vscode"}}
+	committed := state.New()
+	committed.LastUpdateCheck = timePointer(now)
+	committed.Tasks["sibling"] = record(codex.Task{TaskID: "sibling", Revision: "1", Title: "Sibling"}, state.StatusUnknown, now)
+	unchanged := record(tasks[1], state.StatusNextSteps, now)
+	unchanged.DurableSubject = "Ship"
+	unchanged.ManagedAction = "deploy production"
+	committed.Tasks["unchanged"] = unchanged
+	runner, deps := testRunner(t, now, tasks, committed)
+	deps.client.latest["sibling"] = completedEvidence(now, "done", "🐻 complete · next (none): none")
+	if _, err := runner.Run(context.Background(), false); err != nil {
+		t.Fatal(err)
+	}
+	current, _ := deps.index.task("unchanged")
+	stored, _ := deps.store.store.LoadState()
+	if current.Title != tasks[1].Title || stored.Tasks["unchanged"].ManagedAction != "deploy production" {
+		t.Fatalf("title=%q record=%+v", current.Title, stored.Tasks["unchanged"])
+	}
+}
+
+func TestCyclePreservesFutureRetryUntilDue(t *testing.T) {
+	now := time.Date(2026, 7, 24, 12, 0, 0, 0, time.UTC)
+	tasks := []codex.Task{{TaskID: "sibling", Revision: "2", Title: "Sibling", Source: "vscode"}, {TaskID: "retry", Revision: "1", Title: "Retry", Source: "vscode"}}
+	committed := state.New()
+	committed.LastUpdateCheck = timePointer(now)
+	committed.Tasks["sibling"] = record(codex.Task{TaskID: "sibling", Revision: "1", Title: "Sibling"}, state.StatusUnknown, now)
+	retryRecord := record(tasks[1], state.StatusUnknown, now.Add(-time.Hour))
+	retryRecord.Retry = &state.Retry{Operation: "classifier", ErrorCode: "ephemeral_call_failed", Attempts: 1, LastAttemptAt: now.Add(-time.Minute), NextAttemptAt: now.Add(time.Hour)}
+	committed.Tasks["retry"] = retryRecord
+	runner, deps := testRunner(t, now, tasks, committed)
+	deps.client.latest["sibling"] = completedEvidence(now, "done", "🐻 complete · next (none): none")
+	if _, err := runner.Run(context.Background(), false); err != nil {
+		t.Fatal(err)
+	}
+	stored, _ := deps.store.store.LoadState()
+	if stored.Tasks["retry"].Retry == nil || contains(deps.client.latestReads, "retry") {
+		t.Fatalf("retry=%+v reads=%v", stored.Tasks["retry"].Retry, deps.client.latestReads)
+	}
+	deps.clock.now = now.Add(time.Hour + time.Second)
+	deps.client.latest["retry"] = completedEvidence(deps.clock.now, "done", "🐻 complete · next (none): none")
+	if _, err := runner.Run(context.Background(), false); err != nil {
+		t.Fatal(err)
+	}
+	stored, _ = deps.store.store.LoadState()
+	if stored.Tasks["retry"].Retry != nil || !contains(deps.client.latestReads, "retry") {
+		t.Fatalf("retry=%+v reads=%v", stored.Tasks["retry"].Retry, deps.client.latestReads)
 	}
 }
 
@@ -485,6 +562,46 @@ func TestCrashBeforeArchiveDoesNotClaimExternalArchive(t *testing.T) {
 
 func TestCrashApplyingJournalRecoversWithoutRepeatingMutation(t *testing.T) {
 	now := time.Date(2026, 7, 24, 12, 0, 0, 0, time.UTC)
+	t.Run("title already applied", func(t *testing.T) {
+		current := codex.Task{TaskID: "title", Revision: "2", Title: "✅ Title", Source: "vscode"}
+		committed := state.New()
+		committed.LastUpdateCheck = timePointer(now)
+		committed.Tasks[current.TaskID] = record(codex.Task{TaskID: current.TaskID, Revision: "1", Title: "Title"}, state.StatusComplete, now)
+		runner, deps := testRunner(t, now, []codex.Task{current}, committed)
+		cycle := state.NewCycle("cycle-1", committed.Generation, now)
+		cycle.Inventory[current.TaskID] = state.CapturedTask{TaskID: current.TaskID, Revision: "1", Title: "Title", LastSubstantiveActivity: now}
+		cycle.Results[current.TaskID] = state.ClassificationResult{TaskID: current.TaskID, Revision: "1", Status: state.StatusComplete, Provenance: state.ProvenanceFooter, DurableSubject: "Title"}
+		cycle.Operations["title:title"] = state.CycleOperation{Kind: state.OperationTitle, Stage: state.StageApplying, TaskID: current.TaskID, ExpectedRevision: "1", ExpectedTitle: "Title", DesiredTitle: current.Title}
+		if err := deps.store.store.SaveCycle(cycle); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := runner.Run(context.Background(), false); err != nil {
+			t.Fatal(err)
+		}
+		if len(deps.client.titles) != 0 {
+			t.Fatalf("title repeated: %v", deps.client.titles)
+		}
+	})
+	t.Run("title not applied", func(t *testing.T) {
+		current := codex.Task{TaskID: "title", Revision: "1", Title: "Title", Source: "vscode"}
+		committed := state.New()
+		committed.LastUpdateCheck = timePointer(now)
+		committed.Tasks[current.TaskID] = record(current, state.StatusComplete, now)
+		runner, deps := testRunner(t, now, []codex.Task{current}, committed)
+		cycle := state.NewCycle("cycle-1", committed.Generation, now)
+		cycle.Inventory[current.TaskID] = state.CapturedTask{TaskID: current.TaskID, Revision: "1", Title: "Title", LastSubstantiveActivity: now}
+		cycle.Results[current.TaskID] = state.ClassificationResult{TaskID: current.TaskID, Revision: "1", Status: state.StatusComplete, Provenance: state.ProvenanceFooter, DurableSubject: "Title"}
+		cycle.Operations["title:title"] = state.CycleOperation{Kind: state.OperationTitle, Stage: state.StageApplying, TaskID: current.TaskID, ExpectedRevision: "1", ExpectedTitle: "Title", DesiredTitle: "✅ Title"}
+		if err := deps.store.store.SaveCycle(cycle); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := runner.Run(context.Background(), false); err != nil {
+			t.Fatal(err)
+		}
+		if len(deps.client.titles) != 1 {
+			t.Fatalf("title was not retried: %v", deps.client.titles)
+		}
+	})
 	t.Run("archive", func(t *testing.T) {
 		committed := state.New()
 		committed.LastUpdateCheck = timePointer(now)
@@ -500,8 +617,27 @@ func TestCrashApplyingJournalRecoversWithoutRepeatingMutation(t *testing.T) {
 			t.Fatal(err)
 		}
 		stored, _ := deps.store.store.LoadState()
+		if _, ok := stored.Archives["complete"]; ok || len(deps.client.archives) != 0 {
+			t.Fatalf("external archive was claimed: archives=%v stored=%+v", deps.client.archives, stored.Archives)
+		}
+	})
+	t.Run("applied archive", func(t *testing.T) {
+		committed := state.New()
+		committed.LastUpdateCheck = timePointer(now)
+		runner, deps := testRunner(t, now, nil, committed)
+		cycle := state.NewCycle("cycle-1", committed.Generation, now)
+		cycle.Inventory["complete"] = state.CapturedTask{TaskID: "complete", Revision: "1", Title: "✅ Complete", LastSubstantiveActivity: now.Add(-15 * 24 * time.Hour)}
+		cycle.Results["complete"] = state.ClassificationResult{TaskID: "complete", Revision: "1", Status: state.StatusComplete, Provenance: state.ProvenanceFooter, DurableSubject: "Complete"}
+		cycle.Operations["archive:complete"] = state.CycleOperation{Kind: state.OperationArchive, Stage: state.StageApplied, TaskID: "complete", ExpectedRevision: "1", ExpectedTitle: "✅ Complete"}
+		if err := deps.store.store.SaveCycle(cycle); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := runner.Run(context.Background(), false); err != nil {
+			t.Fatal(err)
+		}
+		stored, _ := deps.store.store.LoadState()
 		if _, ok := stored.Archives["complete"]; !ok || len(deps.client.archives) != 0 {
-			t.Fatalf("archives=%v stored=%+v", deps.client.archives, stored.Archives)
+			t.Fatalf("applied archive was not recovered: archives=%v stored=%+v", deps.client.archives, stored.Archives)
 		}
 	})
 	t.Run("notice", func(t *testing.T) {
@@ -518,7 +654,7 @@ func TestCrashApplyingJournalRecoversWithoutRepeatingMutation(t *testing.T) {
 			t.Fatal(err)
 		}
 		stored, _ := deps.store.store.LoadState()
-		if !contains(stored.DeliveredNoticeVersions, "1.2.0") || len(deps.client.notices) != 0 {
+		if !contains(stored.DeliveredNoticeVersions, "1.2.0") || len(deps.client.notices) != 1 {
 			t.Fatalf("delivered=%v notices=%v", stored.DeliveredNoticeVersions, deps.client.notices)
 		}
 	})
@@ -666,12 +802,16 @@ func TestCrashAmbiguousMutationKeepsApplyingJournal(t *testing.T) {
 		oldActivity := now.Add(-15 * 24 * time.Hour).Unix()
 		deps.client.latest[task.TaskID] = appserver.RecentEvidence{ThreadStatus: appserver.ThreadStatus{Type: "idle"}, RecencyAt: &oldActivity, Latest: &appserver.EvidenceTurn{ID: "turn", Status: "completed"}}
 		deps.client.archiveErrorAfterApply = true
+		if _, err := runner.Run(context.Background(), false); err == nil {
+			t.Fatal("ambiguous archive did not preserve the checkpoint")
+		}
+		deps.client.archiveErrorAfterApply = false
 		if _, err := runner.Run(context.Background(), false); err != nil {
 			t.Fatal(err)
 		}
 		stored, _ := deps.store.store.LoadState()
-		if _, ok := stored.Archives[task.TaskID]; !ok {
-			t.Fatal("applied archive with lost response was not recorded")
+		if _, ok := stored.Archives[task.TaskID]; ok {
+			t.Fatal("archive without completion evidence was claimed")
 		}
 	})
 }
@@ -693,6 +833,7 @@ func TestHeartbeatUpdateDueCurrentOpensNoAppServer(t *testing.T) {
 
 type testDeps struct {
 	store      *wrappedStore
+	clock      *fakeClock
 	index      *fakeIndex
 	client     *fakeClient
 	factory    *fakeFactory
@@ -717,8 +858,9 @@ func testRunner(t *testing.T, now time.Time, tasks []codex.Task, committed state
 	classifier := &fakeClassifier{results: make(map[string]status.Classification)}
 	update := &fakeUpdateChecker{result: UpdateStatus{LatestVersion: "1.0.0"}}
 	wrapped := &wrappedStore{store: store}
+	clock := &fakeClock{now: now}
 	runner, err := New(Dependencies{
-		Store: wrapped, Inventory: index, AppServer: factory, UpdateChecker: update, Clock: fakeClock{now: now}, InstalledVersion: "1.0.0",
+		Store: wrapped, Inventory: index, AppServer: factory, UpdateChecker: update, Clock: clock, InstalledVersion: "1.0.0",
 		NewCycleID: func() string { return "cycle-1" },
 		NewClassifier: func(_ AppServer, cfg config.Config) (Classifier, error) {
 			if cfg.ClassifierContextBudgetBytes != 250000 {
@@ -730,7 +872,7 @@ func testRunner(t *testing.T, now time.Time, tasks []codex.Task, committed state
 	if err != nil {
 		t.Fatal(err)
 	}
-	return runner, testDeps{store: wrapped, index: index, client: client, factory: factory, classifier: classifier, update: update}
+	return runner, testDeps{store: wrapped, clock: clock, index: index, client: client, factory: factory, classifier: classifier, update: update}
 }
 
 func completedEvidence(now time.Time, user, agent string) appserver.RecentEvidence {

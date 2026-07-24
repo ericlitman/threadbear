@@ -209,6 +209,7 @@ const (
 	OperationNotice  OperationKind  = "notice"
 	StagePrepared    OperationStage = "prepared"
 	StageApplying    OperationStage = "applying"
+	StageApplied     OperationStage = "applied"
 	StageVerified    OperationStage = "verified"
 )
 
@@ -289,7 +290,7 @@ func (c CycleCheckpoint) Validate() error {
 }
 
 func (o CycleOperation) Valid() bool {
-	if o.Stage != StagePrepared && o.Stage != StageApplying && o.Stage != StageVerified {
+	if o.Stage != StagePrepared && o.Stage != StageApplying && o.Stage != StageApplied && o.Stage != StageVerified {
 		return false
 	}
 	switch o.Kind {

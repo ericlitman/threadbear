@@ -139,7 +139,9 @@ func (r *Runner) Run(ctx context.Context, dryRun bool) (output.Result, error) {
 		}
 		for _, task := range archiveDue {
 			previous := committed.Tasks[task.TaskID]
-			checkpoint.Results[task.TaskID] = state.ClassificationResult{TaskID: task.TaskID, Revision: task.Revision, Status: previous.Status, Provenance: previous.Provenance, DurableSubject: previous.DurableSubject, ManagedAction: previous.ManagedAction}
+			if previous.CapturedRevision == task.Revision && previous.CapturedTitle == task.Title {
+				checkpoint.Results[task.TaskID] = state.ClassificationResult{TaskID: task.TaskID, Revision: task.Revision, Status: previous.Status, Provenance: previous.Provenance, DurableSubject: previous.DurableSubject, ManagedAction: previous.ManagedAction}
+			}
 		}
 		if err := r.deps.Store.SaveCycle(checkpoint); err != nil {
 			return output.HeartbeatResult{CycleID: checkpoint.CycleID, ErrorCode: "cycle_write_failed"}, err
@@ -147,7 +149,6 @@ func (r *Runner) Run(ctx context.Context, dryRun bool) (output.Result, error) {
 	}
 
 	result := output.HeartbeatResult{CycleID: checkpoint.CycleID}
-	recoverApplyingNotices(&checkpoint)
 	pendingUpdate := UpdateStatus{}
 	if updateDue {
 		if r.deps.UpdateChecker == nil {
@@ -179,6 +180,9 @@ func (r *Runner) Run(ctx context.Context, dryRun bool) (output.Result, error) {
 	taskByID := make(map[string]codex.Task, len(inventory.Tasks))
 	for _, task := range inventory.Tasks {
 		taskByID[task.TaskID] = task
+	}
+	if err := r.recoverNotices(ctx, cfg, &checkpoint, client, &result); err != nil {
+		return result, err
 	}
 	r.recoverOperations(&checkpoint, inventory)
 	pruneRemovedCaptured(&checkpoint, inventory)
@@ -345,7 +349,11 @@ func archiveDueTasks(inventory codex.Inventory, committed state.State, cfg confi
 	}
 	result := make([]codex.Task, 0)
 	for _, task := range inventory.Tasks {
-		if record, ok := committed.Tasks[task.TaskID]; ok && archiveEligible(record, now, cfg.ArchiveAfterDays) {
+		record, ok := committed.Tasks[task.TaskID]
+		if !ok || record.Retry != nil && now.Before(record.Retry.NextAttemptAt) {
+			continue
+		}
+		if archiveEligible(record, now, cfg.ArchiveAfterDays) {
 			result = append(result, task)
 		}
 	}
@@ -416,21 +424,62 @@ func (r *Runner) deliverUpdate(ctx context.Context, cfg config.Config, update Up
 		result.ErrorCode = "cycle_write_failed"
 		return err
 	}
+	return r.settleNotice(ctx, cfg, key, checkpoint, client, result)
+}
+
+func (r *Runner) recoverNotices(ctx context.Context, cfg config.Config, checkpoint *state.CycleCheckpoint, client AppServer, result *output.HeartbeatResult) error {
+	keys := make([]string, 0)
+	for key, operation := range checkpoint.Operations {
+		if operation.Kind == state.OperationNotice && operation.Stage != state.StageVerified {
+			keys = append(keys, key)
+		}
+	}
+	sort.Strings(keys)
+	for _, key := range keys {
+		if err := r.settleNotice(ctx, cfg, key, checkpoint, client, result); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (r *Runner) settleNotice(ctx context.Context, cfg config.Config, key string, checkpoint *state.CycleCheckpoint, client AppServer, result *output.HeartbeatResult) error {
 	if client == nil {
 		result.ErrorCode = "app_server_unavailable"
 		return errors.New("App Server is unavailable")
 	}
 	op := checkpoint.Operations[key]
-	op.Stage = state.StageApplying
-	checkpoint.Operations[key] = op
-	if err := r.deps.Store.SaveCycle(*checkpoint); err != nil {
-		result.ErrorCode = "cycle_write_failed"
+	text := noticeText(op.NoticeVersion)
+	delivered, err := noticeDelivered(ctx, client, cfg.ControlTaskID, text)
+	if err != nil {
+		result.ErrorCode = "update_notice_verify_failed"
 		return err
 	}
-	text := fmt.Sprintf("🧵🐻 ThreadBear %s is ready. Run threadbear update, or tell me “update ThreadBear.”", update.LatestVersion)
-	if err := client.InsertNotice(ctx, cfg.ControlTaskID, text); err != nil {
-		result.ErrorCode = "update_notice_failed"
-		return err
+	if !delivered {
+		op.Stage = state.StageApplying
+		checkpoint.Operations[key] = op
+		if err := r.deps.Store.SaveCycle(*checkpoint); err != nil {
+			result.ErrorCode = "cycle_write_failed"
+			return err
+		}
+		if err := client.InsertNotice(ctx, cfg.ControlTaskID, text); err != nil {
+			result.ErrorCode = "update_notice_failed"
+			return err
+		}
+		op.Stage = state.StageApplied
+		checkpoint.Operations[key] = op
+		if err := r.deps.Store.SaveCycle(*checkpoint); err != nil {
+			result.ErrorCode = "cycle_write_failed"
+			return err
+		}
+		delivered, err = noticeDelivered(ctx, client, cfg.ControlTaskID, text)
+		if err != nil || !delivered {
+			result.ErrorCode = "update_notice_verify_failed"
+			if err != nil {
+				return err
+			}
+			return errors.New("update notice was not visible after insertion")
+		}
 	}
 	op.Stage = state.StageVerified
 	checkpoint.Operations[key] = op
@@ -442,6 +491,18 @@ func (r *Runner) deliverUpdate(ctx context.Context, cfg config.Config, update Up
 	return nil
 }
 
+func noticeText(version string) string {
+	return fmt.Sprintf("🧵🐻 ThreadBear %s is ready. Run threadbear update, or tell me “update ThreadBear.”", version)
+}
+
+func noticeDelivered(ctx context.Context, client AppServer, controlTaskID, text string) (bool, error) {
+	evidence, err := client.ReadLatestTurn(ctx, controlTaskID, "")
+	if err != nil {
+		return false, err
+	}
+	return evidence.Latest != nil && evidence.Latest.AgentMessage == text, nil
+}
+
 func contains(values []string, target string) bool {
 	for _, value := range values {
 		if value == target {
@@ -451,18 +512,9 @@ func contains(values []string, target string) bool {
 	return false
 }
 
-func recoverApplyingNotices(checkpoint *state.CycleCheckpoint) {
-	for key, operation := range checkpoint.Operations {
-		if operation.Kind == state.OperationNotice && operation.Stage == state.StageApplying {
-			operation.Stage = state.StageVerified
-			checkpoint.Operations[key] = operation
-		}
-	}
-}
-
 func checkpointHasNotice(checkpoint state.CycleCheckpoint, version string) bool {
 	for _, operation := range checkpoint.Operations {
-		if operation.Kind == state.OperationNotice && operation.Stage == state.StageVerified && operation.NoticeVersion == version {
+		if operation.Kind == state.OperationNotice && operation.NoticeVersion == version {
 			return true
 		}
 	}
@@ -504,7 +556,7 @@ func (r *Runner) recoverOperations(checkpoint *state.CycleCheckpoint, inventory 
 				checkpoint.Operations[key] = operation
 			}
 		case state.OperationArchive:
-			if !exists && operation.Stage == state.StageApplying {
+			if !exists && operation.Stage == state.StageApplied {
 				operation.Stage = state.StageVerified
 				checkpoint.Operations[key] = operation
 			} else if !exists {
@@ -566,8 +618,8 @@ func (r *Runner) prepareOperations(cfg config.Config, records map[string]state.T
 	sort.Strings(ids)
 	for _, taskID := range ids {
 		record := records[taskID]
-		if cfg.RenameEnabled {
-			classification := checkpoint.Results[taskID]
+		classification, classified := checkpoint.Results[taskID]
+		if cfg.RenameEnabled && classified {
 			rendered, err := title.Reconcile(record, record.Status, classification.DurableSubject, classification.ManagedAction)
 			if err != nil {
 				r.setDiagnostic(checkpoint, taskID, "title", "title_reconcile_failed")
@@ -624,19 +676,29 @@ func (r *Runner) applyOperations(ctx context.Context, cfg config.Config, client 
 		}
 		switch op.Kind {
 		case state.OperationTitle:
+			op.Stage = state.StageApplying
+			checkpoint.Operations[key] = op
+			if err := r.deps.Store.SaveCycle(*checkpoint); err != nil {
+				return err
+			}
 			if err := client.SetTitle(ctx, op.TaskID, op.DesiredTitle); err != nil {
+				op.Stage = state.StagePrepared
+				checkpoint.Operations[key] = op
 				r.setDiagnostic(checkpoint, op.TaskID, "title", "title_write_failed")
 				continue
 			}
+			op.Stage = state.StageApplied
+			checkpoint.Operations[key] = op
+			if err := r.deps.Store.SaveCycle(*checkpoint); err != nil {
+				return err
+			}
 			verified, verifyErr := r.deps.Inventory.Inventory(ctx, cfg.ControlTaskID)
 			if verifyErr != nil {
-				r.setDiagnostic(checkpoint, op.TaskID, "title", "title_verify_failed")
-				continue
+				return verifyErr
 			}
 			row, ok := findTask(verified, op.TaskID)
 			if !ok || row.Title != op.DesiredTitle {
-				r.setDiagnostic(checkpoint, op.TaskID, "title", "title_verify_failed")
-				continue
+				return errors.New("title mutation was not visible after application")
 			}
 			op.Stage = state.StageVerified
 			op.VerifiedRevision = row.Revision
@@ -682,7 +744,7 @@ func (r *Runner) applyOperations(ctx context.Context, cfg config.Config, client 
 			if err := r.deps.Store.SaveCycle(*checkpoint); err != nil {
 				return err
 			}
-			if err := client.Archive(ctx, op.TaskID); err != nil {
+			if archiveErr := client.Archive(ctx, op.TaskID); archiveErr != nil {
 				verified, verifyErr := r.deps.Inventory.Inventory(ctx, cfg.ControlTaskID)
 				if verifyErr != nil {
 					return verifyErr
@@ -693,25 +755,25 @@ func (r *Runner) applyOperations(ctx context.Context, cfg config.Config, client 
 					r.setDiagnostic(checkpoint, op.TaskID, "archive", "archive_write_failed")
 					continue
 				}
-				op.Stage = state.StageVerified
-				checkpoint.Operations[key] = op
-				result.ArchivedIDs = append(result.ArchivedIDs, op.TaskID)
-				continue
+				return archiveErr
+			}
+			op.Stage = state.StageApplied
+			checkpoint.Operations[key] = op
+			if err := r.deps.Store.SaveCycle(*checkpoint); err != nil {
+				return err
 			}
 			verified, verifyErr := r.deps.Inventory.Inventory(ctx, cfg.ControlTaskID)
 			if verifyErr != nil {
 				return verifyErr
 			}
 			if _, exists := findTask(verified, op.TaskID); exists {
-				op.Stage = state.StagePrepared
-				checkpoint.Operations[key] = op
-				r.setDiagnostic(checkpoint, op.TaskID, "archive", "archive_verify_failed")
-				continue
+				return errors.New("archive mutation was not visible after application")
 			}
 			op.Stage = state.StageVerified
 			checkpoint.Operations[key] = op
 			result.ArchivedIDs = append(result.ArchivedIDs, op.TaskID)
 		}
+
 		if err := r.deps.Store.SaveCycle(*checkpoint); err != nil {
 			return err
 		}
@@ -779,7 +841,7 @@ func (r *Runner) commitState(cfg config.Config, committed state.State, checkpoin
 		record.Retry = &state.Retry{Operation: diagnostic.Operation, ErrorCode: diagnostic.ErrorCode, Attempts: attempts, LastAttemptAt: now, NextAttemptAt: now.Add(time.Duration(max(1, cfg.HeartbeatSeconds)) * time.Second)}
 		next.Tasks[taskID] = record
 	}
-	for _, taskID := range checkpointTaskIDs(checkpoint) {
+	for taskID := range checkpoint.Results {
 		if _, failed := checkpoint.Diagnostics[taskID]; failed {
 			continue
 		}
@@ -790,12 +852,4 @@ func (r *Runner) commitState(cfg config.Config, committed state.State, checkpoin
 		}
 	}
 	return next
-}
-
-func checkpointTaskIDs(checkpoint state.CycleCheckpoint) []string {
-	ids := make([]string, 0, len(checkpoint.Inventory))
-	for taskID := range checkpoint.Inventory {
-		ids = append(ids, taskID)
-	}
-	return ids
 }
