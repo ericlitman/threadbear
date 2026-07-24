@@ -83,26 +83,20 @@ func DeriveExecutableSpec(home, executable, pathValue string) (ExecutableSpec, e
 	if err := ValidateExecutable(executable); err != nil {
 		return ExecutableSpec{}, err
 	}
-	required := make([]string, 0, 2+len(fixedSystemPath))
+	directories := append([]string{}, absolutePathDirectories(pathValue)...)
+	directories = append(directories, filepath.Dir(executable), "/opt/homebrew/bin", "/usr/local/bin", filepath.Join(home, ".local", "bin"), "/usr/bin", "/bin", "/usr/sbin", "/sbin")
+	spec := ExecutableSpec{Path: executable, SpawnPath: uniqueCanonicalDirectories(directories)}
+	if err := ValidateExecutableSpec(spec); err != nil {
+		return ExecutableSpec{}, err
+	}
 	interpreter, envShebang, err := envShebangInterpreter(executable)
 	if err != nil {
 		return ExecutableSpec{}, err
 	}
 	if envShebang {
-		search := append([]string{}, absolutePathDirectories(pathValue)...)
-		search = append(search, filepath.Dir(executable), "/opt/homebrew/bin", "/usr/local/bin", filepath.Join(home, ".local", "bin"))
-		search = append(search, fixedSystemPath...)
-		interpreterPath, err := resolveNamedExecutable(interpreter, search)
-		if err != nil {
+		if _, err := resolveNamedExecutable(interpreter, spec.SpawnPath); err != nil {
 			return ExecutableSpec{}, fmt.Errorf("resolve Codex shebang interpreter %s: %w", interpreter, err)
 		}
-		required = append(required, filepath.Dir(interpreterPath))
-	}
-	required = append(required, filepath.Dir(executable))
-	required = append(required, fixedSystemPath...)
-	spec := ExecutableSpec{Path: executable, SpawnPath: uniqueCanonicalDirectories(required)}
-	if err := ValidateExecutableSpec(spec); err != nil {
-		return ExecutableSpec{}, err
 	}
 	return spec, nil
 }
@@ -128,15 +122,10 @@ func ValidateExecutableSpec(spec ExecutableSpec) error {
 	if len(spec.SpawnPath) == 0 {
 		return errors.New("Codex spawn PATH must not be empty")
 	}
-	seen := make(map[string]bool, len(spec.SpawnPath))
 	for _, directory := range spec.SpawnPath {
-		if directory == "" || strings.TrimSpace(directory) != directory || !filepath.IsAbs(directory) || filepath.Clean(directory) != directory {
-			return errors.New("Codex spawn PATH entries must be absolute canonical directories")
+		if directory == "" || strings.TrimSpace(directory) != directory || !filepath.IsAbs(directory) {
+			return errors.New("Codex spawn PATH entries must be nonempty absolute directories")
 		}
-		if seen[directory] {
-			return errors.New("Codex spawn PATH entries must be unique")
-		}
-		seen[directory] = true
 	}
 	return nil
 }

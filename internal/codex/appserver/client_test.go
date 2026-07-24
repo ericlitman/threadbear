@@ -689,6 +689,45 @@ func validateTurn(raw json.RawMessage) error {
 	return nil
 }
 
+func TestPinnedProcessSpecRunsEnvNodeWrapperWithExactPersistedPath(t *testing.T) {
+	home := t.TempDir()
+	codexDirectory := filepath.Join(home, "codex-bin")
+	nodeDirectory := filepath.Join(home, "node-bin")
+	for _, directory := range []string{codexDirectory, nodeDirectory} {
+		if err := os.MkdirAll(directory, 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	executable := filepath.Join(codexDirectory, "codex")
+	if err := os.WriteFile(executable, []byte("#!/usr/bin/env node\n"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(nodeDirectory, "node"), []byte("#!/bin/sh\n[ \"$2\" = \"--version\" ]\n"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	spawnPath := []string{codexDirectory, nodeDirectory, "/usr/bin", "/bin"}
+	process, err := PinnedProcessSpec(executable, filepath.Join(home, ".codex"), home, spawnPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", filepath.Join(home, "missing"))
+	command, err := process.command(context.Background(), "--version")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := command.Run(); err != nil {
+		t.Fatal(err)
+	}
+	want := "PATH=" + strings.Join(spawnPath, string(os.PathListSeparator))
+	found := false
+	for _, entry := range process.Env {
+		found = found || entry == want
+	}
+	if !found {
+		t.Fatalf("env=%v want %q", process.Env, want)
+	}
+}
+
 func TestPinnedProcessSpecUsesAbsoluteExecutableIndependentOfEnvironmentPATH(t *testing.T) {
 	executable := filepath.Join(t.TempDir(), "codex")
 	if err := os.WriteFile(executable, []byte("#!/bin/sh\nexit 0\n"), 0o700); err != nil {

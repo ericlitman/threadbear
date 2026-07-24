@@ -543,6 +543,22 @@ func applyPreferencePatch(value Preferences, patch PreferencePatch) Preferences 
 
 func (i Installer) resolveCodexExecutableSpec(persisted config.Config, persistedExists bool) (codex.ExecutableSpec, error) {
 	pathValue := os.Getenv("PATH")
+	if persistedExists && persisted.CodexExecutable != "" {
+		if err := codex.ValidateExecutable(persisted.CodexExecutable); err == nil {
+			spec := codex.ExecutableSpec{Path: persisted.CodexExecutable, SpawnPath: append([]string(nil), persisted.CodexSpawnPath...)}
+			if len(spec.SpawnPath) == 0 {
+				derived, err := codex.DeriveExecutableSpec(i.Paths.Home, spec.Path, pathValue)
+				if err != nil {
+					return codex.ExecutableSpec{}, err
+				}
+				spec = derived
+			}
+			if err := codex.VerifyExecutableSpec(spec); err != nil {
+				return codex.ExecutableSpec{}, err
+			}
+			return spec, nil
+		}
+	}
 	if i.CodexExecutable != "" {
 		spec := codex.ExecutableSpec{Path: i.CodexExecutable, SpawnPath: append([]string(nil), i.CodexSpawnPath...)}
 		if len(spec.SpawnPath) == 0 {
@@ -556,18 +572,6 @@ func (i Installer) resolveCodexExecutableSpec(persisted config.Config, persisted
 			return codex.ExecutableSpec{}, err
 		}
 		return spec, nil
-	}
-	if persistedExists && persisted.CodexExecutable != "" {
-		spec := codex.ExecutableSpec{Path: persisted.CodexExecutable, SpawnPath: append([]string(nil), persisted.CodexSpawnPath...)}
-		if len(spec.SpawnPath) == 0 {
-			derived, err := codex.DeriveExecutableSpec(i.Paths.Home, spec.Path, pathValue)
-			if err == nil {
-				spec = derived
-			}
-		}
-		if err := codex.VerifyExecutableSpec(spec); err == nil {
-			return spec, nil
-		}
 	}
 	if i.ResolveCodexExecutableSpec != nil {
 		spec, err := i.ResolveCodexExecutableSpec(i.Paths.Home, pathValue)

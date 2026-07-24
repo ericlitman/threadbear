@@ -45,12 +45,10 @@ func PinnedProcessSpec(executable, codexHome, home string, spawnPath ...[]string
 	if len(directories) == 0 {
 		return ProcessSpec{}, errors.New("App Server spawn PATH must not be empty")
 	}
-	seen := make(map[string]bool, len(directories))
 	for _, directory := range directories {
-		if directory == "" || strings.TrimSpace(directory) != directory || !filepath.IsAbs(directory) || filepath.Clean(directory) != directory || seen[directory] {
-			return ProcessSpec{}, errors.New("App Server spawn PATH entries must be unique absolute canonical directories")
+		if directory == "" || strings.TrimSpace(directory) != directory || !filepath.IsAbs(directory) {
+			return ProcessSpec{}, errors.New("App Server spawn PATH entries must be nonempty absolute directories")
 		}
-		seen[directory] = true
 	}
 	return ProcessSpec{Path: executable, Env: []string{"CODEX_HOME=" + codexHome, "HOME=" + home, "LC_ALL=C", "PATH=" + strings.Join(directories, string(os.PathListSeparator)), "TMPDIR=" + os.TempDir()}}, nil
 }

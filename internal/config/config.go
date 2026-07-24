@@ -85,15 +85,10 @@ func (c Config) validate(requireBudget bool) error {
 	if c.CodexExecutable == "" && len(c.CodexSpawnPath) > 0 {
 		return errors.New("codex_spawn_path requires codex_executable")
 	}
-	seenSpawnDirectories := make(map[string]bool, len(c.CodexSpawnPath))
 	for _, directory := range c.CodexSpawnPath {
-		if directory == "" || strings.TrimSpace(directory) != directory || !filepath.IsAbs(directory) || filepath.Clean(directory) != directory {
-			return errors.New("codex_spawn_path entries must be absolute canonical paths")
+		if directory == "" || strings.TrimSpace(directory) != directory || !filepath.IsAbs(directory) {
+			return errors.New("codex_spawn_path entries must be nonempty absolute paths")
 		}
-		if seenSpawnDirectories[directory] {
-			return errors.New("codex_spawn_path entries must be unique")
-		}
-		seenSpawnDirectories[directory] = true
 	}
 	if c.HeartbeatSeconds <= 0 {
 		return errors.New("heartbeat_seconds must be positive")

@@ -365,10 +365,9 @@ func TestConfigCodexSpawnPathValidationAndLegacyDecode(t *testing.T) {
 		t.Fatalf("spawn decode=%+v err=%v", decoded, err)
 	}
 	for name, spawnPath := range map[string][]string{
-		"relative":  {"usr/bin"},
-		"unclean":   {"/usr/../bin"},
-		"padded":    {" /usr/bin"},
-		"duplicate": {"/usr/bin", "/usr/bin"},
+		"relative": {"usr/bin"},
+		"empty":    {""},
+		"padded":   {" /usr/bin"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			value := legacy

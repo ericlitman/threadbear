@@ -984,6 +984,29 @@ func writeEnvNodeCodex(t *testing.T, root string) (string, string) {
 	return executable, nodeDirectory
 }
 
+func TestReinstallPrefersPersistedExecutableOutsideCurrentPath(t *testing.T) {
+	home := t.TempDir()
+	paths := PathsForHome(home)
+	persisted := testCodexExecutable(t, filepath.Join(home, "persisted"))
+	fresh := testCodexExecutable(t, filepath.Join(home, "fresh"))
+	t.Setenv("PATH", filepath.Join(home, "missing"))
+	cfg := config.Default("control-existing")
+	cfg.CodexExecutable = persisted
+	store := &fakeStore{config: cfg, state: state.New(), configExists: true, stateExists: true}
+	freshCalls := 0
+	installer := Installer{Paths: paths, Store: store, Scheduler: &fakeScheduler{}, ControlTasks: &fakeTasks{}, Binary: &fakeBinary{}, SelfTester: &fakeSelfTest{}, Legacy: missingLegacy{}, CodexExecutable: fresh, ResolveCodexExecutableSpec: func(string, string) (codex.ExecutableSpec, error) {
+		freshCalls++
+		return codex.ExecutableSpec{}, errors.New("fresh resolution must not run")
+	}}
+	result, err := installer.Install(context.Background(), InstallRequest{NonInteractive: true, Confirm: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if freshCalls != 0 || result.Config.CodexExecutable != persisted || len(result.Config.CodexSpawnPath) == 0 {
+		t.Fatalf("fresh=%d config=%+v", freshCalls, result.Config)
+	}
+}
+
 func TestInstallPersistsResolvedCodexSpawnContract(t *testing.T) {
 	home := t.TempDir()
 	paths := PathsForHome(home)
@@ -1006,7 +1029,7 @@ func TestInstallPersistsResolvedCodexSpawnContract(t *testing.T) {
 	if !reflect.DeepEqual(result.Config.CodexSpawnPath, tasks.spec.SpawnPath) || tasks.spec.Path != executable {
 		t.Fatalf("stored=%v control-task spec=%+v", result.Config.CodexSpawnPath, tasks.spec)
 	}
-	if result.Config.CodexSpawnPath[0] != nodeDirectory || result.Config.CodexSpawnPath[1] != filepath.Dir(executable) {
+	if result.Config.CodexSpawnPath[0] != filepath.Dir(executable) || result.Config.CodexSpawnPath[1] != nodeDirectory {
 		t.Fatalf("spawn path=%v", result.Config.CodexSpawnPath)
 	}
 }

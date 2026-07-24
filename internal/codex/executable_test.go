@@ -117,7 +117,7 @@ func TestResolveExecutableSpecPinsEnvInterpreterWithoutAmbientPath(t *testing.T)
 	if spec.Path != link {
 		t.Fatalf("path=%q want symlink %q", spec.Path, link)
 	}
-	want := append([]string{nodeDirectory, codexDirectory}, fixedSystemPath...)
+	want := []string{codexDirectory, nodeDirectory, ambientDirectory, "/opt/homebrew/bin", "/usr/local/bin", filepath.Join(home, ".local", "bin"), "/usr/bin", "/bin", "/usr/sbin", "/sbin"}
 	if strings.Join(spec.SpawnPath, "|") != strings.Join(want, "|") {
 		t.Fatalf("spawn path=%v want %v", spec.SpawnPath, want)
 	}
