@@ -322,3 +322,57 @@ func TestVerifyLockAvailableRejectsRealAdvisoryFlock(t *testing.T) {
 		t.Fatal("held advisory flock was accepted")
 	}
 }
+
+func TestStageIdenticalEnabledLoadedJobDisablesAndUnloads(t *testing.T) {
+	runner := newFakeRunner()
+	adapter, _ := testAdapter(t, runner)
+	cfg := config.Default("control")
+	if _, err := adapter.Stage(context.Background(), cfg); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := adapter.Enable(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	before, err := os.ReadFile(adapter.plistPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	callStart := len(runner.calls)
+	changed, err := adapter.Stage(context.Background(), cfg)
+	if err != nil || !changed {
+		t.Fatalf("Stage=%t, %v", changed, err)
+	}
+	if !runner.disabled[Label] || runner.loaded[adapter.service] {
+		t.Fatalf("stage left scheduler active disabled=%v loaded=%v", runner.disabled, runner.loaded)
+	}
+	after, err := os.ReadFile(adapter.plistPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(after) != string(before) {
+		t.Fatal("identical Stage rewrote plist")
+	}
+	calls := strings.Join(runner.calls[callStart:], "\n")
+	if !strings.Contains(calls, " disable ") || !strings.Contains(calls, " bootout ") {
+		t.Fatalf("calls=%s", calls)
+	}
+}
+
+func TestStageIdenticalDisabledUnloadedJobIsNoOp(t *testing.T) {
+	runner := newFakeRunner()
+	adapter, _ := testAdapter(t, runner)
+	cfg := config.Default("control")
+	if _, err := adapter.Stage(context.Background(), cfg); err != nil {
+		t.Fatal(err)
+	}
+	callStart := len(runner.calls)
+	changed, err := adapter.Stage(context.Background(), cfg)
+	if err != nil || changed {
+		t.Fatalf("Stage=%t, %v", changed, err)
+	}
+	for _, call := range runner.calls[callStart:] {
+		if strings.Contains(call, " disable ") || strings.Contains(call, " bootout ") {
+			t.Fatalf("no-op Stage mutated scheduler: %s", call)
+		}
+	}
+}

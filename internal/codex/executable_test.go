@@ -67,3 +67,21 @@ func TestResolveExecutableUsesStandardHomeLocationAfterPATH(t *testing.T) {
 		t.Fatalf("got=%q err=%v", got, err)
 	}
 }
+
+func TestResolveExecutableSkipsCandidateThatDoesNotRun(t *testing.T) {
+	home := t.TempDir()
+	pathDirectory := filepath.Join(t.TempDir(), "bin")
+	broken := filepath.Join(pathDirectory, "codex")
+	if err := os.MkdirAll(pathDirectory, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(broken, []byte("#!/bin/sh\nexit 9\n"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	fallback := filepath.Join(home, ".local", "bin", "codex")
+	writeExecutable(t, fallback, 0o700)
+	got, err := resolveExecutable(home, pathDirectory, []string{fallback})
+	if err != nil || got != fallback {
+		t.Fatalf("got=%q err=%v", got, err)
+	}
+}

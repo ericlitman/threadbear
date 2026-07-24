@@ -41,10 +41,10 @@ func InstallHandler(factory InstallFactory) Handler {
 		installer, closeInstaller, err := factory(!request.NonInteractive)
 		if err != nil {
 			var failure *install.InstallFailure
-			if errors.As(err, &failure) {
-				return installErrorResult(err), err
+			if !errors.As(err, &failure) {
+				err = install.Fail("initialize", err)
 			}
-			return commandError("install", "dependency_unavailable", err)
+			return installErrorResult(err), err
 		}
 		defer closeInstaller()
 		result, err := installer.Install(ctx, install.InstallRequest{

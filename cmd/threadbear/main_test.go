@@ -206,3 +206,29 @@ func TestAppServerRuntimeUsesConfiguredExecutableAndResolvedCodexHome(t *testing
 		t.Fatalf("process.Env=%v", process.Env)
 	}
 }
+
+type staticConfigLoader struct{ value config.Config }
+
+func (s staticConfigLoader) LoadConfig() (config.Config, error) { return s.value, nil }
+
+func TestHeartbeatRuntimeUsesInstalledPinnedCodexExecutable(t *testing.T) {
+	home := t.TempDir()
+	codexHome := filepath.Join(home, "codex-home")
+	executable := filepath.Join(home, "stable", "codex")
+	if err := os.MkdirAll(filepath.Dir(executable), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(executable, []byte("#!/bin/sh\nexit 0\n"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	cfg := config.Default("control")
+	cfg.CodexExecutable = executable
+	t.Setenv("PATH", filepath.Join(home, "different-path"))
+	process, err := (appServerRuntime{store: staticConfigLoader{value: cfg}, home: home, codexHome: codexHome}).process()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if process.Path != executable {
+		t.Fatalf("process path=%q want installed path %q", process.Path, executable)
+	}
+}

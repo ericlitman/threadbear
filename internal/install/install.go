@@ -110,6 +110,7 @@ type Scheduler interface {
 	Stage(context.Context, config.Config) (bool, error)
 	Enable(context.Context) (bool, error)
 	VerifyHealthy(context.Context) error
+	Loaded(context.Context) (bool, error)
 	Remove(context.Context) error
 }
 
@@ -197,24 +198,97 @@ func (i Installer) Install(ctx context.Context, request InstallRequest) (Install
 	if err != nil {
 		return InstallResult{}, Fail("resolve_codex_executable", err)
 	}
+	i.CodexExecutable = codexExecutable
+	previewConfig, _, previewConfigExists, previewStateExists, err := loadExisting(i.Store)
+	if err != nil {
+		return InstallResult{}, Fail("load_preview_state", err)
+	}
+	previewPreferences := DefaultPreferences()
+	if previewConfigExists {
+		previewPreferences = preferencesFromConfig(previewConfig)
+	}
+	var selectedPreferences *Preferences
+	if request.Preferences != nil {
+		value := *request.Preferences
+		selectedPreferences = &value
+		previewPreferences = value
+	}
+	previewPreferences = applyPreferencePatch(previewPreferences, request.Patch)
+	if request.NonInteractive {
+		if !request.Confirm {
+			return InstallResult{}, Fail("confirmation", errors.New("noninteractive install requires confirm"))
+		}
+	} else {
+		if i.Prompter == nil {
+			return InstallResult{}, Fail("preferences", errors.New("interactive install requires a prompter"))
+		}
+		collected, collectErr := i.Prompter.Collect(previewPreferences)
+		if collectErr != nil {
+			return InstallResult{}, Fail("preferences", collectErr)
+		}
+		selectedPreferences = &collected
+		previewPreferences = collected
+	}
+	if err := previewPreferences.Validate(); err != nil {
+		return InstallResult{}, Fail("preferences", err)
+	}
+	migrationPreview := (!previewConfigExists || !previewStateExists) && migrationCandidate(i.Paths.LegacyState)
+	preview, err := installPreview(i.Paths, previewPreferences, previewConfigExists, migrationPreview)
+	if err != nil {
+		return InstallResult{}, Fail("preview", err)
+	}
+	if i.Prompter != nil {
+		if err := i.Prompter.ShowPreview(preview); err != nil {
+			return InstallResult{}, Fail("preview", err)
+		}
+	} else if i.Previewer != nil {
+		if err := i.Previewer(preview); err != nil {
+			return InstallResult{}, Fail("preview", err)
+		}
+	}
+	if !request.NonInteractive {
+		confirmed, confirmErr := i.Prompter.Confirm()
+		if confirmErr != nil {
+			return InstallResult{}, Fail("confirmation", confirmErr)
+		}
+		if !confirmed {
+			return InstallResult{}, ErrCancelled
+		}
+	}
+	lock, err := i.Store.AcquireLock()
+	if err != nil {
+		return InstallResult{}, Fail("acquire_lock", err)
+	}
+	lockHeld := true
+	defer func() {
+		if lockHeld {
+			_ = lock.Close()
+		}
+	}()
+	if err := i.Scheduler.StopLegacy(ctx); err != nil {
+		return InstallResult{}, Fail("stop_legacy_scheduler", err)
+	}
+	if err := i.Scheduler.VerifyLegacyStopped(ctx); err != nil {
+		return InstallResult{}, Fail("verify_legacy_stopped", err)
+	}
 	currentConfig, currentState, configExists, stateExists, err := loadExisting(i.Store)
 	if err != nil {
-		return InstallResult{}, Fail("load_existing", err)
+		return InstallResult{}, Fail("reload_existing", err)
 	}
 	preferences := DefaultPreferences()
 	controlTaskID := ""
-	migrated := false
 	if configExists {
 		preferences = preferencesFromConfig(currentConfig)
 		controlTaskID = currentConfig.ControlTaskID
 	}
-	migration := Migration{}
+	migrated := false
 	if !configExists || !stateExists {
-		migration, migrated, err = i.loadMigration(ctx)
-		if err != nil {
-			return InstallResult{}, Fail("load_migration", err)
+		migration, found, migrationErr := i.loadMigration(ctx)
+		if migrationErr != nil {
+			return InstallResult{}, Fail("load_migration", migrationErr)
 		}
-		if migrated {
+		migrated = found
+		if found {
 			if controlTaskID == "" {
 				controlTaskID = migration.ControlTaskID
 			}
@@ -229,53 +303,13 @@ func (i Installer) Install(ctx context.Context, request InstallRequest) (Install
 	if !stateExists && !migrated {
 		currentState = state.New()
 	}
-	if request.Preferences != nil {
-		preferences = *request.Preferences
+	if selectedPreferences != nil {
+		preferences = *selectedPreferences
 	}
 	preferences = applyPreferencePatch(preferences, request.Patch)
-	if request.NonInteractive {
-		if !request.Confirm {
-			return InstallResult{}, Fail("confirmation", errors.New("noninteractive install requires confirm"))
-		}
-	} else {
-		if i.Prompter == nil {
-			return InstallResult{}, Fail("preferences", errors.New("interactive install requires a prompter"))
-		}
-		preferences, err = i.Prompter.Collect(preferences)
-		if err != nil {
-			return InstallResult{}, Fail("preferences", err)
-		}
-	}
 	if err := preferences.Validate(); err != nil {
 		return InstallResult{}, Fail("preferences", err)
 	}
-	preview, err := installPreview(i.Paths, preferences, configExists, migrated)
-	if err != nil {
-		return InstallResult{}, Fail("preview", err)
-	}
-	if i.Prompter != nil {
-		if err := i.Prompter.ShowPreview(preview); err != nil {
-			return InstallResult{}, Fail("preview", err)
-		}
-	} else if i.Previewer != nil {
-		if err := i.Previewer(preview); err != nil {
-			return InstallResult{}, Fail("preview", err)
-		}
-	}
-	if !request.NonInteractive {
-		confirmed, err := i.Prompter.Confirm()
-		if err != nil {
-			return InstallResult{}, Fail("confirmation", err)
-		}
-		if !confirmed {
-			return InstallResult{}, ErrCancelled
-		}
-	}
-	lock, err := i.Store.AcquireLock()
-	if err != nil {
-		return InstallResult{}, Fail("acquire_lock", err)
-	}
-	defer lock.Close()
 	if err := ValidateManagedFile(i.Paths.Agents); err != nil {
 		return InstallResult{}, Fail("validate_managed_files", fmt.Errorf("validate AGENTS.md: %w", err))
 	}
@@ -292,7 +326,7 @@ func (i Installer) Install(ctx context.Context, request InstallRequest) (Install
 		}
 		return InstallResult{}, Fail("ensure_control_task", errors.New("control task returned a noncanonical ID"))
 	}
-	nextConfig := preferences.config(controlTaskID, codexExecutable)
+	nextConfig := preferences.config(controlTaskID, i.CodexExecutable)
 	if err := nextConfig.Validate(); err != nil {
 		return InstallResult{}, Fail("validate_config", err)
 	}
@@ -304,12 +338,12 @@ func (i Installer) Install(ctx context.Context, request InstallRequest) (Install
 		resources = append(resources, "config")
 	}
 	if ensureErr != nil {
-		return InstallResult{}, fmt.Errorf("ensure control task: %w", ensureErr)
+		return InstallResult{}, Fail("ensure_control_task", ensureErr)
 	}
 	if controlTaskChanged {
 		resources = append(resources, "control_task")
 	}
-	if !stateExists || !reflectStateEqual(currentState, mustLoadState(i.Store)) {
+	if !stateExists {
 		if err := i.Store.SaveState(currentState); err != nil {
 			return InstallResult{}, Fail("persist_state", err)
 		}
@@ -346,12 +380,6 @@ func (i Installer) Install(ctx context.Context, request InstallRequest) (Install
 	if err := i.SelfTester.Test(ctx, SelfTestInput{Paths: i.Paths, Config: nextConfig, State: currentState}); err != nil {
 		return InstallResult{}, Fail("self_test", err)
 	}
-	if err := i.Scheduler.StopLegacy(ctx); err != nil {
-		return InstallResult{}, Fail("stop_legacy_scheduler", err)
-	}
-	if err := i.Scheduler.VerifyLegacyStopped(ctx); err != nil {
-		return InstallResult{}, Fail("verify_legacy_stopped", err)
-	}
 	enabledChanged, err := i.Scheduler.Enable(ctx)
 	if err != nil {
 		return InstallResult{}, Fail("enable_scheduler", err)
@@ -362,19 +390,11 @@ func (i Installer) Install(ctx context.Context, request InstallRequest) (Install
 	if schedulerChanged || enabledChanged {
 		resources = append(resources, "launchagent")
 	}
-	return InstallResult{Config: nextConfig, State: currentState, Paths: i.Paths, Migrated: migrated, Reinstalled: configExists, Preview: preview, Changed: len(resources) > 0, Resources: resources}, nil
-}
-
-func mustLoadState(store Store) state.State {
-	value, err := store.LoadState()
-	if err != nil {
-		return state.State{}
+	if err := lock.Close(); err != nil {
+		return InstallResult{}, Fail("release_lock", err)
 	}
-	return value
-}
-
-func reflectStateEqual(left, right state.State) bool {
-	return reflect.DeepEqual(left, right)
+	lockHeld = false
+	return InstallResult{Config: nextConfig, State: currentState, Paths: i.Paths, Migrated: migrated, Reinstalled: configExists, Preview: preview, Changed: len(resources) > 0, Resources: resources}, nil
 }
 
 func binaryNeedsInstall(path string, installer BinaryInstaller) (bool, error) {
@@ -386,14 +406,26 @@ func binaryNeedsInstall(path string, installer BinaryInstaller) (bool, error) {
 	if err != nil {
 		return false, err
 	}
-	destination, err := os.ReadFile(path)
+	info, err := os.Lstat(path)
 	if errors.Is(err, fs.ErrNotExist) {
 		return true, nil
 	}
 	if err != nil {
 		return false, err
 	}
+	if !info.Mode().IsRegular() || info.Mode().Perm() != 0o700 {
+		return true, nil
+	}
+	destination, err := os.ReadFile(path)
+	if err != nil {
+		return false, err
+	}
 	return !bytes.Equal(source, destination), nil
+}
+
+func migrationCandidate(path string) bool {
+	info, err := os.Stat(path)
+	return err == nil && info.Mode().IsRegular()
 }
 
 func applyManaged(path string, enabled bool, content []byte) (bool, error) {

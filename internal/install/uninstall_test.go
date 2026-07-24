@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"reflect"
 	"testing"
 
 	"github.com/ericlitman/threadbear/internal/config"
@@ -184,5 +185,20 @@ func TestUninstallReleasesLockBeforeDeletingState(t *testing.T) {
 	}
 	if !stateExistedAtUnlock {
 		t.Fatal("state directory was deleted before the advisory lock was released")
+	}
+}
+
+func TestUninstallLoadedJobWithoutArtifactsReportsChangedAndUnloads(t *testing.T) {
+	paths := PathsForHome(t.TempDir())
+	scheduler := &fakeScheduler{loaded: true}
+	result, err := (Uninstaller{Paths: paths, Store: &fakeStore{}, Scheduler: scheduler, ControlTasks: &fakeTasks{}}).Uninstall(context.Background(), UninstallRequest{NonInteractive: true, Confirm: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.Changed || scheduler.loaded || !containsResource(result.Resources, "launchagent") {
+		t.Fatalf("result=%+v scheduler=%+v", result, scheduler)
+	}
+	if !reflect.DeepEqual(scheduler.calls, []string{"loaded", "remove"}) {
+		t.Fatalf("calls=%v", scheduler.calls)
 	}
 }

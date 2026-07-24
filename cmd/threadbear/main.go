@@ -139,7 +139,7 @@ func newOperatorService(installedVersion string, stdout, stderr io.Writer, forma
 		}
 		prompter, err := install.OpenTTYPrompter()
 		if err != nil {
-			return install.Installer{}, func() error { return nil }, err
+			return install.Installer{}, func() error { return nil }, install.Fail("open_prompter", err)
 		}
 		installer.Prompter = prompter
 		return installer, prompter.Close, nil
@@ -497,6 +497,9 @@ func (s productionScheduler) VerifyHealthy(ctx context.Context) error {
 		return errors.New("LaunchAgent is not healthy")
 	}
 	return nil
+}
+func (s productionScheduler) Loaded(ctx context.Context) (bool, error) {
+	return s.adapter.Loaded(ctx)
 }
 func (s productionScheduler) Remove(ctx context.Context) error { return s.adapter.Remove(ctx) }
 

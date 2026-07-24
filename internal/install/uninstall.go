@@ -103,7 +103,11 @@ func (u Uninstaller) Uninstall(ctx context.Context, request UninstallRequest) (U
 	hadAgents := managedFileHasBlock(u.Paths.Agents)
 	hadSkill := managedFileHasBlock(u.Paths.Skill)
 	hadState := existed(u.Paths.StateDirectory)
-	if !archiveControlTask && !hadLaunchAgent && !hadBinary && !hadAgents && !hadSkill && (!deleteState || !hadState) {
+	schedulerLoaded, err := u.Scheduler.Loaded(ctx)
+	if err != nil {
+		return UninstallResult{}, fmt.Errorf("inspect scheduler: %w", err)
+	}
+	if !archiveControlTask && !hadLaunchAgent && !schedulerLoaded && !hadBinary && !hadAgents && !hadSkill && (!deleteState || !hadState) {
 		return UninstallResult{Preview: preview, Changed: false, Resources: []string{}}, nil
 	}
 	var controlTaskID string
@@ -136,7 +140,7 @@ func (u Uninstaller) Uninstall(ctx context.Context, request UninstallRequest) (U
 	if err := u.Scheduler.Remove(ctx); err != nil {
 		return UninstallResult{}, fmt.Errorf("remove scheduler: %w", err)
 	}
-	if hadLaunchAgent {
+	if hadLaunchAgent || schedulerLoaded {
 		resources = append(resources, "launchagent")
 	}
 	if err := DeleteManagedBlock(u.Paths.Agents); err != nil {

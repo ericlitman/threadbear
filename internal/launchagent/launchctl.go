@@ -142,6 +142,23 @@ func (a *Adapter) Apply(ctx context.Context, value config.Config) error {
 	if err != nil {
 		return err
 	}
+	if !disabled {
+		rendered, renderErr := RenderPlist(PlistSpec{Label: Label, BinaryPath: a.binaryPath, StartInterval: value.HeartbeatSeconds, Home: a.home, CodexHome: a.codexHome, Path: a.path, LCAll: a.lcAll, StdoutPath: a.stdoutPath, StderrPath: a.stderrPath})
+		if renderErr != nil {
+			return renderErr
+		}
+		current, readErr := os.ReadFile(a.plistPath)
+		if readErr != nil && !errors.Is(readErr, os.ErrNotExist) {
+			return fmt.Errorf("read LaunchAgent plist: %w", readErr)
+		}
+		loaded, loadedErr := a.loaded(ctx, a.service)
+		if loadedErr != nil {
+			return loadedErr
+		}
+		if loaded && readErr == nil && bytes.Equal(current, rendered) {
+			return nil
+		}
+	}
 	if _, err := a.Stage(ctx, value); err != nil {
 		return err
 	}
@@ -174,7 +191,7 @@ func (a *Adapter) Stage(ctx context.Context, value config.Config) (bool, error) 
 		return false, fmt.Errorf("read LaunchAgent plist: %w", readErr)
 	}
 	same := readErr == nil && bytes.Equal(current, rendered)
-	if same && (disabled || loaded) {
+	if same && disabled && !loaded {
 		return false, nil
 	}
 	changed := false
@@ -256,6 +273,10 @@ func (a *Adapter) Disable(ctx context.Context) (bool, error) {
 		}
 	}
 	return true, nil
+}
+
+func (a *Adapter) Loaded(ctx context.Context) (bool, error) {
+	return a.loaded(ctx, a.service)
 }
 
 func (a *Adapter) Remove(ctx context.Context) error {
