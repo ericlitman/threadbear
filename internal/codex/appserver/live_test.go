@@ -15,7 +15,7 @@ import (
 )
 
 func TestLiveEphemeralDoesNotPersist(t *testing.T) {
-	process, caps, home := liveHarness(t)
+	process, caps, home := liveHarness(t, true)
 	before := liveThreadIDs(t, home)
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
@@ -41,7 +41,7 @@ func TestLiveEphemeralDoesNotPersist(t *testing.T) {
 	}
 }
 func TestLiveNoticeDoesNotStartTurn(t *testing.T) {
-	process, caps, home := liveHarness(t)
+	process, caps, home := liveHarness(t, false)
 	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 	defer cancel()
 	client, err := Start(ctx, process, caps)
@@ -64,7 +64,7 @@ func TestLiveNoticeDoesNotStartTurn(t *testing.T) {
 		t.Fatalf("thread=%+v", started.Thread)
 	}
 	drainNotifications(client.Notifications())
-	before := waitForLiveThreadIDs(t, home, started.Thread.ID, 10*time.Second)
+	before := liveThreadIDs(t, home)
 	notice := "🧵🐻 ThreadBear 99.0.0-live-proof is ready. Run threadbear update, or tell me “update ThreadBear.”"
 	if err := client.InsertNotice(ctx, started.Thread.ID, notice); err != nil {
 		client.Close()
@@ -88,9 +88,7 @@ func TestLiveNoticeDoesNotStartTurn(t *testing.T) {
 		t.Fatal(err)
 	}
 	after := liveThreadIDs(t, home)
-	if !reflect.DeepEqual(after, before) {
-		t.Fatalf("notice created task: before=%v after=%v", before, after)
-	}
+	assertNoUnexpectedLiveThreads(t, before, after, started.Thread.ID)
 	data, err := os.ReadFile(*started.Thread.Path)
 	if err != nil {
 		t.Fatal(err)
@@ -99,12 +97,25 @@ func TestLiveNoticeDoesNotStartTurn(t *testing.T) {
 		t.Fatalf("notice count=%d", count)
 	}
 }
-func liveHarness(t *testing.T) (ProcessSpec, Capabilities, string) {
+func liveHarness(t *testing.T, requireAuth bool) (ProcessSpec, Capabilities, string) {
 	t.Helper()
 	if os.Getenv("THREADBEAR_LIVE_CODEX") != "1" {
 		t.Skip("set THREADBEAR_LIVE_CODEX=1 on a disposable Codex installation")
 	}
 	home := t.TempDir()
+	if requireAuth {
+		authFile := strings.TrimSpace(os.Getenv("THREADBEAR_LIVE_AUTH_FILE"))
+		if authFile == "" {
+			t.Skip("set THREADBEAR_LIVE_AUTH_FILE to an operator-supplied Codex auth.json for the ephemeral proof")
+		}
+		auth, err := os.ReadFile(authFile)
+		if err != nil {
+			t.Fatalf("read THREADBEAR_LIVE_AUTH_FILE: %v", err)
+		}
+		if err := os.WriteFile(filepath.Join(home, "auth.json"), auth, 0600); err != nil {
+			t.Fatalf("copy disposable Codex auth.json: %v", err)
+		}
+	}
 	process := DefaultProcessSpec(home)
 	if executable := strings.TrimSpace(os.Getenv("THREADBEAR_LIVE_CODEX_BIN")); executable != "" {
 		process.Path = executable
@@ -117,20 +128,23 @@ func liveHarness(t *testing.T) (ProcessSpec, Capabilities, string) {
 	}
 	return process, caps, home
 }
-func waitForLiveThreadIDs(t *testing.T, home, threadID string, timeout time.Duration) []string {
+func assertNoUnexpectedLiveThreads(t *testing.T, before, after []string, allowedNewID string) {
 	t.Helper()
-	deadline := time.Now().Add(timeout)
-	for {
-		ids := liveThreadIDs(t, home)
-		for _, id := range ids {
-			if id == threadID {
-				return ids
-			}
+	baseline := make(map[string]bool, len(before))
+	for _, id := range before {
+		baseline[id] = true
+	}
+	observed := make(map[string]bool, len(after))
+	for _, id := range after {
+		observed[id] = true
+		if !baseline[id] && id != allowedNewID {
+			t.Fatalf("notice created unexpected task %s: before=%v after=%v", id, before, after)
 		}
-		if time.Now().After(deadline) {
-			t.Fatalf("thread %s did not materialize within %s; observed IDs: %v", threadID, timeout, ids)
+	}
+	for _, id := range before {
+		if !observed[id] {
+			t.Fatalf("notice removed baseline task %s: before=%v after=%v", id, before, after)
 		}
-		time.Sleep(50 * time.Millisecond)
 	}
 }
 func liveThreadIDs(t *testing.T, home string) []string {
