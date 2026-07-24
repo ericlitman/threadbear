@@ -44,6 +44,15 @@ type ClassificationDiagnostic struct {
 	OffendingItem string `json:"offending_item,omitempty"`
 }
 
+type PreviousEvidenceResult struct {
+	TaskID    string
+	Revision  string
+	Evidence  *TurnEvidence
+	ErrorCode string
+}
+
+type PreviousEvidenceLoader func(context.Context, []TaskEvidence) []PreviousEvidenceResult
+
 type Classification struct {
 	TaskID         string                    `json:"task_id"`
 	Revision       string                    `json:"revision"`
@@ -107,6 +116,14 @@ func NewClassifier(runner EphemeralRunner, config ClassifierConfig) (*Classifier
 }
 
 func (c *Classifier) Classify(ctx context.Context, tasks []TaskEvidence) []Classification {
+	return c.classify(ctx, tasks, nil)
+}
+
+func (c *Classifier) ClassifyWithPrevious(ctx context.Context, tasks []TaskEvidence, load PreviousEvidenceLoader) []Classification {
+	return c.classify(ctx, tasks, load)
+}
+
+func (c *Classifier) classify(ctx context.Context, tasks []TaskEvidence, load PreviousEvidenceLoader) []Classification {
 	results := make([]Classification, len(tasks))
 	for index, task := range tasks {
 		results[index] = unknownClassification(task, "unclassified", "classification did not produce a result", ClassificationMetadata{}, "")
@@ -147,10 +164,6 @@ func (c *Classifier) Classify(ctx context.Context, tasks []TaskEvidence) []Class
 		for _, task := range batch.Tasks {
 			outcome := outcomes[task.TaskID]
 			if outcome.item.RequestPrevious {
-				if task.Previous == nil {
-					byID[task.TaskID] = unknownClassification(task, "previous_evidence_unavailable", "classifier requested unavailable previous-turn evidence", outcome.metadata, "")
-					continue
-				}
 				requested = append(requested, task)
 				requestedMetadata[task.TaskID] = outcome.metadata
 				continue
@@ -160,6 +173,49 @@ func (c *Classifier) Classify(ctx context.Context, tasks []TaskEvidence) []Class
 	}
 
 	if len(requested) > 0 {
+		missing := make([]TaskEvidence, 0)
+		for _, task := range requested {
+			if task.Previous == nil {
+				missing = append(missing, task)
+			}
+		}
+		if len(missing) > 0 && load != nil {
+			loaded := load(ctx, missing)
+			byLoadedID := make(map[string]PreviousEvidenceResult, len(loaded))
+			for _, item := range loaded {
+				if _, duplicate := byLoadedID[item.TaskID]; duplicate {
+					continue
+				}
+				byLoadedID[item.TaskID] = item
+			}
+			for index := range requested {
+				if requested[index].Previous != nil {
+					continue
+				}
+				item, ok := byLoadedID[requested[index].TaskID]
+				if !ok || item.Revision != requested[index].Revision || item.Evidence == nil {
+					code := "previous_evidence_unavailable"
+					if ok && item.ErrorCode != "" {
+						code = item.ErrorCode
+					}
+					byID[requested[index].TaskID] = unknownClassification(requested[index], code, "classifier requested unavailable previous-turn evidence", requestedMetadata[requested[index].TaskID], "")
+					continue
+				}
+				previous := *item.Evidence
+				requested[index].Previous = &previous
+			}
+		}
+		ready := requested[:0]
+		for _, task := range requested {
+			if task.Previous == nil {
+				if _, set := byID[task.TaskID]; !set {
+					byID[task.TaskID] = unknownClassification(task, "previous_evidence_unavailable", "classifier requested unavailable previous-turn evidence", requestedMetadata[task.TaskID], "")
+				}
+				continue
+			}
+			ready = append(ready, task)
+		}
+		requested = ready
 		second, secondOversized, packErr := PackTasks(requested, c.config.ContextBudgetBytes, true)
 		if packErr != nil {
 			for _, task := range requested {

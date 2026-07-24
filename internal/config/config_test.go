@@ -21,15 +21,16 @@ import (
 func TestDefault(t *testing.T) {
 	got := config.Default("control-123")
 	want := config.Config{
-		SchemaVersion:    config.CurrentSchemaVersion,
-		ControlTaskID:    "control-123",
-		HeartbeatSeconds: 300,
-		ArchiveEnabled:   true,
-		ArchiveAfterDays: 14,
-		RenameEnabled:    true,
-		AgentsEnabled:    true,
-		ClassifierModel:  "gpt-5.6-luna",
-		ClassifierEffort: config.EffortMedium,
+		SchemaVersion:                config.CurrentSchemaVersion,
+		ControlTaskID:                "control-123",
+		HeartbeatSeconds:             300,
+		ArchiveEnabled:               true,
+		ArchiveAfterDays:             14,
+		RenameEnabled:                true,
+		AgentsEnabled:                true,
+		ClassifierModel:              "gpt-5.6-luna",
+		ClassifierEffort:             config.EffortMedium,
+		ClassifierContextBudgetBytes: 250000,
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("Default() = %#v, want %#v", got, want)
@@ -53,6 +54,7 @@ func TestConfigValidation(t *testing.T) {
 		{"zero heartbeat", func(c *config.Config) { c.HeartbeatSeconds = 0 }, nil},
 		{"negative archive days", func(c *config.Config) { c.ArchiveAfterDays = -1 }, nil},
 		{"missing model", func(c *config.Config) { c.ClassifierModel = "" }, nil},
+		{"zero context budget", func(c *config.Config) { c.ClassifierContextBudgetBytes = 0 }, nil},
 		{"invalid effort", func(c *config.Config) { c.ClassifierEffort = "extreme" }, nil},
 	}
 	for _, test := range tests {
@@ -97,6 +99,13 @@ func TestDecodeStrictConfig(t *testing.T) {
 		t.Fatal("Decode() accepted a missing boolean")
 	}
 	fields["archive_enabled"] = false
+	delete(fields, "classifier_context_budget_bytes")
+	missingBudget, _ := json.Marshal(fields)
+	legacy, err := config.Decode(missingBudget)
+	if err != nil || legacy.ClassifierContextBudgetBytes != config.DefaultClassifierContextBudgetBytes {
+		t.Fatalf("Decode() did not default a legacy classifier context budget: %#v, %v", legacy, err)
+	}
+	fields["classifier_context_budget_bytes"] = 250000
 	fields["unexpected"] = true
 	unknown, _ := json.Marshal(fields)
 	if _, err := config.Decode(unknown); err == nil {
@@ -104,6 +113,34 @@ func TestDecodeStrictConfig(t *testing.T) {
 	}
 	if _, err := config.Decode(append(data, []byte(` {}`)...)); err == nil {
 		t.Fatal("Decode() accepted multiple JSON values")
+	}
+}
+
+func TestDecodeUnavailableContextBudgetForCustomModel(t *testing.T) {
+	value := config.Default("control-123")
+	value.ClassifierModel = "custom-model"
+	data, err := json.Marshal(value)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var fields map[string]any
+	if err := json.Unmarshal(data, &fields); err != nil {
+		t.Fatal(err)
+	}
+	delete(fields, "classifier_context_budget_bytes")
+	data, _ = json.Marshal(fields)
+	decoded, err := config.Decode(data)
+	if err != nil || decoded.ClassifierContextBudgetBytes != 0 {
+		t.Fatalf("Decode() = %#v, %v", decoded, err)
+	}
+	if err := decoded.Validate(); err == nil {
+		t.Fatal("Validate() accepted an unavailable custom-model budget")
+	}
+	fields["classifier_context_budget_bytes"] = -1
+	data, _ = json.Marshal(fields)
+	decoded, err = config.Decode(data)
+	if err != nil || decoded.ClassifierContextBudgetBytes != -1 {
+		t.Fatalf("Decode() invalid budget = %#v, %v", decoded, err)
 	}
 }
 
