@@ -382,6 +382,57 @@ func (c *Client) ReadRecentTurns(ctx context.Context, threadID, rolloutPath stri
 		return readRolloutEvidence(rolloutPath, 2)
 	}
 }
+func (c *Client) ReadThread(ctx context.Context, threadID string) (Thread, error) {
+	if err := c.capabilities.requireMethod("thread/read"); err != nil {
+		return Thread{}, err
+	}
+	if err := validateCanonicalThreadID(threadID); err != nil {
+		return Thread{}, err
+	}
+	var response struct {
+		Thread Thread `json:"thread"`
+	}
+	if err := c.call(ctx, "thread/read", map[string]any{"threadId": threadID, "includeTurns": false}, &response); err != nil {
+		return Thread{}, err
+	}
+	if err := validateCanonicalThreadID(response.Thread.ID); err != nil {
+		return Thread{}, fmt.Errorf("invalid App Server thread/read response: %w", err)
+	}
+	if response.Thread.ID != threadID {
+		return Thread{}, fmt.Errorf("invalid App Server thread/read response: thread ID %q does not match %q", response.Thread.ID, threadID)
+	}
+	return response.Thread, nil
+}
+
+func (c *Client) StartPersistentThread(ctx context.Context) (Thread, error) {
+	if err := c.capabilities.requireMethod("thread/start"); err != nil {
+		return Thread{}, err
+	}
+	var response struct {
+		Thread Thread `json:"thread"`
+	}
+	if err := c.call(ctx, "thread/start", map[string]any{"ephemeral": false}, &response); err != nil {
+		return Thread{}, err
+	}
+	if err := validateCanonicalThreadID(response.Thread.ID); err != nil {
+		return Thread{}, fmt.Errorf("invalid App Server thread/start response: %w", err)
+	}
+	if response.Thread.Ephemeral || response.Thread.Path == nil {
+		return Thread{}, errors.New("App Server did not confirm a persistent visible thread")
+	}
+	return response.Thread, nil
+}
+
+func validateCanonicalThreadID(threadID string) error {
+	if threadID == "" {
+		return errors.New("thread ID is required")
+	}
+	if strings.TrimSpace(threadID) != threadID {
+		return errors.New("thread ID must be canonical")
+	}
+	return nil
+}
+
 func (c *Client) SetTitle(ctx context.Context, threadID, title string) error {
 	if err := c.capabilities.requireMethod("thread/name/set"); err != nil {
 		return err

@@ -331,7 +331,7 @@ func TestStatusConfigurePartialPatchAndApplyFailure(t *testing.T) {
 	store := commandStore(t, now)
 	falseValue := false
 	budget := 123456
-	result, err := ConfigureHandler(store, nil)(context.Background(), Request{Command: CommandConfigure, Configure: ConfigPatch{ArchiveEnabled: &falseValue, ClassifierContextBudgetBytes: &budget}})
+	result, err := ConfigureHandler(store, nil, nil, nil)(context.Background(), Request{Command: CommandConfigure, Confirm: true, Configure: ConfigPatch{ArchiveEnabled: &falseValue, ClassifierContextBudgetBytes: &budget}})
 	if err != nil || !result.(output.ActionResult).Changed {
 		t.Fatalf("result=%+v err=%v", result, err)
 	}
@@ -344,7 +344,7 @@ func TestStatusConfigurePartialPatchAndApplyFailure(t *testing.T) {
 	}
 	seconds := 60
 	launch := &commandLaunchAgent{applyErr: errors.New("synthetic apply failure")}
-	result, err = ConfigureHandler(store, launch)(context.Background(), Request{Command: CommandConfigure, Configure: ConfigPatch{HeartbeatSeconds: &seconds}})
+	result, err = ConfigureHandler(store, launch, nil, nil)(context.Background(), Request{Command: CommandConfigure, Confirm: true, Configure: ConfigPatch{HeartbeatSeconds: &seconds}})
 	if err == nil || result.(output.ErrorResult).ErrorCode != "launch_agent_apply_failed" || launch.applyCalls != 1 {
 		t.Fatalf("result=%+v err=%v launch=%+v", result, err, launch)
 	}
@@ -363,7 +363,7 @@ func TestConfigureRollsBackSchedulerWhenConfigSaveFails(t *testing.T) {
 	store := &failingCommandStore{Store: realStore, saveConfigErr: errors.New("synthetic config save failure")}
 	launch := &commandLaunchAgent{}
 	seconds := 60
-	result, err := ConfigureHandler(store, launch)(context.Background(), Request{Command: CommandConfigure, Configure: ConfigPatch{HeartbeatSeconds: &seconds}})
+	result, err := ConfigureHandler(store, launch, nil, nil)(context.Background(), Request{Command: CommandConfigure, Confirm: true, Configure: ConfigPatch{HeartbeatSeconds: &seconds}})
 	if err == nil || result.(output.ErrorResult).ErrorCode != "config_write_failed" {
 		t.Fatalf("result=%+v err=%v", result, err)
 	}
@@ -384,7 +384,7 @@ func TestConfigureReportsStableRollbackFailure(t *testing.T) {
 	store := &failingCommandStore{Store: commandStore(t, now), saveConfigErr: errors.New("synthetic config save failure")}
 	launch := &commandLaunchAgent{applyErrs: []error{nil, errors.New("synthetic rollback failure")}}
 	seconds := 60
-	result, err := ConfigureHandler(store, launch)(context.Background(), Request{Command: CommandConfigure, Configure: ConfigPatch{HeartbeatSeconds: &seconds}})
+	result, err := ConfigureHandler(store, launch, nil, nil)(context.Background(), Request{Command: CommandConfigure, Confirm: true, Configure: ConfigPatch{HeartbeatSeconds: &seconds}})
 	if err == nil || result.(output.ErrorResult).ErrorCode != "launch_agent_rollback_failed" || launch.applyCalls != 2 {
 		t.Fatalf("result=%+v err=%v launch=%+v", result, err, launch)
 	}
@@ -626,7 +626,7 @@ func TestStatusReportsUnavailableSchedulerAdapterHonestly(t *testing.T) {
 		t.Fatalf("enable result=%+v err=%v", result, err)
 	}
 	seconds := 60
-	result, err = ConfigureHandler(store, launch)(context.Background(), Request{Command: CommandConfigure, Configure: ConfigPatch{HeartbeatSeconds: &seconds}})
+	result, err = ConfigureHandler(store, launch, nil, nil)(context.Background(), Request{Command: CommandConfigure, Confirm: true, Configure: ConfigPatch{HeartbeatSeconds: &seconds}})
 	if err == nil || result.(output.ErrorResult).ErrorCode != "launch_agent_unavailable" {
 		t.Fatalf("configure result=%+v err=%v", result, err)
 	}

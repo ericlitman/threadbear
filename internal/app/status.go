@@ -45,12 +45,18 @@ type Unarchiver interface {
 }
 
 type OperatorDependencies struct {
-	Store       OperatorStore
-	Inventory   OperatorInventory
-	Clock       OperatorClock
-	LaunchAgent LaunchAgent
-	Unarchiver  Unarchiver
-	Heartbeat   HeartbeatRunner
+	Store         OperatorStore
+	Inventory     OperatorInventory
+	Clock         OperatorClock
+	LaunchAgent   LaunchAgent
+	ManagedAgents ManagedAgents
+	Preview       func(output.PreviewResult) error
+	Confirm       func() (bool, error)
+	Unarchiver    Unarchiver
+	Heartbeat     HeartbeatRunner
+	Install       Handler
+	SelfTest      Handler
+	Uninstall     Handler
 }
 
 func NewWithOperatorCommands(version string, deps OperatorDependencies) *Service {
@@ -58,10 +64,19 @@ func NewWithOperatorCommands(version string, deps OperatorDependencies) *Service
 	service.handlers[CommandHeartbeat] = OperatorHeartbeatHandler(deps.Store, deps.Inventory, deps.Clock, deps.Heartbeat)
 	service.handlers[CommandStatus] = StatusHandler(version, deps.Store, deps.LaunchAgent)
 	service.handlers[CommandInspect] = InspectHandler(deps.Store, deps.Inventory, deps.Clock)
-	service.handlers[CommandConfigure] = ConfigureHandler(deps.Store, deps.LaunchAgent)
+	service.handlers[CommandConfigure] = ConfigureHandler(deps.Store, deps.LaunchAgent, deps.Preview, deps.Confirm, deps.ManagedAgents)
 	service.handlers[CommandEnable] = LifecycleHandler(deps.Store, deps.LaunchAgent, true)
 	service.handlers[CommandDisable] = LifecycleHandler(deps.Store, deps.LaunchAgent, false)
 	service.handlers[CommandRestore] = RestoreHandler(deps.Store, deps.Inventory, deps.Unarchiver, deps.Clock)
+	if deps.Install != nil {
+		service.handlers[CommandInstall] = deps.Install
+	}
+	if deps.SelfTest != nil {
+		service.handlers[CommandSelfTest] = deps.SelfTest
+	}
+	if deps.Uninstall != nil {
+		service.handlers[CommandUninstall] = deps.Uninstall
+	}
 	return service
 }
 

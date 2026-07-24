@@ -1,0 +1,213 @@
+package install
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"io/fs"
+	"os"
+)
+
+type ChoicePrompter interface {
+	ShowPreview(Preview) error
+	Confirm() (bool, error)
+	Choose(string, bool) (bool, error)
+}
+
+type UninstallRequest struct {
+	NonInteractive     bool
+	Confirm            bool
+	ArchiveControlTask bool
+	DeleteState        bool
+}
+
+type UninstallResult struct {
+	ArchivedControlTask bool
+	DeletedState        bool
+	Preview             Preview
+	Changed             bool
+	Resources           []string
+}
+
+type Uninstaller struct {
+	Paths        Paths
+	Store        Store
+	Scheduler    Scheduler
+	ControlTasks ControlTasks
+	Prompter     ChoicePrompter
+	Previewer    func(Preview) error
+}
+
+func (u Uninstaller) Uninstall(ctx context.Context, request UninstallRequest) (UninstallResult, error) {
+	if u.Store == nil || u.Scheduler == nil || u.ControlTasks == nil {
+		return UninstallResult{}, errors.New("uninstaller dependencies are required")
+	}
+	archiveControlTask := request.ArchiveControlTask
+	deleteState := request.DeleteState
+	if request.NonInteractive {
+		if !request.Confirm {
+			return UninstallResult{}, errors.New("noninteractive uninstall requires confirm")
+		}
+	} else {
+		if u.Prompter == nil {
+			return UninstallResult{}, errors.New("interactive uninstall requires a prompter")
+		}
+		var err error
+		archiveControlTask, err = u.Prompter.Choose("Archive the ThreadBear control task", false)
+		if err != nil {
+			return UninstallResult{}, err
+		}
+		deleteState, err = u.Prompter.Choose("Delete persistent ThreadBear state", false)
+		if err != nil {
+			return UninstallResult{}, err
+		}
+	}
+	agentsPreview, err := ManagedMutationPreview(u.Paths.Agents, false, nil)
+	if err != nil {
+		return UninstallResult{}, fmt.Errorf("preview AGENTS.md mutation: %w", err)
+	}
+	skillPreview, err := ManagedMutationPreview(u.Paths.Skill, false, nil)
+	if err != nil {
+		return UninstallResult{}, fmt.Errorf("preview skill mutation: %w", err)
+	}
+	preview := Preview{Operation: "uninstall", Lines: []string{
+		"remove LaunchAgent: " + u.Paths.LaunchAgent,
+		"remove binary: " + u.Paths.Binary,
+		agentsPreview,
+		skillPreview,
+		fmt.Sprintf("archive control task: %t", archiveControlTask),
+		fmt.Sprintf("persistent state %s: delete=%t", u.Paths.StateDirectory, deleteState),
+	}}
+	if u.Prompter != nil {
+		if err := u.Prompter.ShowPreview(preview); err != nil {
+			return UninstallResult{}, err
+		}
+	} else if u.Previewer != nil {
+		if err := u.Previewer(preview); err != nil {
+			return UninstallResult{}, err
+		}
+	}
+	if !request.NonInteractive {
+		confirmed, err := u.Prompter.Confirm()
+		if err != nil {
+			return UninstallResult{}, err
+		}
+		if !confirmed {
+			return UninstallResult{}, ErrCancelled
+		}
+	}
+	resources := make([]string, 0, 6)
+	existed := func(path string) bool { _, err := os.Lstat(path); return err == nil }
+	hadLaunchAgent := existed(u.Paths.LaunchAgent)
+	hadBinary := existed(u.Paths.Binary)
+	hadAgents := managedFileHasBlock(u.Paths.Agents)
+	hadSkill := managedFileHasBlock(u.Paths.Skill)
+	hadState := existed(u.Paths.StateDirectory)
+	if !archiveControlTask && !hadLaunchAgent && !hadBinary && !hadAgents && !hadSkill && (!deleteState || !hadState) {
+		return UninstallResult{Preview: preview, Changed: false, Resources: []string{}}, nil
+	}
+	var controlTaskID string
+	if archiveControlTask {
+		value, err := u.Store.LoadConfig()
+		if err != nil {
+			return UninstallResult{}, fmt.Errorf("load control task identity: %w", err)
+		}
+		controlTaskID = value.ControlTaskID
+	}
+	lock, err := u.Store.AcquireLock()
+	if err != nil {
+		return UninstallResult{}, err
+	}
+	lockHeld := true
+	defer func() {
+		if lockHeld {
+			_ = lock.Close()
+		}
+	}()
+	if err := ValidateManagedFile(u.Paths.Agents); err != nil {
+		return UninstallResult{}, fmt.Errorf("validate AGENTS.md: %w", err)
+	}
+	if err := ValidateManagedFile(u.Paths.Skill); err != nil {
+		return UninstallResult{}, fmt.Errorf("validate skill: %w", err)
+	}
+	if err := rejectSymlinkComponents(u.Paths.Binary); err != nil {
+		return UninstallResult{}, err
+	}
+	if err := u.Scheduler.Remove(ctx); err != nil {
+		return UninstallResult{}, fmt.Errorf("remove scheduler: %w", err)
+	}
+	if hadLaunchAgent {
+		resources = append(resources, "launchagent")
+	}
+	if err := DeleteManagedBlock(u.Paths.Agents); err != nil {
+		return UninstallResult{}, fmt.Errorf("remove AGENTS.md block: %w", err)
+	}
+	if hadAgents {
+		resources = append(resources, "agents")
+	}
+	if err := DeleteManagedBlock(u.Paths.Skill); err != nil {
+		return UninstallResult{}, fmt.Errorf("remove skill block: %w", err)
+	}
+	if hadSkill {
+		resources = append(resources, "skill")
+	}
+	if err := removeManagedFile(u.Paths.Binary); err != nil {
+		return UninstallResult{}, fmt.Errorf("remove binary: %w", err)
+	}
+	if hadBinary {
+		resources = append(resources, "binary")
+	}
+	archivedControlTask := false
+	if archiveControlTask {
+		changed, err := u.ControlTasks.ArchiveControlTask(ctx, controlTaskID)
+		if err != nil {
+			return UninstallResult{}, fmt.Errorf("archive control task: %w", err)
+		}
+		archivedControlTask = changed
+		if changed {
+			resources = append(resources, "control_task")
+		}
+	}
+	if err := lock.Close(); err != nil {
+		return UninstallResult{}, fmt.Errorf("release uninstall lock: %w", err)
+	}
+	lockHeld = false
+	if deleteState {
+		if err := rejectSymlinkComponents(u.Paths.StateDirectory); err != nil {
+			return UninstallResult{}, err
+		}
+		if err := os.RemoveAll(u.Paths.StateDirectory); err != nil {
+			return UninstallResult{}, fmt.Errorf("delete state: %w", err)
+		}
+		if hadState {
+			resources = append(resources, "state")
+		}
+	}
+	return UninstallResult{ArchivedControlTask: archivedControlTask, DeletedState: deleteState && hadState, Preview: preview, Changed: len(resources) > 0, Resources: resources}, nil
+}
+
+func managedFileHasBlock(path string) bool {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return false
+	}
+	_, _, found, err := managedBlockBounds(data)
+	return err == nil && found
+}
+
+func removeManagedFile(path string) error {
+	if err := rejectSymlinkComponents(path); err != nil {
+		return err
+	}
+	info, err := os.Lstat(path)
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	if !info.Mode().IsRegular() {
+		return fmt.Errorf("%w: %s is not a regular file", ErrUnsafeManagedPath, path)
+	}
+	return os.Remove(path)
+}

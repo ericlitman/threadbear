@@ -49,11 +49,17 @@ func (p ConfigPatch) Empty() bool {
 }
 
 type Request struct {
-	Command   Command
-	JSON      bool
-	DryRun    bool
-	TaskID    string
-	Configure ConfigPatch
+	Command            Command
+	JSON               bool
+	DryRun             bool
+	Confirm            bool
+	NonInteractive     bool
+	Candidate          bool
+	ArchiveControlTask bool
+	DeleteState        bool
+	Version            string
+	TaskID             string
+	Configure          ConfigPatch
 }
 
 type Handler func(context.Context, Request) (output.Result, error)
@@ -119,11 +125,29 @@ func (r Request) Validate() error {
 	if !needsTask && taskID != "" {
 		return fmt.Errorf("%w: %s does not accept a task ID", ErrInvalidRequest, r.Command)
 	}
-	if r.DryRun && r.Command != CommandHeartbeat {
-		return fmt.Errorf("%w: --dry-run is heartbeat-only", ErrInvalidRequest)
+	if r.DryRun && r.Command != CommandHeartbeat && r.Command != CommandConfigure {
+		return fmt.Errorf("%w: --dry-run is heartbeat- or configure-only", ErrInvalidRequest)
 	}
-	if r.Command != CommandConfigure && !r.Configure.Empty() {
-		return fmt.Errorf("%w: configuration patch is configure-only", ErrInvalidRequest)
+	if r.Command != CommandConfigure && r.Command != CommandInstall && !r.Configure.Empty() {
+		return fmt.Errorf("%w: preference patch is install- or configure-only", ErrInvalidRequest)
+	}
+	if r.Confirm && r.Command != CommandInstall && r.Command != CommandConfigure && r.Command != CommandUninstall {
+		return fmt.Errorf("%w: --confirm is install-, configure-, or uninstall-only", ErrInvalidRequest)
+	}
+	if r.NonInteractive && r.Command != CommandInstall && r.Command != CommandConfigure && r.Command != CommandUninstall {
+		return fmt.Errorf("%w: --noninteractive is install-, configure-, or uninstall-only", ErrInvalidRequest)
+	}
+	if r.Candidate && r.Command != CommandSelfTest {
+		return fmt.Errorf("%w: --candidate is self-test-only", ErrInvalidRequest)
+	}
+	if (r.ArchiveControlTask || r.DeleteState) && r.Command != CommandUninstall {
+		return fmt.Errorf("%w: uninstall choices are uninstall-only", ErrInvalidRequest)
+	}
+	if r.Version != "" && r.Command != CommandInstall {
+		return fmt.Errorf("%w: --version selection is install-only", ErrInvalidRequest)
+	}
+	if r.Version != "" && !exactVersion(r.Version) {
+		return fmt.Errorf("%w: install version must be an exact version without a leading v", ErrInvalidRequest)
 	}
 	if value := r.Configure.HeartbeatSeconds; value != nil && *value <= 0 {
 		return fmt.Errorf("%w: heartbeat seconds must be positive", ErrInvalidRequest)
@@ -145,6 +169,24 @@ func (r Request) Validate() error {
 		return fmt.Errorf("%w: classifier context budget must be positive", ErrInvalidRequest)
 	}
 	return nil
+}
+
+func exactVersion(value string) bool {
+	parts := strings.Split(value, ".")
+	if len(parts) != 3 || strings.TrimSpace(value) != value {
+		return false
+	}
+	for _, part := range parts {
+		if part == "" {
+			return false
+		}
+		for _, char := range part {
+			if char < '0' || char > '9' {
+				return false
+			}
+		}
+	}
+	return true
 }
 
 func (c Command) Valid() bool {

@@ -175,6 +175,79 @@ func TestLatestAndPreviousEvidenceAreReadSeparately(t *testing.T) {
 	}
 }
 
+func TestReadThreadRequiresCapabilityAndCanonicalID(t *testing.T) {
+	caps := fixtureCaps(t)
+	delete(caps.Methods, "thread/read")
+	unsupported := startFake(t, "normal", caps)
+	defer unsupported.Close()
+	if _, err := unsupported.ReadThread(context.Background(), "task-1"); !errors.Is(err, ErrCapability) {
+		t.Fatalf("error=%v", err)
+	}
+	c := startFake(t, "persistent", fixtureCaps(t))
+	defer c.Close()
+	for _, threadID := range []string{"", " task-1", "task-1 "} {
+		if _, err := c.ReadThread(context.Background(), threadID); err == nil {
+			t.Fatalf("ReadThread(%q) error=nil", threadID)
+		}
+	}
+	thread, err := c.ReadThread(context.Background(), "task-1")
+	if err != nil || thread.ID != "task-1" {
+		t.Fatalf("thread=%+v err=%v", thread, err)
+	}
+}
+
+func TestReadThreadPreservesControlTaskLifecycleFields(t *testing.T) {
+	c := startFake(t, "read-archived", fixtureCaps(t))
+	defer c.Close()
+	thread, err := c.ReadThread(context.Background(), "task-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if thread.Name != "ThreadBear old" || thread.Status.Type != "archived" {
+		t.Fatalf("thread=%+v", thread)
+	}
+}
+
+func TestReadThreadRejectsMalformedResponseIDs(t *testing.T) {
+	for _, scenario := range []string{"read-empty-id", "read-noncanonical-id", "read-mismatched-id"} {
+		t.Run(scenario, func(t *testing.T) {
+			c := startFake(t, scenario, fixtureCaps(t))
+			defer c.Close()
+			if _, err := c.ReadThread(context.Background(), "task-1"); err == nil || !strings.Contains(err.Error(), "invalid App Server thread/read response") {
+				t.Fatalf("error=%v", err)
+			}
+		})
+	}
+}
+
+func TestStartPersistentThread(t *testing.T) {
+	caps := fixtureCaps(t)
+	delete(caps.Methods, "thread/start")
+	unsupported := startFake(t, "normal", caps)
+	defer unsupported.Close()
+	if _, err := unsupported.StartPersistentThread(context.Background()); !errors.Is(err, ErrCapability) {
+		t.Fatalf("error=%v", err)
+	}
+	c := startFake(t, "persistent", fixtureCaps(t))
+	defer c.Close()
+	thread, err := c.StartPersistentThread(context.Background())
+	if err != nil || thread.ID != "control-1" || thread.Ephemeral || thread.Path == nil {
+		t.Fatalf("thread=%+v err=%v", thread, err)
+	}
+}
+
+func TestStartPersistentThreadRejectsMalformedResponses(t *testing.T) {
+	for _, scenario := range []string{"persistent-empty-id", "persistent-noncanonical-id", "persistent-ephemeral", "persistent-nil-path"} {
+		t.Run(scenario, func(t *testing.T) {
+			c := startFake(t, scenario, fixtureCaps(t))
+			defer c.Close()
+			if _, err := c.StartPersistentThread(context.Background()); err == nil {
+				t.Fatal("error=nil")
+			}
+		})
+	}
+}
+
 func TestMutations(t *testing.T) {
 	c := startFake(t, "normal", fixtureCaps(t))
 	defer c.Close()
@@ -464,7 +537,21 @@ func fakeServe(scenario string) {
 		case "thread/turns/list":
 			encoder.Encode(map[string]any{"id": request.ID, "result": map[string]any{"data": []any{fakeTurns()[1], fakeTurns()[0]}}})
 		case "thread/read":
-			encoder.Encode(map[string]any{"id": request.ID, "result": map[string]any{"thread": map[string]any{"id": "task-1", "path": os.Getenv("THREADBEAR_FAKE_ROLLOUT"), "status": map[string]any{"type": "active", "activeFlags": []string{"waitingOnApproval"}}, "recencyAt": 1770000000, "turns": fakeTurns()}}})
+			threadID := "task-1"
+			name := ""
+			statusType := "active"
+			switch scenario {
+			case "read-empty-id":
+				threadID = ""
+			case "read-noncanonical-id":
+				threadID = " task-1"
+			case "read-mismatched-id":
+				threadID = "task-2"
+			case "read-archived":
+				name = "ThreadBear old"
+				statusType = "archived"
+			}
+			encoder.Encode(map[string]any{"id": request.ID, "result": map[string]any{"thread": map[string]any{"id": threadID, "name": name, "path": os.Getenv("THREADBEAR_FAKE_ROLLOUT"), "status": map[string]any{"type": statusType, "activeFlags": []string{"waitingOnApproval"}}, "recencyAt": 1770000000, "turns": fakeTurns()}}})
 		case "thread/inject_items":
 			if err := persistInjectedItems(request.Params); err != nil {
 				encoder.Encode(fakeError(request.ID, err.Error()))
@@ -481,6 +568,27 @@ func fakeServe(scenario string) {
 		case "thread/unarchive":
 			encoder.Encode(map[string]any{"id": request.ID, "result": map[string]any{"thread": map[string]any{"id": "task-1"}}})
 		case "thread/start":
+			if strings.HasPrefix(scenario, "persistent") {
+				if err := validatePersistentStart(request.Params); err != nil {
+					encoder.Encode(fakeError(request.ID, err.Error()))
+					continue
+				}
+				threadID := "control-1"
+				ephemeral := false
+				var path any = "/tmp/threadbear/control-1.jsonl"
+				switch scenario {
+				case "persistent-empty-id":
+					threadID = ""
+				case "persistent-noncanonical-id":
+					threadID = " control-1"
+				case "persistent-ephemeral":
+					ephemeral = true
+				case "persistent-nil-path":
+					path = nil
+				}
+				encoder.Encode(map[string]any{"id": request.ID, "result": map[string]any{"thread": map[string]any{"id": threadID, "ephemeral": ephemeral, "path": path, "status": map[string]any{"type": "idle"}}}})
+				continue
+			}
 			if err := validateStart(request.Params); err != nil {
 				encoder.Encode(fakeError(request.ID, err.Error()))
 				continue
@@ -526,6 +634,17 @@ func fakeError(id int64, message string) map[string]any {
 func fakeTurns() []any {
 	return []any{map[string]any{"id": "previous", "status": "completed", "items": []any{map[string]any{"type": "userMessage", "content": []any{map[string]any{"type": "inputText", "text": "previous user"}}}, map[string]any{"type": "agentMessage", "phase": "final_answer", "text": "previous agent"}, map[string]any{"type": "commandExecution", "text": "secret tool output"}}}, map[string]any{"id": "latest", "status": "failed", "error": map[string]any{"message": "synthetic structured failure"}, "items": []any{map[string]any{"type": "userMessage", "content": []any{map[string]any{"type": "inputText", "text": "latest user"}}}, map[string]any{"type": "agentMessage", "phase": "final_answer", "text": strings.Repeat("x", 100000) + " completed"}, map[string]any{"type": "reasoning", "text": "secret reasoning"}}}}
 }
+func validatePersistentStart(raw json.RawMessage) error {
+	var params map[string]any
+	if err := json.Unmarshal(raw, &params); err != nil {
+		return err
+	}
+	if len(params) != 1 || params["ephemeral"] != false {
+		return errors.New("persistent thread/start must only set ephemeral false")
+	}
+	return nil
+}
+
 func validateStart(raw json.RawMessage) error {
 	var p map[string]any
 	if err := json.Unmarshal(raw, &p); err != nil {
