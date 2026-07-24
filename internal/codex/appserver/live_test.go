@@ -1,0 +1,204 @@
+//go:build integration
+
+package appserver
+
+import (
+	"context"
+	"database/sql"
+	_ "modernc.org/sqlite"
+	"os"
+	"path/filepath"
+	"reflect"
+	"strings"
+	"testing"
+	"time"
+)
+
+func TestLiveEphemeralDoesNotPersist(t *testing.T) {
+	process, caps, home := liveHarness(t, true)
+	before := liveThreadIDs(t, home)
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+	client, err := Start(ctx, process, caps)
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := client.RunEphemeral(ctx, EphemeralRequest{Model: liveValue("THREADBEAR_LIVE_MODEL", "gpt-5.6-luna"), Effort: liveValue("THREADBEAR_LIVE_EFFORT", "medium"), Input: "Return the supplied JSON result without tools.", OutputSchema: map[string]any{"type": "object", "properties": map[string]any{"ok": map[string]any{"type": "boolean"}}, "required": []string{"ok"}, "additionalProperties": false}})
+	if err != nil {
+		client.Close()
+		t.Fatal(err)
+	}
+	if err := client.Close(); err != nil {
+		t.Fatal(err)
+	}
+	output := strings.TrimSpace(evidenceFromTurn(result.Turn).AgentMessage)
+	restriction := result.ToolRestriction
+	if result.ThreadID == "" || output == "" || !restriction.EnvironmentsDisabled || !restriction.DynamicToolsDisabled || !restriction.ApprovalsDisabled || !restriction.ReadOnlySandbox || !restriction.OutputConstrained || restriction.ConfigOverride || restriction.PermissionProfile || strings.Join(restriction.UnprovenToolSources, ",") != "core,mcp,extension,hosted" {
+		t.Fatalf("result=%+v output=%q", result, output)
+	}
+	after := liveThreadIDs(t, home)
+	if !reflect.DeepEqual(after, before) {
+		t.Fatalf("ephemeral persisted: before=%v after=%v", before, after)
+	}
+}
+func TestLiveNoticeDoesNotStartTurn(t *testing.T) {
+	process, caps, home := liveHarness(t, false)
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	defer cancel()
+	client, err := Start(ctx, process, caps)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := caps.requireMethod("thread/start"); err != nil {
+		client.Close()
+		t.Fatal(err)
+	}
+	var started struct {
+		Thread Thread `json:"thread"`
+	}
+	if err := client.call(ctx, "thread/start", map[string]any{"ephemeral": false, "model": liveValue("THREADBEAR_LIVE_MODEL", "gpt-5.6-luna")}, &started); err != nil {
+		client.Close()
+		t.Fatal(err)
+	}
+	if started.Thread.ID == "" || started.Thread.Path == nil {
+		client.Close()
+		t.Fatalf("thread=%+v", started.Thread)
+	}
+	drainNotifications(client.Notifications())
+	before := liveThreadIDs(t, home)
+	notice := "🧵🐻 ThreadBear 99.0.0-live-proof is ready. Run threadbear update, or tell me “update ThreadBear.”"
+	if err := client.InsertNotice(ctx, started.Thread.ID, notice); err != nil {
+		client.Close()
+		t.Fatal(err)
+	}
+	timer := time.NewTimer(500 * time.Millisecond)
+	defer timer.Stop()
+	waiting := true
+	for waiting {
+		select {
+		case n := <-client.Notifications():
+			if n.Method == "turn/started" || n.Method == "turn/completed" {
+				client.Close()
+				t.Fatalf("notice started turn: %s", n.Method)
+			}
+		case <-timer.C:
+			waiting = false
+		}
+	}
+	if err := client.Close(); err != nil {
+		t.Fatal(err)
+	}
+	after := liveThreadIDs(t, home)
+	assertNoUnexpectedLiveThreads(t, before, after, started.Thread.ID)
+	data, err := os.ReadFile(*started.Thread.Path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if count := strings.Count(string(data), notice); count != 1 {
+		t.Fatalf("notice count=%d", count)
+	}
+}
+func liveHarness(t *testing.T, requireAuth bool) (ProcessSpec, Capabilities, string) {
+	t.Helper()
+	if os.Getenv("THREADBEAR_LIVE_CODEX") != "1" {
+		t.Skip("set THREADBEAR_LIVE_CODEX=1 on a disposable Codex installation")
+	}
+	home := t.TempDir()
+	if requireAuth {
+		authFile := strings.TrimSpace(os.Getenv("THREADBEAR_LIVE_AUTH_FILE"))
+		if authFile == "" {
+			t.Skip("set THREADBEAR_LIVE_AUTH_FILE to an operator-supplied Codex auth.json for the ephemeral proof")
+		}
+		auth, err := os.ReadFile(authFile)
+		if err != nil {
+			t.Fatalf("read THREADBEAR_LIVE_AUTH_FILE: %v", err)
+		}
+		if err := os.WriteFile(filepath.Join(home, "auth.json"), auth, 0600); err != nil {
+			t.Fatalf("copy disposable Codex auth.json: %v", err)
+		}
+	}
+	process := DefaultProcessSpec(home)
+	if executable := strings.TrimSpace(os.Getenv("THREADBEAR_LIVE_CODEX_BIN")); executable != "" {
+		process.Path = executable
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	defer cancel()
+	caps, err := DiscoverCapabilities(ctx, process)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return process, caps, home
+}
+func assertNoUnexpectedLiveThreads(t *testing.T, before, after []string, allowedNewID string) {
+	t.Helper()
+	baseline := make(map[string]bool, len(before))
+	for _, id := range before {
+		baseline[id] = true
+	}
+	observed := make(map[string]bool, len(after))
+	for _, id := range after {
+		observed[id] = true
+		if !baseline[id] && id != allowedNewID {
+			t.Fatalf("notice created unexpected task %s: before=%v after=%v", id, before, after)
+		}
+	}
+	for _, id := range before {
+		if !observed[id] {
+			t.Fatalf("notice removed baseline task %s: before=%v after=%v", id, before, after)
+		}
+	}
+}
+func liveThreadIDs(t *testing.T, home string) []string {
+	t.Helper()
+	paths, err := filepath.Glob(filepath.Join(home, "state_*.sqlite"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	ids := make([]string, 0)
+	for _, path := range paths {
+		db, err := sql.Open("sqlite", "file:"+path+"?mode=ro")
+		if err != nil {
+			t.Fatal(err)
+		}
+		rows, err := db.Query("SELECT id FROM threads ORDER BY id")
+		if err != nil {
+			db.Close()
+			if strings.Contains(err.Error(), "no such table") {
+				continue
+			}
+			t.Fatal(err)
+		}
+		for rows.Next() {
+			var id string
+			if err := rows.Scan(&id); err != nil {
+				rows.Close()
+				db.Close()
+				t.Fatal(err)
+			}
+			ids = append(ids, id)
+		}
+		if err := rows.Err(); err != nil {
+			rows.Close()
+			db.Close()
+			t.Fatal(err)
+		}
+		rows.Close()
+		db.Close()
+	}
+	return ids
+}
+func drainNotifications(n <-chan Notification) {
+	for {
+		select {
+		case <-n:
+		default:
+			return
+		}
+	}
+}
+func liveValue(name, fallback string) string {
+	if value := strings.TrimSpace(os.Getenv(name)); value != "" {
+		return value
+	}
+	return fallback
+}
