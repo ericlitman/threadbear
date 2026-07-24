@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"reflect"
 
 	"github.com/ericlitman/threadbear/internal/config"
 	"github.com/ericlitman/threadbear/internal/output"
@@ -36,7 +37,7 @@ func ConfigureHandler(store OperatorStore, launchAgent LaunchAgent, previewer fu
 			return commandError("configure", "invalid_configuration", err)
 		}
 		preview := []string{"config: write validated preferences"}
-		if next == current {
+		if reflect.DeepEqual(next, current) {
 			return output.ActionResult{Command: "configure", Changed: false}, nil
 		}
 		resources := []string{"config"}

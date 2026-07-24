@@ -31,7 +31,7 @@ import (
 )
 
 var version = "dev"
-var resolveCodexExecutable = codex.ResolveExecutable
+var resolveCodexExecutableSpec = codex.ResolveExecutableSpec
 
 func main() {
 	os.Exit(run(context.Background(), os.Args[1:], os.Stdout, os.Stderr))
@@ -118,18 +118,15 @@ func newOperatorService(installedVersion string, stdout, stderr io.Writer, forma
 	diskStore := install.NewDiskStore(paths)
 	scheduler := productionScheduler{adapter: launch}
 	installFactory := func(interactive bool) (install.Installer, func() error, error) {
-		codexExecutable, resolveErr := resolveCodexExecutable(home, os.Getenv("PATH"))
-		if resolveErr != nil {
-			return install.Installer{}, func() error { return nil }, install.Fail("resolve_codex_executable", resolveErr)
-		}
-		controlTasks := appServerControlTasks{open: func(ctx context.Context) (*appserver.Client, error) {
-			return openAppServerPinned(ctx, codexExecutable, codexHome, home)
-		}}
+		executableSpec := &codex.ExecutableSpec{}
+		controlTasks := &appServerControlTasks{open: func(ctx context.Context) (*appserver.Client, error) {
+			return openAppServerPinned(ctx, *executableSpec, codexHome, home)
+		}, executableSpec: executableSpec}
 		installer := install.Installer{
 			Paths: paths, Store: diskStore, Scheduler: scheduler, ControlTasks: controlTasks,
-			Binary:          install.FileBinaryInstaller{Source: executable},
-			SelfTester:      install.CoreSelfTester{Probe: install.RuntimeProbe{}, Store: diskStore},
-			CodexExecutable: codexExecutable,
+			Binary:                     install.FileBinaryInstaller{Source: executable},
+			SelfTester:                 install.CoreSelfTester{Probe: install.RuntimeProbe{}, Store: diskStore},
+			ResolveCodexExecutableSpec: resolveCodexExecutableSpec,
 		}
 		if !interactive {
 			installer.Previewer = func(preview install.Preview) error {
@@ -242,17 +239,25 @@ func (r appServerRuntime) process() (appserver.ProcessSpec, error) {
 	if err != nil {
 		return appserver.ProcessSpec{}, err
 	}
-	executable := cfg.CodexExecutable
-	if executable == "" {
-		executable, err = resolveCodexExecutable(r.home, os.Getenv("PATH"))
-		if err != nil {
-			return appserver.ProcessSpec{}, err
-		}
-	}
-	if err := codex.ValidateExecutable(executable); err != nil {
+	spec, err := configuredExecutableSpec(r.home, cfg, os.Getenv("PATH"))
+	if err != nil {
 		return appserver.ProcessSpec{}, err
 	}
-	return appserver.PinnedProcessSpec(executable, r.codexHome, r.home)
+	return appserver.PinnedProcessSpec(spec.Path, r.codexHome, r.home, spec.SpawnPath)
+}
+
+func configuredExecutableSpec(home string, cfg config.Config, pathValue string) (codex.ExecutableSpec, error) {
+	if cfg.CodexExecutable == "" {
+		return resolveCodexExecutableSpec(home, pathValue)
+	}
+	if len(cfg.CodexSpawnPath) == 0 {
+		return codex.DeriveExecutableSpec(home, cfg.CodexExecutable, pathValue)
+	}
+	spec := codex.ExecutableSpec{Path: cfg.CodexExecutable, SpawnPath: append([]string(nil), cfg.CodexSpawnPath...)}
+	if err := codex.ValidateExecutableSpec(spec); err != nil {
+		return codex.ExecutableSpec{}, err
+	}
+	return spec, nil
 }
 
 func (r appServerRuntime) open(ctx context.Context) (*appserver.Client, error) {
@@ -298,8 +303,8 @@ func (u appServerUnarchiver) Unarchive(ctx context.Context, taskID string) error
 	return errors.Join(unarchiveErr, client.Close())
 }
 
-func openAppServerPinned(ctx context.Context, executable, codexHome, home string) (*appserver.Client, error) {
-	process, err := appserver.PinnedProcessSpec(executable, codexHome, home)
+func openAppServerPinned(ctx context.Context, spec codex.ExecutableSpec, codexHome, home string) (*appserver.Client, error) {
+	process, err := appserver.PinnedProcessSpec(spec.Path, codexHome, home, spec.SpawnPath)
 	if err != nil {
 		return nil, err
 	}
@@ -504,7 +509,14 @@ func (s productionScheduler) Loaded(ctx context.Context) (bool, error) {
 func (s productionScheduler) Remove(ctx context.Context) error { return s.adapter.Remove(ctx) }
 
 type appServerControlTasks struct {
-	open func(context.Context) (*appserver.Client, error)
+	open           func(context.Context) (*appserver.Client, error)
+	executableSpec *codex.ExecutableSpec
+}
+
+func (a *appServerControlTasks) SetCodexExecutableSpec(spec codex.ExecutableSpec) {
+	if a.executableSpec != nil {
+		*a.executableSpec = codex.ExecutableSpec{Path: spec.Path, SpawnPath: append([]string(nil), spec.SpawnPath...)}
+	}
 }
 
 func (a appServerControlTasks) EnsureControlTask(ctx context.Context, taskID string) (string, bool, error) {
@@ -653,22 +665,19 @@ func (s runtimeSelfTest) Run(ctx context.Context, candidate bool) output.SelfTes
 		}
 	}
 	add("executable", err)
-	codexExecutable := ""
+	var codexSpec codex.ExecutableSpec
 	var codexErr error
 	if candidate {
-		codexExecutable, codexErr = resolveCodexExecutable(s.paths.Home, os.Getenv("PATH"))
+		codexSpec, codexErr = resolveCodexExecutableSpec(s.paths.Home, os.Getenv("PATH"))
 	} else {
-		var cfg config.Config
-		cfg, codexErr = install.NewDiskStore(s.paths).LoadConfig()
+		var installedConfig config.Config
+		installedConfig, codexErr = install.NewDiskStore(s.paths).LoadConfig()
 		if codexErr == nil {
-			codexExecutable = cfg.CodexExecutable
-			if codexExecutable == "" {
-				codexExecutable, codexErr = resolveCodexExecutable(s.paths.Home, os.Getenv("PATH"))
-			}
+			codexSpec, codexErr = configuredExecutableSpec(s.paths.Home, installedConfig, os.Getenv("PATH"))
 		}
 	}
 	if codexErr == nil {
-		codexErr = codex.ValidateExecutable(codexExecutable)
+		codexErr = codex.VerifyExecutableSpec(codexSpec)
 	}
 	add("codex_executable", codexErr)
 	if candidate {

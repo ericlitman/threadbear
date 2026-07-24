@@ -39,6 +39,7 @@ type Config struct {
 	SchemaVersion                int              `json:"schema_version"`
 	ControlTaskID                string           `json:"control_task_id"`
 	CodexExecutable              string           `json:"codex_executable,omitempty"`
+	CodexSpawnPath               []string         `json:"codex_spawn_path,omitempty"`
 	HeartbeatSeconds             int              `json:"heartbeat_seconds"`
 	ArchiveEnabled               bool             `json:"archive_enabled"`
 	ArchiveAfterDays             int              `json:"archive_after_days"`
@@ -80,6 +81,19 @@ func (c Config) validate(requireBudget bool) error {
 	}
 	if c.CodexExecutable != "" && (!filepath.IsAbs(c.CodexExecutable) || strings.TrimSpace(c.CodexExecutable) != c.CodexExecutable) {
 		return errors.New("codex_executable must be an absolute path")
+	}
+	if c.CodexExecutable == "" && len(c.CodexSpawnPath) > 0 {
+		return errors.New("codex_spawn_path requires codex_executable")
+	}
+	seenSpawnDirectories := make(map[string]bool, len(c.CodexSpawnPath))
+	for _, directory := range c.CodexSpawnPath {
+		if directory == "" || strings.TrimSpace(directory) != directory || !filepath.IsAbs(directory) || filepath.Clean(directory) != directory {
+			return errors.New("codex_spawn_path entries must be absolute canonical paths")
+		}
+		if seenSpawnDirectories[directory] {
+			return errors.New("codex_spawn_path entries must be unique")
+		}
+		seenSpawnDirectories[directory] = true
 	}
 	if c.HeartbeatSeconds <= 0 {
 		return errors.New("heartbeat_seconds must be positive")
@@ -123,6 +137,7 @@ func Decode(data []byte) (Config, error) {
 		SchemaVersion                *int              `json:"schema_version"`
 		ControlTaskID                *string           `json:"control_task_id"`
 		CodexExecutable              *string           `json:"codex_executable"`
+		CodexSpawnPath               *[]string         `json:"codex_spawn_path"`
 		HeartbeatSeconds             *int              `json:"heartbeat_seconds"`
 		ArchiveEnabled               *bool             `json:"archive_enabled"`
 		ArchiveAfterDays             *int              `json:"archive_after_days"`
@@ -148,6 +163,7 @@ func Decode(data []byte) (Config, error) {
 		SchemaVersion:                *wire.SchemaVersion,
 		ControlTaskID:                *wire.ControlTaskID,
 		CodexExecutable:              optionalString(wire.CodexExecutable),
+		CodexSpawnPath:               optionalStrings(wire.CodexSpawnPath),
 		HeartbeatSeconds:             *wire.HeartbeatSeconds,
 		ArchiveEnabled:               *wire.ArchiveEnabled,
 		ArchiveAfterDays:             *wire.ArchiveAfterDays,
@@ -168,6 +184,13 @@ func optionalString(value *string) string {
 		return ""
 	}
 	return *value
+}
+
+func optionalStrings(value *[]string) []string {
+	if value == nil {
+		return nil
+	}
+	return append([]string(nil), (*value)...)
 }
 
 func decodeStrict(data []byte, target any, disallowUnknown bool) error {

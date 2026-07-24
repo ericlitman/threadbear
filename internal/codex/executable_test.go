@@ -85,3 +85,44 @@ func TestResolveExecutableSkipsCandidateThatDoesNotRun(t *testing.T) {
 		t.Fatalf("got=%q err=%v", got, err)
 	}
 }
+
+func TestResolveExecutableSpecPinsEnvInterpreterWithoutAmbientPath(t *testing.T) {
+	home := t.TempDir()
+	codexDirectory := filepath.Join(t.TempDir(), "codex-bin")
+	nodeDirectory := filepath.Join(t.TempDir(), "node-bin")
+	ambientDirectory := filepath.Join(t.TempDir(), "ambient-bin")
+	for _, directory := range []string{codexDirectory, nodeDirectory, ambientDirectory} {
+		if err := os.MkdirAll(directory, 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	target := filepath.Join(t.TempDir(), "codex-real")
+	if err := os.WriteFile(target, []byte("#!/usr/bin/env node\n"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(codexDirectory, "codex")
+	if err := os.Symlink(target, link); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(nodeDirectory, "node"), []byte("#!/bin/sh\n[ \"$2\" = \"--version\" ]\n"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(ambientDirectory, "node"), []byte("#!/bin/sh\nexit 91\n"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	spec, err := ResolveExecutableSpec(home, strings.Join([]string{codexDirectory, nodeDirectory, ambientDirectory}, string(os.PathListSeparator)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if spec.Path != link {
+		t.Fatalf("path=%q want symlink %q", spec.Path, link)
+	}
+	want := append([]string{nodeDirectory, codexDirectory}, fixedSystemPath...)
+	if strings.Join(spec.SpawnPath, "|") != strings.Join(want, "|") {
+		t.Fatalf("spawn path=%v want %v", spec.SpawnPath, want)
+	}
+	t.Setenv("PATH", ambientDirectory)
+	if err := VerifyExecutableSpec(spec); err != nil {
+		t.Fatalf("stored spec depends on ambient PATH: %v", err)
+	}
+}

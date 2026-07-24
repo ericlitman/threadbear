@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/ericlitman/threadbear/internal/app"
+	"github.com/ericlitman/threadbear/internal/codex"
 	"github.com/ericlitman/threadbear/internal/codex/appserver"
 	"github.com/ericlitman/threadbear/internal/config"
 )
@@ -159,11 +160,11 @@ func TestInstallMissingCodexReportsStepAndDoesNotCreateState(t *testing.T) {
 	t.Setenv("HOME", home)
 	t.Setenv("CODEX_HOME", filepath.Join(home, "custom-codex"))
 	t.Setenv("PATH", filepath.Join(home, "missing-bin"))
-	originalResolver := resolveCodexExecutable
-	resolveCodexExecutable = func(string, string) (string, error) {
-		return "", errors.New("Codex executable not found; install the Codex CLI")
+	originalResolver := resolveCodexExecutableSpec
+	resolveCodexExecutableSpec = func(string, string) (codex.ExecutableSpec, error) {
+		return codex.ExecutableSpec{}, errors.New("Codex executable not found; install the Codex CLI")
 	}
-	t.Cleanup(func() { resolveCodexExecutable = originalResolver })
+	t.Cleanup(func() { resolveCodexExecutableSpec = originalResolver })
 	var stdout, stderr strings.Builder
 	code := run(context.Background(), []string{"install", "--noninteractive", "--confirm", "--json"}, &stdout, &stderr)
 	if code != 1 || !strings.Contains(stdout.String(), `"step":"resolve_codex_executable"`) || !strings.Contains(stdout.String(), "install the Codex CLI") {
@@ -214,15 +215,28 @@ func (s staticConfigLoader) LoadConfig() (config.Config, error) { return s.value
 func TestHeartbeatRuntimeUsesInstalledPinnedCodexExecutable(t *testing.T) {
 	home := t.TempDir()
 	codexHome := filepath.Join(home, "codex-home")
-	executable := filepath.Join(home, "stable", "codex")
-	if err := os.MkdirAll(filepath.Dir(executable), 0o700); err != nil {
+	codexDirectory := filepath.Join(home, "stable")
+	nodeDirectory := filepath.Join(home, "node")
+	for _, directory := range []string{codexDirectory, nodeDirectory} {
+		if err := os.MkdirAll(directory, 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	executable := filepath.Join(codexDirectory, "codex")
+	if err := os.WriteFile(executable, []byte("#!/usr/bin/env node\n"), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(executable, []byte("#!/bin/sh\nexit 0\n"), 0o700); err != nil {
+	if err := os.WriteFile(filepath.Join(nodeDirectory, "node"), []byte("#!/bin/sh\n[ \"$2\" = \"--version\" ]\n"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	installPath := strings.Join([]string{codexDirectory, nodeDirectory}, string(os.PathListSeparator))
+	spec, err := codex.ResolveExecutableSpec(home, installPath)
+	if err != nil {
 		t.Fatal(err)
 	}
 	cfg := config.Default("control")
-	cfg.CodexExecutable = executable
+	cfg.CodexExecutable = spec.Path
+	cfg.CodexSpawnPath = spec.SpawnPath
 	t.Setenv("PATH", filepath.Join(home, "different-path"))
 	process, err := (appServerRuntime{store: staticConfigLoader{value: cfg}, home: home, codexHome: codexHome}).process()
 	if err != nil {
@@ -230,5 +244,13 @@ func TestHeartbeatRuntimeUsesInstalledPinnedCodexExecutable(t *testing.T) {
 	}
 	if process.Path != executable {
 		t.Fatalf("process path=%q want installed path %q", process.Path, executable)
+	}
+	storedPath := strings.Join(spec.SpawnPath, string(os.PathListSeparator))
+	found := false
+	for _, entry := range process.Env {
+		found = found || entry == "PATH="+storedPath
+	}
+	if !found {
+		t.Fatalf("process env=%v want stored PATH=%q", process.Env, storedPath)
 	}
 }

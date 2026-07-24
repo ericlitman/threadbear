@@ -177,31 +177,37 @@ func Fail(step string, err error) error {
 }
 
 type Installer struct {
-	Paths                  Paths
-	Store                  Store
-	Scheduler              Scheduler
-	ControlTasks           ControlTasks
-	Binary                 BinaryInstaller
-	SelfTester             SelfTester
-	Legacy                 LegacyLoader
-	Prompter               Prompter
-	Previewer              func(Preview) error
-	CodexExecutable        string
-	ResolveCodexExecutable func(string, string) (string, error)
+	Paths                      Paths
+	Store                      Store
+	Scheduler                  Scheduler
+	ControlTasks               ControlTasks
+	Binary                     BinaryInstaller
+	SelfTester                 SelfTester
+	Legacy                     LegacyLoader
+	Prompter                   Prompter
+	Previewer                  func(Preview) error
+	CodexExecutable            string
+	CodexSpawnPath             []string
+	ResolveCodexExecutable     func(string, string) (string, error)
+	ResolveCodexExecutableSpec func(string, string) (codex.ExecutableSpec, error)
 }
 
 func (i Installer) Install(ctx context.Context, request InstallRequest) (InstallResult, error) {
 	if err := i.validate(); err != nil {
 		return InstallResult{}, Fail("validate", err)
 	}
-	codexExecutable, err := i.resolveCodexExecutable()
-	if err != nil {
-		return InstallResult{}, Fail("resolve_codex_executable", err)
-	}
-	i.CodexExecutable = codexExecutable
 	previewConfig, previewState, previewConfigExists, previewStateExists, err := loadExisting(i.Store)
 	if err != nil {
 		return InstallResult{}, Fail("load_preview_state", err)
+	}
+	executableSpec, err := i.resolveCodexExecutableSpec(previewConfig, previewConfigExists)
+	if err != nil {
+		return InstallResult{}, Fail("resolve_codex_executable", err)
+	}
+	i.CodexExecutable = executableSpec.Path
+	i.CodexSpawnPath = append([]string(nil), executableSpec.SpawnPath...)
+	if consumer, ok := i.ControlTasks.(interface{ SetCodexExecutableSpec(codex.ExecutableSpec) }); ok {
+		consumer.SetCodexExecutableSpec(executableSpec)
 	}
 	migrationNeeded := !previewConfigExists || !previewStateExists
 	legacyInterval, legacyIntervalFound, err := i.detectLegacyInterval(ctx, migrationNeeded)
@@ -278,7 +284,7 @@ func (i Installer) Install(ctx context.Context, request InstallRequest) (Install
 			candidateState = state.New()
 		}
 	}
-	candidateConfig := previewPreferences.config(previewControlTaskID, i.CodexExecutable)
+	candidateConfig := previewPreferences.config(previewControlTaskID, i.CodexExecutable, i.CodexSpawnPath)
 	resources, err := i.stageCandidate(ctx, candidateConfig, candidateState)
 	if err != nil {
 		return InstallResult{}, err
@@ -345,11 +351,11 @@ func (i Installer) Install(ctx context.Context, request InstallRequest) (Install
 		}
 		return InstallResult{}, fail("ensure_control_task", errors.New("control task returned a noncanonical ID"))
 	}
-	nextConfig := preferences.config(controlTaskID, i.CodexExecutable)
+	nextConfig := preferences.config(controlTaskID, i.CodexExecutable, i.CodexSpawnPath)
 	if err := nextConfig.Validate(); err != nil {
 		return InstallResult{}, fail("validate_config", err)
 	}
-	if !configExists || nextConfig != currentConfig {
+	if !configExists || !reflect.DeepEqual(nextConfig, currentConfig) {
 		if err := i.Store.SaveConfig(nextConfig); err != nil {
 			return InstallResult{}, fail("persist_config", err)
 		}
@@ -535,23 +541,59 @@ func applyPreferencePatch(value Preferences, patch PreferencePatch) Preferences 
 	return value
 }
 
-func (i Installer) resolveCodexExecutable() (string, error) {
-	executable := i.CodexExecutable
-	if executable == "" {
-		resolver := i.ResolveCodexExecutable
-		if resolver == nil {
-			resolver = codex.ResolveExecutable
+func (i Installer) resolveCodexExecutableSpec(persisted config.Config, persistedExists bool) (codex.ExecutableSpec, error) {
+	pathValue := os.Getenv("PATH")
+	if i.CodexExecutable != "" {
+		spec := codex.ExecutableSpec{Path: i.CodexExecutable, SpawnPath: append([]string(nil), i.CodexSpawnPath...)}
+		if len(spec.SpawnPath) == 0 {
+			derived, err := codex.DeriveExecutableSpec(i.Paths.Home, spec.Path, pathValue)
+			if err != nil {
+				return codex.ExecutableSpec{}, err
+			}
+			spec = derived
 		}
-		var err error
-		executable, err = resolver(i.Paths.Home, os.Getenv("PATH"))
+		if err := codex.VerifyExecutableSpec(spec); err != nil {
+			return codex.ExecutableSpec{}, err
+		}
+		return spec, nil
+	}
+	if persistedExists && persisted.CodexExecutable != "" {
+		spec := codex.ExecutableSpec{Path: persisted.CodexExecutable, SpawnPath: append([]string(nil), persisted.CodexSpawnPath...)}
+		if len(spec.SpawnPath) == 0 {
+			derived, err := codex.DeriveExecutableSpec(i.Paths.Home, spec.Path, pathValue)
+			if err == nil {
+				spec = derived
+			}
+		}
+		if err := codex.VerifyExecutableSpec(spec); err == nil {
+			return spec, nil
+		}
+	}
+	if i.ResolveCodexExecutableSpec != nil {
+		spec, err := i.ResolveCodexExecutableSpec(i.Paths.Home, pathValue)
 		if err != nil {
-			return "", err
+			return codex.ExecutableSpec{}, err
 		}
+		if err := codex.VerifyExecutableSpec(spec); err != nil {
+			return codex.ExecutableSpec{}, err
+		}
+		return spec, nil
 	}
-	if err := codex.ValidateExecutable(executable); err != nil {
-		return "", err
+	if i.ResolveCodexExecutable != nil {
+		executable, err := i.ResolveCodexExecutable(i.Paths.Home, pathValue)
+		if err != nil {
+			return codex.ExecutableSpec{}, err
+		}
+		spec, err := codex.DeriveExecutableSpec(i.Paths.Home, executable, pathValue)
+		if err != nil {
+			return codex.ExecutableSpec{}, err
+		}
+		if err := codex.VerifyExecutableSpec(spec); err != nil {
+			return codex.ExecutableSpec{}, err
+		}
+		return spec, nil
 	}
-	return executable, nil
+	return codex.ResolveExecutableSpec(i.Paths.Home, pathValue)
 }
 
 func (i Installer) validate() error {
@@ -698,7 +740,7 @@ type SelfTestInput struct {
 
 type SelfTestProbe interface {
 	Platform() (string, string, int)
-	ValidateCodex(context.Context, string, string) error
+	ValidateCodex(context.Context, string, codex.ExecutableSpec) error
 }
 
 type CoreSelfTester struct {
@@ -714,7 +756,7 @@ func (s CoreSelfTester) Test(ctx context.Context, input SelfTestInput) error {
 	if platform != "darwin" || major < 12 || architecture != "arm64" && architecture != "amd64" {
 		return fmt.Errorf("unsupported platform %s/%s", platform, architecture)
 	}
-	if err := s.Probe.ValidateCodex(ctx, input.Paths.CodexHome, input.Config.CodexExecutable); err != nil {
+	if err := s.Probe.ValidateCodex(ctx, input.Paths.CodexHome, codex.ExecutableSpec{Path: input.Config.CodexExecutable, SpawnPath: input.Config.CodexSpawnPath}); err != nil {
 		return fmt.Errorf("Codex validation: %w", err)
 	}
 	if err := input.Config.Validate(); err != nil {
@@ -737,7 +779,7 @@ func (s CoreSelfTester) Test(ctx context.Context, input SelfTestInput) error {
 		if err := persistedConfig.Validate(); err != nil {
 			return fmt.Errorf("persisted config validation: %w", err)
 		}
-		if persistedConfig != input.Config {
+		if !reflect.DeepEqual(persistedConfig, input.Config) {
 			return errors.New("persisted config does not match staged config")
 		}
 		persistedState, err := s.Store.LoadState()
@@ -830,8 +872,8 @@ func (RuntimeProbe) Platform() (string, string, int) {
 	return runtime.GOOS, runtime.GOARCH, major
 }
 
-func (RuntimeProbe) ValidateCodex(_ context.Context, codexHome, executable string) error {
-	if err := codex.ValidateExecutable(executable); err != nil {
+func (RuntimeProbe) ValidateCodex(_ context.Context, codexHome string, spec codex.ExecutableSpec) error {
+	if err := codex.VerifyExecutableSpec(spec); err != nil {
 		return err
 	}
 	info, err := os.Stat(codexHome)
