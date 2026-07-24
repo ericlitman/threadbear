@@ -249,35 +249,36 @@ type responseValidationError struct {
 }
 
 func finalAssistantText(items []appserver.TurnItem) (string, *batchDiagnostic) {
-	if len(items) == 0 {
+	var final *appserver.TurnItem
+	for index := range items {
+		item := &items[index]
+		switch item.Type {
+		case "reasoning":
+			continue
+		case "agentMessage", "agent_message":
+			if final != nil {
+				return "", &batchDiagnostic{Code: "unexpected_output_item", Message: "classifier batch must contain exactly one final assistant item", OffendingItem: safeItemName(final.Type)}
+			}
+			if item.Phase != "final_answer" && item.Phase != "finalAnswer" {
+				return "", &batchDiagnostic{Code: "unexpected_output_item", Message: "classifier assistant item was not final", OffendingItem: safeItemName(item.Type)}
+			}
+			final = item
+		default:
+			return "", &batchDiagnostic{Code: "unexpected_output_item", Message: "classifier batch contained a disallowed output item type", OffendingItem: safeItemName(item.Type)}
+		}
+	}
+	if final == nil {
 		return "", &batchDiagnostic{Code: "unexpected_output_item", Message: "classifier batch contained no final assistant item"}
 	}
-	if len(items) != 1 {
-		offendingItem := items[0].Type
-		for _, item := range items {
-			if item.Type != "agentMessage" && item.Type != "agent_message" {
-				offendingItem = item.Type
-				break
-			}
-		}
-		return "", &batchDiagnostic{Code: "unexpected_output_item", Message: "classifier batch must contain exactly one final assistant item", OffendingItem: safeItemName(offendingItem)}
-	}
-	item := items[0]
-	if item.Type != "agentMessage" && item.Type != "agent_message" {
-		return "", &batchDiagnostic{Code: "unexpected_output_item", Message: "classifier batch contained a disallowed output item type", OffendingItem: safeItemName(item.Type)}
-	}
-	if item.Phase != "final_answer" && item.Phase != "finalAnswer" {
-		return "", &batchDiagnostic{Code: "unexpected_output_item", Message: "classifier assistant item was not final", OffendingItem: safeItemName(item.Type)}
-	}
-	text := item.Text
-	if text != "" && len(item.Content) > 0 && !bytes.Equal(item.Content, []byte("null")) {
-		return "", &batchDiagnostic{Code: "malformed_classifier_response", Message: "classifier final assistant item used ambiguous content fields", OffendingItem: safeItemName(item.Type)}
+	text := final.Text
+	if text != "" && len(final.Content) > 0 && !bytes.Equal(final.Content, []byte("null")) {
+		return "", &batchDiagnostic{Code: "malformed_classifier_response", Message: "classifier final assistant item used ambiguous content fields", OffendingItem: safeItemName(final.Type)}
 	}
 	if text == "" {
-		text = contentText(item.Content)
+		text = contentText(final.Content)
 	}
 	if strings.TrimSpace(text) == "" {
-		return "", &batchDiagnostic{Code: "malformed_classifier_response", Message: "classifier final assistant item was empty", OffendingItem: safeItemName(item.Type)}
+		return "", &batchDiagnostic{Code: "malformed_classifier_response", Message: "classifier final assistant item was empty", OffendingItem: safeItemName(final.Type)}
 	}
 	return text, nil
 }

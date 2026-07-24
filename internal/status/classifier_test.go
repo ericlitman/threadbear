@@ -228,6 +228,46 @@ func TestClassifierOutputItemAllowlistRejectsWholeBatchWithoutPayload(t *testing
 	}
 }
 
+func TestClassifierAllowsReasoningAroundFinalAssistant(t *testing.T) {
+	task := TaskEvidence{TaskID: "task-a", Revision: "rev-a", Latest: TurnEvidence{User: "a", FinalAgent: "a"}}
+	runner := &fakeEphemeralRunner{run: func(_ int, _ appserver.EphemeralRequest) (appserver.EphemeralResult, error) {
+		result := successfulEphemeral(responseText([]classifierWireItem{{TaskID: task.TaskID, TaskRevision: task.Revision, State: state.StatusComplete, DurableSubject: "Task A"}}))
+		result.Turn.Items = []appserver.TurnItem{
+			{Type: "reasoning", Phase: "SECRET PHASE", Text: "SECRET BEFORE", Content: json.RawMessage(`not-json-before`)},
+			result.Turn.Items[0],
+			{Type: "reasoning", Phase: "SECRET PHASE", Text: "SECRET AFTER", Content: json.RawMessage(`not-json-after`)},
+		}
+		return result, nil
+	}}
+	result := newTestClassifier(t, runner, 1<<20, "model", "medium").Classify(context.Background(), []TaskEvidence{task})[0]
+	if result.Status != state.StatusComplete || result.Diagnostic != nil {
+		t.Fatalf("result=%+v", result)
+	}
+}
+
+func TestClassifierRejectsToolAmongReasoningWithoutPayload(t *testing.T) {
+	const secret = "TOP SECRET TOOL PAYLOAD"
+	task := TaskEvidence{TaskID: "task-a", Revision: "rev-a", Latest: TurnEvidence{User: "a", FinalAgent: "a"}}
+	runner := &fakeEphemeralRunner{run: func(_ int, _ appserver.EphemeralRequest) (appserver.EphemeralResult, error) {
+		result := successfulEphemeral("unused")
+		result.Turn.Items = []appserver.TurnItem{
+			{Type: "reasoning", Text: "ignored reasoning"},
+			{Type: "mcp/toolCall", Phase: secret, Text: secret, Content: json.RawMessage(`"TOP SECRET TOOL PAYLOAD"`)},
+			{Type: "reasoning", Text: "ignored reasoning"},
+			{Type: "agentMessage", Phase: "final_answer", Text: "{}"},
+		}
+		return result, nil
+	}}
+	result := newTestClassifier(t, runner, 1<<20, "model", "medium").Classify(context.Background(), []TaskEvidence{task})[0]
+	encoded, err := json.Marshal(result)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Diagnostic == nil || result.Diagnostic.Code != "unexpected_output_item" || result.Diagnostic.OffendingItem != "mcp/toolCall" || strings.Contains(string(encoded), secret) {
+		t.Fatalf("result=%s", encoded)
+	}
+}
+
 func TestClassifierObservedToolItemOutranksControlAndTurnFailures(t *testing.T) {
 	task := TaskEvidence{TaskID: "task-a", Revision: "rev-a", Latest: TurnEvidence{User: "a", FinalAgent: "a"}}
 	runner := &fakeEphemeralRunner{run: func(_ int, _ appserver.EphemeralRequest) (appserver.EphemeralResult, error) {

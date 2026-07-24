@@ -129,18 +129,29 @@ func PackTasks(tasks []TaskEvidence, contextBudgetBytes int, includePrevious boo
 	return batches, oversized, nil
 }
 
+// Review ruling: bound exact packing by nodes and use the initial greedy grouping on exhaustion.
+const exactPackingNodeLimit = 2048
+
 func minimumBatchGroups(candidates []packingCandidate, capacity int) [][]TaskEvidence {
 	if len(candidates) == 0 {
 		return nil
 	}
-	best := greedyBatchGroups(candidates, capacity)
+	greedy := greedyBatchGroups(candidates, capacity)
+	best := greedy
 	remainingWeight := make([]int, len(candidates)+1)
 	for index := len(candidates) - 1; index >= 0; index-- {
 		remainingWeight[index] = remainingWeight[index+1] + candidates[index].weight
 	}
 	visited := make(map[string]struct{})
+	nodes := 0
+	exhausted := false
 	var search func(int, []packingGroup, int)
 	search = func(candidateIndex int, groups []packingGroup, assignedWeight int) {
+		nodes++
+		if nodes > exactPackingNodeLimit {
+			exhausted = true
+			return
+		}
 		if candidateIndex == len(candidates) {
 			best = clonePackingGroups(groups)
 			return
@@ -168,6 +179,9 @@ func minimumBatchGroups(candidates []packingCandidate, capacity int) [][]TaskEvi
 			search(candidateIndex+1, groups, assignedWeight+candidate.weight)
 			groups[index].load -= candidate.weight
 			groups[index].tasks = groups[index].tasks[:len(groups[index].tasks)-1]
+			if exhausted {
+				return
+			}
 		}
 		if len(groups)+1 < len(best) {
 			groups = append(groups, packingGroup{tasks: []TaskEvidence{candidate.task}, load: candidate.weight})
@@ -175,27 +189,28 @@ func minimumBatchGroups(candidates []packingCandidate, capacity int) [][]TaskEvi
 		}
 	}
 	search(0, nil, 0)
+	if exhausted {
+		return greedy
+	}
 	return best
 }
 
 func greedyBatchGroups(candidates []packingCandidate, capacity int) [][]TaskEvidence {
 	groups := make([]packingGroup, 0)
 	for _, candidate := range candidates {
-		best := -1
-		bestRemaining := capacity + 1
+		placed := false
 		for index := range groups {
-			remaining := capacity - groups[index].load - candidate.weight
-			if remaining >= 0 && remaining < bestRemaining {
-				best = index
-				bestRemaining = remaining
+			if groups[index].load+candidate.weight > capacity {
+				continue
 			}
+			groups[index].tasks = append(groups[index].tasks, candidate.task)
+			groups[index].load += candidate.weight
+			placed = true
+			break
 		}
-		if best < 0 {
+		if !placed {
 			groups = append(groups, packingGroup{tasks: []TaskEvidence{candidate.task}, load: candidate.weight})
-			continue
 		}
-		groups[best].tasks = append(groups[best].tasks, candidate.task)
-		groups[best].load += candidate.weight
 	}
 	return clonePackingGroups(groups)
 }

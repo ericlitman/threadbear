@@ -3,6 +3,7 @@ package status
 import (
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestPackBoundaryAndOversized(t *testing.T) {
@@ -65,6 +66,53 @@ func TestPackSplitsWithoutTaskCapOrOmission(t *testing.T) {
 	for _, batch := range batches {
 		if batch.SizeBytes > maxSingle+350 {
 			t.Fatalf("batch size %d exceeds budget", batch.SizeBytes)
+		}
+		for _, task := range batch.Tasks {
+			seen[task.TaskID]++
+		}
+	}
+	if len(seen) != len(tasks) {
+		t.Fatalf("packed %d of %d tasks", len(seen), len(tasks))
+	}
+	for _, task := range tasks {
+		if seen[task.TaskID] != 1 {
+			t.Fatalf("task %s packed %d times", task.TaskID, seen[task.TaskID])
+		}
+	}
+}
+
+func TestPackMixedWeightsCompletesPromptlyWithoutDroppingTasks(t *testing.T) {
+	lengths := []int{37, 552, 928, 647, 969, 712, 346, 81, 433, 875}
+	tasks := make([]TaskEvidence, 40)
+	maxSingle := 0
+	for index := range tasks {
+		length := lengths[index%len(lengths)] + index*3
+		tasks[index] = TaskEvidence{TaskID: "task-" + twoDigits(index), Revision: "rev-" + twoDigits(index), Latest: TurnEvidence{User: strings.Repeat("u", index%17), FinalAgent: strings.Repeat("x", length)}}
+		size, err := PayloadSize([]TaskEvidence{tasks[index]}, false)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if size > maxSingle {
+			maxSingle = size
+		}
+	}
+	budget := maxSingle + 1800
+	started := time.Now()
+	batches, oversized, err := PackTasks(tasks, budget, false)
+	elapsed := time.Since(started)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if elapsed > 500*time.Millisecond {
+		t.Fatalf("packing took %s", elapsed)
+	}
+	if len(oversized) != 0 {
+		t.Fatalf("oversized=%d", len(oversized))
+	}
+	seen := make(map[string]int, len(tasks))
+	for _, batch := range batches {
+		if batch.SizeBytes > budget {
+			t.Fatalf("batch size %d exceeds budget %d", batch.SizeBytes, budget)
 		}
 		for _, task := range batch.Tasks {
 			seen[task.TaskID]++
