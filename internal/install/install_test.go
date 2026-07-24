@@ -194,10 +194,22 @@ type bytesLegacy []byte
 
 func (b bytesLegacy) Load(string) ([]byte, error) { return b, nil }
 
+func testCodexExecutable(t *testing.T, home string) string {
+	t.Helper()
+	path := filepath.Join(home, "bin", "codex")
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte("#!/bin/sh\n"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	return path
+}
+
 func newInstaller(t *testing.T, store *fakeStore, scheduler *fakeScheduler, tasks *fakeTasks, prompt Prompter) Installer {
 	t.Helper()
 	paths := PathsForHome(t.TempDir())
-	return Installer{Paths: paths, Store: store, Scheduler: scheduler, ControlTasks: tasks, Binary: &fakeBinary{}, SelfTester: &fakeSelfTest{}, Legacy: missingLegacy{}, Prompter: prompt}
+	return Installer{Paths: paths, Store: store, Scheduler: scheduler, ControlTasks: tasks, Binary: &fakeBinary{}, SelfTester: &fakeSelfTest{}, Legacy: missingLegacy{}, Prompter: prompt, CodexExecutable: testCodexExecutable(t, paths.Home)}
 }
 
 func TestPathsForHome(t *testing.T) {
@@ -211,6 +223,15 @@ func TestPathsForHome(t *testing.T) {
 	got := map[string]string{"binary": p.Binary, "state": p.StateDirectory, "agents": p.Agents, "skill": p.Skill, "launch": p.LaunchAgent}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("paths=%v", got)
+	}
+}
+
+func TestPathsForHomesUsesResolvedCodexHome(t *testing.T) {
+	home := "/tmp/threadbear-home"
+	codexHome := "/tmp/threadbear-codex"
+	paths := PathsForHomes(home, codexHome)
+	if paths.CodexHome != codexHome || paths.Agents != codexHome+"/AGENTS.md" || paths.Skill != codexHome+"/skills/threadbear/SKILL.md" {
+		t.Fatalf("paths=%+v", paths)
 	}
 }
 
@@ -308,6 +329,19 @@ func TestReinstallAdoptsExistingControlTaskAndState(t *testing.T) {
 	}
 }
 
+func TestReinstallBackfillsCodexExecutable(t *testing.T) {
+	cfg := config.Default("control-existing")
+	store := &fakeStore{config: cfg, state: state.New(), configExists: true, stateExists: true}
+	installer := newInstaller(t, store, &fakeScheduler{}, &fakeTasks{}, nil)
+	result, err := installer.Install(context.Background(), InstallRequest{NonInteractive: true, Confirm: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.Reinstalled || result.Config.CodexExecutable != installer.CodexExecutable || store.config.CodexExecutable != installer.CodexExecutable || store.saveConfig != 1 {
+		t.Fatalf("result=%+v store=%+v", result, store)
+	}
+}
+
 func TestMigrationUsesDetectedInterval(t *testing.T) {
 	legacy := bytesLegacy(`{"schemaVersion":1,"controllerThreadId":"control-old","cycleCompletedAtMs":1700000000000,"retryIds":[],"threads":{}}`)
 	store := &fakeStore{}
@@ -395,7 +429,10 @@ func TestNoOpReinstallReportsUnchanged(t *testing.T) {
 	cfg := config.Default("control-existing")
 	committed := state.New()
 	store := &fakeStore{config: cfg, state: committed, exists: true, configExists: true, stateExists: true}
-	installer := Installer{Paths: paths, Store: store, Scheduler: &fakeScheduler{}, ControlTasks: &fakeTasks{}, Binary: FileBinaryInstaller{Source: source}, SelfTester: &fakeSelfTest{}, Legacy: missingLegacy{}}
+	codexExecutable := testCodexExecutable(t, home)
+	cfg.CodexExecutable = codexExecutable
+	store.config = cfg
+	installer := Installer{Paths: paths, Store: store, Scheduler: &fakeScheduler{}, ControlTasks: &fakeTasks{}, Binary: FileBinaryInstaller{Source: source}, SelfTester: &fakeSelfTest{}, Legacy: missingLegacy{}, CodexExecutable: codexExecutable}
 	result, err := installer.Install(context.Background(), InstallRequest{NonInteractive: true, Confirm: true})
 	if err != nil {
 		t.Fatal(err)
@@ -435,16 +472,28 @@ func TestNoninteractiveInstallPublishesPreviewBeforeMutation(t *testing.T) {
 }
 
 type selfTestProbeFake struct {
-	major int
-	err   error
+	major      int
+	err        error
+	codexHome  *string
+	executable *string
 }
 
-func (p selfTestProbeFake) Platform() (string, string, int)             { return "darwin", "arm64", p.major }
-func (p selfTestProbeFake) ValidateCodex(context.Context, string) error { return p.err }
+func (p selfTestProbeFake) Platform() (string, string, int) { return "darwin", "arm64", p.major }
+func (p selfTestProbeFake) ValidateCodex(_ context.Context, codexHome, executable string) error {
+	if p.codexHome != nil {
+		*p.codexHome = codexHome
+	}
+	if p.executable != nil {
+		*p.executable = executable
+	}
+	return p.err
+}
 
 func TestCoreSelfTestRequiresSupportedHealthyPrivateSurfacesWithoutStateMutation(t *testing.T) {
-	paths := PathsForHome(t.TempDir())
+	home := t.TempDir()
+	paths := PathsForHomes(home, filepath.Join(home, "custom-codex"))
 	cfg := config.Default("control")
+	cfg.CodexExecutable = testCodexExecutable(t, paths.Home)
 	committed := state.New()
 	store := &fakeStore{config: cfg, state: committed, exists: true, configExists: true, stateExists: true}
 	for _, directory := range []string{paths.StateDirectory, filepath.Dir(paths.Binary)} {
@@ -452,7 +501,7 @@ func TestCoreSelfTestRequiresSupportedHealthyPrivateSurfacesWithoutStateMutation
 			t.Fatal(err)
 		}
 	}
-	if err := os.MkdirAll(filepath.Join(paths.Home, ".codex"), 0o700); err != nil {
+	if err := os.MkdirAll(paths.CodexHome, 0o700); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(paths.Binary, []byte("binary"), 0o700); err != nil {
@@ -471,9 +520,13 @@ func TestCoreSelfTestRequiresSupportedHealthyPrivateSurfacesWithoutStateMutation
 	if err := os.WriteFile(paths.LaunchAgent, []byte(plist), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	tester := CoreSelfTester{Probe: selfTestProbeFake{major: 12}, Store: store}
+	var probedHome, probedExecutable string
+	tester := CoreSelfTester{Probe: selfTestProbeFake{major: 12, codexHome: &probedHome, executable: &probedExecutable}, Store: store}
 	if err := tester.Test(context.Background(), SelfTestInput{Paths: paths, Config: cfg, State: committed}); err != nil {
 		t.Fatal(err)
+	}
+	if probedHome != paths.CodexHome || probedExecutable != cfg.CodexExecutable {
+		t.Fatalf("probe home=%q executable=%q", probedHome, probedExecutable)
 	}
 	if store.saveConfig != 0 || store.saveState != 0 {
 		t.Fatalf("self-test mutated store: %+v", store)
@@ -533,7 +586,10 @@ func TestControlTaskMutationMakesReinstallChanged(t *testing.T) {
 	cfg := config.Default("control-existing")
 	committed := state.New()
 	store := &fakeStore{config: cfg, state: committed, configExists: true, stateExists: true}
-	installer := Installer{Paths: paths, Store: store, Scheduler: &fakeScheduler{}, ControlTasks: &fakeTasks{ensureChanged: true}, Binary: FileBinaryInstaller{Source: source}, SelfTester: &fakeSelfTest{}, Legacy: missingLegacy{}}
+	codexExecutable := testCodexExecutable(t, home)
+	cfg.CodexExecutable = codexExecutable
+	store.config = cfg
+	installer := Installer{Paths: paths, Store: store, Scheduler: &fakeScheduler{}, ControlTasks: &fakeTasks{ensureChanged: true}, Binary: FileBinaryInstaller{Source: source}, SelfTester: &fakeSelfTest{}, Legacy: missingLegacy{}, CodexExecutable: codexExecutable}
 	result, err := installer.Install(context.Background(), InstallRequest{NonInteractive: true, Confirm: true})
 	if err != nil {
 		t.Fatal(err)
@@ -573,5 +629,38 @@ func TestInstallUsesOnlyExplicitTempHome(t *testing.T) {
 	}
 	if len(entries) != 1 || entries[0].Name() != "keep" {
 		t.Fatalf("ambient HOME mutated: %v", entries)
+	}
+}
+
+func TestInstallMissingCodexFailsBeforeMutation(t *testing.T) {
+	home := t.TempDir()
+	paths := PathsForHome(home)
+	store := NewDiskStore(paths)
+	installer := Installer{Paths: paths, Store: store, Scheduler: &fakeScheduler{}, ControlTasks: &fakeTasks{}, Binary: &fakeBinary{}, SelfTester: &fakeSelfTest{}, Legacy: missingLegacy{}, ResolveCodexExecutable: func(string, string) (string, error) {
+		return "", errors.New("Codex executable not found; install the Codex CLI")
+	}}
+	_, err := installer.Install(context.Background(), InstallRequest{NonInteractive: true, Confirm: true})
+	var failure *InstallFailure
+	if !errors.As(err, &failure) || failure.Step != "resolve_codex_executable" {
+		t.Fatalf("error=%v failure=%+v", err, failure)
+	}
+	if _, statErr := os.Stat(paths.StateDirectory); !errors.Is(statErr, os.ErrNotExist) {
+		t.Fatalf("state directory created: %v", statErr)
+	}
+}
+
+func TestInstallPostLockFailureRetainsStateDirectoryAndLockFile(t *testing.T) {
+	home := t.TempDir()
+	paths := PathsForHome(home)
+	codexExecutable := testCodexExecutable(t, home)
+	installer := Installer{Paths: paths, Store: NewDiskStore(paths), Scheduler: &fakeScheduler{}, ControlTasks: &fakeTasks{failAfterCreate: errors.New("title failed")}, Binary: &fakeBinary{}, SelfTester: &fakeSelfTest{}, Legacy: missingLegacy{}, CodexExecutable: codexExecutable}
+	_, err := installer.Install(context.Background(), InstallRequest{NonInteractive: true, Confirm: true})
+	if err == nil {
+		t.Fatal("expected failure")
+	}
+	for _, path := range []string{paths.StateDirectory, filepath.Join(paths.StateDirectory, "threadbear.lock")} {
+		if _, statErr := os.Stat(path); statErr != nil {
+			t.Fatalf("retained recovery path %s: %v", path, statErr)
+		}
 	}
 }

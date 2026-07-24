@@ -87,3 +87,29 @@ func TestFinalActionDoesNotRepeatPreview(t *testing.T) {
 		t.Fatalf("final action repeated preview: %q", human.String())
 	}
 }
+
+func TestInstallErrorStepCauseHumanJSONParity(t *testing.T) {
+	result := ErrorResult{Operation: "install", ErrorCode: "install_failed", Step: "resolve_codex_executable", Cause: "install the Codex CLI"}
+	var human, machine bytes.Buffer
+	if err := Write(&human, FormatHuman, result); err != nil {
+		t.Fatal(err)
+	}
+	if err := Write(&machine, FormatJSON, result); err != nil {
+		t.Fatal(err)
+	}
+	for _, fact := range []string{result.Step, result.Cause} {
+		if !strings.Contains(human.String(), fact) || !strings.Contains(machine.String(), fact) {
+			t.Fatalf("missing %q human=%q json=%q", fact, human.String(), machine.String())
+		}
+	}
+	for _, invalid := range []ErrorResult{
+		{Operation: "install", ErrorCode: "install_failed", Step: "resolve_codex_executable"},
+		{Operation: "install", ErrorCode: "install_failed", Cause: "missing"},
+		{Operation: "install", ErrorCode: "install_failed", Step: "Not Stable", Cause: "missing"},
+	} {
+		var buffer bytes.Buffer
+		if err := Write(&buffer, FormatJSON, invalid); err == nil {
+			t.Fatalf("accepted %+v", invalid)
+		}
+	}
+}

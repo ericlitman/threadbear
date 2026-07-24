@@ -27,6 +27,17 @@ func DefaultProcessSpec(codexHome string) ProcessSpec {
 	}
 	return ProcessSpec{Path: "codex", Env: []string{"CODEX_HOME=" + codexHome, "HOME=" + home, "LC_ALL=C", "PATH=/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin", "TMPDIR=" + os.TempDir()}}
 }
+
+func PinnedProcessSpec(executable, codexHome, home string) (ProcessSpec, error) {
+	if !filepath.IsAbs(executable) {
+		return ProcessSpec{}, errors.New("App Server executable must be absolute")
+	}
+	if !filepath.IsAbs(codexHome) || !filepath.IsAbs(home) {
+		return ProcessSpec{}, errors.New("App Server homes must be absolute")
+	}
+	return ProcessSpec{Path: executable, Env: []string{"CODEX_HOME=" + codexHome, "HOME=" + home, "LC_ALL=C", "PATH=/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin", "TMPDIR=" + os.TempDir()}}, nil
+}
+
 func (s ProcessSpec) command(ctx context.Context, arguments ...string) (*exec.Cmd, error) {
 	if strings.TrimSpace(s.Path) == "" {
 		return nil, errors.New("App Server executable is required")

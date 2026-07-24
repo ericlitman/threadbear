@@ -31,6 +31,7 @@ import (
 )
 
 var version = "dev"
+var resolveCodexExecutable = codex.ResolveExecutable
 
 func main() {
 	os.Exit(run(context.Background(), os.Args[1:], os.Stdout, os.Stderr))
@@ -79,12 +80,17 @@ func newOperatorService(installedVersion string, stdout, stderr io.Writer, forma
 	if err != nil {
 		return nil, func() {}, err
 	}
-	paths := install.PathsForHome(home)
+	codexHome, err := codex.ResolveCodexHome()
+	if err != nil {
+		return nil, func() {}, err
+	}
+	paths := install.PathsForHomes(home, codexHome)
 	store := state.NewStore(paths.StateDirectory)
-	inventory := &lazyInventory{}
+	inventory := &lazyInventory{codexHome: codexHome}
+	appServers := appServerRuntime{store: store, home: home, codexHome: codexHome}
 	clock := systemClock{}
 	launch, err := launchagent.New(launchagent.Options{
-		Home: home, BinaryPath: paths.Binary, PlistPath: paths.LaunchAgent,
+		Home: home, CodexHome: codexHome, BinaryPath: paths.Binary, PlistPath: paths.LaunchAgent,
 		StdoutPath: paths.LaunchAgentStdout, StderrPath: paths.LaunchAgentStderr,
 		LegacyPlistPath: paths.LegacyLaunchAgent, LegacyLockPath: paths.LegacyRunLock,
 	})
@@ -92,7 +98,7 @@ func newOperatorService(installedVersion string, stdout, stderr io.Writer, forma
 		return nil, func() {}, err
 	}
 	runner, err := watch.New(watch.Dependencies{
-		Store: store, Inventory: inventory, AppServer: appServerFactory{}, Clock: clock,
+		Store: store, Inventory: inventory, AppServer: appServerFactory{runtime: appServers}, Clock: clock,
 		InstalledVersion: installedVersion, NewCycleID: newCycleID, UpdateChecker: currentVersionChecker{},
 		NewClassifier: func(client watch.AppServer, cfg config.Config) (watch.Classifier, error) {
 			runner, ok := client.(statusresolver.EphemeralRunner)
@@ -111,12 +117,19 @@ func newOperatorService(installedVersion string, stdout, stderr io.Writer, forma
 	}
 	diskStore := install.NewDiskStore(paths)
 	scheduler := productionScheduler{adapter: launch}
-	controlTasks := appServerControlTasks{}
 	installFactory := func(interactive bool) (install.Installer, func() error, error) {
+		codexExecutable, resolveErr := resolveCodexExecutable(home, os.Getenv("PATH"))
+		if resolveErr != nil {
+			return install.Installer{}, func() error { return nil }, install.Fail("resolve_codex_executable", resolveErr)
+		}
+		controlTasks := appServerControlTasks{open: func(ctx context.Context) (*appserver.Client, error) {
+			return openAppServerPinned(ctx, codexExecutable, codexHome, home)
+		}}
 		installer := install.Installer{
 			Paths: paths, Store: diskStore, Scheduler: scheduler, ControlTasks: controlTasks,
-			Binary:     install.FileBinaryInstaller{Source: executable},
-			SelfTester: install.CoreSelfTester{Probe: install.RuntimeProbe{}, Store: diskStore},
+			Binary:          install.FileBinaryInstaller{Source: executable},
+			SelfTester:      install.CoreSelfTester{Probe: install.RuntimeProbe{}, Store: diskStore},
+			CodexExecutable: codexExecutable,
 		}
 		if !interactive {
 			installer.Previewer = func(preview install.Preview) error {
@@ -132,7 +145,7 @@ func newOperatorService(installedVersion string, stdout, stderr io.Writer, forma
 		return installer, prompter.Close, nil
 	}
 	uninstallFactory := func(interactive bool) (install.Uninstaller, func() error, error) {
-		uninstaller := install.Uninstaller{Paths: paths, Store: diskStore, Scheduler: scheduler, ControlTasks: controlTasks}
+		uninstaller := install.Uninstaller{Paths: paths, Store: diskStore, Scheduler: scheduler, ControlTasks: appServerControlTasks{open: appServers.open}}
 		if !interactive {
 			uninstaller.Previewer = func(preview install.Preview) error {
 				return output.Write(stderr, format, output.PreviewResult{Command: "uninstall", Effects: []string{"agents", "binary", "control_task", "launchagent", "skill", "state"}, Details: preview.Lines})
@@ -148,7 +161,7 @@ func newOperatorService(installedVersion string, stdout, stderr io.Writer, forma
 	}
 	service := app.NewWithOperatorCommands(installedVersion, app.OperatorDependencies{
 		Store: store, Inventory: inventory, Clock: clock, LaunchAgent: launch,
-		ManagedAgents: managedAgents{path: paths.Agents}, Unarchiver: appServerUnarchiver{}, Heartbeat: runner,
+		ManagedAgents: managedAgents{path: paths.Agents}, Unarchiver: appServerUnarchiver{runtime: appServers}, Heartbeat: runner,
 		Preview: func(preview output.PreviewResult) error {
 			if request.NonInteractive {
 				return output.Write(stderr, format, preview)
@@ -181,15 +194,20 @@ func resolveStateDirectory() (string, error) {
 }
 
 type lazyInventory struct {
-	mu    sync.Mutex
-	index *codex.Index
+	mu        sync.Mutex
+	index     *codex.Index
+	codexHome string
 }
 
 func (i *lazyInventory) Inventory(ctx context.Context, controlTaskID string) (codex.Inventory, error) {
 	i.mu.Lock()
 	defer i.mu.Unlock()
 	if i.index == nil {
-		index, err := codex.OpenDefaultIndex()
+		sqliteHome, err := codex.ResolveSQLiteHome(i.codexHome)
+		if err != nil {
+			return codex.Inventory{}, err
+		}
+		index, err := codex.OpenIndex(sqliteHome)
 		if err != nil {
 			return codex.Inventory{}, err
 		}
@@ -213,10 +231,46 @@ type systemClock struct{}
 
 func (systemClock) Now() time.Time { return time.Now() }
 
-type appServerFactory struct{}
+type appServerRuntime struct {
+	store     interface{ LoadConfig() (config.Config, error) }
+	home      string
+	codexHome string
+}
 
-func (appServerFactory) Open(ctx context.Context) (watch.AppServer, error) {
-	return openAppServer(ctx)
+func (r appServerRuntime) process() (appserver.ProcessSpec, error) {
+	cfg, err := r.store.LoadConfig()
+	if err != nil {
+		return appserver.ProcessSpec{}, err
+	}
+	executable := cfg.CodexExecutable
+	if executable == "" {
+		executable, err = resolveCodexExecutable(r.home, os.Getenv("PATH"))
+		if err != nil {
+			return appserver.ProcessSpec{}, err
+		}
+	}
+	if err := codex.ValidateExecutable(executable); err != nil {
+		return appserver.ProcessSpec{}, err
+	}
+	return appserver.PinnedProcessSpec(executable, r.codexHome, r.home)
+}
+
+func (r appServerRuntime) open(ctx context.Context) (*appserver.Client, error) {
+	process, err := r.process()
+	if err != nil {
+		return nil, err
+	}
+	capabilities, err := appserver.DiscoverCapabilities(ctx, process)
+	if err != nil {
+		return nil, err
+	}
+	return appserver.Start(ctx, process, capabilities)
+}
+
+type appServerFactory struct{ runtime appServerRuntime }
+
+func (f appServerFactory) Open(ctx context.Context) (watch.AppServer, error) {
+	return f.runtime.open(ctx)
 }
 
 type currentVersionChecker struct{}
@@ -233,10 +287,10 @@ func newCycleID() string {
 	return strconv.FormatInt(time.Now().UTC().UnixNano(), 10)
 }
 
-type appServerUnarchiver struct{}
+type appServerUnarchiver struct{ runtime appServerRuntime }
 
-func (appServerUnarchiver) Unarchive(ctx context.Context, taskID string) error {
-	client, err := openAppServer(ctx)
+func (u appServerUnarchiver) Unarchive(ctx context.Context, taskID string) error {
+	client, err := u.runtime.open(ctx)
 	if err != nil {
 		return err
 	}
@@ -244,12 +298,11 @@ func (appServerUnarchiver) Unarchive(ctx context.Context, taskID string) error {
 	return errors.Join(unarchiveErr, client.Close())
 }
 
-func openAppServer(ctx context.Context) (*appserver.Client, error) {
-	codexHome, err := codex.ResolveCodexHome()
+func openAppServerPinned(ctx context.Context, executable, codexHome, home string) (*appserver.Client, error) {
+	process, err := appserver.PinnedProcessSpec(executable, codexHome, home)
 	if err != nil {
 		return nil, err
 	}
-	process := appserver.DefaultProcessSpec(codexHome)
 	capabilities, err := appserver.DiscoverCapabilities(ctx, process)
 	if err != nil {
 		return nil, err
@@ -447,10 +500,12 @@ func (s productionScheduler) VerifyHealthy(ctx context.Context) error {
 }
 func (s productionScheduler) Remove(ctx context.Context) error { return s.adapter.Remove(ctx) }
 
-type appServerControlTasks struct{}
+type appServerControlTasks struct {
+	open func(context.Context) (*appserver.Client, error)
+}
 
-func (appServerControlTasks) EnsureControlTask(ctx context.Context, taskID string) (string, bool, error) {
-	client, err := openAppServer(ctx)
+func (a appServerControlTasks) EnsureControlTask(ctx context.Context, taskID string) (string, bool, error) {
+	client, err := a.open(ctx)
 	if err != nil {
 		return "", false, err
 	}
@@ -458,8 +513,8 @@ func (appServerControlTasks) EnsureControlTask(ctx context.Context, taskID strin
 	return ensuredID, changed, errors.Join(ensureErr, client.Close())
 }
 
-func (appServerControlTasks) ArchiveControlTask(ctx context.Context, taskID string) (bool, error) {
-	client, err := openAppServer(ctx)
+func (a appServerControlTasks) ArchiveControlTask(ctx context.Context, taskID string) (bool, error) {
+	client, err := a.open(ctx)
 	if err != nil {
 		return false, err
 	}
@@ -595,11 +650,24 @@ func (s runtimeSelfTest) Run(ctx context.Context, candidate bool) output.SelfTes
 		}
 	}
 	add("executable", err)
-	if _, codexErr := exec.LookPath("codex"); codexErr != nil {
-		add("codex_executable", codexErr)
+	codexExecutable := ""
+	var codexErr error
+	if candidate {
+		codexExecutable, codexErr = resolveCodexExecutable(s.paths.Home, os.Getenv("PATH"))
 	} else {
-		add("codex_executable", nil)
+		var cfg config.Config
+		cfg, codexErr = install.NewDiskStore(s.paths).LoadConfig()
+		if codexErr == nil {
+			codexExecutable = cfg.CodexExecutable
+			if codexExecutable == "" {
+				codexExecutable, codexErr = resolveCodexExecutable(s.paths.Home, os.Getenv("PATH"))
+			}
+		}
 	}
+	if codexErr == nil {
+		codexErr = codex.ValidateExecutable(codexExecutable)
+	}
+	add("codex_executable", codexErr)
 	if candidate {
 		ok := true
 		for _, check := range checks {
@@ -630,8 +698,7 @@ func (s runtimeSelfTest) Run(ctx context.Context, candidate bool) output.SelfTes
 		err = committed.Validate()
 	}
 	add("state", err)
-	codexHome := filepath.Join(s.paths.Home, ".codex")
-	info, err := os.Stat(codexHome)
+	info, err := os.Stat(s.paths.CodexHome)
 	if err == nil && !info.IsDir() {
 		err = errors.New("Codex home is not a directory")
 	}

@@ -688,3 +688,25 @@ func validateTurn(raw json.RawMessage) error {
 	}
 	return nil
 }
+
+func TestPinnedProcessSpecUsesAbsoluteExecutableIndependentOfEnvironmentPATH(t *testing.T) {
+	executable := filepath.Join(t.TempDir(), "codex")
+	if err := os.WriteFile(executable, []byte("#!/bin/sh\nexit 0\n"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	process, err := PinnedProcessSpec(executable, t.TempDir(), t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	process.Env = []string{"PATH=/definitely/missing", "HOME=/tmp", "CODEX_HOME=/tmp", "LC_ALL=C", "TMPDIR=/tmp"}
+	command, err := process.command(context.Background(), "--version")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if command.Path != executable {
+		t.Fatalf("command.Path=%q want %q", command.Path, executable)
+	}
+	if err := command.Run(); err != nil {
+		t.Fatal(err)
+	}
+}

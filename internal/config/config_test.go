@@ -317,3 +317,28 @@ func TestCLIUnknownCommandResult(t *testing.T) {
 		}
 	}
 }
+
+func TestConfigCodexExecutableIsOptionalForSchemaV1AndValidatedWhenPresent(t *testing.T) {
+	value := config.Default("control-123")
+	data, err := json.Marshal(value)
+	if err != nil {
+		t.Fatal(err)
+	}
+	decoded, err := config.Decode(data)
+	if err != nil || decoded.CodexExecutable != "" {
+		t.Fatalf("decoded=%+v err=%v", decoded, err)
+	}
+	value.CodexExecutable = "/opt/homebrew/bin/codex"
+	data, err = json.Marshal(value)
+	if err != nil {
+		t.Fatal(err)
+	}
+	decoded, err = config.Decode(data)
+	if err != nil || decoded.CodexExecutable != value.CodexExecutable {
+		t.Fatalf("decoded=%+v err=%v", decoded, err)
+	}
+	value.CodexExecutable = "relative/codex"
+	if err := value.Validate(); err == nil {
+		t.Fatal("relative codex executable accepted")
+	}
+}

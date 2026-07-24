@@ -9,18 +9,19 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"reflect"
 	"runtime"
 	"strconv"
 	"strings"
 
 	"github.com/ericlitman/threadbear/assets"
+	"github.com/ericlitman/threadbear/internal/codex"
 	"github.com/ericlitman/threadbear/internal/config"
 	"github.com/ericlitman/threadbear/internal/state"
 )
 
 type Paths struct {
 	Home                 string
+	CodexHome            string
 	Binary               string
 	StateDirectory       string
 	Config               string
@@ -37,15 +38,20 @@ type Paths struct {
 }
 
 func PathsForHome(home string) Paths {
+	return PathsForHomes(home, filepath.Join(home, ".codex"))
+}
+
+func PathsForHomes(home, codexHome string) Paths {
 	stateDirectory := filepath.Join(home, ".local", "share", "threadbear")
 	return Paths{
 		Home:                 home,
+		CodexHome:            codexHome,
 		Binary:               filepath.Join(home, ".local", "bin", "threadbear"),
 		StateDirectory:       stateDirectory,
 		Config:               filepath.Join(stateDirectory, "config.json"),
 		State:                filepath.Join(stateDirectory, "state.json"),
-		Agents:               filepath.Join(home, ".codex", "AGENTS.md"),
-		Skill:                filepath.Join(home, ".codex", "skills", "threadbear", "SKILL.md"),
+		Agents:               filepath.Join(codexHome, "AGENTS.md"),
+		Skill:                filepath.Join(codexHome, "skills", "threadbear", "SKILL.md"),
 		LaunchAgent:          filepath.Join(home, "Library", "LaunchAgents", config.LaunchAgentLabel+".plist"),
 		LaunchAgentStdout:    filepath.Join(stateDirectory, "logs", "heartbeat.stdout.log"),
 		LaunchAgentStderr:    filepath.Join(stateDirectory, "logs", "heartbeat.stderr.log"),
@@ -152,40 +158,133 @@ type InstallResult struct {
 	Resources   []string
 }
 
+type InstallFailure struct {
+	Step  string
+	Cause string
+	Err   error
+}
+
+func (e *InstallFailure) Error() string { return fmt.Sprintf("install %s: %s", e.Step, e.Cause) }
+func (e *InstallFailure) Unwrap() error { return e.Err }
+
+func Fail(step string, err error) error {
+	if err == nil {
+		return nil
+	}
+	return &InstallFailure{Step: step, Cause: err.Error(), Err: err}
+}
+
 type Installer struct {
-	Paths        Paths
-	Store        Store
-	Scheduler    Scheduler
-	ControlTasks ControlTasks
-	Binary       BinaryInstaller
-	SelfTester   SelfTester
-	Legacy       LegacyLoader
-	Prompter     Prompter
-	Previewer    func(Preview) error
+	Paths                  Paths
+	Store                  Store
+	Scheduler              Scheduler
+	ControlTasks           ControlTasks
+	Binary                 BinaryInstaller
+	SelfTester             SelfTester
+	Legacy                 LegacyLoader
+	Prompter               Prompter
+	Previewer              func(Preview) error
+	CodexExecutable        string
+	ResolveCodexExecutable func(string, string) (string, error)
 }
 
 func (i Installer) Install(ctx context.Context, request InstallRequest) (InstallResult, error) {
 	if err := i.validate(); err != nil {
-		return InstallResult{}, err
+		return InstallResult{}, Fail("validate", err)
+	}
+	if err := codex.ValidateExecutable(i.CodexExecutable); err != nil {
+		return InstallResult{}, Fail("resolve_codex_executable", err)
+	}
+	previewConfig, _, previewConfigExists, previewStateExists, err := loadExisting(i.Store)
+	if err != nil {
+		return InstallResult{}, Fail("load_preview_state", err)
+	}
+	previewPreferences := DefaultPreferences()
+	if previewConfigExists {
+		previewPreferences = preferencesFromConfig(previewConfig)
+	}
+	var selectedPreferences *Preferences
+	if request.Preferences != nil {
+		value := *request.Preferences
+		selectedPreferences = &value
+		previewPreferences = value
+	}
+	previewPreferences = applyPreferencePatch(previewPreferences, request.Patch)
+	if request.NonInteractive {
+		if !request.Confirm {
+			return InstallResult{}, Fail("confirmation", errors.New("noninteractive install requires confirm"))
+		}
+	} else {
+		if i.Prompter == nil {
+			return InstallResult{}, Fail("preferences", errors.New("interactive install requires a prompter"))
+		}
+		collected, collectErr := i.Prompter.Collect(previewPreferences)
+		if collectErr != nil {
+			return InstallResult{}, Fail("preferences", collectErr)
+		}
+		selectedPreferences = &collected
+		previewPreferences = collected
+	}
+	if err := previewPreferences.Validate(); err != nil {
+		return InstallResult{}, Fail("preferences", err)
+	}
+	migrationPreview := (!previewConfigExists || !previewStateExists) && migrationCandidate(i.Paths.LegacyState)
+	preview, err := installPreview(i.Paths, previewPreferences, previewConfigExists, migrationPreview)
+	if err != nil {
+		return InstallResult{}, Fail("preview", err)
+	}
+	if i.Prompter != nil {
+		if err := i.Prompter.ShowPreview(preview); err != nil {
+			return InstallResult{}, Fail("preview", err)
+		}
+	} else if i.Previewer != nil {
+		if err := i.Previewer(preview); err != nil {
+			return InstallResult{}, Fail("preview", err)
+		}
+	}
+	if !request.NonInteractive {
+		confirmed, confirmErr := i.Prompter.Confirm()
+		if confirmErr != nil {
+			return InstallResult{}, Fail("confirmation", confirmErr)
+		}
+		if !confirmed {
+			return InstallResult{}, ErrCancelled
+		}
+	}
+	lock, err := i.Store.AcquireLock()
+	if err != nil {
+		return InstallResult{}, Fail("acquire_lock", err)
+	}
+	lockHeld := true
+	defer func() {
+		if lockHeld {
+			_ = lock.Close()
+		}
+	}()
+	if err := i.Scheduler.StopLegacy(ctx); err != nil {
+		return InstallResult{}, Fail("stop_legacy_scheduler", err)
+	}
+	if err := i.Scheduler.VerifyLegacyStopped(ctx); err != nil {
+		return InstallResult{}, Fail("verify_legacy_stopped", err)
 	}
 	currentConfig, currentState, configExists, stateExists, err := loadExisting(i.Store)
 	if err != nil {
-		return InstallResult{}, err
+		return InstallResult{}, Fail("reload_existing", err)
 	}
 	preferences := DefaultPreferences()
 	controlTaskID := ""
-	migrated := false
 	if configExists {
 		preferences = preferencesFromConfig(currentConfig)
 		controlTaskID = currentConfig.ControlTaskID
 	}
-	migration := Migration{}
+	migrated := false
 	if !configExists || !stateExists {
-		migration, migrated, err = i.loadMigration(ctx)
-		if err != nil {
-			return InstallResult{}, err
+		migration, found, migrationErr := i.loadMigration(ctx)
+		if migrationErr != nil {
+			return InstallResult{}, Fail("load_migration", migrationErr)
 		}
-		if migrated {
+		migrated = found
+		if found {
 			if controlTaskID == "" {
 				controlTaskID = migration.ControlTaskID
 			}
@@ -200,152 +299,98 @@ func (i Installer) Install(ctx context.Context, request InstallRequest) (Install
 	if !stateExists && !migrated {
 		currentState = state.New()
 	}
-	if request.Preferences != nil {
-		preferences = *request.Preferences
+	if selectedPreferences != nil {
+		preferences = *selectedPreferences
 	}
 	preferences = applyPreferencePatch(preferences, request.Patch)
-	if request.NonInteractive {
-		if !request.Confirm {
-			return InstallResult{}, errors.New("noninteractive install requires confirm")
-		}
-	} else {
-		if i.Prompter == nil {
-			return InstallResult{}, errors.New("interactive install requires a prompter")
-		}
-		preferences, err = i.Prompter.Collect(preferences)
-		if err != nil {
-			return InstallResult{}, err
-		}
-	}
 	if err := preferences.Validate(); err != nil {
-		return InstallResult{}, err
+		return InstallResult{}, Fail("preferences", err)
 	}
-	preview, err := installPreview(i.Paths, preferences, configExists, migrated)
-	if err != nil {
-		return InstallResult{}, err
-	}
-	if i.Prompter != nil {
-		if err := i.Prompter.ShowPreview(preview); err != nil {
-			return InstallResult{}, err
-		}
-	} else if i.Previewer != nil {
-		if err := i.Previewer(preview); err != nil {
-			return InstallResult{}, err
-		}
-	}
-	if !request.NonInteractive {
-		confirmed, err := i.Prompter.Confirm()
-		if err != nil {
-			return InstallResult{}, err
-		}
-		if !confirmed {
-			return InstallResult{}, ErrCancelled
-		}
-	}
-	lock, err := i.Store.AcquireLock()
-	if err != nil {
-		return InstallResult{}, err
-	}
-	defer lock.Close()
 	if err := ValidateManagedFile(i.Paths.Agents); err != nil {
-		return InstallResult{}, fmt.Errorf("validate AGENTS.md: %w", err)
+		return InstallResult{}, Fail("validate_managed_files", fmt.Errorf("validate AGENTS.md: %w", err))
 	}
 	if err := ValidateManagedFile(i.Paths.Skill); err != nil {
-		return InstallResult{}, fmt.Errorf("validate skill: %w", err)
+		return InstallResult{}, Fail("validate_managed_files", fmt.Errorf("validate skill: %w", err))
 	}
 	if err := rejectSymlinkComponents(i.Paths.Binary); err != nil {
-		return InstallResult{}, err
+		return InstallResult{}, Fail("validate_binary_path", err)
 	}
 	controlTaskID, controlTaskChanged, ensureErr := i.ControlTasks.EnsureControlTask(ctx, controlTaskID)
 	if !canonical(controlTaskID) {
 		if ensureErr != nil {
-			return InstallResult{}, fmt.Errorf("ensure control task: %w", ensureErr)
+			return InstallResult{}, Fail("ensure_control_task", ensureErr)
 		}
-		return InstallResult{}, errors.New("control task returned a noncanonical ID")
+		return InstallResult{}, Fail("ensure_control_task", errors.New("control task returned a noncanonical ID"))
 	}
-	nextConfig := preferences.config(controlTaskID)
+	nextConfig := preferences.config(controlTaskID, i.CodexExecutable)
 	if err := nextConfig.Validate(); err != nil {
-		return InstallResult{}, err
+		return InstallResult{}, Fail("validate_config", err)
 	}
 	resources := make([]string, 0, 7)
 	if !configExists || nextConfig != currentConfig {
 		if err := i.Store.SaveConfig(nextConfig); err != nil {
-			return InstallResult{}, fmt.Errorf("persist control task identity and config: %w", err)
+			return InstallResult{}, Fail("persist_config", err)
 		}
 		resources = append(resources, "config")
 	}
 	if ensureErr != nil {
-		return InstallResult{}, fmt.Errorf("ensure control task: %w", ensureErr)
+		return InstallResult{}, Fail("ensure_control_task", ensureErr)
 	}
 	if controlTaskChanged {
 		resources = append(resources, "control_task")
 	}
-	if !stateExists || !reflectStateEqual(currentState, mustLoadState(i.Store)) {
+	if !stateExists {
 		if err := i.Store.SaveState(currentState); err != nil {
-			return InstallResult{}, fmt.Errorf("save state: %w", err)
+			return InstallResult{}, Fail("persist_state", err)
 		}
 		resources = append(resources, "state")
 	}
 	binaryChanged, err := binaryNeedsInstall(i.Paths.Binary, i.Binary)
 	if err != nil {
-		return InstallResult{}, err
+		return InstallResult{}, Fail("inspect_binary", err)
 	}
 	if binaryChanged {
 		if err := i.Binary.Install(i.Paths.Binary); err != nil {
-			return InstallResult{}, fmt.Errorf("install binary: %w", err)
+			return InstallResult{}, Fail("install_binary", err)
 		}
 		resources = append(resources, "binary")
 	}
 	agentsChanged, err := applyManaged(i.Paths.Agents, preferences.AgentsEnabled, []byte(assets.AgentsManagedContent))
 	if err != nil {
-		return InstallResult{}, fmt.Errorf("update AGENTS.md: %w", err)
+		return InstallResult{}, Fail("update_agents", err)
 	}
 	if agentsChanged {
 		resources = append(resources, "agents")
 	}
 	skillChanged, err := applyManaged(i.Paths.Skill, true, []byte(assets.SkillManagedContent))
 	if err != nil {
-		return InstallResult{}, fmt.Errorf("update skill: %w", err)
+		return InstallResult{}, Fail("update_skill", err)
 	}
 	if skillChanged {
 		resources = append(resources, "skill")
 	}
 	schedulerChanged, err := i.Scheduler.Stage(ctx, nextConfig)
 	if err != nil {
-		return InstallResult{}, fmt.Errorf("stage scheduler: %w", err)
+		return InstallResult{}, Fail("stage_scheduler", err)
 	}
 	if err := i.SelfTester.Test(ctx, SelfTestInput{Paths: i.Paths, Config: nextConfig, State: currentState}); err != nil {
-		return InstallResult{}, fmt.Errorf("self-test: %w", err)
-	}
-	if err := i.Scheduler.StopLegacy(ctx); err != nil {
-		return InstallResult{}, fmt.Errorf("stop legacy scheduler: %w", err)
-	}
-	if err := i.Scheduler.VerifyLegacyStopped(ctx); err != nil {
-		return InstallResult{}, fmt.Errorf("verify legacy scheduler stopped: %w", err)
+		return InstallResult{}, Fail("self_test", err)
 	}
 	enabledChanged, err := i.Scheduler.Enable(ctx)
 	if err != nil {
-		return InstallResult{}, fmt.Errorf("enable scheduler: %w", err)
+		return InstallResult{}, Fail("enable_scheduler", err)
 	}
 	if err := i.Scheduler.VerifyHealthy(ctx); err != nil {
-		return InstallResult{}, fmt.Errorf("verify scheduler health: %w", err)
+		return InstallResult{}, Fail("verify_scheduler_health", err)
 	}
 	if schedulerChanged || enabledChanged {
 		resources = append(resources, "launchagent")
 	}
-	return InstallResult{Config: nextConfig, State: currentState, Paths: i.Paths, Migrated: migrated, Reinstalled: configExists, Preview: preview, Changed: len(resources) > 0, Resources: resources}, nil
-}
-
-func mustLoadState(store Store) state.State {
-	value, err := store.LoadState()
-	if err != nil {
-		return state.State{}
+	if err := lock.Close(); err != nil {
+		return InstallResult{}, Fail("release_lock", err)
 	}
-	return value
-}
-
-func reflectStateEqual(left, right state.State) bool {
-	return reflect.DeepEqual(left, right)
+	lockHeld = false
+	return InstallResult{Config: nextConfig, State: currentState, Paths: i.Paths, Migrated: migrated, Reinstalled: configExists, Preview: preview, Changed: len(resources) > 0, Resources: resources}, nil
 }
 
 func binaryNeedsInstall(path string, installer BinaryInstaller) (bool, error) {
@@ -357,14 +402,26 @@ func binaryNeedsInstall(path string, installer BinaryInstaller) (bool, error) {
 	if err != nil {
 		return false, err
 	}
-	destination, err := os.ReadFile(path)
+	info, err := os.Lstat(path)
 	if errors.Is(err, fs.ErrNotExist) {
 		return true, nil
 	}
 	if err != nil {
 		return false, err
 	}
+	if !info.Mode().IsRegular() || info.Mode().Perm() != 0o700 {
+		return true, nil
+	}
+	destination, err := os.ReadFile(path)
+	if err != nil {
+		return false, err
+	}
 	return !bytes.Equal(source, destination), nil
+}
+
+func migrationCandidate(path string) bool {
+	info, err := os.Stat(path)
+	return err == nil && info.Mode().IsRegular()
 }
 
 func applyManaged(path string, enabled bool, content []byte) (bool, error) {
@@ -415,8 +472,27 @@ func applyPreferencePatch(value Preferences, patch PreferencePatch) Preferences 
 	return value
 }
 
+func (i Installer) resolveCodexExecutable() (string, error) {
+	executable := i.CodexExecutable
+	if executable == "" {
+		resolver := i.ResolveCodexExecutable
+		if resolver == nil {
+			resolver = codex.ResolveExecutable
+		}
+		var err error
+		executable, err = resolver(i.Paths.Home, os.Getenv("PATH"))
+		if err != nil {
+			return "", err
+		}
+	}
+	if err := codex.ValidateExecutable(executable); err != nil {
+		return "", err
+	}
+	return executable, nil
+}
+
 func (i Installer) validate() error {
-	if !filepath.IsAbs(i.Paths.Home) || i.Store == nil || i.Scheduler == nil || i.ControlTasks == nil || i.Binary == nil || i.SelfTester == nil {
+	if !filepath.IsAbs(i.Paths.Home) || !filepath.IsAbs(i.Paths.CodexHome) || i.Store == nil || i.Scheduler == nil || i.ControlTasks == nil || i.Binary == nil || i.SelfTester == nil {
 		return errors.New("installer dependencies and absolute home are required")
 	}
 	if i.Legacy == nil {
@@ -551,7 +627,7 @@ type SelfTestInput struct {
 
 type SelfTestProbe interface {
 	Platform() (string, string, int)
-	ValidateCodex(context.Context, string) error
+	ValidateCodex(context.Context, string, string) error
 }
 
 type CoreSelfTester struct {
@@ -567,7 +643,7 @@ func (s CoreSelfTester) Test(ctx context.Context, input SelfTestInput) error {
 	if platform != "darwin" || major < 12 || architecture != "arm64" && architecture != "amd64" {
 		return fmt.Errorf("unsupported platform %s/%s", platform, architecture)
 	}
-	if err := s.Probe.ValidateCodex(ctx, filepath.Join(input.Paths.Home, ".codex")); err != nil {
+	if err := s.Probe.ValidateCodex(ctx, input.Paths.CodexHome, input.Config.CodexExecutable); err != nil {
 		return fmt.Errorf("Codex validation: %w", err)
 	}
 	if err := input.Config.Validate(); err != nil {
@@ -683,9 +759,9 @@ func (RuntimeProbe) Platform() (string, string, int) {
 	return runtime.GOOS, runtime.GOARCH, major
 }
 
-func (RuntimeProbe) ValidateCodex(_ context.Context, codexHome string) error {
-	if _, err := exec.LookPath("codex"); err != nil {
-		return errors.New("Codex executable is unavailable")
+func (RuntimeProbe) ValidateCodex(_ context.Context, codexHome, executable string) error {
+	if err := codex.ValidateExecutable(executable); err != nil {
+		return err
 	}
 	info, err := os.Stat(codexHome)
 	if err != nil {

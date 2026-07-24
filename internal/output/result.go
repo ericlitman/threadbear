@@ -269,11 +269,16 @@ type ErrorResult struct {
 	Version   int    `json:"version"`
 	Operation string `json:"operation"`
 	ErrorCode string `json:"error_code"`
+	Step      string `json:"step,omitempty"`
+	Cause     string `json:"cause,omitempty"`
 }
 
 func (ErrorResult) result()     {}
 func (ErrorResult) Empty() bool { return false }
 func (r ErrorResult) Human() string {
+	if r.Step != "" {
+		return fmt.Sprintf("ThreadBear couldn't %s (%s) · failed step %s · %s", r.Operation, r.ErrorCode, r.Step, r.Cause)
+	}
 	return fmt.Sprintf("ThreadBear couldn't %s (%s)", r.Operation, r.ErrorCode)
 }
 
@@ -601,7 +606,21 @@ func validateResult(value Result) error {
 		if err := checkCode("operation", result.Operation, false); err != nil {
 			return err
 		}
-		return checkCode("error_code", result.ErrorCode, false)
+		if err := checkCode("error_code", result.ErrorCode, false); err != nil {
+			return err
+		}
+		if (result.Step == "") != (result.Cause == "") {
+			return errors.New("error result step and cause must be provided together")
+		}
+		if result.Step != "" {
+			if err := checkCode("step", result.Step, false); err != nil {
+				return err
+			}
+			if strings.TrimSpace(result.Cause) != result.Cause || result.Cause == "" {
+				return errors.New("error result cause must be nonempty without surrounding whitespace")
+			}
+		}
+		return nil
 	}
 	return nil
 }

@@ -16,6 +16,20 @@ type SelfTestRunner interface {
 	Run(context.Context, bool) output.SelfTestResult
 }
 
+func installErrorResult(err error) output.ErrorResult {
+	result := output.ErrorResult{Operation: "install", ErrorCode: "install_failed"}
+	if errors.Is(err, install.ErrCancelled) {
+		result.ErrorCode = "cancelled"
+		return result
+	}
+	var failure *install.InstallFailure
+	if errors.As(err, &failure) {
+		result.Step = failure.Step
+		result.Cause = failure.Cause
+	}
+	return result
+}
+
 func InstallHandler(factory InstallFactory) Handler {
 	return func(ctx context.Context, request Request) (output.Result, error) {
 		if request.Command != CommandInstall {
@@ -26,6 +40,10 @@ func InstallHandler(factory InstallFactory) Handler {
 		}
 		installer, closeInstaller, err := factory(!request.NonInteractive)
 		if err != nil {
+			var failure *install.InstallFailure
+			if errors.As(err, &failure) {
+				return installErrorResult(err), err
+			}
 			return commandError("install", "dependency_unavailable", err)
 		}
 		defer closeInstaller()
@@ -44,11 +62,7 @@ func InstallHandler(factory InstallFactory) Handler {
 			Confirm:        request.Confirm,
 		})
 		if err != nil {
-			code := "install_failed"
-			if errors.Is(err, install.ErrCancelled) {
-				code = "cancelled"
-			}
-			return commandError("install", code, err)
+			return installErrorResult(err), err
 		}
 		return output.LifecycleResult{
 			Command: "install", Changed: result.Changed,

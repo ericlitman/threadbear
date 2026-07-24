@@ -11,6 +11,7 @@ import (
 
 	"github.com/ericlitman/threadbear/internal/app"
 	"github.com/ericlitman/threadbear/internal/codex/appserver"
+	"github.com/ericlitman/threadbear/internal/config"
 )
 
 func TestParseLifecycleFlags(t *testing.T) {
@@ -139,5 +140,69 @@ func TestArchiveControlTaskReportsTruthfulChangedState(t *testing.T) {
 	changed, err = archiveControlTask(context.Background(), client, "control-1")
 	if err != nil || changed || client.archives != 1 {
 		t.Fatalf("second changed=%t err=%v client=%+v", changed, err, client)
+	}
+}
+
+func TestVersionDoesNotRequireCodexExecutable(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("CODEX_HOME", filepath.Join(home, "custom-codex"))
+	t.Setenv("PATH", "/usr/bin:/bin")
+	var stdout, stderr strings.Builder
+	if code := run(context.Background(), []string{"version", "--json"}, &stdout, &stderr); code != 0 {
+		t.Fatalf("code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+}
+
+func TestInstallMissingCodexReportsStepAndDoesNotCreateState(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("CODEX_HOME", filepath.Join(home, "custom-codex"))
+	t.Setenv("PATH", filepath.Join(home, "missing-bin"))
+	originalResolver := resolveCodexExecutable
+	resolveCodexExecutable = func(string, string) (string, error) {
+		return "", errors.New("Codex executable not found; install the Codex CLI")
+	}
+	t.Cleanup(func() { resolveCodexExecutable = originalResolver })
+	var stdout, stderr strings.Builder
+	code := run(context.Background(), []string{"install", "--noninteractive", "--confirm", "--json"}, &stdout, &stderr)
+	if code != 1 || !strings.Contains(stdout.String(), `"step":"resolve_codex_executable"`) || !strings.Contains(stdout.String(), "install the Codex CLI") {
+		t.Fatalf("code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+	stateDirectory := filepath.Join(home, ".local", "share", "threadbear")
+	if _, err := os.Stat(stateDirectory); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("state directory created: %v", err)
+	}
+}
+
+type configStoreFake struct{ config config.Config }
+
+func (s configStoreFake) LoadConfig() (config.Config, error) { return s.config, nil }
+
+func TestAppServerRuntimeUsesConfiguredExecutableAndResolvedCodexHome(t *testing.T) {
+	home := t.TempDir()
+	codexHome := filepath.Join(home, "custom-codex")
+	executable := filepath.Join(home, "bin", "codex")
+	if err := os.MkdirAll(filepath.Dir(executable), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(executable, []byte("#!/bin/sh\n"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	cfg := config.Default("control")
+	cfg.CodexExecutable = executable
+	process, err := (appServerRuntime{store: configStoreFake{config: cfg}, home: home, codexHome: codexHome}).process()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if process.Path != executable {
+		t.Fatalf("process.Path=%q", process.Path)
+	}
+	found := false
+	for _, entry := range process.Env {
+		found = found || entry == "CODEX_HOME="+codexHome
+	}
+	if !found {
+		t.Fatalf("process.Env=%v", process.Env)
 	}
 }

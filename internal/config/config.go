@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"path/filepath"
 	"strings"
 )
 
@@ -37,6 +38,7 @@ var ErrUnsupportedSchema = errors.New("unsupported config schema")
 type Config struct {
 	SchemaVersion                int              `json:"schema_version"`
 	ControlTaskID                string           `json:"control_task_id"`
+	CodexExecutable              string           `json:"codex_executable,omitempty"`
 	HeartbeatSeconds             int              `json:"heartbeat_seconds"`
 	ArchiveEnabled               bool             `json:"archive_enabled"`
 	ArchiveAfterDays             int              `json:"archive_after_days"`
@@ -75,6 +77,9 @@ func (c Config) validate(requireBudget bool) error {
 	}
 	if strings.TrimSpace(c.ControlTaskID) != c.ControlTaskID {
 		return errors.New("control_task_id must not contain surrounding whitespace")
+	}
+	if c.CodexExecutable != "" && (!filepath.IsAbs(c.CodexExecutable) || strings.TrimSpace(c.CodexExecutable) != c.CodexExecutable) {
+		return errors.New("codex_executable must be an absolute path")
 	}
 	if c.HeartbeatSeconds <= 0 {
 		return errors.New("heartbeat_seconds must be positive")
@@ -117,6 +122,7 @@ func Decode(data []byte) (Config, error) {
 	var wire struct {
 		SchemaVersion                *int              `json:"schema_version"`
 		ControlTaskID                *string           `json:"control_task_id"`
+		CodexExecutable              *string           `json:"codex_executable"`
 		HeartbeatSeconds             *int              `json:"heartbeat_seconds"`
 		ArchiveEnabled               *bool             `json:"archive_enabled"`
 		ArchiveAfterDays             *int              `json:"archive_after_days"`
@@ -141,6 +147,7 @@ func Decode(data []byte) (Config, error) {
 	c := Config{
 		SchemaVersion:                *wire.SchemaVersion,
 		ControlTaskID:                *wire.ControlTaskID,
+		CodexExecutable:              optionalString(wire.CodexExecutable),
 		HeartbeatSeconds:             *wire.HeartbeatSeconds,
 		ArchiveEnabled:               *wire.ArchiveEnabled,
 		ArchiveAfterDays:             *wire.ArchiveAfterDays,
@@ -154,6 +161,13 @@ func Decode(data []byte) (Config, error) {
 		return Config{}, err
 	}
 	return c, nil
+}
+
+func optionalString(value *string) string {
+	if value == nil {
+		return ""
+	}
+	return *value
 }
 
 func decodeStrict(data []byte, target any, disallowUnknown bool) error {

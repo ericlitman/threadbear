@@ -40,9 +40,9 @@ func preferencesFromConfig(value config.Config) Preferences {
 	}
 }
 
-func (p Preferences) config(controlTaskID string) config.Config {
+func (p Preferences) config(controlTaskID, codexExecutable string) config.Config {
 	return config.Config{
-		SchemaVersion: config.CurrentSchemaVersion, ControlTaskID: controlTaskID,
+		SchemaVersion: config.CurrentSchemaVersion, ControlTaskID: controlTaskID, CodexExecutable: codexExecutable,
 		HeartbeatSeconds: p.HeartbeatSeconds, ArchiveEnabled: p.ArchiveEnabled,
 		ArchiveAfterDays: p.ArchiveAfterDays, RenameEnabled: p.RenameEnabled,
 		AgentsEnabled: p.AgentsEnabled, ClassifierModel: p.ClassifierModel,
@@ -52,7 +52,7 @@ func (p Preferences) config(controlTaskID string) config.Config {
 }
 
 func (p Preferences) Validate() error {
-	return p.config("pending-control-task").Validate()
+	return p.config("pending-control-task", "").Validate()
 }
 
 type Preview struct {
