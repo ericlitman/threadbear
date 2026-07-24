@@ -63,7 +63,7 @@ func TestLiveNoticeDoesNotStartTurn(t *testing.T) {
 		t.Fatalf("thread=%+v", started.Thread)
 	}
 	drainNotifications(client.Notifications())
-	before := liveThreadIDs(t, home)
+	before := waitForLiveThreadIDs(t, home, started.Thread.ID, 10*time.Second)
 	notice := "🧵🐻 ThreadBear 99.0.0-live-proof is ready. Run threadbear update, or tell me “update ThreadBear.”"
 	if err := client.InsertNotice(ctx, started.Thread.ID, notice); err != nil {
 		client.Close()
@@ -115,6 +115,22 @@ func liveHarness(t *testing.T) (ProcessSpec, Capabilities, string) {
 		t.Fatal(err)
 	}
 	return process, caps, home
+}
+func waitForLiveThreadIDs(t *testing.T, home, threadID string, timeout time.Duration) []string {
+	t.Helper()
+	deadline := time.Now().Add(timeout)
+	for {
+		ids := liveThreadIDs(t, home)
+		for _, id := range ids {
+			if id == threadID {
+				return ids
+			}
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("thread %s did not materialize within %s; observed IDs: %v", threadID, timeout, ids)
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
 }
 func liveThreadIDs(t *testing.T, home string) []string {
 	t.Helper()
