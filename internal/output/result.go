@@ -98,13 +98,14 @@ func (r HeartbeatResult) normalized() HeartbeatResult {
 }
 
 type Preferences struct {
-	HeartbeatSeconds int    `json:"heartbeat_seconds"`
-	ArchiveEnabled   bool   `json:"archive_enabled"`
-	ArchiveAfterDays int    `json:"archive_after_days"`
-	RenameEnabled    bool   `json:"rename_enabled"`
-	AgentsEnabled    bool   `json:"agents_enabled"`
-	ClassifierModel  string `json:"classifier_model"`
-	ClassifierEffort string `json:"classifier_effort"`
+	HeartbeatSeconds             int    `json:"heartbeat_seconds"`
+	ArchiveEnabled               bool   `json:"archive_enabled"`
+	ArchiveAfterDays             int    `json:"archive_after_days"`
+	RenameEnabled                bool   `json:"rename_enabled"`
+	AgentsEnabled                bool   `json:"agents_enabled"`
+	ClassifierModel              string `json:"classifier_model"`
+	ClassifierEffort             string `json:"classifier_effort"`
+	ClassifierContextBudgetBytes int    `json:"classifier_context_budget_bytes"`
 }
 
 type StatusResult struct {
@@ -125,7 +126,7 @@ func (r StatusResult) Human() string {
 	if r.LaunchAgentHealthy {
 		health = "healthy"
 	}
-	return fmt.Sprintf("ThreadBear %s · LaunchAgent %s · heartbeat %s · control task %s · heartbeat interval %ds · archive %t/%dd · rename %t · AGENTS %t · classifier %s/%s · retries %d · update check %s", r.InstalledVersion, health, formatTime(r.LastCompletedHeartbeat), r.ControlTaskID, r.Preferences.HeartbeatSeconds, r.Preferences.ArchiveEnabled, r.Preferences.ArchiveAfterDays, r.Preferences.RenameEnabled, r.Preferences.AgentsEnabled, r.Preferences.ClassifierModel, r.Preferences.ClassifierEffort, r.PendingRetries, formatTime(r.LastUpdateCheck))
+	return fmt.Sprintf("ThreadBear %s · LaunchAgent %s · heartbeat %s · control task %s · heartbeat interval %ds · archive %t/%dd · rename %t · AGENTS %t · classifier %s/%s/%dB · retries %d · update check %s", r.InstalledVersion, health, formatTime(r.LastCompletedHeartbeat), r.ControlTaskID, r.Preferences.HeartbeatSeconds, r.Preferences.ArchiveEnabled, r.Preferences.ArchiveAfterDays, r.Preferences.RenameEnabled, r.Preferences.AgentsEnabled, r.Preferences.ClassifierModel, r.Preferences.ClassifierEffort, r.Preferences.ClassifierContextBudgetBytes, r.PendingRetries, formatTime(r.LastUpdateCheck))
 }
 
 type InspectResult struct {
@@ -446,7 +447,7 @@ func validateResult(value Result) error {
 			}
 		}
 	case StatusResult:
-		if result.InstalledVersion == "" || result.ControlTaskID == "" || result.Preferences.HeartbeatSeconds <= 0 || result.Preferences.ArchiveAfterDays <= 0 || result.Preferences.ClassifierModel == "" || result.Preferences.ClassifierEffort == "" || result.PendingRetries < 0 {
+		if result.InstalledVersion == "" || result.ControlTaskID == "" || result.Preferences.HeartbeatSeconds <= 0 || result.Preferences.ArchiveAfterDays <= 0 || result.Preferences.ClassifierModel == "" || result.Preferences.ClassifierEffort == "" || result.Preferences.ClassifierContextBudgetBytes <= 0 || result.PendingRetries < 0 {
 			return errors.New("status result is incomplete")
 		}
 		return checkID("control_task_id", result.ControlTaskID)
