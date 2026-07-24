@@ -250,6 +250,31 @@ func TestHealthyRequiresPlistEnabledAndLoaded(t *testing.T) {
 	}
 }
 
+func TestCleanInstallLifecycleDoesNotOperateOnLegacyLabel(t *testing.T) {
+	runner := newFakeRunner()
+	adapter, _ := testAdapter(t, runner)
+	cfg := config.Default("control")
+	cfg.CodexExecutable = "/custom/codex/bin/codex"
+	cfg.CodexSpawnPath = "/custom/codex/bin:/custom/node/bin"
+	if _, err := adapter.Stage(context.Background(), cfg); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := adapter.Stage(context.Background(), cfg); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := adapter.Enable(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if healthy, err := adapter.Healthy(context.Background()); err != nil || !healthy {
+		t.Fatalf("Healthy=%t, %v", healthy, err)
+	}
+	for _, call := range runner.calls {
+		if strings.Contains(call, LegacyLabel) {
+			t.Fatalf("clean install operated on legacy label: %s", call)
+		}
+	}
+}
+
 func TestLegacyStopVerifyAndIntervalDetection(t *testing.T) {
 	runner := newFakeRunner()
 	adapter, _ := testAdapter(t, runner)

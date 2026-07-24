@@ -367,11 +367,59 @@ func TestInstallDefaultsAndOneConfirmation(t *testing.T) {
 	if prompt.previews != 1 || prompt.confirms != 1 || !prompt.collect {
 		t.Fatalf("prompt=%+v", prompt)
 	}
-	if !reflect.DeepEqual(scheduler.calls, []string{"detect", "stage", "stop", "verify", "stage", "enable", "healthy"}) {
+	if !reflect.DeepEqual(scheduler.calls, []string{"stage", "stage", "enable", "healthy"}) {
 		t.Fatalf("calls=%v", scheduler.calls)
 	}
 	if tasks.ensures != 1 || store.saveConfig != 1 || store.saveState != 1 {
 		t.Fatalf("tasks=%d saves=%d/%d", tasks.ensures, store.saveConfig, store.saveState)
+	}
+}
+
+func TestFreshInstallWithoutLegacyPresenceSkipsLegacyScheduler(t *testing.T) {
+	scheduler := &fakeScheduler{}
+	installer := newInstaller(t, &fakeStore{}, scheduler, &fakeTasks{}, nil)
+	if _, err := installer.Install(context.Background(), InstallRequest{NonInteractive: true, Confirm: true}); err != nil {
+		t.Fatal(err)
+	}
+	for _, call := range scheduler.calls {
+		if call == "detect" || call == "stop" || call == "verify" {
+			t.Fatalf("clean install made legacy scheduler call %q: %v", call, scheduler.calls)
+		}
+	}
+}
+
+func TestLegacyFilesystemPresenceTriggersMigrationShutdown(t *testing.T) {
+	tests := map[string]func(t *testing.T, paths Paths){
+		"plist only": func(t *testing.T, paths Paths) {
+			if err := os.MkdirAll(filepath.Dir(paths.LegacyLaunchAgent), 0o700); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(paths.LegacyLaunchAgent, []byte("legacy"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+		},
+		"state artifact": func(t *testing.T, paths Paths) {
+			if err := os.MkdirAll(paths.LegacyStateDirectory, 0o700); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(paths.LegacyRunLock, []byte("artifact"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+		},
+	}
+	for name, setup := range tests {
+		t.Run(name, func(t *testing.T) {
+			scheduler := &fakeScheduler{interval: 77}
+			installer := newInstaller(t, &fakeStore{}, scheduler, &fakeTasks{}, nil)
+			setup(t, installer.Paths)
+			if _, err := installer.Install(context.Background(), InstallRequest{NonInteractive: true, Confirm: true}); err != nil {
+				t.Fatal(err)
+			}
+			wantPrefix := []string{"detect", "stage", "stop", "verify"}
+			if len(scheduler.calls) < len(wantPrefix) || !reflect.DeepEqual(scheduler.calls[:len(wantPrefix)], wantPrefix) {
+				t.Fatalf("calls=%v want prefix=%v", scheduler.calls, wantPrefix)
+			}
+		})
 	}
 }
 
@@ -411,6 +459,12 @@ func TestInstallRejectsActiveLegacyBeforeEnable(t *testing.T) {
 	scheduler := &fakeScheduler{legacyErr: errors.New("still active")}
 	tasks := &fakeTasks{}
 	installer := newInstaller(t, store, scheduler, tasks, nil)
+	if err := os.MkdirAll(filepath.Dir(installer.Paths.LegacyLaunchAgent), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(installer.Paths.LegacyLaunchAgent, []byte("legacy"), 0o600); err != nil {
+		t.Fatal(err)
+	}
 	_, err := installer.Install(context.Background(), InstallRequest{NonInteractive: true, Confirm: true})
 	if err == nil {
 		t.Fatal("active legacy accepted")
@@ -515,7 +569,7 @@ func TestInstallSelfTestPrecedesEnableAndHealthVerification(t *testing.T) {
 	if _, err := installer.Install(context.Background(), InstallRequest{NonInteractive: true, Confirm: true}); err != nil {
 		t.Fatal(err)
 	}
-	want := []string{"detect", "stage", "selftest", "stop", "verify", "stage", "enable", "healthy", "selftest"}
+	want := []string{"stage", "selftest", "stage", "enable", "healthy", "selftest"}
 	if !reflect.DeepEqual(scheduler.calls, want) {
 		t.Fatalf("calls=%v want=%v", scheduler.calls, want)
 	}
@@ -526,6 +580,46 @@ type orderedSelfTest struct{ scheduler *fakeScheduler }
 func (s *orderedSelfTest) Test(context.Context, SelfTestInput) error {
 	s.scheduler.calls = append(s.scheduler.calls, "selftest")
 	return nil
+}
+
+func TestFileBinaryInstallerAllowsSymlinkedSourceAncestorAndRejectsDestinationSymlink(t *testing.T) {
+	root := t.TempDir()
+	realDirectory := filepath.Join(root, "real")
+	if err := os.MkdirAll(realDirectory, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	source := filepath.Join(realDirectory, "candidate")
+	if err := os.WriteFile(source, []byte("candidate"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	linkedDirectory := filepath.Join(root, "linked")
+	if err := os.Symlink(realDirectory, linkedDirectory); err != nil {
+		t.Fatal(err)
+	}
+	installer := FileBinaryInstaller{Source: filepath.Join(linkedDirectory, "candidate")}
+	destination := filepath.Join(root, "bin", "threadbear")
+	if err := installer.Install(destination); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(destination)
+	if err != nil || string(data) != "candidate" {
+		t.Fatalf("destination=%q err=%v", data, err)
+	}
+	victim := filepath.Join(root, "victim")
+	if err := os.WriteFile(victim, []byte("safe"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	linkedDestination := filepath.Join(root, "linked-destination")
+	if err := os.Symlink(victim, linkedDestination); err != nil {
+		t.Fatal(err)
+	}
+	if err := installer.Install(linkedDestination); !errors.Is(err, ErrUnsafeManagedPath) {
+		t.Fatalf("destination symlink error=%v", err)
+	}
+	data, err = os.ReadFile(victim)
+	if err != nil || string(data) != "safe" {
+		t.Fatalf("victim=%q err=%v", data, err)
+	}
 }
 
 func TestNoOpReinstallReportsUnchanged(t *testing.T) {
@@ -965,7 +1059,7 @@ func TestInstallFailureIncludesStableStepAndCause(t *testing.T) {
 	installer := newInstaller(t, &fakeStore{}, &fakeScheduler{}, &fakeTasks{failAfterCreate: errors.New("set title denied; verify Codex authentication")}, nil)
 	_, err := installer.Install(context.Background(), InstallRequest{NonInteractive: true, Confirm: true})
 	var failure *InstallFailure
-	if !errors.As(err, &failure) || failure.Step != "ensure_control_task" || !strings.Contains(failure.Cause, "verify Codex authentication") {
+	if !errors.As(err, &failure) || failure.Step != "ensure_control_task" || !strings.Contains(failure.Cause, "verify Codex authentication") || strings.Contains(failure.Cause, "ThreadWatch was stopped") {
 		t.Fatalf("error=%v failure=%+v", err, failure)
 	}
 }

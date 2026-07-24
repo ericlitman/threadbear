@@ -210,7 +210,11 @@ func (i Installer) Install(ctx context.Context, request InstallRequest) (Install
 		consumer.SetCodexExecutableSpec(executableSpec)
 	}
 	migrationNeeded := !previewConfigExists || !previewStateExists
-	legacyInterval, legacyIntervalFound, err := i.detectLegacyInterval(ctx, migrationNeeded)
+	legacyPresent, err := legacyInstallationPresent(i.Paths)
+	if err != nil {
+		return InstallResult{}, Fail("inspect_legacy_presence", err)
+	}
+	legacyInterval, legacyIntervalFound, err := i.detectLegacyInterval(ctx, migrationNeeded && legacyPresent)
 	if err != nil {
 		return InstallResult{}, Fail("detect_legacy_interval", err)
 	}
@@ -293,12 +297,21 @@ func (i Installer) Install(ctx context.Context, request InstallRequest) (Install
 	if err != nil {
 		return InstallResult{}, Fail("reload_existing", err)
 	}
-	if err := i.Scheduler.StopLegacy(ctx); err != nil {
-		return InstallResult{}, Fail("stop_legacy_scheduler", err)
+	legacyStopped := false
+	if legacyPresent {
+		if err := i.Scheduler.StopLegacy(ctx); err != nil {
+			return InstallResult{}, Fail("stop_legacy_scheduler", err)
+		}
+		legacyStopped = true
+		if err := i.Scheduler.VerifyLegacyStopped(ctx); err != nil {
+			return InstallResult{}, i.stoppedLegacyFailure("verify_legacy_stopped", err)
+		}
 	}
-	fail := func(step string, err error) error { return i.stoppedLegacyFailure(step, err) }
-	if err := i.Scheduler.VerifyLegacyStopped(ctx); err != nil {
-		return InstallResult{}, fail("verify_legacy_stopped", err)
+	fail := func(step string, err error) error {
+		if legacyStopped {
+			return i.stoppedLegacyFailure(step, err)
+		}
+		return Fail(step, err)
 	}
 	finalMigration, migrated, err := i.loadMigrationState(!configExists || !stateExists)
 	if err != nil {
@@ -476,6 +489,22 @@ func binaryNeedsInstall(path string, installer BinaryInstaller) (bool, error) {
 		return false, err
 	}
 	return !bytes.Equal(source, destination), nil
+}
+
+func legacyInstallationPresent(paths Paths) (bool, error) {
+	if _, err := os.Lstat(paths.LegacyLaunchAgent); err == nil {
+		return true, nil
+	} else if !errors.Is(err, fs.ErrNotExist) {
+		return false, fmt.Errorf("inspect legacy LaunchAgent plist: %w", err)
+	}
+	entries, err := os.ReadDir(paths.LegacyStateDirectory)
+	if errors.Is(err, fs.ErrNotExist) {
+		return false, nil
+	}
+	if err != nil {
+		return false, fmt.Errorf("inspect legacy state directory: %w", err)
+	}
+	return len(entries) > 0, nil
 }
 
 func migrationCandidate(path string) bool {
@@ -713,8 +742,12 @@ func (f FileBinaryInstaller) Install(destination string) error {
 	if !filepath.IsAbs(f.Source) || !filepath.IsAbs(destination) {
 		return errors.New("binary paths must be absolute")
 	}
-	if err := rejectSymlinkComponents(f.Source); err != nil {
+	info, err := os.Stat(f.Source)
+	if err != nil {
 		return err
+	}
+	if !info.Mode().IsRegular() {
+		return errors.New("binary source must be a regular file")
 	}
 	data, err := os.ReadFile(f.Source)
 	if err != nil {
