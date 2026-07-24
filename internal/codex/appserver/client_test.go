@@ -196,8 +196,8 @@ func TestMutations(t *testing.T) {
 		t.Fatal(err)
 	}
 	delivered, err := c.ReadPersistedAssistantMessage(context.Background(), "control-1", "🧵🐻 notice")
-	if err != nil || !delivered {
-		t.Fatalf("delivered=%v err=%v", delivered, err)
+	if err != nil || !delivered.Found || delivered.SkippedLines != 0 {
+		t.Fatalf("delivered=%+v err=%v", delivered, err)
 	}
 	after, err := c.ReadLatestTurn(context.Background(), "control-1", "")
 	if err != nil || before.Latest == nil || after.Latest == nil || before.Latest.ID != after.Latest.ID {
@@ -219,11 +219,34 @@ func TestMutations(t *testing.T) {
 func TestPersistedAssistantMessageMatching(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "rollout.jsonl")
 	text := "🧵🐻 exact notice"
-	file, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY, 0600)
+	message := map[string]any{"type": "response_item", "payload": map[string]any{"type": "message", "role": "assistant", "content": []any{map[string]any{"type": "output_text", "text": text}}}}
+
+	file, err := os.OpenFile(path, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0600)
 	if err != nil {
 		t.Fatal(err)
 	}
 	encoder := json.NewEncoder(file)
+	if err := encoder.Encode(message); err != nil {
+		file.Close()
+		t.Fatal(err)
+	}
+	if _, err := file.WriteString(`{"type":"response_item"`); err != nil {
+		file.Close()
+		t.Fatal(err)
+	}
+	if err := file.Close(); err != nil {
+		t.Fatal(err)
+	}
+	result, err := rolloutHasAssistantMessage(path, text)
+	if err != nil || !result.Found || result.SkippedLines != 0 {
+		t.Fatalf("truncated result=%+v err=%v", result, err)
+	}
+
+	file, err = os.OpenFile(path, os.O_TRUNC|os.O_WRONLY, 0600)
+	if err != nil {
+		t.Fatal(err)
+	}
+	encoder = json.NewEncoder(file)
 	decoys := []any{
 		map[string]any{"type": "event_msg", "payload": map[string]any{"message": text}},
 		map[string]any{"type": "response_item", "payload": map[string]any{"type": "message", "role": "user", "content": []any{map[string]any{"type": "input_text", "text": text}}}},
@@ -235,34 +258,31 @@ func TestPersistedAssistantMessageMatching(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if err := file.Close(); err != nil {
+	if _, err := file.WriteString(`{bad
+`); err != nil {
+		file.Close()
 		t.Fatal(err)
 	}
-	found, err := rolloutHasAssistantMessage(path, text)
-	if err != nil || found {
-		t.Fatalf("decoy found=%v err=%v", found, err)
-	}
-	file, err = os.OpenFile(path, os.O_APPEND|os.O_WRONLY, 0600)
-	if err != nil {
-		t.Fatal(err)
-	}
-	encoder = json.NewEncoder(file)
-	if err := encoder.Encode(map[string]any{"type": "response_item", "payload": map[string]any{"type": "message", "role": "assistant", "content": []any{map[string]any{"type": "output_text", "text": text}}}}); err != nil {
+	if err := encoder.Encode(message); err != nil {
 		file.Close()
 		t.Fatal(err)
 	}
 	if err := file.Close(); err != nil {
 		t.Fatal(err)
 	}
-	found, err = rolloutHasAssistantMessage(path, text)
-	if err != nil || !found {
-		t.Fatalf("exact found=%v err=%v", found, err)
+	result, err = rolloutHasAssistantMessage(path, text)
+	if err != nil || !result.Found || result.SkippedLines != 1 {
+		t.Fatalf("skipped result=%+v err=%v", result, err)
 	}
-	if err := os.WriteFile(path, []byte("{bad\n"), 0600); err != nil {
+
+	if err := os.WriteFile(path, []byte(`{bad
+also bad
+`), 0600); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := rolloutHasAssistantMessage(path, text); err == nil {
-		t.Fatal("malformed rollout was accepted")
+	result, err = rolloutHasAssistantMessage(path, text)
+	if err == nil || result.SkippedLines != 2 {
+		t.Fatalf("corrupt result=%+v err=%v", result, err)
 	}
 	if _, err := rolloutHasAssistantMessage(filepath.Join(t.TempDir(), "missing.jsonl"), text); err == nil {
 		t.Fatal("missing rollout was accepted")

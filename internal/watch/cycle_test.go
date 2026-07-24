@@ -92,14 +92,14 @@ func (f *fakeClient) ReadPreviousTurn(_ context.Context, taskID, _ string) (*app
 	f.previousReads = append(f.previousReads, taskID)
 	return f.previous[taskID], nil
 }
-func (f *fakeClient) ReadPersistedAssistantMessage(_ context.Context, taskID, text string) (bool, error) {
+func (f *fakeClient) ReadPersistedAssistantMessage(_ context.Context, taskID, text string) (appserver.PersistedMessageResult, error) {
 	f.persistedReads = append(f.persistedReads, taskID)
 	for _, message := range f.persisted[taskID] {
 		if message == text {
-			return true, nil
+			return appserver.PersistedMessageResult{Found: true}, nil
 		}
 	}
-	return false, nil
+	return appserver.PersistedMessageResult{}, nil
 }
 func (f *fakeClient) SetTitle(_ context.Context, taskID, value string) error {
 	if f.failTitle[taskID] {
