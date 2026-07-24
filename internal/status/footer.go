@@ -163,66 +163,18 @@ func concreteAction(action string) bool {
 	return true
 }
 
+// recordOnly implements the BEAR-16 operator ruling: the deterministic footer
+// path optimizes precision, not recall. Any record-word presence makes the
+// action non-deterministic — it falls through to semantic classification,
+// because a wrong deterministic accept violates R11/R17 while a fall-through
+// costs one classifier call.
 func recordOnly(words []string) bool {
 	recordWords := map[string]bool{
 		"recorded": true, "filed": true, "created": true, "logged": true,
 		"captured": true, "tracked": true, "noted": true, "documented": true,
 	}
-	for index, word := range words {
-		if !recordWords[word] {
-			continue
-		}
-		if embeddedQuestion(words[:index]) {
-			continue
-		}
-		if index == 0 || passiveAuxiliary(words[max(0, index-3):index]) {
-			return true
-		}
-		if recordSubject(words[index-1]) && (index == 1 || summaryLead(words[0])) {
-			return true
-		}
-	}
-	return false
-}
-
-func embeddedQuestion(words []string) bool {
-	for index, word := range words {
-		if index == 0 {
-			continue
-		}
-		switch word {
-		case "how", "why", "whether":
-			return true
-		}
-	}
-	return false
-}
-
-func summaryLead(word string) bool {
-	switch word {
-	case "a", "an", "the", "this", "that", "these", "those", "it", "they", "how", "why", "whether":
-		return true
-	}
-	return false
-}
-
-func passiveAuxiliary(words []string) bool {
 	for _, word := range words {
-		switch word {
-		case "is", "are", "was", "were", "be", "been", "being", "has", "have", "had":
-			return true
-		}
-	}
-	return false
-}
-
-func recordSubject(word string) bool {
-	switch word {
-	case "issue", "ticket", "task", "follow-up", "followup", "work", "request", "recommendation":
-		return true
-	}
-	for _, char := range word {
-		if char >= '0' && char <= '9' && strings.ContainsRune(word, '-') {
+		if recordWords[word] {
 			return true
 		}
 	}
