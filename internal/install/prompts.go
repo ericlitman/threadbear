@@ -42,7 +42,7 @@ func preferencesFromConfig(value config.Config) Preferences {
 
 func (p Preferences) config(controlTaskID, codexExecutable string, codexSpawnPath []string) config.Config {
 	return config.Config{
-		SchemaVersion: config.CurrentSchemaVersion, ControlTaskID: controlTaskID, CodexExecutable: codexExecutable, CodexSpawnPath: append([]string(nil), codexSpawnPath...),
+		SchemaVersion: config.CurrentSchemaVersion, ControlTaskID: controlTaskID, CodexExecutable: codexExecutable, CodexSpawnPath: strings.Join(codexSpawnPath, string(os.PathListSeparator)),
 		HeartbeatSeconds: p.HeartbeatSeconds, ArchiveEnabled: p.ArchiveEnabled,
 		ArchiveAfterDays: p.ArchiveAfterDays, RenameEnabled: p.RenameEnabled,
 		AgentsEnabled: p.AgentsEnabled, ClassifierModel: p.ClassifierModel,

@@ -126,3 +126,23 @@ func TestResolveExecutableSpecPinsEnvInterpreterWithoutAmbientPath(t *testing.T)
 		t.Fatalf("stored spec depends on ambient PATH: %v", err)
 	}
 }
+
+func TestSpawnPathWireConversion(t *testing.T) {
+	directories := []string{"/opt/homebrew/bin", "/usr/bin", "/bin"}
+	wire, err := FormatSpawnPath(directories)
+	if err != nil {
+		t.Fatal(err)
+	}
+	parsed, err := ParseSpawnPath(wire)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Join(parsed, "|") != strings.Join(directories, "|") {
+		t.Fatalf("parsed=%v want %v", parsed, directories)
+	}
+	for _, invalid := range []string{"relative:/usr/bin", "/usr/bin:/usr/bin", "/usr/bin/../bin"} {
+		if _, err := ParseSpawnPath(invalid); err == nil {
+			t.Fatalf("ParseSpawnPath(%q) succeeded", invalid)
+		}
+	}
+}

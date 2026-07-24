@@ -149,6 +149,24 @@ func TestApplyIsAtomicPrivateIdempotentAndPreservesDisabledState(t *testing.T) {
 	}
 }
 
+func TestStageUsesConfiguredCodexSpawnPath(t *testing.T) {
+	runner := newFakeRunner()
+	adapter, home := testAdapter(t, runner)
+	cfg := config.Default("control")
+	cfg.CodexExecutable = filepath.Join(home, "custom", "codex")
+	cfg.CodexSpawnPath = strings.Join([]string{filepath.Dir(cfg.CodexExecutable), "/opt/homebrew/bin", "/usr/local/bin", filepath.Join(home, ".local", "bin"), "/usr/bin", "/bin", "/usr/sbin", "/sbin"}, string(os.PathListSeparator))
+	if _, err := adapter.Stage(context.Background(), cfg); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(adapter.plistPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(data), cfg.CodexSpawnPath) {
+		t.Fatalf("plist PATH does not match configured App Server PATH: %s", data)
+	}
+}
+
 func TestStageLeavesThreadBearDisabledAndUnloaded(t *testing.T) {
 	runner := newFakeRunner()
 	adapter, _ := testAdapter(t, runner)

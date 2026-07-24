@@ -537,7 +537,7 @@ func TestNoOpReinstallReportsUnchanged(t *testing.T) {
 		t.Fatal(err)
 	}
 	cfg.CodexExecutable = codexExecutable
-	cfg.CodexSpawnPath = spec.SpawnPath
+	cfg.CodexSpawnPath = strings.Join(spec.SpawnPath, string(os.PathListSeparator))
 	store.config = cfg
 	installer := Installer{Paths: paths, Store: store, Scheduler: &fakeScheduler{}, ControlTasks: &fakeTasks{}, Binary: FileBinaryInstaller{Source: source}, SelfTester: &fakeSelfTest{}, Legacy: missingLegacy{}, CodexExecutable: codexExecutable, CodexSpawnPath: spec.SpawnPath}
 	result, err := installer.Install(context.Background(), InstallRequest{NonInteractive: true, Confirm: true})
@@ -699,7 +699,7 @@ func TestControlTaskMutationMakesReinstallChanged(t *testing.T) {
 		t.Fatal(err)
 	}
 	cfg.CodexExecutable = codexExecutable
-	cfg.CodexSpawnPath = spec.SpawnPath
+	cfg.CodexSpawnPath = strings.Join(spec.SpawnPath, string(os.PathListSeparator))
 	store.config = cfg
 	installer := Installer{Paths: paths, Store: store, Scheduler: &fakeScheduler{}, ControlTasks: &fakeTasks{ensureChanged: true}, Binary: FileBinaryInstaller{Source: source}, SelfTester: &fakeSelfTest{}, Legacy: missingLegacy{}, CodexExecutable: codexExecutable, CodexSpawnPath: spec.SpawnPath}
 	result, err := installer.Install(context.Background(), InstallRequest{NonInteractive: true, Confirm: true})
@@ -922,7 +922,7 @@ func TestReinstallRestoresBinaryModeWhenBytesMatch(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	cfg.CodexSpawnPath = spec.SpawnPath
+	cfg.CodexSpawnPath = strings.Join(spec.SpawnPath, string(os.PathListSeparator))
 	store := &fakeStore{config: cfg, state: state.New(), configExists: true, stateExists: true}
 	installer := Installer{Paths: paths, Store: store, Scheduler: &fakeScheduler{}, ControlTasks: &fakeTasks{}, Binary: FileBinaryInstaller{Source: source}, SelfTester: &fakeSelfTest{}, Legacy: missingLegacy{}, CodexExecutable: codexExecutable}
 	result, err := installer.Install(context.Background(), InstallRequest{NonInteractive: true, Confirm: true})
@@ -1026,10 +1026,14 @@ func TestInstallPersistsResolvedCodexSpawnContract(t *testing.T) {
 	if result.Config.CodexExecutable != executable || len(result.Config.CodexSpawnPath) == 0 {
 		t.Fatalf("config=%+v", result.Config)
 	}
-	if !reflect.DeepEqual(result.Config.CodexSpawnPath, tasks.spec.SpawnPath) || tasks.spec.Path != executable {
+	if result.Config.CodexSpawnPath != strings.Join(tasks.spec.SpawnPath, string(os.PathListSeparator)) || tasks.spec.Path != executable {
 		t.Fatalf("stored=%v control-task spec=%+v", result.Config.CodexSpawnPath, tasks.spec)
 	}
-	if result.Config.CodexSpawnPath[0] != filepath.Dir(executable) || result.Config.CodexSpawnPath[1] != nodeDirectory {
+	storedSpawnPath, parseErr := codex.ParseSpawnPath(result.Config.CodexSpawnPath)
+	if parseErr != nil {
+		t.Fatal(parseErr)
+	}
+	if storedSpawnPath[0] != filepath.Dir(executable) || storedSpawnPath[1] != nodeDirectory {
 		t.Fatalf("spawn path=%v", result.Config.CodexSpawnPath)
 	}
 }

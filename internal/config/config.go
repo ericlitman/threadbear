@@ -39,7 +39,7 @@ type Config struct {
 	SchemaVersion                int              `json:"schema_version"`
 	ControlTaskID                string           `json:"control_task_id"`
 	CodexExecutable              string           `json:"codex_executable,omitempty"`
-	CodexSpawnPath               []string         `json:"codex_spawn_path,omitempty"`
+	CodexSpawnPath               string           `json:"codex_spawn_path,omitempty"`
 	HeartbeatSeconds             int              `json:"heartbeat_seconds"`
 	ArchiveEnabled               bool             `json:"archive_enabled"`
 	ArchiveAfterDays             int              `json:"archive_after_days"`
@@ -82,13 +82,18 @@ func (c Config) validate(requireBudget bool) error {
 	if c.CodexExecutable != "" && (!filepath.IsAbs(c.CodexExecutable) || strings.TrimSpace(c.CodexExecutable) != c.CodexExecutable) {
 		return errors.New("codex_executable must be an absolute path")
 	}
-	if c.CodexExecutable == "" && len(c.CodexSpawnPath) > 0 {
+	if c.CodexExecutable == "" && c.CodexSpawnPath != "" {
 		return errors.New("codex_spawn_path requires codex_executable")
 	}
-	for _, directory := range c.CodexSpawnPath {
-		if directory == "" || strings.TrimSpace(directory) != directory || !filepath.IsAbs(directory) {
-			return errors.New("codex_spawn_path entries must be nonempty absolute paths")
+	seenSpawnDirectories := make(map[string]bool)
+	for _, directory := range filepath.SplitList(c.CodexSpawnPath) {
+		if directory == "" || strings.TrimSpace(directory) != directory || !filepath.IsAbs(directory) || filepath.Clean(directory) != directory {
+			return errors.New("codex_spawn_path entries must be absolute canonical paths")
 		}
+		if seenSpawnDirectories[directory] {
+			return errors.New("codex_spawn_path entries must be unique")
+		}
+		seenSpawnDirectories[directory] = true
 	}
 	if c.HeartbeatSeconds <= 0 {
 		return errors.New("heartbeat_seconds must be positive")
@@ -132,7 +137,7 @@ func Decode(data []byte) (Config, error) {
 		SchemaVersion                *int              `json:"schema_version"`
 		ControlTaskID                *string           `json:"control_task_id"`
 		CodexExecutable              *string           `json:"codex_executable"`
-		CodexSpawnPath               *[]string         `json:"codex_spawn_path"`
+		CodexSpawnPath               json.RawMessage   `json:"codex_spawn_path"`
 		HeartbeatSeconds             *int              `json:"heartbeat_seconds"`
 		ArchiveEnabled               *bool             `json:"archive_enabled"`
 		ArchiveAfterDays             *int              `json:"archive_after_days"`
@@ -148,6 +153,10 @@ func Decode(data []byte) (Config, error) {
 	if wire.ControlTaskID == nil || wire.HeartbeatSeconds == nil || wire.ArchiveEnabled == nil || wire.ArchiveAfterDays == nil || wire.RenameEnabled == nil || wire.AgentsEnabled == nil || wire.ClassifierModel == nil || wire.ClassifierEffort == nil {
 		return Config{}, errors.New("config is missing a required field")
 	}
+	spawnPath, err := decodeSpawnPath(wire.CodexSpawnPath)
+	if err != nil {
+		return Config{}, fmt.Errorf("decode codex_spawn_path: %w", err)
+	}
 	budget := 0
 	if wire.ClassifierContextBudgetBytes != nil {
 		budget = *wire.ClassifierContextBudgetBytes
@@ -158,7 +167,7 @@ func Decode(data []byte) (Config, error) {
 		SchemaVersion:                *wire.SchemaVersion,
 		ControlTaskID:                *wire.ControlTaskID,
 		CodexExecutable:              optionalString(wire.CodexExecutable),
-		CodexSpawnPath:               optionalStrings(wire.CodexSpawnPath),
+		CodexSpawnPath:               spawnPath,
 		HeartbeatSeconds:             *wire.HeartbeatSeconds,
 		ArchiveEnabled:               *wire.ArchiveEnabled,
 		ArchiveAfterDays:             *wire.ArchiveAfterDays,
@@ -181,11 +190,19 @@ func optionalString(value *string) string {
 	return *value
 }
 
-func optionalStrings(value *[]string) []string {
-	if value == nil {
-		return nil
+func decodeSpawnPath(data json.RawMessage) (string, error) {
+	if len(data) == 0 || bytes.Equal(data, []byte("null")) {
+		return "", nil
 	}
-	return append([]string(nil), (*value)...)
+	var value string
+	if err := json.Unmarshal(data, &value); err == nil {
+		return value, nil
+	}
+	var legacy []string
+	if err := json.Unmarshal(data, &legacy); err != nil {
+		return "", errors.New("must be a PATH string or legacy string array")
+	}
+	return strings.Join(legacy, string(filepath.ListSeparator)), nil
 }
 
 func decodeStrict(data []byte, target any, disallowUnknown bool) error {

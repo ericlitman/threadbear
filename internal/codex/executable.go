@@ -115,6 +115,25 @@ func ValidateExecutable(path string) error {
 	return nil
 }
 
+func ParseSpawnPath(pathValue string) ([]string, error) {
+	if pathValue == "" {
+		return nil, nil
+	}
+	directories := filepath.SplitList(pathValue)
+	if err := validateSpawnPath(directories); err != nil {
+		return nil, err
+	}
+	return append([]string(nil), directories...), nil
+}
+func FormatSpawnPath(directories []string) (string, error) {
+	if len(directories) == 0 {
+		return "", nil
+	}
+	if err := validateSpawnPath(directories); err != nil {
+		return "", err
+	}
+	return strings.Join(directories, string(os.PathListSeparator)), nil
+}
 func ValidateExecutableSpec(spec ExecutableSpec) error {
 	if err := ValidateExecutable(spec.Path); err != nil {
 		return err
@@ -122,10 +141,18 @@ func ValidateExecutableSpec(spec ExecutableSpec) error {
 	if len(spec.SpawnPath) == 0 {
 		return errors.New("Codex spawn PATH must not be empty")
 	}
-	for _, directory := range spec.SpawnPath {
-		if directory == "" || strings.TrimSpace(directory) != directory || !filepath.IsAbs(directory) {
-			return errors.New("Codex spawn PATH entries must be nonempty absolute directories")
+	return validateSpawnPath(spec.SpawnPath)
+}
+func validateSpawnPath(directories []string) error {
+	seen := make(map[string]bool, len(directories))
+	for _, directory := range directories {
+		if directory == "" || strings.TrimSpace(directory) != directory || !filepath.IsAbs(directory) || filepath.Clean(directory) != directory {
+			return errors.New("Codex spawn PATH entries must be absolute canonical directories")
 		}
+		if seen[directory] {
+			return errors.New("Codex spawn PATH entries must be unique")
+		}
+		seen[directory] = true
 	}
 	return nil
 }

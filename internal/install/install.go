@@ -545,7 +545,11 @@ func (i Installer) resolveCodexExecutableSpec(persisted config.Config, persisted
 	pathValue := os.Getenv("PATH")
 	if persistedExists && persisted.CodexExecutable != "" {
 		if err := codex.ValidateExecutable(persisted.CodexExecutable); err == nil {
-			spec := codex.ExecutableSpec{Path: persisted.CodexExecutable, SpawnPath: append([]string(nil), persisted.CodexSpawnPath...)}
+			spawnPath, parseErr := codex.ParseSpawnPath(persisted.CodexSpawnPath)
+			if parseErr != nil {
+				return codex.ExecutableSpec{}, parseErr
+			}
+			spec := codex.ExecutableSpec{Path: persisted.CodexExecutable, SpawnPath: spawnPath}
 			if len(spec.SpawnPath) == 0 {
 				derived, err := codex.DeriveExecutableSpec(i.Paths.Home, spec.Path, pathValue)
 				if err != nil {
@@ -760,7 +764,11 @@ func (s CoreSelfTester) Test(ctx context.Context, input SelfTestInput) error {
 	if platform != "darwin" || major < 12 || architecture != "arm64" && architecture != "amd64" {
 		return fmt.Errorf("unsupported platform %s/%s", platform, architecture)
 	}
-	if err := s.Probe.ValidateCodex(ctx, input.Paths.CodexHome, codex.ExecutableSpec{Path: input.Config.CodexExecutable, SpawnPath: input.Config.CodexSpawnPath}); err != nil {
+	spawnPath, err := codex.ParseSpawnPath(input.Config.CodexSpawnPath)
+	if err != nil {
+		return err
+	}
+	if err := s.Probe.ValidateCodex(ctx, input.Paths.CodexHome, codex.ExecutableSpec{Path: input.Config.CodexExecutable, SpawnPath: spawnPath}); err != nil {
 		return fmt.Errorf("Codex validation: %w", err)
 	}
 	if err := input.Config.Validate(); err != nil {

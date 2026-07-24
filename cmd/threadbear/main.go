@@ -250,11 +250,15 @@ func configuredExecutableSpec(home string, cfg config.Config, pathValue string) 
 	if cfg.CodexExecutable == "" {
 		return resolveCodexExecutableSpec(home, pathValue)
 	}
-	if len(cfg.CodexSpawnPath) == 0 {
+	spawnPath, err := codex.ParseSpawnPath(cfg.CodexSpawnPath)
+	if err != nil {
+		return codex.ExecutableSpec{}, err
+	}
+	if len(spawnPath) == 0 {
 		return codex.DeriveExecutableSpec(home, cfg.CodexExecutable, pathValue)
 	}
-	spec := codex.ExecutableSpec{Path: cfg.CodexExecutable, SpawnPath: append([]string(nil), cfg.CodexSpawnPath...)}
-	if err := codex.ValidateExecutableSpec(spec); err != nil {
+	spec := codex.ExecutableSpec{Path: cfg.CodexExecutable, SpawnPath: spawnPath}
+	if err := codex.VerifyExecutableSpec(spec); err != nil {
 		return codex.ExecutableSpec{}, err
 	}
 	return spec, nil

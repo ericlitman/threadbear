@@ -351,34 +351,43 @@ func TestConfigCodexSpawnPathValidationAndLegacyDecode(t *testing.T) {
 		t.Fatal(err)
 	}
 	decoded, err := config.Decode(data)
-	if err != nil || decoded.CodexSpawnPath != nil {
+	if err != nil || decoded.CodexSpawnPath != "" {
 		t.Fatalf("legacy decode=%+v err=%v", decoded, err)
 	}
 	valid := legacy
-	valid.CodexSpawnPath = []string{"/opt/homebrew/bin", "/usr/bin", "/bin"}
+	valid.CodexSpawnPath = "/opt/homebrew/bin:/usr/bin:/bin"
 	data, err = json.Marshal(valid)
 	if err != nil {
 		t.Fatal(err)
 	}
 	decoded, err = config.Decode(data)
-	if err != nil || !reflect.DeepEqual(decoded.CodexSpawnPath, valid.CodexSpawnPath) {
+	if err != nil || decoded != valid {
 		t.Fatalf("spawn decode=%+v err=%v", decoded, err)
 	}
-	for name, spawnPath := range map[string][]string{
-		"relative": {"usr/bin"},
-		"empty":    {""},
-		"padded":   {" /usr/bin"},
-	} {
+	var fields map[string]any
+	if err := json.Unmarshal(data, &fields); err != nil {
+		t.Fatal(err)
+	}
+	fields["codex_spawn_path"] = []string{"/opt/homebrew/bin", "/usr/bin", "/bin"}
+	legacyArray, err := json.Marshal(fields)
+	if err != nil {
+		t.Fatal(err)
+	}
+	decoded, err = config.Decode(legacyArray)
+	if err != nil || decoded.CodexSpawnPath != valid.CodexSpawnPath {
+		t.Fatalf("legacy array decode=%+v err=%v", decoded, err)
+	}
+	for name, spawnPath := range map[string]string{"relative": "usr/bin", "empty": "/usr/bin::/bin", "padded": " /usr/bin", "duplicate": "/usr/bin:/usr/bin", "unclean": "/usr/bin/../bin"} {
 		t.Run(name, func(t *testing.T) {
 			value := legacy
 			value.CodexSpawnPath = spawnPath
 			if err := value.Validate(); err == nil {
-				t.Fatalf("accepted spawn path %v", spawnPath)
+				t.Fatalf("accepted spawn path %q", spawnPath)
 			}
 		})
 	}
 	withoutExecutable := config.Default("control-123")
-	withoutExecutable.CodexSpawnPath = []string{"/usr/bin"}
+	withoutExecutable.CodexSpawnPath = "/usr/bin"
 	if err := withoutExecutable.Validate(); err == nil {
 		t.Fatal("accepted codex_spawn_path without codex_executable")
 	}

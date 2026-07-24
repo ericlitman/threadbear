@@ -138,12 +138,16 @@ func (a *Adapter) Healthy(ctx context.Context) (bool, error) {
 }
 
 func (a *Adapter) Apply(ctx context.Context, value config.Config) error {
+	pathValue := value.CodexSpawnPath
+	if pathValue == "" {
+		pathValue = a.path
+	}
 	disabled, err := a.disabled(ctx, Label)
 	if err != nil {
 		return err
 	}
 	if !disabled {
-		rendered, renderErr := RenderPlist(PlistSpec{Label: Label, BinaryPath: a.binaryPath, StartInterval: value.HeartbeatSeconds, Home: a.home, CodexHome: a.codexHome, Path: a.path, LCAll: a.lcAll, StdoutPath: a.stdoutPath, StderrPath: a.stderrPath})
+		rendered, renderErr := RenderPlist(PlistSpec{Label: Label, BinaryPath: a.binaryPath, StartInterval: value.HeartbeatSeconds, Home: a.home, CodexHome: a.codexHome, Path: pathValue, LCAll: a.lcAll, StdoutPath: a.stdoutPath, StderrPath: a.stderrPath})
 		if renderErr != nil {
 			return renderErr
 		}
@@ -170,9 +174,13 @@ func (a *Adapter) Apply(ctx context.Context, value config.Config) error {
 }
 
 func (a *Adapter) Stage(ctx context.Context, value config.Config) (bool, error) {
+	pathValue := value.CodexSpawnPath
+	if pathValue == "" {
+		pathValue = a.path
+	}
 	rendered, err := RenderPlist(PlistSpec{
 		Label: Label, BinaryPath: a.binaryPath, StartInterval: value.HeartbeatSeconds,
-		Home: a.home, CodexHome: a.codexHome, Path: a.path, LCAll: a.lcAll,
+		Home: a.home, CodexHome: a.codexHome, Path: pathValue, LCAll: a.lcAll,
 		StdoutPath: a.stdoutPath, StderrPath: a.stderrPath,
 	})
 	if err != nil {
