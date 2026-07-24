@@ -110,14 +110,6 @@ func (u Uninstaller) Uninstall(ctx context.Context, request UninstallRequest) (U
 	if !archiveControlTask && !hadLaunchAgent && !schedulerLoaded && !hadBinary && !hadAgents && !hadSkill && (!deleteState || !hadState) {
 		return UninstallResult{Preview: preview, Changed: false, Resources: []string{}}, nil
 	}
-	var controlTaskID string
-	if archiveControlTask {
-		value, err := u.Store.LoadConfig()
-		if err != nil {
-			return UninstallResult{}, fmt.Errorf("load control task identity: %w", err)
-		}
-		controlTaskID = value.ControlTaskID
-	}
 	lock, err := u.Store.AcquireLock()
 	if err != nil {
 		return UninstallResult{}, err
@@ -128,6 +120,30 @@ func (u Uninstaller) Uninstall(ctx context.Context, request UninstallRequest) (U
 			_ = lock.Close()
 		}
 	}()
+	hadLaunchAgent = existed(u.Paths.LaunchAgent)
+	hadBinary = existed(u.Paths.Binary)
+	hadAgents = managedFileHasBlock(u.Paths.Agents)
+	hadSkill = managedFileHasBlock(u.Paths.Skill)
+	hadState = existed(u.Paths.StateDirectory)
+	schedulerLoaded, err = u.Scheduler.Loaded(ctx)
+	if err != nil {
+		return UninstallResult{}, fmt.Errorf("recheck scheduler under lock: %w", err)
+	}
+	if !archiveControlTask && !hadLaunchAgent && !schedulerLoaded && !hadBinary && !hadAgents && !hadSkill && (!deleteState || !hadState) {
+		if err := lock.Close(); err != nil {
+			return UninstallResult{}, fmt.Errorf("release uninstall lock: %w", err)
+		}
+		lockHeld = false
+		return UninstallResult{Preview: preview, Changed: false, Resources: []string{}}, nil
+	}
+	var controlTaskID string
+	if archiveControlTask {
+		value, err := u.Store.LoadConfig()
+		if err != nil {
+			return UninstallResult{}, fmt.Errorf("load control task identity: %w", err)
+		}
+		controlTaskID = value.ControlTaskID
+	}
 	if err := ValidateManagedFile(u.Paths.Agents); err != nil {
 		return UninstallResult{}, fmt.Errorf("validate AGENTS.md: %w", err)
 	}

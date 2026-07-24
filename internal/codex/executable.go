@@ -138,11 +138,18 @@ func ValidateExecutable(path string) error {
 	}
 	return nil
 }
+func ValidateExecutableSpec(spec ExecutableSpec) error {
+	if err := ValidateExecutable(spec.Path); err != nil {
+		return err
+	}
+	return ValidateSpawnPath(spec.SpawnPath)
+}
+
 func ProbeExecutable(home string, spec ExecutableSpec) error {
 	if !filepath.IsAbs(home) {
 		return errors.New("user home must be absolute")
 	}
-	if err := ValidateExecutable(spec.Path); err != nil {
+	if err := ValidateExecutableSpec(spec); err != nil {
 		return err
 	}
 	spawnPath, err := ComposeSpawnPath(spec.SpawnPath)

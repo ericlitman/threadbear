@@ -198,7 +198,26 @@ func TestUninstallLoadedJobWithoutArtifactsReportsChangedAndUnloads(t *testing.T
 	if !result.Changed || scheduler.loaded || !containsResource(result.Resources, "launchagent") {
 		t.Fatalf("result=%+v scheduler=%+v", result, scheduler)
 	}
-	if !reflect.DeepEqual(scheduler.calls, []string{"loaded", "remove"}) {
+	if !reflect.DeepEqual(scheduler.calls, []string{"loaded", "loaded", "remove"}) {
 		t.Fatalf("calls=%v", scheduler.calls)
+	}
+}
+
+func TestUninstallRechecksArtifactsUnderLock(t *testing.T) {
+	paths := PathsForHome(t.TempDir())
+	if err := os.MkdirAll(filepath.Dir(paths.Binary), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(paths.Binary, []byte("binary"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	store := &fakeStore{onAcquire: func() { _ = os.Remove(paths.Binary) }}
+	scheduler := &fakeScheduler{}
+	result, err := (Uninstaller{Paths: paths, Store: store, Scheduler: scheduler, ControlTasks: &fakeTasks{}}).Uninstall(context.Background(), UninstallRequest{NonInteractive: true, Confirm: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Changed || store.lockHeld || !reflect.DeepEqual(scheduler.calls, []string{"loaded", "loaded"}) {
+		t.Fatalf("result=%+v store=%+v calls=%v", result, store, scheduler.calls)
 	}
 }

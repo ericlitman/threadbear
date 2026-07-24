@@ -245,7 +245,10 @@ func TestHeartbeatRuntimeUsesInstalledPinnedCodexExecutable(t *testing.T) {
 	if process.Path != executable {
 		t.Fatalf("process path=%q want installed path %q", process.Path, executable)
 	}
-	storedPath := spec.SpawnPath
+	storedPath, err := codex.ComposeSpawnPath(spec.SpawnPath)
+	if err != nil {
+		t.Fatal(err)
+	}
 	found := false
 	for _, entry := range process.Env {
 		found = found || entry == "PATH="+storedPath

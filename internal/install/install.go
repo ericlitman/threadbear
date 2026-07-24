@@ -537,13 +537,15 @@ func (i Installer) resolveCodexExecutableSpec(persisted config.Config, persisted
 		spec := codex.ExecutableSpec{Path: persisted.CodexExecutable, SpawnPath: persisted.CodexSpawnPath}
 		if spec.SpawnPath == "" {
 			derived, err := codex.DeriveExecutableSpec(i.Paths.Home, spec.Path, capturedPath)
-			if err == nil {
-				spec = derived
+			if err != nil {
+				return codex.ExecutableSpec{}, err
 			}
+			spec = derived
 		}
-		if err := codex.ProbeExecutable(i.Paths.Home, spec); err == nil {
-			return spec, nil
+		if err := codex.ProbeExecutable(i.Paths.Home, spec); err != nil {
+			return codex.ExecutableSpec{}, err
 		}
+		return spec, nil
 	}
 	if i.CodexExecutable != "" || i.CodexSpawnPath != "" {
 		spec := codex.ExecutableSpec{Path: i.CodexExecutable, SpawnPath: i.CodexSpawnPath}

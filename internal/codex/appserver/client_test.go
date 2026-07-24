@@ -13,6 +13,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/ericlitman/threadbear/internal/codex"
 )
 
 func TestFakeAppServerProcess(t *testing.T) {
@@ -718,7 +720,11 @@ func TestPinnedProcessSpecRunsEnvNodeWrapperWithExactPersistedPath(t *testing.T)
 	if err := command.Run(); err != nil {
 		t.Fatal(err)
 	}
-	want := "PATH=" + spawnPath
+	actualPath, err := codex.ComposeSpawnPath(spawnPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := "PATH=" + actualPath
 	found := false
 	for _, entry := range process.Env {
 		found = found || entry == want

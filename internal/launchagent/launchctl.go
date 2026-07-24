@@ -17,6 +17,8 @@ import (
 	"github.com/ericlitman/threadbear/internal/config"
 )
 
+const DefaultPath = codex.DefaultSpawnPath
+
 var _ app.LaunchAgent = (*Adapter)(nil)
 
 type CommandRunner interface {

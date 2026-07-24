@@ -267,6 +267,19 @@ func (s *renamingScheduler) StopLegacy(context.Context) error {
 	return nil
 }
 
+type orderedLegacyLoader struct {
+	scheduler *renamingScheduler
+	calls     int
+}
+
+func (l *orderedLegacyLoader) Load(path string) ([]byte, error) {
+	l.calls++
+	if !l.scheduler.stopped {
+		return nil, errors.New("legacy state read before StopLegacy")
+	}
+	return os.ReadFile(path)
+}
+
 type postStopFailLegacy struct {
 	scheduler *renamingScheduler
 	failed    bool
@@ -450,6 +463,12 @@ func TestMigrationUsesDetectedInterval(t *testing.T) {
 	scheduler := &fakeScheduler{interval: 77}
 	tasks := &fakeTasks{}
 	installer := newInstaller(t, store, scheduler, tasks, nil)
+	if err := os.MkdirAll(filepath.Dir(installer.Paths.LegacyState), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(installer.Paths.LegacyState, []byte("migration preview marker"), 0o600); err != nil {
+		t.Fatal(err)
+	}
 	installer.Legacy = legacy
 	result, err := installer.Install(context.Background(), InstallRequest{NonInteractive: true, Confirm: true})
 	if err != nil {
@@ -753,7 +772,7 @@ func TestInstallMissingCodexFailsBeforeMutation(t *testing.T) {
 	installer := Installer{Paths: paths, Store: store, Scheduler: &fakeScheduler{}, ControlTasks: &fakeTasks{}, Binary: &fakeBinary{}, SelfTester: &fakeSelfTest{}, Legacy: missingLegacy{}, ResolveCodexExecutableSpec: codex.ResolveExecutableSpec}
 	_, err := installer.Install(context.Background(), InstallRequest{NonInteractive: true, Confirm: true})
 	var failure *InstallFailure
-	if !errors.As(err, &failure) || failure.Step != "resolve_codex_executable" || !strings.Contains(failure.Cause, "invoking PATH") {
+	if !errors.As(err, &failure) || failure.Step != "resolve_codex_executable" || !strings.Contains(failure.Cause, "install the Codex CLI") {
 		t.Fatalf("error=%v failure=%+v", err, failure)
 	}
 	if _, statErr := os.Stat(paths.StateDirectory); !errors.Is(statErr, os.ErrNotExist) {
@@ -797,10 +816,14 @@ func TestMigrationCapturesOriginalIntervalBeforeLegacyPlistIsRenamed(t *testing.
 	scheduler := &renamingScheduler{fakeScheduler: fakeScheduler{interval: 77}, plistPath: paths.LegacyLaunchAgent, statePath: paths.LegacyState, finalState: finalState, store: store}
 	tasks := &fakeTasks{}
 	selfTest := &lifecycleSelfTest{scheduler: &scheduler.fakeScheduler}
-	installer := Installer{Paths: paths, Store: store, Scheduler: scheduler, ControlTasks: tasks, Binary: &fakeBinary{}, SelfTester: selfTest, Legacy: FileLegacyLoader{}, CodexExecutable: testCodexExecutable(t, home)}
+	loader := &orderedLegacyLoader{scheduler: scheduler}
+	installer := Installer{Paths: paths, Store: store, Scheduler: scheduler, ControlTasks: tasks, Binary: &fakeBinary{}, SelfTester: selfTest, Legacy: loader, CodexExecutable: testCodexExecutable(t, home)}
 	result, err := installer.Install(context.Background(), InstallRequest{NonInteractive: true, Confirm: true})
 	if err != nil {
 		t.Fatal(err)
+	}
+	if loader.calls != 1 {
+		t.Fatalf("legacy loader calls=%d want 1 post-stop read", loader.calls)
 	}
 	if result.Config.HeartbeatSeconds != 77 || result.Config.ControlTaskID != "control-final" || store.config.ControlTaskID != "control-final" {
 		t.Fatalf("final migration did not preserve interval/state: result=%+v store=%+v", result, store)

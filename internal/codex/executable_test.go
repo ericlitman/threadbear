@@ -29,12 +29,16 @@ func TestSanitizePathKeepsCanonicalAbsoluteEntriesInOrder(t *testing.T) {
 	}
 }
 
-func TestResolveExecutableOnlyUsesCapturedPath(t *testing.T) {
+func TestResolveExecutableUsesStandardHomeLocationAfterInvokingPath(t *testing.T) {
 	home := t.TempDir()
-	writeExecutable(t, filepath.Join(home, ".local", "bin", "codex"), "#!/bin/sh\nexit 0\n")
-	_, err := ResolveExecutableSpec(home, t.TempDir())
-	if !errors.Is(err, ErrExecutableNotFound) || !strings.Contains(err.Error(), "invoking PATH") {
-		t.Fatalf("error=%v", err)
+	executable := filepath.Join(home, ".local", "bin", "codex")
+	writeExecutable(t, executable, "#!/bin/sh\nexit 0\n")
+	spec, err := ResolveExecutableSpec(home, t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if spec.Path != executable || spec.SpawnPath != filepath.Dir(executable) {
+		t.Fatalf("spec=%+v", spec)
 	}
 }
 
@@ -65,5 +69,15 @@ func TestValidateExecutableSpecRequiresCanonicalSpawnPath(t *testing.T) {
 		if err := ValidateExecutableSpec(ExecutableSpec{Path: executable, SpawnPath: value}); err == nil {
 			t.Fatalf("accepted %q", value)
 		}
+	}
+}
+
+func TestResolveExecutableEnvShebangMissingInterpreterFailsActionably(t *testing.T) {
+	home := t.TempDir()
+	codexDirectory := filepath.Join(t.TempDir(), "codex-bin")
+	writeExecutable(t, filepath.Join(codexDirectory, "codex"), "#!/usr/bin/env threadbear-missing-node\n")
+	_, err := ResolveExecutableSpec(home, codexDirectory)
+	if !errors.Is(err, ErrExecutableNotFound) || !strings.Contains(err.Error(), "threadbear-missing-node") || !strings.Contains(err.Error(), "then rerun install") {
+		t.Fatalf("error=%v", err)
 	}
 }
