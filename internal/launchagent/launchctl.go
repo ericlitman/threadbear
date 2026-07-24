@@ -366,12 +366,17 @@ func (a *Adapter) LegacyStopped(ctx context.Context) (bool, error) {
 }
 
 func (a *Adapter) DetectLegacyInterval() (int, bool, error) {
-	data, err := os.ReadFile(a.legacyPlistPath)
+	path := a.legacyPlistPath
+	data, err := os.ReadFile(path)
+	if errors.Is(err, os.ErrNotExist) {
+		path += ".disabled-by-threadbear"
+		data, err = os.ReadFile(path)
+	}
 	if errors.Is(err, os.ErrNotExist) {
 		return 0, false, nil
 	}
 	if err != nil {
-		return 0, false, fmt.Errorf("read legacy LaunchAgent plist: %w", err)
+		return 0, false, fmt.Errorf("read legacy LaunchAgent plist %s: %w", path, err)
 	}
 	interval, found, err := plistStartInterval(data)
 	if err != nil {

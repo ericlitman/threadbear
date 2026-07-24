@@ -149,6 +149,21 @@ func TestApplyIsAtomicPrivateIdempotentAndPreservesDisabledState(t *testing.T) {
 	}
 }
 
+func TestStageLeavesThreadBearDisabledAndUnloaded(t *testing.T) {
+	runner := newFakeRunner()
+	adapter, _ := testAdapter(t, runner)
+	cfg := config.Default("control")
+	if err := adapter.Apply(context.Background(), cfg); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := adapter.Stage(context.Background(), cfg); err != nil {
+		t.Fatal(err)
+	}
+	if !runner.disabled[Label] || runner.loaded[adapter.service] {
+		t.Fatalf("staged state disabled=%t loaded=%t", runner.disabled[Label], runner.loaded[adapter.service])
+	}
+}
+
 func TestEnableDisableAndRemoveAreIdempotent(t *testing.T) {
 	runner := newFakeRunner()
 	adapter, _ := testAdapter(t, runner)
@@ -241,6 +256,10 @@ func TestLegacyStopVerifyAndIntervalDetection(t *testing.T) {
 	}
 	if _, err := os.Stat(adapter.legacyPlistPath + ".disabled-by-threadbear"); err != nil {
 		t.Fatalf("legacy plist was not quarantined: %v", err)
+	}
+	interval, found, err = adapter.DetectLegacyInterval()
+	if err != nil || !found || interval != 420 {
+		t.Fatalf("quarantined DetectLegacyInterval = %d, %v, %v", interval, found, err)
 	}
 	if data, err := os.ReadFile(unrelated); err != nil || string(data) != "keep" {
 		t.Fatalf("unrelated legacy data changed: %q %v", data, err)

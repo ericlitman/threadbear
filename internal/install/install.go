@@ -199,13 +199,29 @@ func (i Installer) Install(ctx context.Context, request InstallRequest) (Install
 		return InstallResult{}, Fail("resolve_codex_executable", err)
 	}
 	i.CodexExecutable = codexExecutable
-	previewConfig, _, previewConfigExists, previewStateExists, err := loadExisting(i.Store)
+	previewConfig, previewState, previewConfigExists, previewStateExists, err := loadExisting(i.Store)
 	if err != nil {
 		return InstallResult{}, Fail("load_preview_state", err)
 	}
+	migrationNeeded := !previewConfigExists || !previewStateExists
+	legacyInterval, legacyIntervalFound, err := i.detectLegacyInterval(ctx, migrationNeeded)
+	if err != nil {
+		return InstallResult{}, Fail("detect_legacy_interval", err)
+	}
+	candidateMigration, candidateMigrated, err := i.loadMigrationState(migrationNeeded)
+	if err != nil {
+		return InstallResult{}, Fail("load_candidate_migration", err)
+	}
 	previewPreferences := DefaultPreferences()
+	previewControlTaskID := "threadbear-install-candidate"
 	if previewConfigExists {
 		previewPreferences = preferencesFromConfig(previewConfig)
+		previewControlTaskID = previewConfig.ControlTaskID
+	} else if candidateMigrated {
+		previewControlTaskID = candidateMigration.ControlTaskID
+		if legacyIntervalFound {
+			previewPreferences.HeartbeatSeconds = legacyInterval
+		}
 	}
 	var selectedPreferences *Preferences
 	if request.Preferences != nil {
@@ -232,8 +248,7 @@ func (i Installer) Install(ctx context.Context, request InstallRequest) (Install
 	if err := previewPreferences.Validate(); err != nil {
 		return InstallResult{}, Fail("preferences", err)
 	}
-	migrationPreview := (!previewConfigExists || !previewStateExists) && migrationCandidate(i.Paths.LegacyState)
-	preview, err := installPreview(i.Paths, previewPreferences, previewConfigExists, migrationPreview)
+	preview, err := installPreview(i.Paths, previewPreferences, previewConfigExists, migrationNeeded && candidateMigrated)
 	if err != nil {
 		return InstallResult{}, Fail("preview", err)
 	}
@@ -255,6 +270,19 @@ func (i Installer) Install(ctx context.Context, request InstallRequest) (Install
 			return InstallResult{}, ErrCancelled
 		}
 	}
+	candidateState := previewState
+	if !previewStateExists {
+		if candidateMigrated {
+			candidateState = candidateMigration.State
+		} else {
+			candidateState = state.New()
+		}
+	}
+	candidateConfig := previewPreferences.config(previewControlTaskID, i.CodexExecutable)
+	resources, err := i.stageCandidate(ctx, candidateConfig, candidateState)
+	if err != nil {
+		return InstallResult{}, err
+	}
 	lock, err := i.Store.AcquireLock()
 	if err != nil {
 		return InstallResult{}, Fail("acquire_lock", err)
@@ -265,15 +293,20 @@ func (i Installer) Install(ctx context.Context, request InstallRequest) (Install
 			_ = lock.Close()
 		}
 	}()
-	if err := i.Scheduler.StopLegacy(ctx); err != nil {
-		return InstallResult{}, Fail("stop_legacy_scheduler", err)
-	}
-	if err := i.Scheduler.VerifyLegacyStopped(ctx); err != nil {
-		return InstallResult{}, Fail("verify_legacy_stopped", err)
-	}
 	currentConfig, currentState, configExists, stateExists, err := loadExisting(i.Store)
 	if err != nil {
 		return InstallResult{}, Fail("reload_existing", err)
+	}
+	if err := i.Scheduler.StopLegacy(ctx); err != nil {
+		return InstallResult{}, i.stoppedLegacyFailure("stop_legacy_scheduler", err)
+	}
+	fail := func(step string, err error) error { return i.stoppedLegacyFailure(step, err) }
+	if err := i.Scheduler.VerifyLegacyStopped(ctx); err != nil {
+		return InstallResult{}, fail("verify_legacy_stopped", err)
+	}
+	finalMigration, migrated, err := i.loadMigrationState(!configExists || !stateExists)
+	if err != nil {
+		return InstallResult{}, fail("load_final_migration", err)
 	}
 	preferences := DefaultPreferences()
 	controlTaskID := ""
@@ -281,23 +314,15 @@ func (i Installer) Install(ctx context.Context, request InstallRequest) (Install
 		preferences = preferencesFromConfig(currentConfig)
 		controlTaskID = currentConfig.ControlTaskID
 	}
-	migrated := false
-	if !configExists || !stateExists {
-		migration, found, migrationErr := i.loadMigration(ctx)
-		if migrationErr != nil {
-			return InstallResult{}, Fail("load_migration", migrationErr)
+	if migrated {
+		if controlTaskID == "" {
+			controlTaskID = finalMigration.ControlTaskID
 		}
-		migrated = found
-		if found {
-			if controlTaskID == "" {
-				controlTaskID = migration.ControlTaskID
-			}
-			if !stateExists {
-				currentState = migration.State
-			}
-			if !configExists && migration.HeartbeatSeconds > 0 {
-				preferences.HeartbeatSeconds = migration.HeartbeatSeconds
-			}
+		if !stateExists {
+			currentState = finalMigration.State
+		}
+		if !configExists && legacyIntervalFound {
+			preferences.HeartbeatSeconds = legacyInterval
 		}
 	}
 	if !stateExists && !migrated {
@@ -308,93 +333,127 @@ func (i Installer) Install(ctx context.Context, request InstallRequest) (Install
 	}
 	preferences = applyPreferencePatch(preferences, request.Patch)
 	if err := preferences.Validate(); err != nil {
-		return InstallResult{}, Fail("preferences", err)
+		return InstallResult{}, fail("preferences", err)
 	}
-	if err := ValidateManagedFile(i.Paths.Agents); err != nil {
-		return InstallResult{}, Fail("validate_managed_files", fmt.Errorf("validate AGENTS.md: %w", err))
-	}
-	if err := ValidateManagedFile(i.Paths.Skill); err != nil {
-		return InstallResult{}, Fail("validate_managed_files", fmt.Errorf("validate skill: %w", err))
-	}
-	if err := rejectSymlinkComponents(i.Paths.Binary); err != nil {
-		return InstallResult{}, Fail("validate_binary_path", err)
+	if preferences != previewPreferences {
+		return InstallResult{}, fail("stale_preview", errors.New("configuration changed after preview; rerun install to review and confirm the current preferences"))
 	}
 	controlTaskID, controlTaskChanged, ensureErr := i.ControlTasks.EnsureControlTask(ctx, controlTaskID)
 	if !canonical(controlTaskID) {
 		if ensureErr != nil {
-			return InstallResult{}, Fail("ensure_control_task", ensureErr)
+			return InstallResult{}, fail("ensure_control_task", ensureErr)
 		}
-		return InstallResult{}, Fail("ensure_control_task", errors.New("control task returned a noncanonical ID"))
+		return InstallResult{}, fail("ensure_control_task", errors.New("control task returned a noncanonical ID"))
 	}
 	nextConfig := preferences.config(controlTaskID, i.CodexExecutable)
 	if err := nextConfig.Validate(); err != nil {
-		return InstallResult{}, Fail("validate_config", err)
+		return InstallResult{}, fail("validate_config", err)
 	}
-	resources := make([]string, 0, 7)
 	if !configExists || nextConfig != currentConfig {
 		if err := i.Store.SaveConfig(nextConfig); err != nil {
-			return InstallResult{}, Fail("persist_config", err)
+			return InstallResult{}, fail("persist_config", err)
 		}
-		resources = append(resources, "config")
+		resources = appendUnique(resources, "config")
 	}
 	if ensureErr != nil {
-		return InstallResult{}, Fail("ensure_control_task", ensureErr)
+		return InstallResult{}, fail("ensure_control_task", ensureErr)
 	}
 	if controlTaskChanged {
-		resources = append(resources, "control_task")
+		resources = appendUnique(resources, "control_task")
 	}
 	if !stateExists {
 		if err := i.Store.SaveState(currentState); err != nil {
-			return InstallResult{}, Fail("persist_state", err)
+			return InstallResult{}, fail("persist_state", err)
 		}
-		resources = append(resources, "state")
+		resources = appendUnique(resources, "state")
+	}
+	finalSchedulerChanged, err := i.Scheduler.Stage(ctx, nextConfig)
+	if err != nil {
+		return InstallResult{}, fail("stage_final_scheduler", err)
+	}
+	enabledChanged, err := i.Scheduler.Enable(ctx)
+	if err != nil {
+		return InstallResult{}, fail("enable_scheduler", err)
+	}
+	if err := i.Scheduler.VerifyHealthy(ctx); err != nil {
+		return InstallResult{}, fail("verify_scheduler_health", err)
+	}
+	if finalSchedulerChanged || enabledChanged {
+		resources = appendUnique(resources, "launchagent")
+	}
+	if err := i.SelfTester.Test(ctx, SelfTestInput{Paths: i.Paths, Config: nextConfig, State: currentState}); err != nil {
+		return InstallResult{}, fail("installed_self_test", err)
+	}
+	if err := lock.Close(); err != nil {
+		return InstallResult{}, fail("release_lock", err)
+	}
+	lockHeld = false
+	return InstallResult{Config: nextConfig, State: currentState, Paths: i.Paths, Migrated: migrated, Reinstalled: configExists, Preview: preview, Changed: len(resources) > 0, Resources: resources}, nil
+}
+
+func (i Installer) stageCandidate(ctx context.Context, candidateConfig config.Config, candidateState state.State) ([]string, error) {
+	if err := candidateConfig.Validate(); err != nil {
+		return nil, Fail("validate_candidate_config", err)
+	}
+	if err := ValidateManagedFile(i.Paths.Agents); err != nil {
+		return nil, Fail("validate_candidate_files", fmt.Errorf("validate AGENTS.md: %w", err))
+	}
+	if err := ValidateManagedFile(i.Paths.Skill); err != nil {
+		return nil, Fail("validate_candidate_files", fmt.Errorf("validate skill: %w", err))
+	}
+	if err := rejectSymlinkComponents(i.Paths.Binary); err != nil {
+		return nil, Fail("validate_candidate_binary", err)
+	}
+	resources := make([]string, 0, 4)
+	schedulerChanged, err := i.Scheduler.Stage(ctx, candidateConfig)
+	if err != nil {
+		return nil, Fail("stage_candidate_scheduler", err)
+	}
+	if schedulerChanged {
+		resources = append(resources, "launchagent")
 	}
 	binaryChanged, err := binaryNeedsInstall(i.Paths.Binary, i.Binary)
 	if err != nil {
-		return InstallResult{}, Fail("inspect_binary", err)
+		return nil, Fail("inspect_candidate_binary", err)
 	}
 	if binaryChanged {
 		if err := i.Binary.Install(i.Paths.Binary); err != nil {
-			return InstallResult{}, Fail("install_binary", err)
+			return nil, Fail("stage_candidate_binary", err)
 		}
 		resources = append(resources, "binary")
 	}
-	agentsChanged, err := applyManaged(i.Paths.Agents, preferences.AgentsEnabled, []byte(assets.AgentsManagedContent))
+	agentsChanged, err := applyManaged(i.Paths.Agents, candidateConfig.AgentsEnabled, []byte(assets.AgentsManagedContent))
 	if err != nil {
-		return InstallResult{}, Fail("update_agents", err)
+		return nil, Fail("stage_candidate_agents", err)
 	}
 	if agentsChanged {
 		resources = append(resources, "agents")
 	}
 	skillChanged, err := applyManaged(i.Paths.Skill, true, []byte(assets.SkillManagedContent))
 	if err != nil {
-		return InstallResult{}, Fail("update_skill", err)
+		return nil, Fail("stage_candidate_skill", err)
 	}
 	if skillChanged {
 		resources = append(resources, "skill")
 	}
-	schedulerChanged, err := i.Scheduler.Stage(ctx, nextConfig)
-	if err != nil {
-		return InstallResult{}, Fail("stage_scheduler", err)
+	if err := i.SelfTester.Test(ctx, SelfTestInput{Paths: i.Paths, Config: candidateConfig, State: candidateState, Candidate: true}); err != nil {
+		return nil, Fail("candidate_self_test", err)
 	}
-	if err := i.SelfTester.Test(ctx, SelfTestInput{Paths: i.Paths, Config: nextConfig, State: currentState}); err != nil {
-		return InstallResult{}, Fail("self_test", err)
+	return resources, nil
+}
+
+func (i Installer) stoppedLegacyFailure(step string, err error) error {
+	cause := fmt.Sprintf("legacy scheduler was stopped before ThreadBear installation completed: %v. To re-enable it, rename %s back to %s, then run `launchctl enable gui/$(id -u)/org.litman.threadwatch` and `launchctl bootstrap gui/$(id -u) %s`", err, i.Paths.LegacyLaunchAgent+".disabled-by-threadbear", i.Paths.LegacyLaunchAgent, i.Paths.LegacyLaunchAgent)
+	return Fail(step, errors.New(cause))
+}
+
+func appendUnique(values []string, value string) []string {
+	for _, existing := range values {
+		if existing == value {
+			return values
+		}
 	}
-	enabledChanged, err := i.Scheduler.Enable(ctx)
-	if err != nil {
-		return InstallResult{}, Fail("enable_scheduler", err)
-	}
-	if err := i.Scheduler.VerifyHealthy(ctx); err != nil {
-		return InstallResult{}, Fail("verify_scheduler_health", err)
-	}
-	if schedulerChanged || enabledChanged {
-		resources = append(resources, "launchagent")
-	}
-	if err := lock.Close(); err != nil {
-		return InstallResult{}, Fail("release_lock", err)
-	}
-	lockHeld = false
-	return InstallResult{Config: nextConfig, State: currentState, Paths: i.Paths, Migrated: migrated, Reinstalled: configExists, Preview: preview, Changed: len(resources) > 0, Resources: resources}, nil
+	return append(values, value)
 }
 
 func binaryNeedsInstall(path string, installer BinaryInstaller) (bool, error) {
@@ -505,7 +564,24 @@ func (i Installer) validate() error {
 	return nil
 }
 
-func (i Installer) loadMigration(ctx context.Context) (Migration, bool, error) {
+func (i Installer) detectLegacyInterval(ctx context.Context, needed bool) (int, bool, error) {
+	if !needed {
+		return 0, false, nil
+	}
+	interval, detected, err := i.Scheduler.DetectLegacyInterval(ctx)
+	if err != nil {
+		return 0, false, fmt.Errorf("detect legacy interval: %w", err)
+	}
+	if detected && interval <= 0 {
+		return 0, false, errors.New("detected legacy interval is invalid")
+	}
+	return interval, detected, nil
+}
+
+func (i Installer) loadMigrationState(needed bool) (Migration, bool, error) {
+	if !needed {
+		return Migration{}, false, nil
+	}
 	loader := i.Legacy
 	if loader == nil {
 		loader = FileLegacyLoader{}
@@ -520,16 +596,6 @@ func (i Installer) loadMigration(ctx context.Context) (Migration, bool, error) {
 	migration, err := DecodeThreadWatch(data)
 	if err != nil {
 		return Migration{}, false, err
-	}
-	interval, detected, err := i.Scheduler.DetectLegacyInterval(ctx)
-	if err != nil {
-		return Migration{}, false, fmt.Errorf("detect legacy interval: %w", err)
-	}
-	if detected && interval <= 0 {
-		return Migration{}, false, errors.New("detected legacy interval is invalid")
-	}
-	if detected {
-		migration.HeartbeatSeconds = interval
 	}
 	return migration, true, nil
 }
@@ -624,9 +690,10 @@ func (f FileBinaryInstaller) Install(destination string) error {
 }
 
 type SelfTestInput struct {
-	Paths  Paths
-	Config config.Config
-	State  state.State
+	Paths     Paths
+	Config    config.Config
+	State     state.State
+	Candidate bool
 }
 
 type SelfTestProbe interface {
@@ -662,7 +729,7 @@ func (s CoreSelfTester) Test(ctx context.Context, input SelfTestInput) error {
 	if err := VerifyManagedSurface(input.Paths.Skill, true, []byte(assets.SkillManagedContent)); err != nil {
 		return fmt.Errorf("skill surface validation: %w", err)
 	}
-	if s.Store != nil {
+	if s.Store != nil && !input.Candidate {
 		persistedConfig, err := s.Store.LoadConfig()
 		if err != nil {
 			return fmt.Errorf("read persisted config: %w", err)

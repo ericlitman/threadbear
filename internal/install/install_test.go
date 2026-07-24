@@ -42,14 +42,21 @@ type fakeStore struct {
 	saveState    int
 	onLockClose  func()
 	onAcquire    func()
+	lockHeld     bool
 }
 
 func (s *fakeStore) AcquireLock() (Lock, error) {
 	s.locks++
+	s.lockHeld = true
 	if s.onAcquire != nil {
 		s.onAcquire()
 	}
-	return &fakeLock{onClose: s.onLockClose}, nil
+	return &fakeLock{onClose: func() {
+		s.lockHeld = false
+		if s.onLockClose != nil {
+			s.onLockClose()
+		}
+	}}, nil
 }
 func (s *fakeStore) LoadConfig() (config.Config, error) {
 	if !s.configExists && s.config.SchemaVersion == 0 {
@@ -87,6 +94,7 @@ type fakeScheduler struct {
 	calls     []string
 	interval  int
 	legacyErr error
+	disabled  bool
 	loaded    bool
 	loadedErr error
 }
@@ -105,6 +113,8 @@ func (s *fakeScheduler) VerifyLegacyStopped(context.Context) error {
 }
 func (s *fakeScheduler) Stage(context.Context, config.Config) (bool, error) {
 	s.calls = append(s.calls, "stage")
+	s.disabled = true
+	s.loaded = false
 	return false, nil
 }
 func (s *fakeScheduler) VerifyHealthy(context.Context) error {
@@ -113,6 +123,8 @@ func (s *fakeScheduler) VerifyHealthy(context.Context) error {
 }
 func (s *fakeScheduler) Enable(context.Context) (bool, error) {
 	s.calls = append(s.calls, "enable")
+	s.disabled = false
+	s.loaded = true
 	return false, nil
 }
 func (s *fakeScheduler) Loaded(context.Context) (bool, error) {
@@ -169,9 +181,16 @@ func (b *fakeBinary) Install(path string) error {
 	return os.WriteFile(path, []byte("binary"), 0o700)
 }
 
-type fakeSelfTest struct{ calls int }
+type fakeSelfTest struct {
+	calls  int
+	inputs []SelfTestInput
+}
 
-func (s *fakeSelfTest) Test(context.Context, SelfTestInput) error { s.calls++; return nil }
+func (s *fakeSelfTest) Test(_ context.Context, input SelfTestInput) error {
+	s.calls++
+	s.inputs = append(s.inputs, input)
+	return nil
+}
 
 type fakePrompter struct {
 	collected Preferences
@@ -204,6 +223,77 @@ func (missingLegacy) Load(string) ([]byte, error) { return nil, fs.ErrNotExist }
 type bytesLegacy []byte
 
 func (b bytesLegacy) Load(string) ([]byte, error) { return b, nil }
+
+type renamingScheduler struct {
+	fakeScheduler
+	plistPath  string
+	statePath  string
+	finalState []byte
+	store      *fakeStore
+	stopped    bool
+}
+
+func (s *renamingScheduler) DetectLegacyInterval(context.Context) (int, bool, error) {
+	s.calls = append(s.calls, "detect")
+	for _, path := range []string{s.plistPath, s.plistPath + ".disabled-by-threadbear"} {
+		if _, err := os.Stat(path); err == nil {
+			return s.interval, true, nil
+		} else if !errors.Is(err, os.ErrNotExist) {
+			return 0, false, err
+		}
+	}
+	return 0, false, nil
+}
+
+func (s *renamingScheduler) StopLegacy(context.Context) error {
+	s.calls = append(s.calls, "stop")
+	if s.store != nil && !s.store.lockHeld {
+		return errors.New("ThreadBear lock was not held while stopping legacy")
+	}
+	if _, err := os.Stat(s.plistPath); err == nil {
+		if err := os.Rename(s.plistPath, s.plistPath+".disabled-by-threadbear"); err != nil {
+			return err
+		}
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
+	if len(s.finalState) > 0 {
+		if err := os.WriteFile(s.statePath, s.finalState, 0o600); err != nil {
+			return err
+		}
+	}
+	s.stopped = true
+	return nil
+}
+
+type postStopFailLegacy struct {
+	scheduler *renamingScheduler
+	failed    bool
+}
+
+func (l *postStopFailLegacy) Load(path string) ([]byte, error) {
+	if l.scheduler.stopped && !l.failed {
+		l.failed = true
+		return nil, errors.New("injected final migration read failure")
+	}
+	return os.ReadFile(path)
+}
+
+type lifecycleSelfTest struct {
+	scheduler *fakeScheduler
+	inputs    []SelfTestInput
+}
+
+func (s *lifecycleSelfTest) Test(_ context.Context, input SelfTestInput) error {
+	s.inputs = append(s.inputs, input)
+	if input.Candidate && (!s.scheduler.disabled || s.scheduler.loaded) {
+		return errors.New("candidate ThreadBear scheduler was not disabled and unloaded")
+	}
+	if !input.Candidate && (s.scheduler.disabled || !s.scheduler.loaded) {
+		return errors.New("installed ThreadBear scheduler was not enabled and loaded")
+	}
+	return nil
+}
 
 func testCodexExecutable(t *testing.T, home string) string {
 	t.Helper()
@@ -263,7 +353,7 @@ func TestInstallDefaultsAndOneConfirmation(t *testing.T) {
 	if prompt.previews != 1 || prompt.confirms != 1 || !prompt.collect {
 		t.Fatalf("prompt=%+v", prompt)
 	}
-	if !reflect.DeepEqual(scheduler.calls, []string{"stop", "verify", "stage", "enable", "healthy"}) {
+	if !reflect.DeepEqual(scheduler.calls, []string{"detect", "stage", "stop", "verify", "stage", "enable", "healthy"}) {
 		t.Fatalf("calls=%v", scheduler.calls)
 	}
 	if tasks.ensures != 1 || store.saveConfig != 1 || store.saveState != 1 {
@@ -311,7 +401,7 @@ func TestInstallRejectsActiveLegacyBeforeEnable(t *testing.T) {
 	if err == nil {
 		t.Fatal("active legacy accepted")
 	}
-	if tasks.ensures != 0 || store.saveConfig != 0 || !reflect.DeepEqual(scheduler.calls, []string{"stop", "verify"}) {
+	if tasks.ensures != 0 || store.saveConfig != 0 || !reflect.DeepEqual(scheduler.calls, []string{"detect", "stage", "stop", "verify"}) {
 		t.Fatalf("legacy stop order tasks=%d saves=%d calls=%v", tasks.ensures, store.saveConfig, scheduler.calls)
 	}
 }
@@ -405,7 +495,7 @@ func TestInstallSelfTestPrecedesEnableAndHealthVerification(t *testing.T) {
 	if _, err := installer.Install(context.Background(), InstallRequest{NonInteractive: true, Confirm: true}); err != nil {
 		t.Fatal(err)
 	}
-	want := []string{"stop", "verify", "stage", "selftest", "enable", "healthy"}
+	want := []string{"detect", "stage", "selftest", "stop", "verify", "stage", "enable", "healthy", "selftest"}
 	if !reflect.DeepEqual(scheduler.calls, want) {
 		t.Fatalf("calls=%v want=%v", scheduler.calls, want)
 	}
@@ -676,6 +766,83 @@ func TestInstallPostLockFailureRetainsStateDirectoryAndLockFile(t *testing.T) {
 	}
 }
 
+func TestMigrationCapturesOriginalIntervalBeforeLegacyPlistIsRenamed(t *testing.T) {
+	home := t.TempDir()
+	paths := PathsForHome(home)
+	oldState := []byte(`{"schemaVersion":1,"controllerThreadId":"control-old","cycleCompletedAtMs":1700000000000,"retryIds":[],"threads":{}}`)
+	finalState := []byte(`{"schemaVersion":1,"controllerThreadId":"control-final","cycleCompletedAtMs":1700000001000,"retryIds":[],"threads":{}}`)
+	for _, path := range []string{paths.LegacyState, paths.LegacyLaunchAgent} {
+		if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.WriteFile(paths.LegacyState, oldState, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(paths.LegacyLaunchAgent, []byte("legacy plist with StartInterval 77"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	store := &fakeStore{}
+	scheduler := &renamingScheduler{fakeScheduler: fakeScheduler{interval: 77}, plistPath: paths.LegacyLaunchAgent, statePath: paths.LegacyState, finalState: finalState, store: store}
+	tasks := &fakeTasks{}
+	selfTest := &lifecycleSelfTest{scheduler: &scheduler.fakeScheduler}
+	installer := Installer{Paths: paths, Store: store, Scheduler: scheduler, ControlTasks: tasks, Binary: &fakeBinary{}, SelfTester: selfTest, Legacy: FileLegacyLoader{}, CodexExecutable: testCodexExecutable(t, home)}
+	result, err := installer.Install(context.Background(), InstallRequest{NonInteractive: true, Confirm: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Config.HeartbeatSeconds != 77 || result.Config.ControlTaskID != "control-final" || store.config.ControlTaskID != "control-final" {
+		t.Fatalf("final migration did not preserve interval/state: result=%+v store=%+v", result, store)
+	}
+	if _, err := os.Stat(paths.LegacyLaunchAgent); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("legacy plist was not renamed: %v", err)
+	}
+	if len(selfTest.inputs) != 2 || !selfTest.inputs[0].Candidate || selfTest.inputs[1].Candidate {
+		t.Fatalf("self-test phases=%+v", selfTest.inputs)
+	}
+	if got := scheduler.calls; !reflect.DeepEqual(got[:5], []string{"detect", "stage", "stop", "verify", "stage"}) {
+		t.Fatalf("binding order=%v", got)
+	}
+}
+
+func TestPostStopFinalReadFailureIsActionableAndRerunConverges(t *testing.T) {
+	home := t.TempDir()
+	paths := PathsForHome(home)
+	oldState := []byte(`{"schemaVersion":1,"controllerThreadId":"control-old","cycleCompletedAtMs":1700000000000,"retryIds":[],"threads":{}}`)
+	finalState := []byte(`{"schemaVersion":1,"controllerThreadId":"control-final","cycleCompletedAtMs":1700000001000,"retryIds":[],"threads":{}}`)
+	for _, path := range []string{paths.LegacyState, paths.LegacyLaunchAgent} {
+		if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.WriteFile(paths.LegacyState, oldState, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(paths.LegacyLaunchAgent, []byte("legacy plist with StartInterval 77"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	store := &fakeStore{}
+	scheduler := &renamingScheduler{fakeScheduler: fakeScheduler{interval: 77}, plistPath: paths.LegacyLaunchAgent, statePath: paths.LegacyState, finalState: finalState, store: store}
+	tasks := &fakeTasks{}
+	loader := &postStopFailLegacy{scheduler: scheduler}
+	installer := Installer{Paths: paths, Store: store, Scheduler: scheduler, ControlTasks: tasks, Binary: &fakeBinary{}, SelfTester: &fakeSelfTest{}, Legacy: loader, CodexExecutable: testCodexExecutable(t, home)}
+	_, err := installer.Install(context.Background(), InstallRequest{NonInteractive: true, Confirm: true})
+	var failure *InstallFailure
+	if !errors.As(err, &failure) || failure.Step != "load_final_migration" || !strings.Contains(failure.Cause, "legacy scheduler was stopped") || !strings.Contains(failure.Cause, ".disabled-by-threadbear") || !strings.Contains(failure.Cause, "launchctl enable") || !strings.Contains(failure.Cause, "launchctl bootstrap") {
+		t.Fatalf("failure=%v", err)
+	}
+	if store.configExists || store.stateExists || tasks.ensures != 0 {
+		t.Fatalf("pre-stop candidate state was persisted: store=%+v tasks=%+v", store, tasks)
+	}
+	result, err := installer.Install(context.Background(), InstallRequest{NonInteractive: true, Confirm: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !store.configExists || !store.stateExists || result.Config.HeartbeatSeconds != 77 || result.Config.ControlTaskID != "control-final" {
+		t.Fatalf("rerun did not converge: result=%+v store=%+v", result, store)
+	}
+}
+
 func TestMigrationReloadsStateAfterPreviewAndLegacyStop(t *testing.T) {
 	home := t.TempDir()
 	paths := PathsForHome(home)
@@ -701,7 +868,7 @@ func TestMigrationReloadsStateAfterPreviewAndLegacyStop(t *testing.T) {
 	if !result.Migrated || result.Config.ControlTaskID != "control-newer" || tasks.requested[0] != "control-newer" {
 		t.Fatalf("result=%+v requested=%v", result, tasks.requested)
 	}
-	if !reflect.DeepEqual(scheduler.calls[:3], []string{"stop", "verify", "detect"}) {
+	if !reflect.DeepEqual(scheduler.calls[:4], []string{"detect", "stage", "stop", "verify"}) {
 		t.Fatalf("migration read order calls=%v", scheduler.calls)
 	}
 }
