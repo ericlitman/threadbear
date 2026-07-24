@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_revision", "results"],
+  "properties": {
+    "schema_revision": {"const": "threadbear.status.v1"},
+    "results": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["task_id", "task_revision", "state", "durable_subject", "managed_action", "request_previous"],
+        "properties": {
+          "task_id": {"type": "string", "minLength": 1},
+          "task_revision": {"type": "string", "minLength": 1},
+          "state": {"enum": ["blocked", "needs_input", "running", "automation", "next_steps", "complete", "unknown"]},
+          "durable_subject": {"type": "string"},
+          "managed_action": {"type": "string"},
+          "request_previous": {"type": "boolean"}
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,402 @@
+package status
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"os"
+	"strings"
+	"testing"
+
+	"github.com/ericlitman/threadbear/internal/codex/appserver"
+	"github.com/ericlitman/threadbear/internal/state"
+)
+
+type fakeEphemeralRunner struct {
+	requests []appserver.EphemeralRequest
+	run      func(int, appserver.EphemeralRequest) (appserver.EphemeralResult, error)
+}
+
+func (f *fakeEphemeralRunner) RunEphemeral(_ context.Context, request appserver.EphemeralRequest) (appserver.EphemeralResult, error) {
+	f.requests = append(f.requests, request)
+	return f.run(len(f.requests)-1, request)
+}
+
+func TestClassifierConfiguredModelEffortAndOptionBMetadata(t *testing.T) {
+	task := TaskEvidence{TaskID: "task-1", Revision: "rev-1", Latest: TurnEvidence{User: "implement it", FinalAgent: "Implemented and verified."}}
+	runner := &fakeEphemeralRunner{run: func(_ int, request appserver.EphemeralRequest) (appserver.EphemeralResult, error) {
+		return successfulEphemeral(responseText([]classifierWireItem{{TaskID: task.TaskID, TaskRevision: task.Revision, State: state.StatusComplete, DurableSubject: "Implement feature"}})), nil
+	}}
+	classifier := newTestClassifier(t, runner, 1<<20, "configured-model", "high")
+	results := classifier.Classify(context.Background(), []TaskEvidence{task})
+	if len(results) != 1 || results[0].Status != state.StatusComplete || results[0].Revision != task.Revision || results[0].Provenance != state.ProvenanceLuna {
+		t.Fatalf("results=%+v", results)
+	}
+	if len(runner.requests) != 1 || runner.requests[0].Model != "configured-model" || runner.requests[0].Effort != "high" {
+		t.Fatalf("requests=%+v", runner.requests)
+	}
+	if strings.Join(results[0].Metadata.UnprovenToolSources, ",") != "core,hosted,mcp" {
+		t.Fatalf("metadata=%+v", results[0].Metadata)
+	}
+	if !strings.Contains(runner.requests[0].Input, "Do not use tools") || runner.requests[0].OutputSchema == nil {
+		t.Fatal("request did not carry tool prohibition and output schema")
+	}
+	if runner.requests[0].ToolConfig != nil || runner.requests[0].PermissionProfile != "" {
+		t.Fatalf("request used unproven optional controls: %+v", runner.requests[0])
+	}
+}
+
+func TestClassifierSelectivePreviousExpansion(t *testing.T) {
+	previous := TurnEvidence{User: "initial request", FinalAgent: "initial result"}
+	tasks := []TaskEvidence{
+		{TaskID: "task-a", Revision: "rev-a", Latest: TurnEvidence{User: "finish a", FinalAgent: "a complete"}},
+		{TaskID: "task-b", Revision: "rev-b", Latest: TurnEvidence{User: "continue", FinalAgent: "done"}, Previous: &previous},
+		{TaskID: "task-c", Revision: "rev-c", Latest: TurnEvidence{User: "finish c", FinalAgent: "c complete"}},
+	}
+	runner := &fakeEphemeralRunner{run: func(call int, request appserver.EphemeralRequest) (appserver.EphemeralResult, error) {
+		envelope := decodePrompt(t, request.Input)
+		if call == 0 {
+			if envelope.PreviousPass || len(envelope.Tasks) != 3 {
+				t.Fatalf("first envelope=%+v", envelope)
+			}
+			return successfulEphemeral(responseText([]classifierWireItem{
+				{TaskID: "task-a", TaskRevision: "rev-a", State: state.StatusComplete, DurableSubject: "Task A"},
+				{TaskID: "task-b", TaskRevision: "rev-b", State: state.StatusUnknown, RequestPrevious: true},
+				{TaskID: "task-c", TaskRevision: "rev-c", State: state.StatusNextSteps, DurableSubject: "Task C", ManagedAction: "pressure-test requirements"},
+			})), nil
+		}
+		if !envelope.PreviousPass || len(envelope.Tasks) != 1 || envelope.Tasks[0].TaskID != "task-b" || envelope.Tasks[0].Previous == nil || envelope.Tasks[0].Previous.User != "initial request" {
+			t.Fatalf("second envelope=%+v", envelope)
+		}
+		return successfulEphemeral(responseText([]classifierWireItem{{TaskID: "task-b", TaskRevision: "rev-b", State: state.StatusNeedsInput, DurableSubject: "Continue task", ManagedAction: "choose a deployment target"}})), nil
+	}}
+	classifier := newTestClassifier(t, runner, 1<<20, "model", "medium")
+	results := classifier.Classify(context.Background(), tasks)
+	if len(runner.requests) != 2 {
+		t.Fatalf("calls=%d", len(runner.requests))
+	}
+	want := []state.TaskStatus{state.StatusComplete, state.StatusNeedsInput, state.StatusNextSteps}
+	for index := range results {
+		if results[index].Status != want[index] {
+			t.Fatalf("result[%d]=%+v", index, results[index])
+		}
+	}
+}
+
+func TestClassifierContextSplittingAndBatchFailureIsolation(t *testing.T) {
+	tasks := []TaskEvidence{
+		{TaskID: "task-a", Revision: "rev-a", Latest: TurnEvidence{User: "a", FinalAgent: strings.Repeat("a", 500)}},
+		{TaskID: "task-b", Revision: "rev-b", Latest: TurnEvidence{User: "b", FinalAgent: strings.Repeat("b", 500)}},
+		{TaskID: "task-c", Revision: "rev-c", Latest: TurnEvidence{User: "c", FinalAgent: strings.Repeat("c", 500)}},
+	}
+	budget := 0
+	for _, task := range tasks {
+		size, err := PayloadSize([]TaskEvidence{task}, false)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if size > budget {
+			budget = size
+		}
+	}
+	runner := &fakeEphemeralRunner{run: func(_ int, request appserver.EphemeralRequest) (appserver.EphemeralResult, error) {
+		envelope := decodePrompt(t, request.Input)
+		if len(envelope.Tasks) != 1 {
+			t.Fatalf("batch contains %d tasks", len(envelope.Tasks))
+		}
+		task := envelope.Tasks[0]
+		if task.TaskID == "task-b" {
+			return appserver.EphemeralResult{}, errors.New("synthetic rate limit")
+		}
+		return successfulEphemeral(responseText([]classifierWireItem{{TaskID: task.TaskID, TaskRevision: task.Revision, State: state.StatusComplete, DurableSubject: strings.ToUpper(task.TaskID)}})), nil
+	}}
+	results := newTestClassifier(t, runner, budget, "model", "medium").Classify(context.Background(), tasks)
+	if len(runner.requests) != 3 {
+		t.Fatalf("calls=%d", len(runner.requests))
+	}
+	if results[0].Status != state.StatusComplete || results[2].Status != state.StatusComplete || results[1].Diagnostic == nil || results[1].Diagnostic.Code != "ephemeral_call_failed" {
+		t.Fatalf("results=%+v", results)
+	}
+}
+
+func TestClassifierIndividuallyOversizedIsUnknownWithoutCall(t *testing.T) {
+	task := TaskEvidence{TaskID: "task-large", Revision: "rev-large", Latest: TurnEvidence{User: "do it", FinalAgent: strings.Repeat("full evidence ", 100)}}
+	size, err := PayloadSize([]TaskEvidence{task}, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	runner := &fakeEphemeralRunner{run: func(_ int, _ appserver.EphemeralRequest) (appserver.EphemeralResult, error) {
+		t.Fatal("oversized task must not invoke the runner")
+		return appserver.EphemeralResult{}, nil
+	}}
+	result := newTestClassifier(t, runner, size-1, "model", "medium").Classify(context.Background(), []TaskEvidence{task})[0]
+	if len(runner.requests) != 0 || result.Diagnostic == nil || result.Diagnostic.Code != "task_exceeds_context_budget" || result.Revision != task.Revision {
+		t.Fatalf("requests=%d result=%+v", len(runner.requests), result)
+	}
+}
+
+func TestClassifierOnePreviousExpansionMaximum(t *testing.T) {
+	previous := TurnEvidence{User: "before", FinalAgent: "before answer"}
+	task := TaskEvidence{TaskID: "task-1", Revision: "rev-1", Latest: TurnEvidence{User: "continue", FinalAgent: "done"}, Previous: &previous}
+	runner := &fakeEphemeralRunner{run: func(_ int, _ appserver.EphemeralRequest) (appserver.EphemeralResult, error) {
+		return successfulEphemeral(responseText([]classifierWireItem{{TaskID: task.TaskID, TaskRevision: task.Revision, State: state.StatusUnknown, RequestPrevious: true}})), nil
+	}}
+	results := newTestClassifier(t, runner, 1<<20, "model", "medium").Classify(context.Background(), []TaskEvidence{task})
+	if len(runner.requests) != 2 || results[0].Diagnostic == nil || results[0].Diagnostic.Code != "previous_expansion_exhausted" {
+		t.Fatalf("calls=%d results=%+v", len(runner.requests), results)
+	}
+}
+
+func TestClassifierStrictResponseValidation(t *testing.T) {
+	tasks := []TaskEvidence{
+		{TaskID: "task-a", Revision: "rev-a", Latest: TurnEvidence{User: "a", FinalAgent: "a"}},
+		{TaskID: "task-b", Revision: "rev-b", Latest: TurnEvidence{User: "b", FinalAgent: "b"}},
+	}
+	tests := []struct {
+		name string
+		text string
+		code string
+	}{
+		{name: "missing", text: responseText([]classifierWireItem{{TaskID: "task-a", TaskRevision: "rev-a", State: state.StatusComplete, DurableSubject: "A"}}), code: "response_id_mismatch"},
+		{name: "duplicate", text: responseText([]classifierWireItem{{TaskID: "task-a", TaskRevision: "rev-a", State: state.StatusComplete, DurableSubject: "A"}, {TaskID: "task-a", TaskRevision: "rev-a", State: state.StatusComplete, DurableSubject: "A"}}), code: "response_id_mismatch"},
+		{name: "unexpected", text: responseText([]classifierWireItem{{TaskID: "task-a", TaskRevision: "rev-a", State: state.StatusComplete, DurableSubject: "A"}, {TaskID: "task-x", TaskRevision: "rev-x", State: state.StatusComplete, DurableSubject: "X"}}), code: "response_id_mismatch"},
+		{name: "revision", text: responseText([]classifierWireItem{{TaskID: "task-a", TaskRevision: "wrong", State: state.StatusComplete, DurableSubject: "A"}, {TaskID: "task-b", TaskRevision: "rev-b", State: state.StatusComplete, DurableSubject: "B"}}), code: "response_revision_mismatch"},
+		{name: "eighth state", text: `{"schema_revision":"threadbear.status.v1","results":[{"task_id":"task-a","task_revision":"rev-a","state":"previous","durable_subject":"","managed_action":"","request_previous":false},{"task_id":"task-b","task_revision":"rev-b","state":"complete","durable_subject":"B","managed_action":"","request_previous":false}]}`, code: "invalid_response_fields"},
+		{name: "field combination", text: responseText([]classifierWireItem{{TaskID: "task-a", TaskRevision: "rev-a", State: state.StatusComplete, DurableSubject: "A", ManagedAction: "do more"}, {TaskID: "task-b", TaskRevision: "rev-b", State: state.StatusComplete, DurableSubject: "B"}}), code: "invalid_response_fields"},
+		{name: "schema revision", text: `{"schema_revision":"wrong","results":[]}`, code: "schema_revision_mismatch"},
+		{name: "unknown field", text: `{"schema_revision":"threadbear.status.v1","results":[],"payload":"secret"}`, code: "malformed_classifier_response"},
+		{name: "missing required field", text: `{"schema_revision":"threadbear.status.v1","results":[{"task_id":"task-a","task_revision":"rev-a","state":"complete","durable_subject":"A","managed_action":""},{"task_id":"task-b","task_revision":"rev-b","state":"complete","durable_subject":"B","managed_action":"","request_previous":false}]}`, code: "malformed_classifier_response"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			runner := &fakeEphemeralRunner{run: func(_ int, _ appserver.EphemeralRequest) (appserver.EphemeralResult, error) {
+				return successfulEphemeral(test.text), nil
+			}}
+			results := newTestClassifier(t, runner, 1<<20, "model", "medium").Classify(context.Background(), tasks)
+			for _, result := range results {
+				if result.Status != state.StatusUnknown || result.Diagnostic == nil || result.Diagnostic.Code != test.code {
+					t.Fatalf("result=%+v", result)
+				}
+			}
+		})
+	}
+}
+
+func TestClassifierOutputItemAllowlistRejectsWholeBatchWithoutPayload(t *testing.T) {
+	tasks := []TaskEvidence{{TaskID: "task-a", Revision: "rev-a", Latest: TurnEvidence{User: "a", FinalAgent: "a"}}, {TaskID: "task-b", Revision: "rev-b", Latest: TurnEvidence{User: "b", FinalAgent: "b"}}}
+	runner := &fakeEphemeralRunner{run: func(_ int, _ appserver.EphemeralRequest) (appserver.EphemeralResult, error) {
+		result := successfulEphemeral("unused")
+		result.Turn.Items = []appserver.TurnItem{{Type: "mcp/toolCall", Phase: "completed", Text: "TOP SECRET PAYLOAD"}, {Type: "agentMessage", Phase: "final_answer", Text: "{}"}}
+		return result, nil
+	}}
+	results := newTestClassifier(t, runner, 1<<20, "model", "medium").Classify(context.Background(), tasks)
+	for _, result := range results {
+		if result.Diagnostic == nil || result.Diagnostic.Code != "unexpected_output_item" || result.Diagnostic.OffendingItem != "mcp/toolCall" || strings.Contains(result.Diagnostic.Message, "TOP SECRET") || strings.Contains(result.Diagnostic.OffendingItem, "TOP SECRET") {
+			t.Fatalf("result=%+v", result)
+		}
+	}
+
+	runner = &fakeEphemeralRunner{run: func(_ int, _ appserver.EphemeralRequest) (appserver.EphemeralResult, error) {
+		result := successfulEphemeral("unused")
+		result.Turn.Items = []appserver.TurnItem{{Type: "mcp/toolCall", Phase: "completed", Text: "TOP SECRET PAYLOAD"}}
+		return result, nil
+	}}
+	result := newTestClassifier(t, runner, 1<<20, "model", "medium").Classify(context.Background(), tasks[:1])[0]
+	if result.Diagnostic == nil || result.Diagnostic.OffendingItem != "mcp/toolCall" {
+		t.Fatalf("result=%+v", result)
+	}
+
+	for _, items := range [][]appserver.TurnItem{
+		nil,
+		{{Type: "agentMessage", Phase: "final_answer", Text: "{}"}, {Type: "agent_message", Phase: "finalAnswer", Text: "{}"}},
+	} {
+		runner = &fakeEphemeralRunner{run: func(_ int, _ appserver.EphemeralRequest) (appserver.EphemeralResult, error) {
+			value := successfulEphemeral("unused")
+			value.Turn.Items = items
+			return value, nil
+		}}
+		result = newTestClassifier(t, runner, 1<<20, "model", "medium").Classify(context.Background(), tasks[:1])[0]
+		if result.Diagnostic == nil || result.Diagnostic.Code != "unexpected_output_item" {
+			t.Fatalf("items=%+v result=%+v", items, result)
+		}
+		if len(items) == 0 && result.Diagnostic.OffendingItem != "" {
+			t.Fatalf("empty items exposed offending detail: %+v", result)
+		}
+		if len(items) > 0 && result.Diagnostic.OffendingItem != "agentMessage" {
+			t.Fatalf("multiple items exposed non-type detail: %+v", result)
+		}
+	}
+}
+
+func TestClassifierObservedToolItemOutranksControlAndTurnFailures(t *testing.T) {
+	task := TaskEvidence{TaskID: "task-a", Revision: "rev-a", Latest: TurnEvidence{User: "a", FinalAgent: "a"}}
+	runner := &fakeEphemeralRunner{run: func(_ int, _ appserver.EphemeralRequest) (appserver.EphemeralResult, error) {
+		result := successfulEphemeral("unused")
+		result.ToolRestriction.DynamicToolsDisabled = false
+		result.Turn.Status = "failed"
+		result.Turn.Items = []appserver.TurnItem{{Type: "hosted/toolResult", Text: "SECRET PAYLOAD"}}
+		return result, nil
+	}}
+	result := newTestClassifier(t, runner, 1<<20, "model", "medium").Classify(context.Background(), []TaskEvidence{task})[0]
+	if result.Diagnostic == nil || result.Diagnostic.Code != "unexpected_output_item" || result.Diagnostic.OffendingItem != "hosted/toolResult" || strings.Contains(result.Diagnostic.Message, "SECRET") {
+		t.Fatalf("result=%+v", result)
+	}
+}
+
+func TestClassifierRejectsAmbiguousFinalAssistantContent(t *testing.T) {
+	task := TaskEvidence{TaskID: "task-a", Revision: "rev-a", Latest: TurnEvidence{User: "a", FinalAgent: "a"}}
+	runner := &fakeEphemeralRunner{run: func(_ int, _ appserver.EphemeralRequest) (appserver.EphemeralResult, error) {
+		result := successfulEphemeral("SECRET TEXT")
+		result.Turn.Items[0].Content = json.RawMessage(`"SECRET CONTENT"`)
+		return result, nil
+	}}
+	result := newTestClassifier(t, runner, 1<<20, "model", "medium").Classify(context.Background(), []TaskEvidence{task})[0]
+	if result.Diagnostic == nil || result.Diagnostic.Code != "malformed_classifier_response" || result.Diagnostic.OffendingItem != "agentMessage" || strings.Contains(result.Diagnostic.Message, "SECRET") {
+		t.Fatalf("result=%+v", result)
+	}
+}
+
+func TestClassifierOutputDiagnosticsRecordOnlyItemType(t *testing.T) {
+	task := TaskEvidence{TaskID: "task-a", Revision: "rev-a", Latest: TurnEvidence{User: "a", FinalAgent: "a"}}
+	runner := &fakeEphemeralRunner{run: func(_ int, _ appserver.EphemeralRequest) (appserver.EphemeralResult, error) {
+		result := successfulEphemeral("unused")
+		result.Turn.Items = []appserver.TurnItem{{Type: "agentMessage", Phase: "SECRET PHASE", Text: "SECRET PAYLOAD"}}
+		return result, nil
+	}}
+	result := newTestClassifier(t, runner, 1<<20, "model", "medium").Classify(context.Background(), []TaskEvidence{task})[0]
+	if result.Diagnostic == nil || result.Diagnostic.OffendingItem != "agentMessage" || strings.Contains(result.Diagnostic.OffendingItem, "SECRET") || strings.Contains(result.Diagnostic.Message, "SECRET") {
+		t.Fatalf("result=%+v", result)
+	}
+}
+
+func TestClassifierFailsClosedForBudgetControlsAndCallFailure(t *testing.T) {
+	task := TaskEvidence{TaskID: "task-1", Revision: "rev-1", Latest: TurnEvidence{User: "a", FinalAgent: "b"}}
+	runner := &fakeEphemeralRunner{run: func(_ int, _ appserver.EphemeralRequest) (appserver.EphemeralResult, error) {
+		return appserver.EphemeralResult{}, errors.New("rate limited with payload SECRET")
+	}}
+	result := newTestClassifier(t, runner, 0, "model", "medium").Classify(context.Background(), []TaskEvidence{task})[0]
+	if len(runner.requests) != 0 || result.Diagnostic == nil || result.Diagnostic.Code != "invalid_context_budget" {
+		t.Fatalf("requests=%d result=%+v", len(runner.requests), result)
+	}
+
+	classifier := newTestClassifier(t, runner, 1<<20, "model", "medium")
+	result = classifier.Classify(context.Background(), []TaskEvidence{task})[0]
+	if result.Diagnostic == nil || result.Diagnostic.Code != "ephemeral_call_failed" || strings.Contains(result.Diagnostic.Message, "SECRET") {
+		t.Fatalf("result=%+v", result)
+	}
+
+	runner = &fakeEphemeralRunner{run: func(_ int, _ appserver.EphemeralRequest) (appserver.EphemeralResult, error) {
+		value := successfulEphemeral(responseText([]classifierWireItem{{TaskID: task.TaskID, TaskRevision: task.Revision, State: state.StatusComplete, DurableSubject: "Task"}}))
+		value.ToolRestriction.DynamicToolsDisabled = false
+		return value, nil
+	}}
+	result = newTestClassifier(t, runner, 1<<20, "model", "medium").Classify(context.Background(), []TaskEvidence{task})[0]
+	if result.Diagnostic == nil || result.Diagnostic.Code != "tool_controls_unconfirmed" || len(result.Metadata.UnprovenToolSources) == 0 {
+		t.Fatalf("result=%+v", result)
+	}
+
+	runner = &fakeEphemeralRunner{run: func(_ int, _ appserver.EphemeralRequest) (appserver.EphemeralResult, error) {
+		value := successfulEphemeral(responseText([]classifierWireItem{{TaskID: task.TaskID, TaskRevision: task.Revision, State: state.StatusComplete, DurableSubject: "Task"}}))
+		value.ToolRestriction.ReadOnlySandbox = false
+		value.ToolRestriction.PermissionProfile = true
+		return value, nil
+	}}
+	result = newTestClassifier(t, runner, 1<<20, "model", "medium").Classify(context.Background(), []TaskEvidence{task})[0]
+	if result.Diagnostic == nil || result.Diagnostic.Code != "tool_controls_unconfirmed" {
+		t.Fatalf("permission profile substituted for read-only sandbox: %+v", result)
+	}
+}
+
+func TestClassifierSyntheticCorpus(t *testing.T) {
+	type corpusCase struct {
+		ID          string `json:"id"`
+		Revision    string `json:"revision"`
+		LatestUser  string `json:"latest_user"`
+		LatestAgent string `json:"latest_agent"`
+	}
+	type expectedCase struct {
+		ID             string           `json:"id"`
+		State          state.TaskStatus `json:"state"`
+		DurableSubject string           `json:"durable_subject"`
+		ManagedAction  string           `json:"managed_action"`
+	}
+	var cases []corpusCase
+	var expected []expectedCase
+	readJSONFixture(t, "../../testdata/status/cases.json", &cases)
+	readJSONFixture(t, "../../testdata/status/expected.json", &expected)
+	if len(cases) != len(expected) || len(cases) < 4 {
+		t.Fatalf("cases=%d expected=%d", len(cases), len(expected))
+	}
+	tasks := make([]TaskEvidence, len(cases))
+	wire := make([]classifierWireItem, len(expected))
+	for index := range cases {
+		if cases[index].ID != expected[index].ID {
+			t.Fatalf("fixture ID mismatch at %d", index)
+		}
+		tasks[index] = TaskEvidence{TaskID: cases[index].ID, Revision: cases[index].Revision, Latest: TurnEvidence{User: cases[index].LatestUser, FinalAgent: cases[index].LatestAgent}}
+		wire[index] = classifierWireItem{TaskID: expected[index].ID, TaskRevision: cases[index].Revision, State: expected[index].State, DurableSubject: expected[index].DurableSubject, ManagedAction: expected[index].ManagedAction}
+	}
+	runner := &fakeEphemeralRunner{run: func(_ int, request appserver.EphemeralRequest) (appserver.EphemeralResult, error) {
+		for _, item := range cases {
+			if !strings.Contains(request.Input, item.LatestAgent) {
+				t.Fatalf("complete corpus message for %s omitted", item.ID)
+			}
+		}
+		return successfulEphemeral(responseText(wire)), nil
+	}}
+	results := newTestClassifier(t, runner, 1<<20, "gpt-5.6-luna", "medium").Classify(context.Background(), tasks)
+	for index, result := range results {
+		if result.Status != expected[index].State || result.DurableSubject != expected[index].DurableSubject || result.ManagedAction != expected[index].ManagedAction {
+			t.Fatalf("result[%d]=%+v expected=%+v", index, result, expected[index])
+		}
+	}
+}
+
+func newTestClassifier(t *testing.T, runner EphemeralRunner, budget int, model, effort string) *Classifier {
+	t.Helper()
+	classifier, err := NewClassifier(runner, ClassifierConfig{Model: model, Effort: effort, ContextBudgetBytes: budget})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return classifier
+}
+
+func successfulEphemeral(text string) appserver.EphemeralResult {
+	return appserver.EphemeralResult{
+		ThreadID:        "ephemeral-test",
+		Turn:            appserver.Turn{ID: "turn-test", Status: "completed", Items: []appserver.TurnItem{{Type: "agentMessage", Phase: "final_answer", Text: text}}},
+		ToolRestriction: appserver.ToolRestriction{EnvironmentsDisabled: true, DynamicToolsDisabled: true, ApprovalsDisabled: true, ReadOnlySandbox: true, OutputConstrained: true, UnprovenToolSources: []string{"mcp", "core", "hosted", "core"}},
+	}
+}
+
+func responseText(items []classifierWireItem) string {
+	data, err := json.Marshal(classifierResponse{SchemaRevision: SchemaRevision, Results: items})
+	if err != nil {
+		panic(err)
+	}
+	return string(data)
+}
+
+func decodePrompt(t *testing.T, input string) promptEnvelope {
+	t.Helper()
+	parts := strings.SplitN(input, "\nINPUT\n", 2)
+	if len(parts) != 2 {
+		t.Fatalf("missing input envelope: %q", input)
+	}
+	var envelope promptEnvelope
+	if err := json.Unmarshal([]byte(parts[1]), &envelope); err != nil {
+		t.Fatal(err)
+	}
+	return envelope
+}
+
+func readJSONFixture(t *testing.T, path string, target any) {
+	t.Helper()
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal(data, target); err != nil {
+		t.Fatal(err)
+	}
+}
