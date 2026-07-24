@@ -33,11 +33,27 @@ var (
 	ErrUnavailable    = errors.New("command is not implemented yet")
 )
 
+type ConfigPatch struct {
+	HeartbeatSeconds             *int
+	ArchiveEnabled               *bool
+	ArchiveAfterDays             *int
+	RenameEnabled                *bool
+	AgentsEnabled                *bool
+	ClassifierModel              *string
+	ClassifierEffort             *config.ClassifierEffort
+	ClassifierContextBudgetBytes *int
+}
+
+func (p ConfigPatch) Empty() bool {
+	return p.HeartbeatSeconds == nil && p.ArchiveEnabled == nil && p.ArchiveAfterDays == nil && p.RenameEnabled == nil && p.AgentsEnabled == nil && p.ClassifierModel == nil && p.ClassifierEffort == nil && p.ClassifierContextBudgetBytes == nil
+}
+
 type Request struct {
-	Command Command
-	JSON    bool
-	DryRun  bool
-	TaskID  string
+	Command   Command
+	JSON      bool
+	DryRun    bool
+	TaskID    string
+	Configure ConfigPatch
 }
 
 type Handler func(context.Context, Request) (output.Result, error)
@@ -105,6 +121,28 @@ func (r Request) Validate() error {
 	}
 	if r.DryRun && r.Command != CommandHeartbeat {
 		return fmt.Errorf("%w: --dry-run is heartbeat-only", ErrInvalidRequest)
+	}
+	if r.Command != CommandConfigure && !r.Configure.Empty() {
+		return fmt.Errorf("%w: configuration patch is configure-only", ErrInvalidRequest)
+	}
+	if value := r.Configure.HeartbeatSeconds; value != nil && *value <= 0 {
+		return fmt.Errorf("%w: heartbeat seconds must be positive", ErrInvalidRequest)
+	}
+	if value := r.Configure.ArchiveAfterDays; value != nil && *value <= 0 {
+		return fmt.Errorf("%w: archive days must be positive", ErrInvalidRequest)
+	}
+	if value := r.Configure.ClassifierModel; value != nil && (*value == "" || strings.TrimSpace(*value) != *value) {
+		return fmt.Errorf("%w: classifier model is invalid", ErrInvalidRequest)
+	}
+	if value := r.Configure.ClassifierEffort; value != nil {
+		switch *value {
+		case config.EffortLow, config.EffortMedium, config.EffortHigh, config.EffortXHigh:
+		default:
+			return fmt.Errorf("%w: classifier effort is unsupported", ErrInvalidRequest)
+		}
+	}
+	if value := r.Configure.ClassifierContextBudgetBytes; value != nil && *value <= 0 {
+		return fmt.Errorf("%w: classifier context budget must be positive", ErrInvalidRequest)
 	}
 	return nil
 }
