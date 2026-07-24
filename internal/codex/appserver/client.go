@@ -384,6 +384,63 @@ func (c *Client) Unarchive(ctx context.Context, threadID string) (Thread, error)
 	}
 	return response.Thread, nil
 }
+func (c *Client) CountNotice(ctx context.Context, threadID, text string) (int, error) {
+	if err := c.capabilities.requireMethod("thread/read"); err != nil {
+		return 0, err
+	}
+	if strings.TrimSpace(threadID) == "" || strings.TrimSpace(text) == "" {
+		return 0, errors.New("thread ID and notice text are required")
+	}
+	var read struct {
+		Thread Thread `json:"thread"`
+	}
+	if err := c.call(ctx, "thread/read", map[string]any{"threadId": threadID, "includeTurns": false}, &read); err != nil {
+		return 0, err
+	}
+	if read.Thread.Path == nil || strings.TrimSpace(*read.Thread.Path) == "" {
+		return 0, errors.New("control thread rollout path is unavailable")
+	}
+	return countNoticeInRollout(*read.Thread.Path, text)
+}
+
+func countNoticeInRollout(path, text string) (int, error) {
+	file, err := os.Open(path)
+	if err != nil {
+		return 0, fmt.Errorf("open control rollout: %w", err)
+	}
+	defer file.Close()
+	reader := bufio.NewReader(file)
+	count := 0
+	for {
+		line, readErr := reader.ReadBytes(byte(10))
+		if len(strings.TrimSpace(string(line))) > 0 {
+			var envelope struct {
+				Type    string          `json:"type"`
+				Payload json.RawMessage `json:"payload"`
+			}
+			if err := json.Unmarshal(line, &envelope); err != nil {
+				return 0, fmt.Errorf("parse control rollout: %w", err)
+			}
+			if envelope.Type == "response_item" {
+				var item struct {
+					Type    string          `json:"type"`
+					Role    string          `json:"role"`
+					Content json.RawMessage `json:"content"`
+				}
+				if json.Unmarshal(envelope.Payload, &item) == nil && item.Type == "message" && item.Role == "assistant" && (TurnItem{Content: item.Content}).messageText() == text {
+					count++
+				}
+			}
+		}
+		if readErr != nil {
+			if errors.Is(readErr, io.EOF) {
+				return count, nil
+			}
+			return 0, fmt.Errorf("read control rollout: %w", readErr)
+		}
+	}
+}
+
 func (c *Client) InsertNotice(ctx context.Context, threadID, text string) error {
 	if err := c.capabilities.requireMethod("thread/inject_items"); err != nil {
 		return err

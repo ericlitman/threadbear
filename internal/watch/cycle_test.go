@@ -115,12 +115,20 @@ func (f *fakeClient) Archive(_ context.Context, taskID string) error {
 func (f *fakeClient) InsertNotice(_ context.Context, taskID string, text string) error {
 	if !f.failNotice {
 		f.notices = append(f.notices, text)
-		f.latest[taskID] = appserver.RecentEvidence{Latest: &appserver.EvidenceTurn{ID: "notice", Status: "completed", AgentMessage: text}}
 	}
 	if f.failNotice {
 		return errors.New("notice response lost")
 	}
 	return nil
+}
+func (f *fakeClient) CountNotice(_ context.Context, _ string, text string) (int, error) {
+	count := 0
+	for _, notice := range f.notices {
+		if notice == text {
+			count++
+		}
+	}
+	return count, nil
 }
 func (*fakeClient) Close() error { return nil }
 

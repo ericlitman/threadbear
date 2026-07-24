@@ -2,6 +2,7 @@ package appserver
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -172,6 +173,55 @@ func TestLatestAndPreviousEvidenceAreReadSeparately(t *testing.T) {
 	previous, err = fallback.ReadPreviousTurn(context.Background(), "task-1", filepath.Join("..", "..", "..", "testdata", "appserver", "rollout.jsonl"))
 	if err != nil || previous == nil || previous.Status != "failed" {
 		t.Fatalf("fallback previous=%+v err=%v", previous, err)
+	}
+}
+
+func TestNoticeCountUsesPersistedItems(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "rollout.jsonl")
+	notice := "🧵🐻 ThreadBear 1.2.0 is ready. Run threadbear update, or tell me “update ThreadBear.”"
+	lines := []map[string]any{
+		{"type": "response_item", "payload": map[string]any{"type": "message", "role": "assistant", "content": []any{map[string]any{"type": "output_text", "text": notice}}}},
+		{"type": "response_item", "payload": map[string]any{"type": "message", "role": "user", "content": []any{map[string]any{"type": "input_text", "text": notice}}}},
+		{"type": "event_msg", "payload": map[string]any{"type": "turn_complete"}},
+	}
+	var data bytes.Buffer
+	encoder := json.NewEncoder(&data)
+	for _, line := range lines {
+		if err := encoder.Encode(line); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.WriteFile(path, data.Bytes(), 0600); err != nil {
+		t.Fatal(err)
+	}
+	count, err := countNoticeInRollout(path, notice)
+	if err != nil || count != 1 {
+		t.Fatalf("count=%d err=%v", count, err)
+	}
+}
+
+func TestNoticeCountReadsThreadRollout(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "rollout.jsonl")
+	notice := "🧵🐻 ThreadBear 1.2.0 is ready. Run threadbear update, or tell me “update ThreadBear.”"
+	line, err := json.Marshal(map[string]any{"type": "response_item", "payload": map[string]any{"type": "message", "role": "assistant", "content": []any{map[string]any{"type": "output_text", "text": notice}}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, append(line, byte(10)), 0600); err != nil {
+		t.Fatal(err)
+	}
+	process := fakeProcess(t, "normal")
+	process.Env = append(process.Env, "THREADBEAR_FAKE_ROLLOUT="+path)
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	client, err := Start(ctx, process, fixtureCaps(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer client.Close()
+	count, err := client.CountNotice(context.Background(), "control-1", notice)
+	if err != nil || count != 1 {
+		t.Fatalf("count=%d err=%v", count, err)
 	}
 }
 
@@ -375,7 +425,11 @@ func fakeServe(scenario string) {
 		case "thread/turns/list":
 			encoder.Encode(map[string]any{"id": request.ID, "result": map[string]any{"data": []any{fakeTurns()[1], fakeTurns()[0]}}})
 		case "thread/read":
-			encoder.Encode(map[string]any{"id": request.ID, "result": map[string]any{"thread": map[string]any{"id": "task-1", "status": map[string]any{"type": "active", "activeFlags": []string{"waitingOnApproval"}}, "recencyAt": 1770000000, "turns": fakeTurns()}}})
+			thread := map[string]any{"id": "task-1", "status": map[string]any{"type": "active", "activeFlags": []string{"waitingOnApproval"}}, "recencyAt": 1770000000, "turns": fakeTurns()}
+			if path := os.Getenv("THREADBEAR_FAKE_ROLLOUT"); path != "" {
+				thread["path"] = path
+			}
+			encoder.Encode(map[string]any{"id": request.ID, "result": map[string]any{"thread": thread}})
 		case "thread/name/set", "thread/archive", "thread/inject_items":
 			if scenario == "notification-burst" && request.Method == "thread/archive" {
 				for index := 0; index < 256; index++ {

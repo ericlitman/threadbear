@@ -40,6 +40,7 @@ type AppServer interface {
 	SetTitle(context.Context, string, string) error
 	Archive(context.Context, string) error
 	InsertNotice(context.Context, string, string) error
+	CountNotice(context.Context, string, string) (int, error)
 	Close() error
 }
 
@@ -496,11 +497,14 @@ func noticeText(version string) string {
 }
 
 func noticeDelivered(ctx context.Context, client AppServer, controlTaskID, text string) (bool, error) {
-	evidence, err := client.ReadLatestTurn(ctx, controlTaskID, "")
+	count, err := client.CountNotice(ctx, controlTaskID, text)
 	if err != nil {
 		return false, err
 	}
-	return evidence.Latest != nil && evidence.Latest.AgentMessage == text, nil
+	if count > 1 {
+		return false, errors.New("control task contains duplicate update notices")
+	}
+	return count == 1, nil
 }
 
 func contains(values []string, target string) bool {
