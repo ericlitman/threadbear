@@ -1,0 +1,56 @@
+[
+  {
+    "id": "ae4-quoted-blocked",
+    "state": "complete",
+    "durable_subject": "Migration review",
+    "managed_action": ""
+  },
+  {
+    "id": "ae5-long-disposition",
+    "state": "complete",
+    "durable_subject": "Deployment repair",
+    "managed_action": ""
+  },
+  {
+    "id": "ae14-concrete-next",
+    "state": "next_steps",
+    "durable_subject": "Requirements review",
+    "managed_action": "pressure-test requirements"
+  },
+  {
+    "id": "ae15-generic-offer",
+    "state": "complete",
+    "durable_subject": "API explanation",
+    "managed_action": ""
+  },
+  {
+    "id": "ae16-needs-choice",
+    "state": "needs_input",
+    "durable_subject": "Release preparation",
+    "managed_action": "choose staging or production"
+  },
+  {
+    "id": "synthetic-blocked",
+    "state": "blocked",
+    "durable_subject": "Service deployment",
+    "managed_action": "wait for certificate issuance recovery"
+  },
+  {
+    "id": "synthetic-running",
+    "state": "running",
+    "durable_subject": "Migration",
+    "managed_action": "monitor migration validation"
+  },
+  {
+    "id": "synthetic-automation",
+    "state": "automation",
+    "durable_subject": "Scheduled cleanup",
+    "managed_action": ""
+  },
+  {
+    "id": "synthetic-unknown",
+    "state": "unknown",
+    "durable_subject": "",
+    "managed_action": ""
+  }
+]

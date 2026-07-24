@@ -1,0 +1,56 @@
+[
+  {
+    "id": "ae4-quoted-blocked",
+    "revision": "101",
+    "latest_user": "Summarize the migration review.",
+    "latest_agent": "The legacy report says another task ‘remains blocked.’ This migration review is finished successfully."
+  },
+  {
+    "id": "ae5-long-disposition",
+    "revision": "102",
+    "latest_user": "Repair the deployment.",
+    "latest_agent": "Attempts failed early. Detailed synthetic attempt evidence. Detailed synthetic attempt evidence. Detailed synthetic attempt evidence. Detailed synthetic attempt evidence. Detailed synthetic attempt evidence. Detailed synthetic attempt evidence. Detailed synthetic attempt evidence. Detailed synthetic attempt evidence. Detailed synthetic attempt evidence. Detailed synthetic attempt evidence. Detailed synthetic attempt evidence. Detailed synthetic attempt evidence. Detailed synthetic attempt evidence. Detailed synthetic attempt evidence. Detailed synthetic attempt evidence. Detailed synthetic attempt evidence. Detailed synthetic attempt evidence. Detailed synthetic attempt evidence. Detailed synthetic attempt evidence. Detailed synthetic attempt evidence. Detailed synthetic attempt evidence. Detailed synthetic attempt evidence. Detailed synthetic attempt evidence. Detailed synthetic attempt evidence. Detailed synthetic attempt evidence. Detailed synthetic attempt evidence. Detailed synthetic attempt evidence. Detailed synthetic attempt evidence. Detailed synthetic attempt evidence. Detailed synthetic attempt evidence. Detailed synthetic attempt evidence. Detailed synthetic attempt evidence. Detailed synthetic attempt evidence. Detailed synthetic attempt evidence. Detailed synthetic attempt evidence. Detailed synthetic attempt evidence. Detailed synthetic attempt evidence. Detailed synthetic attempt evidence. Detailed synthetic attempt evidence. Detailed synthetic attempt evidence. Detailed synthetic attempt evidence. Detailed synthetic attempt evidence. Detailed synthetic attempt evidence. Detailed synthetic attempt evidence. Detailed synthetic attempt evidence. Detailed synthetic attempt evidence. Detailed synthetic attempt evidence. Detailed synthetic attempt evidence. Detailed synthetic attempt evidence. Detailed synthetic attempt evidence. Detailed synthetic attempt evidence. Detailed synthetic attempt evidence. Detailed synthetic attempt evidence. Detailed synthetic attempt evidence. Detailed synthetic attempt evidence. Detailed synthetic attempt evidence. Detailed synthetic attempt evidence. Detailed synthetic attempt evidence. Detailed synthetic attempt evidence. Detailed synthetic attempt evidence. Detailed synthetic attempt evidence. Detailed synthetic attempt evidence. Detailed synthetic attempt evidence. Detailed synthetic attempt evidence. Detailed synthetic attempt evidence. Detailed synthetic attempt evidence. Detailed synthetic attempt evidence. Detailed synthetic attempt evidence. Detailed synthetic attempt evidence. Detailed synthetic attempt evidence. Detailed synthetic attempt evidence. Detailed synthetic attempt evidence. Detailed synthetic attempt evidence. Detailed synthetic attempt evidence. Detailed synthetic attempt evidence. Detailed synthetic attempt evidence. Detailed synthetic attempt evidence. Detailed synthetic attempt evidence. Detailed synthetic attempt evidence. Detailed synthetic attempt evidence. The deployment repair is now complete and verified."
+  },
+  {
+    "id": "ae14-concrete-next",
+    "revision": "103",
+    "latest_user": "Review the requirements.",
+    "latest_agent": "The review is complete. The next move is to pressure-test the requirements before implementation."
+  },
+  {
+    "id": "ae15-generic-offer",
+    "revision": "104",
+    "latest_user": "Explain the API.",
+    "latest_agent": "The API explanation is complete. If you want, I can help with that."
+  },
+  {
+    "id": "ae16-needs-choice",
+    "revision": "105",
+    "latest_user": "Prepare the release.",
+    "latest_agent": "I recommend publishing after validation, but I still need you to choose staging or production before I can finish."
+  },
+  {
+    "id": "synthetic-blocked",
+    "revision": "106",
+    "latest_user": "Deploy the service.",
+    "latest_agent": "Deployment cannot continue until the external certificate authority restores issuance."
+  },
+  {
+    "id": "synthetic-running",
+    "revision": "107",
+    "latest_user": "Run the migration.",
+    "latest_agent": "The migration is still executing and validation is in progress."
+  },
+  {
+    "id": "synthetic-automation",
+    "revision": "108",
+    "latest_user": "Keep the scheduled cleanup active.",
+    "latest_agent": "The recurring cleanup remains configured and healthy between scheduled runs."
+  },
+  {
+    "id": "synthetic-unknown",
+    "revision": "109",
+    "latest_user": "What happened?",
+    "latest_agent": "The available final disposition is insufficient to determine whether the work finished."
+  }
+]
