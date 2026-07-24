@@ -82,7 +82,7 @@ func TestLoadDoesNotCreateOrRepairPaths(t *testing.T) {
 		t.Fatalf("read created state directory: %v", err)
 	}
 
-	dir := t.TempDir()
+	dir := privateTempDir(t)
 	store = NewStore(dir)
 	if err := store.SaveConfig(config.Default("control-123")); err != nil {
 		t.Fatal(err)
@@ -128,7 +128,7 @@ func TestLockAcrossProcesses(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	dir := t.TempDir()
+	dir := privateTempDir(t)
 	ready := filepath.Join(dir, "ready")
 	release := filepath.Join(dir, "release")
 	command := exec.Command(executable, "-test.run=^TestLockHelper$")
@@ -200,7 +200,7 @@ func TestLockHelper(t *testing.T) {
 }
 
 func TestAtomicWriteFailurePreservesDurableState(t *testing.T) {
-	store := NewStore(t.TempDir())
+	store := NewStore(privateTempDir(t))
 	original := validState()
 	if err := store.SaveState(original); err != nil {
 		t.Fatal(err)
@@ -228,7 +228,7 @@ func TestAtomicWriteFailurePreservesDurableState(t *testing.T) {
 }
 
 func TestFileSyncFailurePreservesDurableState(t *testing.T) {
-	store := NewStore(t.TempDir())
+	store := NewStore(privateTempDir(t))
 	original := validState()
 	if err := store.SaveState(original); err != nil {
 		t.Fatal(err)
@@ -249,7 +249,7 @@ func TestFileSyncFailurePreservesDurableState(t *testing.T) {
 }
 
 func TestNonBlockingLock(t *testing.T) {
-	store := NewStore(t.TempDir())
+	store := NewStore(privateTempDir(t))
 	first, err := store.AcquireLock()
 	if err != nil {
 		t.Fatal(err)
@@ -279,7 +279,7 @@ func TestNonBlockingLock(t *testing.T) {
 }
 
 func TestLoadRejectsUnsupportedSchemas(t *testing.T) {
-	dir := t.TempDir()
+	dir := privateTempDir(t)
 	store := NewStore(dir)
 	for _, test := range []struct {
 		name string
@@ -303,7 +303,7 @@ func TestLoadRejectsUnsupportedSchemas(t *testing.T) {
 }
 
 func TestInvalidStateNeverReplacesDestination(t *testing.T) {
-	store := NewStore(t.TempDir())
+	store := NewStore(privateTempDir(t))
 	valid := validState()
 	if err := store.SaveState(valid); err != nil {
 		t.Fatal(err)
@@ -463,4 +463,13 @@ func assertMode(t *testing.T, path string, want fs.FileMode) {
 	if got := info.Mode().Perm(); got != want {
 		t.Fatalf("%s mode = %04o, want %04o", path, got, want)
 	}
+}
+
+func privateTempDir(t *testing.T) string {
+	t.Helper()
+	dir := t.TempDir()
+	if err := os.Chmod(dir, 0700); err != nil {
+		t.Fatal(err)
+	}
+	return dir
 }
