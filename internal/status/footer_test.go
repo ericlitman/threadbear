@@ -101,6 +101,8 @@ func TestParseFooterRejectsWeakActions(t *testing.T) {
 		"follow up later",
 		"issue recorded in BEAR-19",
 		"ticket filed for deployment",
+		"BEAR-19 was filed for deployment",
+		"deployment follow-up was captured in BEAR-19",
 	}
 	for _, action := range actions {
 		t.Run(action, func(t *testing.T) {
@@ -132,6 +134,13 @@ func TestParseFooterKeepsRejectedFooterForClassifier(t *testing.T) {
 
 func TestParseFooterAcceptsConcreteImperativeWithEmbeddedModal(t *testing.T) {
 	got := ParseFooter(FooterInput{Message: "Analysis complete.\n🐻 next steps · next (agent): investigate whether the service could lose data", LatestTurnCompleted: true})
+	if !got.Accepted || got.Footer.Status != state.StatusNextSteps {
+		t.Fatalf("ParseFooter() = %+v", got)
+	}
+}
+
+func TestParseFooterAcceptsImperativeThatInvestigatesRecordedWork(t *testing.T) {
+	got := ParseFooter(FooterInput{Message: "Analysis complete.\n🐻 next steps · next (agent): investigate why BEAR-19 was filed for deployment", LatestTurnCompleted: true})
 	if !got.Accepted || got.Footer.Status != state.StatusNextSteps {
 		t.Fatalf("ParseFooter() = %+v", got)
 	}

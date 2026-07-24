@@ -175,20 +175,9 @@ func recordOnly(action, firstWord string) bool {
 	if imperative[firstWord] {
 		return false
 	}
-	recordWords := []string{"recorded", "filed", "logged", "tracked", "noted", "documented"}
-	recordNouns := []string{"issue", "ticket", "task", "follow-up", "followup"}
-	hasRecordWord := false
+	recordWords := []string{"recorded", "filed", "created", "logged", "captured", "tracked", "noted", "documented"}
 	for _, word := range recordWords {
 		if strings.Contains(action, word) {
-			hasRecordWord = true
-			break
-		}
-	}
-	if !hasRecordWord {
-		return false
-	}
-	for _, noun := range recordNouns {
-		if strings.Contains(action, noun) {
 			return true
 		}
 	}

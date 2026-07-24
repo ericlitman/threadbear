@@ -31,7 +31,7 @@ func Reconcile(record state.TaskRecord, nextStatus state.TaskStatus, suggestedSu
 		subject = stripStatusPrefixes(current)
 	}
 	if subject == "" {
-		subject = strings.TrimSpace(suggestedSubject)
+		subject = stripStatusPrefixes(suggestedSubject)
 	}
 	if subject == "" {
 		return Result{}, ErrEmptySubject

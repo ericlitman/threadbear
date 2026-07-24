@@ -147,3 +147,13 @@ func TestReconcileRecoversOwnedSubjectFromExactManagedTitle(t *testing.T) {
 		t.Fatalf("Reconcile() = %+v", got)
 	}
 }
+
+func TestReconcileNormalizesSuggestedSubjectPrefix(t *testing.T) {
+	got, err := Reconcile(state.TaskRecord{}, state.StatusRunning, "✅ Release service", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Title != "⏳ Release service" || got.DurableSubject != "Release service" {
+		t.Fatalf("Reconcile() = %+v", got)
+	}
+}
