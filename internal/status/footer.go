@@ -157,27 +157,24 @@ func concreteAction(action string) bool {
 			return false
 		}
 	}
-	if recordOnly(normalized, words[0]) {
+	if recordOnly(words) {
 		return false
 	}
 	return true
 }
 
-func recordOnly(action, firstWord string) bool {
-	imperative := map[string]bool{
-		"add": true, "apply": true, "approve": true, "build": true, "choose": true,
-		"confirm": true, "create": true, "decide": true, "deploy": true, "fix": true,
-		"implement": true, "investigate": true, "merge": true, "pick": true, "prepare": true,
-		"pressure-test": true, "provide": true, "recover": true, "release": true, "remove": true,
-		"resolve": true, "review": true, "run": true, "select": true, "send": true,
-		"set": true, "supply": true, "test": true, "update": true, "verify": true,
+// recordOnly implements the BEAR-16 operator ruling: the deterministic footer
+// path optimizes precision, not recall. Any record-word presence makes the
+// action non-deterministic — it falls through to semantic classification,
+// because a wrong deterministic accept violates R11/R17 while a fall-through
+// costs one classifier call.
+func recordOnly(words []string) bool {
+	recordWords := map[string]bool{
+		"recorded": true, "filed": true, "created": true, "logged": true,
+		"captured": true, "tracked": true, "noted": true, "documented": true,
 	}
-	if imperative[firstWord] {
-		return false
-	}
-	recordWords := []string{"recorded", "filed", "created", "logged", "captured", "tracked", "noted", "documented"}
-	for _, word := range recordWords {
-		if strings.Contains(action, word) {
+	for _, word := range words {
+		if recordWords[word] {
 			return true
 		}
 	}

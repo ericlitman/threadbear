@@ -103,6 +103,7 @@ func TestParseFooterRejectsWeakActions(t *testing.T) {
 		"ticket filed for deployment",
 		"BEAR-19 was filed for deployment",
 		"deployment follow-up was captured in BEAR-19",
+		"why deployment failed was documented in BEAR-19",
 	}
 	for _, action := range actions {
 		t.Run(action, func(t *testing.T) {
@@ -139,9 +140,27 @@ func TestParseFooterAcceptsConcreteImperativeWithEmbeddedModal(t *testing.T) {
 	}
 }
 
-func TestParseFooterAcceptsImperativeThatInvestigatesRecordedWork(t *testing.T) {
-	got := ParseFooter(FooterInput{Message: "Analysis complete.\n🐻 next steps · next (agent): investigate why BEAR-19 was filed for deployment", LatestTurnCompleted: true})
-	if !got.Accepted || got.Footer.Status != state.StatusNextSteps {
-		t.Fatalf("ParseFooter() = %+v", got)
+func TestParseFooterRecordWordsFallThroughPerRuling(t *testing.T) {
+	// BEAR-16 ruling: any record-word presence leaves the deterministic path;
+	// the action is weak, and classification decides. This intentionally covers
+	// genuine concrete actions that mention recorded artifacts — the end state
+	// is still correct via Luna, and a wrong deterministic accept never happens.
+	actions := []string{
+		"investigate why BEAR-19 was filed for deployment",
+		"analyze captured logs for the failure cause",
+		"compare recorded outcomes before release",
+		"review ticket filed for deployment",
+		"why deployment failed was documented in BEAR-19",
+	}
+	for _, action := range actions {
+		t.Run(action, func(t *testing.T) {
+			got := ParseFooter(FooterInput{Message: "Analysis complete.\n🐻 next steps · next (agent): " + action, LatestTurnCompleted: true})
+			if got.Accepted {
+				t.Fatalf("record-word action must fall through, got %+v", got)
+			}
+			if got.Rejection != FooterWeakAction {
+				t.Fatalf("Rejection = %v, want FooterWeakAction", got.Rejection)
+			}
+		})
 	}
 }
