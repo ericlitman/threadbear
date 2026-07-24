@@ -44,6 +44,9 @@ func TestStoreRoundTripAndPrivateModes(t *testing.T) {
 	if err != nil || !reflect.DeepEqual(gotState, stateValue) {
 		t.Fatalf("LoadState() = %#v, %v", gotState, err)
 	}
+	if got, want := gotState.Tasks["task-1"].CapturedTitle, "✅ Ship ThreadBear"; got != want {
+		t.Fatalf("captured title round trip = %q, want %q", got, want)
+	}
 	gotCycle, err := store.LoadCycle()
 	if err != nil || !reflect.DeepEqual(gotCycle, cycle) {
 		t.Fatalf("LoadCycle() = %#v, %v", gotCycle, err)
@@ -418,6 +421,7 @@ func validState() State {
 	value.Tasks["task-1"] = TaskRecord{
 		TaskID:                  "task-1",
 		CapturedRevision:        "rev-1",
+		CapturedTitle:           "✅ Ship ThreadBear",
 		Status:                  StatusComplete,
 		Provenance:              ProvenanceFooter,
 		StateStartedAt:          now.Add(-time.Hour),

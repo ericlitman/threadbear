@@ -29,6 +29,7 @@ type Task struct {
 	TaskID       string
 	Revision     string
 	Title        string
+	DerivedTitle string
 	Archived     bool
 	Source       string
 	ThreadSource string
@@ -65,16 +66,50 @@ func ResolveCodexHome() (string, error) {
 	return filepath.Join(home, ".codex"), nil
 }
 
+func ResolveSQLiteHome(codexHome string) (string, error) {
+	if value := strings.TrimSpace(os.Getenv("CODEX_SQLITE_HOME")); value != "" {
+		return filepath.Abs(value)
+	}
+	data, err := os.ReadFile(filepath.Join(codexHome, "config.toml"))
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
+		return "", fmt.Errorf("read Codex config: %w", err)
+	}
+	if err == nil {
+		value, found, err := sqliteHomeFromConfig(data)
+		if err != nil {
+			return "", fmt.Errorf("read Codex sqlite_home: %w", err)
+		}
+		if found {
+			if !filepath.IsAbs(value) {
+				value = filepath.Join(codexHome, value)
+			}
+			return filepath.Abs(value)
+		}
+	}
+	return filepath.Abs(codexHome)
+}
+
 func OpenDefaultIndex() (*Index, error) {
-	home, err := ResolveCodexHome()
+	if value := strings.TrimSpace(os.Getenv("CODEX_SQLITE_HOME")); value != "" {
+		sqliteHome, err := filepath.Abs(value)
+		if err != nil {
+			return nil, err
+		}
+		return OpenIndex(sqliteHome)
+	}
+	codexHome, err := ResolveCodexHome()
 	if err != nil {
 		return nil, err
 	}
-	return OpenIndex(home)
+	sqliteHome, err := ResolveSQLiteHome(codexHome)
+	if err != nil {
+		return nil, err
+	}
+	return OpenIndex(sqliteHome)
 }
 
-func OpenIndex(codexHome string) (*Index, error) {
-	path, err := locateStateDatabase(codexHome)
+func OpenIndex(sqliteHome string) (*Index, error) {
+	path, err := locateStateDatabase(sqliteHome)
 	if err != nil {
 		return nil, err
 	}
@@ -108,7 +143,7 @@ func (i *Index) Inventory(ctx context.Context, controlTaskID string) (Inventory,
 		return Inventory{}, err
 	}
 	rows, err := i.db.QueryContext(ctx, `
-SELECT id, updated_at, title, archived, source, thread_source, rollout_path
+SELECT id, updated_at_ms, title, name, archived, source, thread_source, rollout_path
 FROM threads
 WHERE archived = 0 AND source = 'vscode' AND id <> ?
 ORDER BY id`, controlTaskID)
@@ -120,14 +155,19 @@ ORDER BY id`, controlTaskID)
 	tasks := make([]Task, 0)
 	for rows.Next() {
 		var task Task
-		var updatedAt int64
+		var updatedAtMS int64
+		var name sql.NullString
 		var archived int
 		var threadSource sql.NullString
 		var rolloutPath sql.NullString
-		if err := rows.Scan(&task.TaskID, &updatedAt, &task.Title, &archived, &task.Source, &threadSource, &rolloutPath); err != nil {
+		if err := rows.Scan(&task.TaskID, &updatedAtMS, &task.DerivedTitle, &name, &archived, &task.Source, &threadSource, &rolloutPath); err != nil {
 			return Inventory{}, fmt.Errorf("read Codex task: %w", err)
 		}
-		task.Revision = strconv.FormatInt(updatedAt, 10)
+		task.Revision = strconv.FormatInt(updatedAtMS, 10)
+		task.Title = task.DerivedTitle
+		if name.Valid {
+			task.Title = name.String
+		}
 		task.Archived = archived != 0
 		task.ThreadSource = threadSource.String
 		task.RolloutPath = rolloutPath.String
@@ -145,7 +185,7 @@ func CompareInventory(captured Inventory, committed state.State) Comparison {
 	for _, task := range captured.Tasks {
 		current[task.TaskID] = struct{}{}
 		previous, ok := committed.Tasks[task.TaskID]
-		if !ok || previous.CapturedRevision != task.Revision || previous.LastAppliedTitle != task.Title || previous.Retry != nil {
+		if !ok || previous.CapturedRevision != task.Revision || previous.CapturedTitle != task.Title || previous.Retry != nil {
 			changed = append(changed, task)
 		}
 	}
@@ -209,6 +249,152 @@ func compareDatabaseVersions(left, right string) int {
 		return 1
 	}
 	return strings.Compare(left, right)
+}
+
+func sqliteHomeFromConfig(data []byte) (string, bool, error) {
+	inTable := false
+	multiline := ""
+	for _, line := range strings.Split(string(data), "\n") {
+		if multiline != "" {
+			if strings.Contains(line, multiline) {
+				multiline = ""
+			}
+			continue
+		}
+		if delimiter := openedMultilineTOMLString(line); delimiter != "" {
+			multiline = delimiter
+			continue
+		}
+		line = strings.TrimSpace(trimTOMLComment(line))
+		if line == "" {
+			continue
+		}
+		if strings.HasPrefix(line, "[") {
+			inTable = true
+			continue
+		}
+		if inTable {
+			continue
+		}
+		key, value, found := strings.Cut(line, "=")
+		if !found || strings.TrimSpace(key) != "sqlite_home" {
+			continue
+		}
+		parsed, err := parseTOMLString(strings.TrimSpace(value))
+		if err != nil {
+			return "", false, err
+		}
+		if strings.TrimSpace(parsed) == "" {
+			return "", false, errors.New("sqlite_home must not be empty")
+		}
+		return parsed, true, nil
+	}
+	return "", false, nil
+}
+
+func openedMultilineTOMLString(value string) string {
+	for index := 0; index < len(value); {
+		switch value[index] {
+		case '#':
+			return ""
+		case '"':
+			delimiter := `"""`
+			if strings.HasPrefix(value[index:], delimiter) {
+				remainder := value[index+len(delimiter):]
+				closing := strings.Index(remainder, delimiter)
+				if closing < 0 {
+					return delimiter
+				}
+				index += len(delimiter) + closing + len(delimiter)
+				continue
+			}
+			index++
+			escaped := false
+			for index < len(value) {
+				char := value[index]
+				index++
+				if escaped {
+					escaped = false
+					continue
+				}
+				if char == '\\' {
+					escaped = true
+					continue
+				}
+				if char == '"' {
+					break
+				}
+			}
+		case '\'':
+			delimiter := "'''"
+			if strings.HasPrefix(value[index:], delimiter) {
+				remainder := value[index+len(delimiter):]
+				closing := strings.Index(remainder, delimiter)
+				if closing < 0 {
+					return delimiter
+				}
+				index += len(delimiter) + closing + len(delimiter)
+				continue
+			}
+			index++
+			for index < len(value) && value[index] != '\'' {
+				index++
+			}
+			if index < len(value) {
+				index++
+			}
+		default:
+			index++
+		}
+	}
+	return ""
+}
+
+func trimTOMLComment(value string) string {
+	var quote byte
+	escaped := false
+	for index := 0; index < len(value); index++ {
+		char := value[index]
+		if quote == '"' && escaped {
+			escaped = false
+			continue
+		}
+		if quote == '"' && char == '\\' {
+			escaped = true
+			continue
+		}
+		if quote != 0 {
+			if char == quote {
+				quote = 0
+			}
+			continue
+		}
+		if char == '"' || char == '\'' {
+			quote = char
+			continue
+		}
+		if char == '#' {
+			return value[:index]
+		}
+	}
+	return value
+}
+
+func parseTOMLString(value string) (string, error) {
+	if len(value) < 2 {
+		return "", errors.New("sqlite_home must be a TOML string")
+	}
+	if value[0] == '\'' && value[len(value)-1] == '\'' {
+		return value[1 : len(value)-1], nil
+	}
+	if value[0] != '"' || value[len(value)-1] != '"' {
+		return "", errors.New("sqlite_home must be a TOML string")
+	}
+	parsed, err := strconv.Unquote(value)
+	if err != nil {
+		return "", fmt.Errorf("parse sqlite_home: %w", err)
+	}
+	return parsed, nil
 }
 
 func readOnlyURI(path string) string {

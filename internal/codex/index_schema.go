@@ -9,8 +9,9 @@ import (
 
 var requiredThreadColumns = []string{
 	"id",
-	"updated_at",
+	"updated_at_ms",
 	"title",
+	"name",
 	"archived",
 	"source",
 	"thread_source",

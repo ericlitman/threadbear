@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -57,6 +58,110 @@ func TestIndexFailsClosedOnUnboundedHigherVersion(t *testing.T) {
 	_, err := OpenIndex(home)
 	if !errors.Is(err, ErrSchema) {
 		t.Fatalf("OpenIndex() error = %v, want ErrSchema", err)
+	}
+}
+
+func TestIndexUsesSQLiteHomeEnvironmentOverride(t *testing.T) {
+	root := t.TempDir()
+	codexHome := filepath.Join(root, "codex")
+	configHome := filepath.Join(root, "config-sqlite")
+	environmentHome := filepath.Join(root, "environment-sqlite")
+	for _, directory := range []string{codexHome, configHome, environmentHome} {
+		if err := os.Mkdir(directory, 0700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	copyFixture(t, "state_5.sqlite", filepath.Join(codexHome, "state_5.sqlite"))
+	copyFixture(t, "state_5.sqlite", filepath.Join(configHome, "state_6.sqlite"))
+	copyFixture(t, "state_5.sqlite", filepath.Join(environmentHome, "state_7.sqlite"))
+	config := "sqlite_home = " + strconv.Quote(configHome) + "\n"
+	if err := os.WriteFile(filepath.Join(codexHome, "config.toml"), []byte(config), 0600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("CODEX_HOME", codexHome)
+	t.Setenv("CODEX_SQLITE_HOME", environmentHome)
+	index, err := OpenDefaultIndex()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer index.Close()
+	if got, want := index.Path(), filepath.Join(environmentHome, "state_7.sqlite"); got != want {
+		t.Fatalf("Path() = %q, want environment override %q", got, want)
+	}
+}
+
+func TestIndexEnvironmentOverrideDoesNotRequireCodexHome(t *testing.T) {
+	sqliteHome := t.TempDir()
+	copyFixture(t, "state_5.sqlite", filepath.Join(sqliteHome, "state_9.sqlite"))
+	t.Setenv("CODEX_SQLITE_HOME", sqliteHome)
+	t.Setenv("CODEX_HOME", "")
+	t.Setenv("HOME", "")
+	index, err := OpenDefaultIndex()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer index.Close()
+	if got, want := index.Path(), filepath.Join(sqliteHome, "state_9.sqlite"); got != want {
+		t.Fatalf("Path() = %q, want environment-only override %q", got, want)
+	}
+}
+
+func TestIndexUsesSQLiteHomeConfigOverride(t *testing.T) {
+	root := t.TempDir()
+	codexHome := filepath.Join(root, "codex")
+	sqliteHome := filepath.Join(root, "SQLite home #1")
+	for _, directory := range []string{codexHome, sqliteHome} {
+		if err := os.Mkdir(directory, 0700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	copyFixture(t, "state_5.sqlite", filepath.Join(codexHome, "state_5.sqlite"))
+	copyFixture(t, "state_5.sqlite", filepath.Join(sqliteHome, "state_8.sqlite"))
+	config := "sqlite_home = " + strconv.Quote(sqliteHome) + " # current state directory\n"
+	if err := os.WriteFile(filepath.Join(codexHome, "config.toml"), []byte(config), 0600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("CODEX_HOME", codexHome)
+	t.Setenv("CODEX_SQLITE_HOME", "")
+	index, err := OpenDefaultIndex()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer index.Close()
+	if got, want := index.Path(), filepath.Join(sqliteHome, "state_8.sqlite"); got != want {
+		t.Fatalf("Path() = %q, want config override %q", got, want)
+	}
+}
+
+func TestIndexConfigIgnoresMultilineStringContents(t *testing.T) {
+	root := t.TempDir()
+	codexHome := filepath.Join(root, "codex")
+	sqliteHome := filepath.Join(root, "actual-sqlite")
+	for _, directory := range []string{codexHome, sqliteHome} {
+		if err := os.Mkdir(directory, 0700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	copyFixture(t, "state_5.sqlite", filepath.Join(sqliteHome, "state_10.sqlite"))
+	config := `instructions = "Use ''' for examples"
+compact_prompt = 'Use """ for examples'
+developer_instructions = """
+sqlite_home = "/unrelated/text"
+[unrelated]
+"""
+sqlite_home = ` + strconv.Quote(sqliteHome) + "\n"
+	if err := os.WriteFile(filepath.Join(codexHome, "config.toml"), []byte(config), 0600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("CODEX_HOME", codexHome)
+	t.Setenv("CODEX_SQLITE_HOME", "")
+	index, err := OpenDefaultIndex()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer index.Close()
+	if got, want := index.Path(), filepath.Join(sqliteHome, "state_10.sqlite"); got != want {
+		t.Fatalf("Path() = %q, want multiline-safe config %q", got, want)
 	}
 }
 
@@ -134,11 +239,17 @@ func TestInventoryIncludesEveryDesktopShape(t *testing.T) {
 	if got := byID["task-005"].RolloutPath; got != "" {
 		t.Fatalf("missing rollout became %q", got)
 	}
-	if got, want := byID["task-007"].Revision, "1700001007"; got != want {
+	if got, want := byID["task-007"].Revision, "1700001007007"; got != want {
 		t.Fatalf("task-007 revision = %q, want %q", got, want)
 	}
-	if got, want := byID["task-007"].Title, "Synthetic task 7"; got != want {
-		t.Fatalf("task-007 title = %q, want %q", got, want)
+	if got, want := byID["task-007"].DerivedTitle, "Synthetic task 7"; got != want {
+		t.Fatalf("task-007 derived title = %q, want %q", got, want)
+	}
+	if got, want := byID["task-007"].Title, "Explicit task 7"; got != want {
+		t.Fatalf("task-007 effective title = %q, want %q", got, want)
+	}
+	if got, want := byID["task-008"].Title, "Synthetic task 8"; got != want {
+		t.Fatalf("task-008 fallback title = %q, want %q", got, want)
 	}
 	if got, want := byID["task-007"].RolloutPath, "/synthetic/rollouts/task-007.jsonl"; got != want {
 		t.Fatalf("task-007 rollout = %q, want %q", got, want)
@@ -178,11 +289,11 @@ func TestInventoryComparisonSelectsChangesAndRetries(t *testing.T) {
 	}}
 	committed := state.New()
 	committed.Tasks = map[string]state.TaskRecord{
-		"removed":  {TaskID: "removed", CapturedRevision: "1", LastAppliedTitle: "Removed"},
-		"retry":    {TaskID: "retry", CapturedRevision: "2", LastAppliedTitle: "Retry", Retry: &state.Retry{Operation: "classify", ErrorCode: "temporary", Attempts: 1, LastAttemptAt: time.Unix(1, 0), NextAttemptAt: time.Unix(2, 0)}},
-		"revision": {TaskID: "revision", CapturedRevision: "old", LastAppliedTitle: "Revision"},
-		"stable":   {TaskID: "stable", CapturedRevision: "4", LastAppliedTitle: "Stable"},
-		"title":    {TaskID: "title", CapturedRevision: "5", LastAppliedTitle: "Old title"},
+		"removed":  {TaskID: "removed", CapturedRevision: "1", CapturedTitle: "Removed"},
+		"retry":    {TaskID: "retry", CapturedRevision: "2", CapturedTitle: "Retry", Retry: &state.Retry{Operation: "classify", ErrorCode: "temporary", Attempts: 1, LastAttemptAt: time.Unix(1, 0), NextAttemptAt: time.Unix(2, 0)}},
+		"revision": {TaskID: "revision", CapturedRevision: "old", CapturedTitle: "Revision"},
+		"stable":   {TaskID: "stable", CapturedRevision: "4", CapturedTitle: "Stable"},
+		"title":    {TaskID: "title", CapturedRevision: "5", CapturedTitle: "Old title", LastAppliedTitle: "ThreadBear-owned title"},
 	}
 	comparison := CompareInventory(captured, committed)
 	gotChanged := make([]string, 0, len(comparison.Changed))
@@ -200,13 +311,85 @@ func TestInventoryComparisonSelectsChangesAndRetries(t *testing.T) {
 	}
 }
 
-func TestInventoryComparisonRecognizesUnchangedGeneration(t *testing.T) {
-	captured := Inventory{Tasks: []Task{{TaskID: "task-a", Revision: "10", Title: "Title"}}}
+func TestInventoryComparisonKeepsUnrenamedTaskIdle(t *testing.T) {
+	captured := Inventory{Tasks: []Task{{TaskID: "task-a", Revision: "10", Title: "User title"}}}
 	committed := state.New()
-	committed.Tasks["task-a"] = state.TaskRecord{TaskID: "task-a", CapturedRevision: "10", LastAppliedTitle: "Title"}
+	committed.Tasks["task-a"] = state.TaskRecord{TaskID: "task-a", CapturedRevision: "10", CapturedTitle: "User title"}
 	if comparison := CompareInventory(captured, committed); !comparison.Unchanged() {
-		t.Fatalf("unchanged comparison = %#v", comparison)
+		t.Fatalf("unchanged unrenamed comparison = %#v", comparison)
 	}
+}
+
+func TestInventoryUsesMillisecondRevision(t *testing.T) {
+	home := t.TempDir()
+	path := filepath.Join(home, "state_5.sqlite")
+	copyFixture(t, "state_5.sqlite", path)
+	index, err := OpenIndex(home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer index.Close()
+	before, err := index.Inventory(context.Background(), "control-123")
+	if err != nil {
+		t.Fatal(err)
+	}
+	writer, err := sql.Open("sqlite", path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := writer.Exec("UPDATE threads SET updated_at_ms = updated_at_ms + 1 WHERE id = 'task-008'"); err != nil {
+		writer.Close()
+		t.Fatal(err)
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatal(err)
+	}
+	after, err := index.Inventory(context.Background(), "control-123")
+	if err != nil {
+		t.Fatal(err)
+	}
+	revision := func(inventory Inventory) string {
+		for _, task := range inventory.Tasks {
+			if task.TaskID == "task-008" {
+				return task.Revision
+			}
+		}
+		return ""
+	}
+	if revision(before) == revision(after) {
+		t.Fatalf("millisecond-only activity kept revision %q", revision(before))
+	}
+}
+
+func TestInventoryComparisonDetectsMillisecondRevisionChange(t *testing.T) {
+	captured := Inventory{Tasks: []Task{{TaskID: "task-a", Revision: "1700001000124", Title: "Same title"}}}
+	committed := state.New()
+	committed.Tasks["task-a"] = state.TaskRecord{TaskID: "task-a", CapturedRevision: "1700001000123", CapturedTitle: "Same title"}
+	comparison := CompareInventory(captured, committed)
+	if len(comparison.Changed) != 1 || comparison.Changed[0].TaskID != "task-a" {
+		t.Fatalf("millisecond revision comparison = %#v", comparison)
+	}
+}
+
+func TestInventoryComparisonUsesExplicitName(t *testing.T) {
+	index := openFixture(t, "state_5.sqlite")
+	inventory, err := index.Inventory(context.Background(), "control-123")
+	if err != nil {
+		t.Fatal(err)
+	}
+	committed := state.New()
+	for _, task := range inventory.Tasks {
+		if task.TaskID != "task-007" {
+			continue
+		}
+		committed.Tasks[task.TaskID] = state.TaskRecord{TaskID: task.TaskID, CapturedRevision: task.Revision, CapturedTitle: task.DerivedTitle}
+		comparison := CompareInventory(Inventory{Tasks: []Task{task}}, committed)
+		if len(comparison.Changed) != 1 || comparison.Changed[0].Title != "Explicit task 7" {
+			t.Fatalf("explicit-name comparison = %#v", comparison)
+		}
+		return
+	}
+	t.Fatal("named task was not inventoried")
 }
 
 func TestSchemaIsValidatedBeforeEveryInventory(t *testing.T) {
@@ -234,6 +417,31 @@ func TestSchemaIsValidatedBeforeEveryInventory(t *testing.T) {
 	}
 	if _, err := index.Inventory(context.Background(), "control-123"); !errors.Is(err, ErrSchema) {
 		t.Fatalf("Inventory() error = %v, want ErrSchema", err)
+	}
+}
+
+func TestSchemaRequiresNameAndMillisecondRevision(t *testing.T) {
+	for _, column := range []string{"name", "updated_at_ms"} {
+		t.Run(column, func(t *testing.T) {
+			home := t.TempDir()
+			path := filepath.Join(home, "state_5.sqlite")
+			copyFixture(t, "state_5.sqlite", path)
+			writer, err := sql.Open("sqlite", path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := writer.Exec("ALTER TABLE threads RENAME COLUMN " + column + " TO incompatible_" + column); err != nil {
+				writer.Close()
+				t.Fatal(err)
+			}
+			if err := writer.Close(); err != nil {
+				t.Fatal(err)
+			}
+			_, err = OpenIndex(home)
+			if !errors.Is(err, ErrSchema) || !strings.Contains(err.Error(), column) {
+				t.Fatalf("OpenIndex() error = %v, want %s schema error", err, column)
+			}
+		})
 	}
 }
 

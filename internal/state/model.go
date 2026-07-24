@@ -86,6 +86,7 @@ type Retry struct {
 type TaskRecord struct {
 	TaskID                  string     `json:"task_id"`
 	CapturedRevision        string     `json:"captured_revision"`
+	CapturedTitle           string     `json:"captured_title"`
 	Status                  TaskStatus `json:"status"`
 	Provenance              Provenance `json:"provenance"`
 	StateStartedAt          time.Time  `json:"state_started_at"`
