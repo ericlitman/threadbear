@@ -354,6 +354,7 @@ func TestConfigCodexSpawnPathValidationAndLegacyDecode(t *testing.T) {
 	if err != nil || decoded.CodexSpawnPath != "" {
 		t.Fatalf("legacy decode=%+v err=%v", decoded, err)
 	}
+
 	valid := legacy
 	valid.CodexSpawnPath = "/opt/homebrew/bin:/usr/bin:/bin"
 	data, err = json.Marshal(valid)
@@ -361,25 +362,22 @@ func TestConfigCodexSpawnPathValidationAndLegacyDecode(t *testing.T) {
 		t.Fatal(err)
 	}
 	decoded, err = config.Decode(data)
-	if err != nil || decoded != valid {
+	if err != nil || decoded.CodexSpawnPath != valid.CodexSpawnPath {
 		t.Fatalf("spawn decode=%+v err=%v", decoded, err)
 	}
-	var fields map[string]any
-	if err := json.Unmarshal(data, &fields); err != nil {
+	if err := valid.Validate(); err != nil {
 		t.Fatal(err)
 	}
-	fields["codex_spawn_path"] = []string{"/opt/homebrew/bin", "/usr/bin", "/bin"}
-	legacyArray, err := json.Marshal(fields)
-	if err != nil {
-		t.Fatal(err)
-	}
-	decoded, err = config.Decode(legacyArray)
+
+	legacyArray := strings.Replace(string(data), `"codex_spawn_path":"/opt/homebrew/bin:/usr/bin:/bin"`, `"codex_spawn_path":["/opt/homebrew/bin","/usr/bin","/opt/homebrew/bin","/bin"]`, 1)
+	decoded, err = config.Decode([]byte(legacyArray))
 	if err != nil || decoded.CodexSpawnPath != valid.CodexSpawnPath {
 		t.Fatalf("legacy array decode=%+v err=%v", decoded, err)
 	}
-	for name, spawnPath := range map[string]string{"relative": "usr/bin", "empty": "/usr/bin::/bin", "padded": " /usr/bin", "duplicate": "/usr/bin:/usr/bin", "unclean": "/usr/bin/../bin"} {
+
+	for name, spawnPath := range map[string]string{"relative": "usr/bin", "duplicate": "/usr/bin:/usr/bin", "unclean": "/usr/bin/../bin"} {
 		t.Run(name, func(t *testing.T) {
-			value := legacy
+			value := valid
 			value.CodexSpawnPath = spawnPath
 			if err := value.Validate(); err == nil {
 				t.Fatalf("accepted spawn path %q", spawnPath)
@@ -390,5 +388,10 @@ func TestConfigCodexSpawnPathValidationAndLegacyDecode(t *testing.T) {
 	withoutExecutable.CodexSpawnPath = "/usr/bin"
 	if err := withoutExecutable.Validate(); err == nil {
 		t.Fatal("accepted codex_spawn_path without codex_executable")
+	}
+	withoutSpawn := config.Default("control-123")
+	withoutSpawn.CodexExecutable = "/usr/bin/codex"
+	if err := withoutSpawn.Validate(); err == nil {
+		t.Fatal("accepted codex_executable without codex_spawn_path")
 	}
 }

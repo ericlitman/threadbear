@@ -250,15 +250,11 @@ func configuredExecutableSpec(home string, cfg config.Config, pathValue string) 
 	if cfg.CodexExecutable == "" {
 		return resolveCodexExecutableSpec(home, pathValue)
 	}
-	spawnPath, err := codex.ParseSpawnPath(cfg.CodexSpawnPath)
-	if err != nil {
-		return codex.ExecutableSpec{}, err
-	}
-	if len(spawnPath) == 0 {
+	if cfg.CodexSpawnPath == "" {
 		return codex.DeriveExecutableSpec(home, cfg.CodexExecutable, pathValue)
 	}
-	spec := codex.ExecutableSpec{Path: cfg.CodexExecutable, SpawnPath: spawnPath}
-	if err := codex.VerifyExecutableSpec(spec); err != nil {
+	spec := codex.ExecutableSpec{Path: cfg.CodexExecutable, SpawnPath: cfg.CodexSpawnPath}
+	if err := codex.ValidateExecutableSpec(spec); err != nil {
 		return codex.ExecutableSpec{}, err
 	}
 	return spec, nil
@@ -519,7 +515,7 @@ type appServerControlTasks struct {
 
 func (a *appServerControlTasks) SetCodexExecutableSpec(spec codex.ExecutableSpec) {
 	if a.executableSpec != nil {
-		*a.executableSpec = codex.ExecutableSpec{Path: spec.Path, SpawnPath: append([]string(nil), spec.SpawnPath...)}
+		*a.executableSpec = spec
 	}
 }
 
@@ -681,7 +677,7 @@ func (s runtimeSelfTest) Run(ctx context.Context, candidate bool) output.SelfTes
 		}
 	}
 	if codexErr == nil {
-		codexErr = codex.VerifyExecutableSpec(codexSpec)
+		codexErr = codex.VerifyExecutableSpec(s.paths.Home, codexSpec)
 	}
 	add("codex_executable", codexErr)
 	if candidate {

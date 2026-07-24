@@ -37,7 +37,6 @@ type Options struct {
 	PlistPath       string
 	StdoutPath      string
 	StderrPath      string
-	Path            string
 	LCAll           string
 	LaunchctlPath   string
 	LegacyPlistPath string
@@ -54,7 +53,6 @@ type Adapter struct {
 	plistPath       string
 	stdoutPath      string
 	stderrPath      string
-	path            string
 	lcAll           string
 	launchctlPath   string
 	legacyPlistPath string
@@ -90,9 +88,6 @@ func New(options Options) (*Adapter, error) {
 	if options.StderrPath == "" {
 		options.StderrPath = filepath.Join(logDirectory, "heartbeat.stderr.log")
 	}
-	if options.Path == "" {
-		options.Path = DefaultPath
-	}
 	if options.LCAll == "" {
 		options.LCAll = DefaultLocale
 	}
@@ -117,7 +112,7 @@ func New(options Options) (*Adapter, error) {
 		}
 	}
 	domain := "gui/" + strconv.Itoa(uid)
-	return &Adapter{home: options.Home, codexHome: options.CodexHome, binaryPath: options.BinaryPath, plistPath: options.PlistPath, stdoutPath: options.StdoutPath, stderrPath: options.StderrPath, path: options.Path, lcAll: options.LCAll, launchctlPath: options.LaunchctlPath, legacyPlistPath: options.LegacyPlistPath, legacyLockPath: options.LegacyLockPath, legacyLockProbe: options.LegacyLockProbe, domain: domain, service: domain + "/" + Label, legacyService: domain + "/" + LegacyLabel, runner: options.Runner}, nil
+	return &Adapter{home: options.Home, codexHome: options.CodexHome, binaryPath: options.BinaryPath, plistPath: options.PlistPath, stdoutPath: options.StdoutPath, stderrPath: options.StderrPath, lcAll: options.LCAll, launchctlPath: options.LaunchctlPath, legacyPlistPath: options.LegacyPlistPath, legacyLockPath: options.LegacyLockPath, legacyLockProbe: options.LegacyLockProbe, domain: domain, service: domain + "/" + Label, legacyService: domain + "/" + LegacyLabel, runner: options.Runner}, nil
 }
 
 func (a *Adapter) Healthy(ctx context.Context) (bool, error) {
@@ -138,16 +133,12 @@ func (a *Adapter) Healthy(ctx context.Context) (bool, error) {
 }
 
 func (a *Adapter) Apply(ctx context.Context, value config.Config) error {
-	pathValue := value.CodexSpawnPath
-	if pathValue == "" {
-		pathValue = a.path
-	}
 	disabled, err := a.disabled(ctx, Label)
 	if err != nil {
 		return err
 	}
 	if !disabled {
-		rendered, renderErr := RenderPlist(PlistSpec{Label: Label, BinaryPath: a.binaryPath, StartInterval: value.HeartbeatSeconds, Home: a.home, CodexHome: a.codexHome, Path: pathValue, LCAll: a.lcAll, StdoutPath: a.stdoutPath, StderrPath: a.stderrPath})
+		rendered, renderErr := RenderPlist(PlistSpec{Label: Label, BinaryPath: a.binaryPath, StartInterval: value.HeartbeatSeconds, Home: a.home, CodexHome: a.codexHome, Path: value.CodexSpawnPath, LCAll: a.lcAll, StdoutPath: a.stdoutPath, StderrPath: a.stderrPath})
 		if renderErr != nil {
 			return renderErr
 		}
@@ -174,13 +165,9 @@ func (a *Adapter) Apply(ctx context.Context, value config.Config) error {
 }
 
 func (a *Adapter) Stage(ctx context.Context, value config.Config) (bool, error) {
-	pathValue := value.CodexSpawnPath
-	if pathValue == "" {
-		pathValue = a.path
-	}
 	rendered, err := RenderPlist(PlistSpec{
 		Label: Label, BinaryPath: a.binaryPath, StartInterval: value.HeartbeatSeconds,
-		Home: a.home, CodexHome: a.codexHome, Path: pathValue, LCAll: a.lcAll,
+		Home: a.home, CodexHome: a.codexHome, Path: value.CodexSpawnPath, LCAll: a.lcAll,
 		StdoutPath: a.stdoutPath, StderrPath: a.stderrPath,
 	})
 	if err != nil {

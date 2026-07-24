@@ -1,7 +1,6 @@
 package codex
 
 import (
-	"bufio"
 	"errors"
 	"fmt"
 	"os"
@@ -12,11 +11,26 @@ import (
 
 var ErrExecutableNotFound = errors.New("Codex executable not found")
 
-var fixedSystemPath = []string{"/usr/local/bin", "/usr/bin", "/bin", "/usr/sbin", "/sbin"}
-
 type ExecutableSpec struct {
 	Path      string
-	SpawnPath []string
+	SpawnPath string
+}
+
+func SanitizePath(pathValue string) string {
+	result := make([]string, 0)
+	seen := make(map[string]bool)
+	for _, directory := range filepath.SplitList(pathValue) {
+		if !filepath.IsAbs(directory) {
+			continue
+		}
+		directory = filepath.Clean(directory)
+		if seen[directory] {
+			continue
+		}
+		seen[directory] = true
+		result = append(result, directory)
+	}
+	return strings.Join(result, string(filepath.ListSeparator))
 }
 
 func ResolveExecutable(home, pathValue string) (string, error) {
@@ -25,78 +39,40 @@ func ResolveExecutable(home, pathValue string) (string, error) {
 }
 
 func ResolveExecutableSpec(home, pathValue string) (ExecutableSpec, error) {
-	return resolveExecutableSpec(home, pathValue, []string{
-		"/opt/homebrew/bin/codex",
-		"/usr/local/bin/codex",
-		filepath.Join(home, ".local", "bin", "codex"),
-	})
-}
-
-func resolveExecutable(home, pathValue string, standard []string) (string, error) {
-	spec, err := resolveExecutableSpec(home, pathValue, standard)
-	return spec.Path, err
-}
-
-func resolveExecutableSpec(home, pathValue string, standard []string) (ExecutableSpec, error) {
 	if !filepath.IsAbs(home) {
 		return ExecutableSpec{}, errors.New("user home must be absolute")
 	}
-	pathDirectories := absolutePathDirectories(pathValue)
-	candidates := make([]string, 0, len(pathDirectories)+len(standard))
-	for _, directory := range pathDirectories {
-		candidates = append(candidates, filepath.Join(directory, "codex"))
+	spawnPath := SanitizePath(pathValue)
+	if spawnPath == "" {
+		return ExecutableSpec{}, fmt.Errorf("%w; invoking PATH contains no absolute directories; install the Codex CLI and invoke ThreadBear with the Codex bin directory in PATH", ErrExecutableNotFound)
 	}
-	candidates = append(candidates, standard...)
-	seen := make(map[string]bool, len(candidates))
 	verificationFailures := make([]string, 0)
-	for _, candidate := range candidates {
-		candidate = filepath.Clean(candidate)
-		if seen[candidate] {
-			continue
-		}
-		seen[candidate] = true
+	for _, directory := range filepath.SplitList(spawnPath) {
+		candidate := filepath.Join(directory, "codex")
 		if err := ValidateExecutable(candidate); err != nil {
 			continue
 		}
-		spec, err := DeriveExecutableSpec(home, candidate, pathValue)
-		if err != nil {
-			verificationFailures = append(verificationFailures, fmt.Sprintf("%s: %v", candidate, err))
-			continue
-		}
-		if err := VerifyExecutableSpec(spec); err != nil {
+		spec := ExecutableSpec{Path: candidate, SpawnPath: spawnPath}
+		if err := VerifyExecutableSpec(home, spec); err != nil {
 			verificationFailures = append(verificationFailures, fmt.Sprintf("%s: %v", candidate, err))
 			continue
 		}
 		return spec, nil
 	}
-	remedy := fmt.Sprintf("install the Codex CLI and ensure its absolute bin directory is in PATH, or place codex at /opt/homebrew/bin/codex, /usr/local/bin/codex, or %s", filepath.Join(home, ".local", "bin", "codex"))
+	remedy := "install the Codex CLI and invoke ThreadBear with its absolute bin directory in PATH"
 	if len(verificationFailures) > 0 {
-		return ExecutableSpec{}, fmt.Errorf("%w; executable candidates did not run successfully (%s); %s", ErrExecutableNotFound, strings.Join(verificationFailures, "; "), remedy)
+		return ExecutableSpec{}, fmt.Errorf("%w; candidates from the invoking PATH did not run successfully (%s); %s", ErrExecutableNotFound, strings.Join(verificationFailures, "; "), remedy)
 	}
-	return ExecutableSpec{}, fmt.Errorf("%w; %s", ErrExecutableNotFound, remedy)
+	return ExecutableSpec{}, fmt.Errorf("%w in the invoking PATH; %s", ErrExecutableNotFound, remedy)
 }
 
 func DeriveExecutableSpec(home, executable, pathValue string) (ExecutableSpec, error) {
 	if !filepath.IsAbs(home) {
 		return ExecutableSpec{}, errors.New("user home must be absolute")
 	}
-	if err := ValidateExecutable(executable); err != nil {
-		return ExecutableSpec{}, err
-	}
-	directories := append([]string{}, absolutePathDirectories(pathValue)...)
-	directories = append(directories, filepath.Dir(executable), "/opt/homebrew/bin", "/usr/local/bin", filepath.Join(home, ".local", "bin"), "/usr/bin", "/bin", "/usr/sbin", "/sbin")
-	spec := ExecutableSpec{Path: executable, SpawnPath: uniqueCanonicalDirectories(directories)}
+	spec := ExecutableSpec{Path: executable, SpawnPath: SanitizePath(pathValue)}
 	if err := ValidateExecutableSpec(spec); err != nil {
 		return ExecutableSpec{}, err
-	}
-	interpreter, envShebang, err := envShebangInterpreter(executable)
-	if err != nil {
-		return ExecutableSpec{}, err
-	}
-	if envShebang {
-		if _, err := resolveNamedExecutable(interpreter, spec.SpawnPath); err != nil {
-			return ExecutableSpec{}, fmt.Errorf("resolve Codex shebang interpreter %s: %w", interpreter, err)
-		}
 	}
 	return spec, nil
 }
@@ -115,49 +91,23 @@ func ValidateExecutable(path string) error {
 	return nil
 }
 
-func ParseSpawnPath(pathValue string) ([]string, error) {
-	if pathValue == "" {
-		return nil, nil
-	}
-	directories := filepath.SplitList(pathValue)
-	if err := validateSpawnPath(directories); err != nil {
-		return nil, err
-	}
-	return append([]string(nil), directories...), nil
-}
-func FormatSpawnPath(directories []string) (string, error) {
-	if len(directories) == 0 {
-		return "", nil
-	}
-	if err := validateSpawnPath(directories); err != nil {
-		return "", err
-	}
-	return strings.Join(directories, string(os.PathListSeparator)), nil
-}
 func ValidateExecutableSpec(spec ExecutableSpec) error {
 	if err := ValidateExecutable(spec.Path); err != nil {
 		return err
 	}
-	if len(spec.SpawnPath) == 0 {
+	if spec.SpawnPath == "" {
 		return errors.New("Codex spawn PATH must not be empty")
 	}
-	return validateSpawnPath(spec.SpawnPath)
-}
-func validateSpawnPath(directories []string) error {
-	seen := make(map[string]bool, len(directories))
-	for _, directory := range directories {
-		if directory == "" || strings.TrimSpace(directory) != directory || !filepath.IsAbs(directory) || filepath.Clean(directory) != directory {
-			return errors.New("Codex spawn PATH entries must be absolute canonical directories")
-		}
-		if seen[directory] {
-			return errors.New("Codex spawn PATH entries must be unique")
-		}
-		seen[directory] = true
+	if SanitizePath(spec.SpawnPath) != spec.SpawnPath {
+		return errors.New("Codex spawn PATH must be canonical, absolute-only, and deduplicated")
 	}
 	return nil
 }
 
-func VerifyExecutableSpec(spec ExecutableSpec) error {
+func VerifyExecutableSpec(home string, spec ExecutableSpec) error {
+	if !filepath.IsAbs(home) {
+		return errors.New("user home must be absolute")
+	}
 	if err := ValidateExecutableSpec(spec); err != nil {
 		return err
 	}
@@ -167,11 +117,11 @@ func VerifyExecutableSpec(spec ExecutableSpec) error {
 	}
 	defer devNull.Close()
 	process, err := os.StartProcess(spec.Path, []string{spec.Path, "--version"}, &os.ProcAttr{
-		Env:   []string{"PATH=" + strings.Join(spec.SpawnPath, string(os.PathListSeparator))},
+		Env:   []string{"HOME=" + home, "PATH=" + spec.SpawnPath, "LC_ALL=C"},
 		Files: []*os.File{devNull, devNull, devNull},
 	})
 	if err != nil {
-		return fmt.Errorf("start codex --version: %w", err)
+		return fmt.Errorf("start codex --version with captured PATH: %w", err)
 	}
 	type waitResult struct {
 		state *os.ProcessState
@@ -191,66 +141,6 @@ func VerifyExecutableSpec(spec ExecutableSpec) error {
 	case <-time.After(5 * time.Second):
 		_ = process.Kill()
 		<-done
-		return errors.New("codex --version timed out")
+		return errors.New("codex --version timed out after 5s")
 	}
-}
-
-func envShebangInterpreter(path string) (string, bool, error) {
-	file, err := os.Open(path)
-	if err != nil {
-		return "", false, fmt.Errorf("inspect Codex shebang: %w", err)
-	}
-	defer file.Close()
-	line, err := bufio.NewReader(file).ReadString('\n')
-	if err != nil && len(line) == 0 {
-		return "", false, nil
-	}
-	line = strings.TrimSpace(line)
-	if !strings.HasPrefix(line, "#!") {
-		return "", false, nil
-	}
-	fields := strings.Fields(strings.TrimSpace(strings.TrimPrefix(line, "#!")))
-	if len(fields) == 0 || fields[0] != "/usr/bin/env" {
-		return "", false, nil
-	}
-	if len(fields) != 2 || fields[1] == "" || strings.ContainsRune(fields[1], os.PathSeparator) {
-		return "", false, errors.New("Codex /usr/bin/env shebang must name one interpreter")
-	}
-	return fields[1], true, nil
-}
-
-func absolutePathDirectories(pathValue string) []string {
-	result := make([]string, 0)
-	for _, directory := range filepath.SplitList(pathValue) {
-		if directory == "" || !filepath.IsAbs(directory) {
-			continue
-		}
-		result = append(result, filepath.Clean(directory))
-	}
-	return uniqueCanonicalDirectories(result)
-}
-
-func uniqueCanonicalDirectories(directories []string) []string {
-	result := make([]string, 0, len(directories))
-	seen := make(map[string]bool, len(directories))
-	for _, directory := range directories {
-		directory = filepath.Clean(directory)
-		if !filepath.IsAbs(directory) || seen[directory] {
-			continue
-		}
-		seen[directory] = true
-		result = append(result, directory)
-	}
-	return result
-}
-
-func resolveNamedExecutable(name string, directories []string) (string, error) {
-	for _, directory := range uniqueCanonicalDirectories(directories) {
-		candidate := filepath.Join(directory, name)
-		info, err := os.Stat(candidate)
-		if err == nil && info.Mode().IsRegular() && info.Mode().Perm()&0o111 != 0 {
-			return candidate, nil
-		}
-	}
-	return "", os.ErrNotExist
 }

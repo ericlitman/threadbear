@@ -28,29 +28,24 @@ func DefaultProcessSpec(codexHome string) ProcessSpec {
 	return ProcessSpec{Path: "codex", Env: []string{"CODEX_HOME=" + codexHome, "HOME=" + home, "LC_ALL=C", "PATH=/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin", "TMPDIR=" + os.TempDir()}}
 }
 
-func PinnedProcessSpec(executable, codexHome, home string, spawnPath ...[]string) (ProcessSpec, error) {
+func PinnedProcessSpec(executable, codexHome, home, spawnPath string) (ProcessSpec, error) {
 	if !filepath.IsAbs(executable) {
 		return ProcessSpec{}, errors.New("App Server executable must be absolute")
 	}
 	if !filepath.IsAbs(codexHome) || !filepath.IsAbs(home) {
 		return ProcessSpec{}, errors.New("App Server homes must be absolute")
 	}
-	if len(spawnPath) > 1 {
-		return ProcessSpec{}, errors.New("App Server spawn PATH must be supplied once")
-	}
-	directories := []string{"/usr/local/bin", "/usr/bin", "/bin", "/usr/sbin", "/sbin"}
-	if len(spawnPath) == 1 {
-		directories = append([]string(nil), spawnPath[0]...)
-	}
-	if len(directories) == 0 {
+	if spawnPath == "" {
 		return ProcessSpec{}, errors.New("App Server spawn PATH must not be empty")
 	}
-	for _, directory := range directories {
-		if directory == "" || strings.TrimSpace(directory) != directory || !filepath.IsAbs(directory) {
-			return ProcessSpec{}, errors.New("App Server spawn PATH entries must be nonempty absolute directories")
+	seen := make(map[string]bool)
+	for _, directory := range filepath.SplitList(spawnPath) {
+		if directory == "" || strings.TrimSpace(directory) != directory || !filepath.IsAbs(directory) || filepath.Clean(directory) != directory || seen[directory] {
+			return ProcessSpec{}, errors.New("App Server spawn PATH must be canonical, absolute-only, and deduplicated")
 		}
+		seen[directory] = true
 	}
-	return ProcessSpec{Path: executable, Env: []string{"CODEX_HOME=" + codexHome, "HOME=" + home, "LC_ALL=C", "PATH=" + strings.Join(directories, string(os.PathListSeparator)), "TMPDIR=" + os.TempDir()}}, nil
+	return ProcessSpec{Path: executable, Env: []string{"CODEX_HOME=" + codexHome, "HOME=" + home, "LC_ALL=C", "PATH=" + spawnPath, "TMPDIR=" + os.TempDir()}}, nil
 }
 
 func (s ProcessSpec) command(ctx context.Context, arguments ...string) (*exec.Cmd, error) {

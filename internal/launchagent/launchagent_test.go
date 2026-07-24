@@ -86,7 +86,7 @@ func testAdapter(t *testing.T, runner *fakeRunner) (*Adapter, string) {
 }
 
 func TestRenderPlistUsesExplicitMinimalEnvironment(t *testing.T) {
-	spec := PlistSpec{Label: Label, BinaryPath: "/Users/bear/bin/thread&bear", StartInterval: 300, Home: "/Users/bear", CodexHome: "/Users/bear/.codex", Path: DefaultPath, LCAll: DefaultLocale, StdoutPath: "/Users/bear/log/out", StderrPath: "/Users/bear/log/err"}
+	spec := PlistSpec{Label: Label, BinaryPath: "/Users/bear/bin/thread&bear", StartInterval: 300, Home: "/Users/bear", CodexHome: "/Users/bear/.codex", Path: "/custom/codex/bin:/custom/node/bin", LCAll: DefaultLocale, StdoutPath: "/Users/bear/log/out", StderrPath: "/Users/bear/log/err"}
 	rendered, err := RenderPlist(spec)
 	if err != nil {
 		t.Fatal(err)
@@ -97,6 +97,9 @@ func TestRenderPlistUsesExplicitMinimalEnvironment(t *testing.T) {
 			t.Errorf("rendered plist missing %q", expected)
 		}
 	}
+	if !strings.Contains(text, "<string>/custom/codex/bin:/custom/node/bin</string>") {
+		t.Fatalf("plist does not contain exact persisted PATH: %s", text)
+	}
 	if strings.Contains(text, "USER</key>") || strings.Contains(text, "SHELL</key>") {
 		t.Fatal("plist inherited non-minimal environment")
 	}
@@ -106,6 +109,8 @@ func TestApplyIsAtomicPrivateIdempotentAndPreservesDisabledState(t *testing.T) {
 	runner := newFakeRunner()
 	adapter, _ := testAdapter(t, runner)
 	cfg := config.Default("control")
+	cfg.CodexExecutable = "/custom/codex/bin/codex"
+	cfg.CodexSpawnPath = "/custom/codex/bin:/custom/node/bin"
 	if err := adapter.Apply(context.Background(), cfg); err != nil {
 		t.Fatal(err)
 	}
@@ -171,6 +176,8 @@ func TestStageLeavesThreadBearDisabledAndUnloaded(t *testing.T) {
 	runner := newFakeRunner()
 	adapter, _ := testAdapter(t, runner)
 	cfg := config.Default("control")
+	cfg.CodexExecutable = "/custom/codex/bin/codex"
+	cfg.CodexSpawnPath = "/custom/codex/bin:/custom/node/bin"
 	if err := adapter.Apply(context.Background(), cfg); err != nil {
 		t.Fatal(err)
 	}
@@ -186,6 +193,8 @@ func TestEnableDisableAndRemoveAreIdempotent(t *testing.T) {
 	runner := newFakeRunner()
 	adapter, _ := testAdapter(t, runner)
 	cfg := config.Default("control")
+	cfg.CodexExecutable = "/custom/codex/bin/codex"
+	cfg.CodexSpawnPath = "/custom/codex/bin:/custom/node/bin"
 	runner.disabled[Label] = true
 	if err := adapter.Apply(context.Background(), cfg); err != nil {
 		t.Fatal(err)
@@ -224,7 +233,10 @@ func TestHealthyRequiresPlistEnabledAndLoaded(t *testing.T) {
 	if err != nil || healthy {
 		t.Fatalf("missing Healthy = %v, %v", healthy, err)
 	}
-	if err := adapter.Apply(context.Background(), config.Default("control")); err != nil {
+	cfg := config.Default("control")
+	cfg.CodexExecutable = "/custom/codex/bin/codex"
+	cfg.CodexSpawnPath = "/custom/codex/bin:/custom/node/bin"
+	if err := adapter.Apply(context.Background(), cfg); err != nil {
 		t.Fatal(err)
 	}
 	healthy, err = adapter.Healthy(context.Background())
@@ -322,7 +334,10 @@ func TestExecRunnerUsesExplicitMinimalEnvironment(t *testing.T) {
 func TestStageWritesPlistWithoutActivation(t *testing.T) {
 	runner := newFakeRunner()
 	adapter, _ := testAdapter(t, runner)
-	changed, err := adapter.Stage(context.Background(), config.Default("control"))
+	cfg := config.Default("control")
+	cfg.CodexExecutable = "/custom/codex/bin/codex"
+	cfg.CodexSpawnPath = "/custom/codex/bin:/custom/node/bin"
+	changed, err := adapter.Stage(context.Background(), cfg)
 	if err != nil || !changed {
 		t.Fatalf("Stage=%t, %v", changed, err)
 	}
@@ -364,6 +379,8 @@ func TestStageIdenticalEnabledLoadedJobDisablesAndUnloads(t *testing.T) {
 	runner := newFakeRunner()
 	adapter, _ := testAdapter(t, runner)
 	cfg := config.Default("control")
+	cfg.CodexExecutable = "/custom/codex/bin/codex"
+	cfg.CodexSpawnPath = "/custom/codex/bin:/custom/node/bin"
 	if _, err := adapter.Stage(context.Background(), cfg); err != nil {
 		t.Fatal(err)
 	}
@@ -399,6 +416,8 @@ func TestStageIdenticalDisabledUnloadedJobIsNoOp(t *testing.T) {
 	runner := newFakeRunner()
 	adapter, _ := testAdapter(t, runner)
 	cfg := config.Default("control")
+	cfg.CodexExecutable = "/custom/codex/bin/codex"
+	cfg.CodexSpawnPath = "/custom/codex/bin:/custom/node/bin"
 	if _, err := adapter.Stage(context.Background(), cfg); err != nil {
 		t.Fatal(err)
 	}

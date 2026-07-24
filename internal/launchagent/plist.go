@@ -18,7 +18,6 @@ import (
 const (
 	Label         = config.LaunchAgentLabel
 	LegacyLabel   = "org.litman.threadwatch"
-	DefaultPath   = "/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
 	DefaultLocale = "C"
 )
 

@@ -537,7 +537,7 @@ func TestNoOpReinstallReportsUnchanged(t *testing.T) {
 		t.Fatal(err)
 	}
 	cfg.CodexExecutable = codexExecutable
-	cfg.CodexSpawnPath = strings.Join(spec.SpawnPath, string(os.PathListSeparator))
+	cfg.CodexSpawnPath = spec.SpawnPath
 	store.config = cfg
 	installer := Installer{Paths: paths, Store: store, Scheduler: &fakeScheduler{}, ControlTasks: &fakeTasks{}, Binary: FileBinaryInstaller{Source: source}, SelfTester: &fakeSelfTest{}, Legacy: missingLegacy{}, CodexExecutable: codexExecutable, CodexSpawnPath: spec.SpawnPath}
 	result, err := installer.Install(context.Background(), InstallRequest{NonInteractive: true, Confirm: true})
@@ -586,7 +586,7 @@ type selfTestProbeFake struct {
 }
 
 func (p selfTestProbeFake) Platform() (string, string, int) { return "darwin", "arm64", p.major }
-func (p selfTestProbeFake) ValidateCodex(_ context.Context, codexHome string, spec codex.ExecutableSpec) error {
+func (p selfTestProbeFake) ValidateCodex(_ context.Context, _ string, codexHome string, spec codex.ExecutableSpec) error {
 	if p.codexHome != nil {
 		*p.codexHome = codexHome
 	}
@@ -601,6 +601,7 @@ func TestCoreSelfTestRequiresSupportedHealthyPrivateSurfacesWithoutStateMutation
 	paths := PathsForHomes(home, filepath.Join(home, "custom-codex"))
 	cfg := config.Default("control")
 	cfg.CodexExecutable = testCodexExecutable(t, paths.Home)
+	cfg.CodexSpawnPath = filepath.Dir(cfg.CodexExecutable)
 	committed := state.New()
 	store := &fakeStore{config: cfg, state: committed, exists: true, configExists: true, stateExists: true}
 	for _, directory := range []string{paths.StateDirectory, filepath.Dir(paths.Binary)} {
@@ -699,7 +700,7 @@ func TestControlTaskMutationMakesReinstallChanged(t *testing.T) {
 		t.Fatal(err)
 	}
 	cfg.CodexExecutable = codexExecutable
-	cfg.CodexSpawnPath = strings.Join(spec.SpawnPath, string(os.PathListSeparator))
+	cfg.CodexSpawnPath = spec.SpawnPath
 	store.config = cfg
 	installer := Installer{Paths: paths, Store: store, Scheduler: &fakeScheduler{}, ControlTasks: &fakeTasks{ensureChanged: true}, Binary: FileBinaryInstaller{Source: source}, SelfTester: &fakeSelfTest{}, Legacy: missingLegacy{}, CodexExecutable: codexExecutable, CodexSpawnPath: spec.SpawnPath}
 	result, err := installer.Install(context.Background(), InstallRequest{NonInteractive: true, Confirm: true})
@@ -747,13 +748,12 @@ func TestInstallUsesOnlyExplicitTempHome(t *testing.T) {
 func TestInstallMissingCodexFailsBeforeMutation(t *testing.T) {
 	home := t.TempDir()
 	paths := PathsForHome(home)
+	t.Setenv("PATH", filepath.Join(home, "missing-bin"))
 	store := NewDiskStore(paths)
-	installer := Installer{Paths: paths, Store: store, Scheduler: &fakeScheduler{}, ControlTasks: &fakeTasks{}, Binary: &fakeBinary{}, SelfTester: &fakeSelfTest{}, Legacy: missingLegacy{}, ResolveCodexExecutable: func(string, string) (string, error) {
-		return "", errors.New("Codex executable not found; install the Codex CLI")
-	}}
+	installer := Installer{Paths: paths, Store: store, Scheduler: &fakeScheduler{}, ControlTasks: &fakeTasks{}, Binary: &fakeBinary{}, SelfTester: &fakeSelfTest{}, Legacy: missingLegacy{}, ResolveCodexExecutableSpec: codex.ResolveExecutableSpec}
 	_, err := installer.Install(context.Background(), InstallRequest{NonInteractive: true, Confirm: true})
 	var failure *InstallFailure
-	if !errors.As(err, &failure) || failure.Step != "resolve_codex_executable" {
+	if !errors.As(err, &failure) || failure.Step != "resolve_codex_executable" || !strings.Contains(failure.Cause, "invoking PATH") {
 		t.Fatalf("error=%v failure=%+v", err, failure)
 	}
 	if _, statErr := os.Stat(paths.StateDirectory); !errors.Is(statErr, os.ErrNotExist) {
@@ -922,7 +922,7 @@ func TestReinstallRestoresBinaryModeWhenBytesMatch(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	cfg.CodexSpawnPath = strings.Join(spec.SpawnPath, string(os.PathListSeparator))
+	cfg.CodexSpawnPath = spec.SpawnPath
 	store := &fakeStore{config: cfg, state: state.New(), configExists: true, stateExists: true}
 	installer := Installer{Paths: paths, Store: store, Scheduler: &fakeScheduler{}, ControlTasks: &fakeTasks{}, Binary: FileBinaryInstaller{Source: source}, SelfTester: &fakeSelfTest{}, Legacy: missingLegacy{}, CodexExecutable: codexExecutable}
 	result, err := installer.Install(context.Background(), InstallRequest{NonInteractive: true, Confirm: true})
@@ -962,7 +962,7 @@ type executableSpecTasks struct {
 }
 
 func (t *executableSpecTasks) SetCodexExecutableSpec(spec codex.ExecutableSpec) {
-	t.spec = codex.ExecutableSpec{Path: spec.Path, SpawnPath: append([]string(nil), spec.SpawnPath...)}
+	t.spec = spec
 }
 
 func writeEnvNodeCodex(t *testing.T, root string) (string, string) {
@@ -1002,7 +1002,7 @@ func TestReinstallPrefersPersistedExecutableOutsideCurrentPath(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if freshCalls != 0 || result.Config.CodexExecutable != persisted || len(result.Config.CodexSpawnPath) == 0 {
+	if freshCalls != 0 || result.Config.CodexExecutable != persisted || result.Config.CodexSpawnPath == "" {
 		t.Fatalf("fresh=%d config=%+v", freshCalls, result.Config)
 	}
 }
@@ -1023,17 +1023,13 @@ func TestInstallPersistsResolvedCodexSpawnContract(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.Config.CodexExecutable != executable || len(result.Config.CodexSpawnPath) == 0 {
+	if result.Config.CodexExecutable != executable || result.Config.CodexSpawnPath == "" {
 		t.Fatalf("config=%+v", result.Config)
 	}
-	if result.Config.CodexSpawnPath != strings.Join(tasks.spec.SpawnPath, string(os.PathListSeparator)) || tasks.spec.Path != executable {
+	if !reflect.DeepEqual(result.Config.CodexSpawnPath, tasks.spec.SpawnPath) || tasks.spec.Path != executable {
 		t.Fatalf("stored=%v control-task spec=%+v", result.Config.CodexSpawnPath, tasks.spec)
 	}
-	storedSpawnPath, parseErr := codex.ParseSpawnPath(result.Config.CodexSpawnPath)
-	if parseErr != nil {
-		t.Fatal(parseErr)
-	}
-	if storedSpawnPath[0] != filepath.Dir(executable) || storedSpawnPath[1] != nodeDirectory {
+	if result.Config.CodexSpawnPath != strings.Join([]string{filepath.Dir(executable), nodeDirectory}, string(os.PathListSeparator)) {
 		t.Fatalf("spawn path=%v", result.Config.CodexSpawnPath)
 	}
 }
@@ -1059,7 +1055,7 @@ func TestReinstallDerivesMissingSpawnPathBeforeFreshResolution(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if freshCalls != 0 || result.Config.CodexExecutable != executable || len(result.Config.CodexSpawnPath) == 0 || store.saveConfig != 1 {
+	if freshCalls != 0 || result.Config.CodexExecutable != executable || result.Config.CodexSpawnPath == "" || store.saveConfig != 1 {
 		t.Fatalf("fresh=%d result=%+v saves=%d", freshCalls, result, store.saveConfig)
 	}
 }

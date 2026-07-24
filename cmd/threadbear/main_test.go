@@ -236,7 +236,7 @@ func TestHeartbeatRuntimeUsesInstalledPinnedCodexExecutable(t *testing.T) {
 	}
 	cfg := config.Default("control")
 	cfg.CodexExecutable = spec.Path
-	cfg.CodexSpawnPath = strings.Join(spec.SpawnPath, string(os.PathListSeparator))
+	cfg.CodexSpawnPath = spec.SpawnPath
 	t.Setenv("PATH", filepath.Join(home, "different-path"))
 	process, err := (appServerRuntime{store: staticConfigLoader{value: cfg}, home: home, codexHome: codexHome}).process()
 	if err != nil {
@@ -245,7 +245,7 @@ func TestHeartbeatRuntimeUsesInstalledPinnedCodexExecutable(t *testing.T) {
 	if process.Path != executable {
 		t.Fatalf("process path=%q want installed path %q", process.Path, executable)
 	}
-	storedPath := strings.Join(spec.SpawnPath, string(os.PathListSeparator))
+	storedPath := spec.SpawnPath
 	found := false
 	for _, entry := range process.Env {
 		found = found || entry == "PATH="+storedPath

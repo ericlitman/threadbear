@@ -705,7 +705,7 @@ func TestPinnedProcessSpecRunsEnvNodeWrapperWithExactPersistedPath(t *testing.T)
 	if err := os.WriteFile(filepath.Join(nodeDirectory, "node"), []byte("#!/bin/sh\n[ \"$2\" = \"--version\" ]\n"), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	spawnPath := []string{codexDirectory, nodeDirectory, "/usr/bin", "/bin"}
+	spawnPath := strings.Join([]string{codexDirectory, nodeDirectory, "/usr/bin", "/bin"}, string(os.PathListSeparator))
 	process, err := PinnedProcessSpec(executable, filepath.Join(home, ".codex"), home, spawnPath)
 	if err != nil {
 		t.Fatal(err)
@@ -718,7 +718,7 @@ func TestPinnedProcessSpecRunsEnvNodeWrapperWithExactPersistedPath(t *testing.T)
 	if err := command.Run(); err != nil {
 		t.Fatal(err)
 	}
-	want := "PATH=" + strings.Join(spawnPath, string(os.PathListSeparator))
+	want := "PATH=" + spawnPath
 	found := false
 	for _, entry := range process.Env {
 		found = found || entry == want
@@ -733,7 +733,7 @@ func TestPinnedProcessSpecUsesAbsoluteExecutableIndependentOfEnvironmentPATH(t *
 	if err := os.WriteFile(executable, []byte("#!/bin/sh\nexit 0\n"), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	process, err := PinnedProcessSpec(executable, t.TempDir(), t.TempDir())
+	process, err := PinnedProcessSpec(executable, t.TempDir(), t.TempDir(), "/usr/bin:/bin")
 	if err != nil {
 		t.Fatal(err)
 	}
