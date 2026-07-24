@@ -1,6 +1,7 @@
 package status
 
 import (
+	"sort"
 	"strings"
 	"testing"
 	"time"
@@ -164,4 +165,63 @@ func TestPackPreviousPassRequiresAndIncludesOnlyImmediatePrevious(t *testing.T) 
 
 func twoDigits(value int) string {
 	return string(rune('a'+value/26)) + string(rune('a'+value%26))
+}
+
+func TestPackNeverExceedsGreedyGroupCount(t *testing.T) {
+	// BEAR-17: on node exhaustion the search must return its best complete
+	// packing, which is never worse than the greedy grouping it starts from.
+	lengths := []int{37, 552, 928, 647, 969, 712, 346, 81, 433, 875}
+	tasks := make([]TaskEvidence, 40)
+	maxSingle := 0
+	for index := range tasks {
+		length := lengths[index%len(lengths)] + index*3
+		tasks[index] = TaskEvidence{TaskID: "cap-" + twoDigits(index), Revision: "rev-" + twoDigits(index), Latest: TurnEvidence{User: strings.Repeat("u", index%13), FinalAgent: strings.Repeat("y", length)}}
+		size, err := PayloadSize([]TaskEvidence{tasks[index]}, false)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if size > maxSingle {
+			maxSingle = size
+		}
+	}
+	budget := maxSingle + 1500
+	batches, oversized, err := PackTasks(tasks, budget, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(oversized) != 0 {
+		t.Fatalf("oversized=%d", len(oversized))
+	}
+	seen := make(map[string]bool)
+	for _, batch := range batches {
+		for _, task := range batch.Tasks {
+			seen[task.TaskID] = true
+		}
+	}
+	if len(seen) != len(tasks) {
+		t.Fatalf("packed %d unique tasks, want %d", len(seen), len(tasks))
+	}
+	emptySize, err := PayloadSize(nil, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	capacity := budget - emptySize + 1
+	candidates := make([]packingCandidate, 0, len(tasks))
+	for _, task := range tasks {
+		size, err := PayloadSize([]TaskEvidence{task}, false)
+		if err != nil {
+			t.Fatal(err)
+		}
+		candidates = append(candidates, packingCandidate{task: task, size: size, weight: size - emptySize + 1})
+	}
+	sort.SliceStable(candidates, func(left, right int) bool {
+		if candidates[left].weight == candidates[right].weight {
+			return candidates[left].task.TaskID < candidates[right].task.TaskID
+		}
+		return candidates[left].weight > candidates[right].weight
+	})
+	greedy := greedyBatchGroups(candidates, capacity)
+	if len(batches) > len(greedy) {
+		t.Fatalf("batches = %d, greedy = %d; result must never exceed greedy", len(batches), len(greedy))
+	}
 }
