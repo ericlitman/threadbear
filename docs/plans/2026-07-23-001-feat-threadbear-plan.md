@@ -23,7 +23,7 @@ execution: code
 
 ## Product Contract
 
-Product Contract preservation: A1-A5, R1-R40, F1-F6, and AE1-AE18 retain their established meaning except for the user-confirmed replacement of persistent control-task classification with non-persisted Luna sessions; R41-R42 add the confirmed diagnostic and archive-restoration surfaces.
+Product Contract preservation: A1-A5, R1-R40, F1-F6, and AE1-AE18 retain their established meaning except for the user-confirmed replacement of persistent control-task classification with non-persisted Luna sessions; R41-R42 add the confirmed diagnostic and archive-restoration surfaces; R43 makes the classifier model and effort configuration values (2026-07-23 amendment).
 
 ### Summary
 
@@ -44,7 +44,7 @@ ThreadBear therefore keeps the visible control task but moves semantic classific
 ### Key Decisions
 
 - **The heartbeat belongs to a macOS LaunchAgent.** (session-settled: user-directed — chosen over a recurring Codex automation: unchanged runs must consume zero model tokens) Governs R4, R5, R8, R23, R36.
-- **The semantic classifier is Luna medium.** (session-settled: user-approved — chosen over Luna low, Luna high, Luna xhigh, Terra low, and Terra medium: the benchmark favored medium's lower false-complete risk) Governs R13, R14, R15, R16, R17, R18.
+- **The semantic classifier defaults to Luna medium and is configurable.** (session-settled: user-approved — chosen over Luna low, Luna high, Luna xhigh, Terra low, and Terra medium: the benchmark favored medium's lower false-complete risk. Amended 2026-07-23: the model and effort are configuration values so a model deprecation is a config edit, not a binary release.) Governs R13, R14, R15, R16, R17, R18, R43.
 - **Semantic classification uses non-persisted sessions.** (session-settled: user-approved — chosen over reusing or later archiving classifier tasks: fresh ephemeral sessions avoid control-task history replay and never create sidebar clutter) Governs R3, R13, R15, R36.
 - **The product is a standalone Go binary.** (session-settled: user-approved — chosen over Python or Node.js: users should not install a language runtime) Governs R27, R32, R33, R34.
 - **A managed AGENTS.md convention is offered by default.** (session-settled: user-directed — chosen over inference-only classification: a compact terminal signal is cheaper and clearer when agents provide one) Governs R10, R11, R12, R26, R28.
@@ -131,6 +131,7 @@ ThreadBear therefore keeps the visible control task but moves semantic classific
 - R40. ThreadBear does not edit `.codex-global-state.json`, use private sidebar cache invalidation, click through Desktop UI, or claim that an externally persisted title must render immediately in an already-open sidebar.
 - R41. `threadbear status`, `threadbear inspect TASK_ID`, and every read-only preview support stable human-readable and `--json` output; `threadbear heartbeat --dry-run` performs inventory and deterministic analysis without task mutations or model calls.
 - R42. `threadbear enable` and `threadbear disable` manage the LaunchAgent idempotently, while `threadbear restore TASK_ID` can unarchive only a task recorded as archived by ThreadBear and restarts that task's inactivity clock.
+- R43. The classifier model and reasoning effort are configuration values stored in `config.json` (`classifier_model`, `classifier_effort`), defaulting to `gpt-5.6-luna` and `medium`; `threadbear configure` changes them without reinstalling, `threadbear status` reports the active pair, and every requirement that names Luna medium binds to the configured values. The App Server model/effort override for the configured pair is feature-detected like every other capability.
 
 The heartbeat decision boundary is intentionally narrow:
 
@@ -379,10 +380,10 @@ flowchart TB
 
 ### Sources and Research
 
-- `outputs/thread-status-benchmark.md` records the corrected inventory audit, Luna tier comparison, deterministic guard, adaptive token cost, and live prototype validation.
-- `work/thread-status-eval/full-corpus.json`, `work/thread-status-eval/ground-truth.json`, and `work/thread-status-eval/runs-v2/` preserve the evaluated cases and raw model results; the corpus also contains explicit recommendations, follow-up references, generic offers, and higher-precedence unfinished states for the `next_steps` boundary test.
+- `outputs/thread-status-benchmark.md` in the private `ericlitman/threadbear-eval` repository (relocated there 2026-07-23 from the Codex scoping workspace) records the corrected inventory audit, Luna tier comparison, deterministic guard, adaptive token cost, and live prototype validation.
+- `thread-status-eval/full-corpus.json`, `thread-status-eval/ground-truth.json`, and `thread-status-eval/runs-v2/` in `ericlitman/threadbear-eval` preserve the evaluated cases and raw model results; the corpus contains real user messages and must never enter the public tree, and it also contains explicit recommendations, follow-up references, generic offers, and higher-precedence unfinished states for the `next_steps` boundary test.
 - `codex app-server generate-json-schema --experimental` on `codex-cli 0.145.0` verifies the current ephemeral-thread, model/effort override, title, archive, unarchive, and raw-item insertion surfaces used by the compatibility plan.
-- [BEA-1](https://linear.app/mobilyze-llc/issue/BEA-1/design-and-ship-threadbear-as-a-public-codex-task-manager) is the durable product work item.
+- [BEAR-1](https://linear.app/mobilyze-llc/issue/BEAR-1) is the durable product work item (team slug changed from BEA to BEAR on 2026-07-23).
 - [Apple Platform Security: System Integrity Protection](https://support.apple.com/en-au/102149) establishes that SIP protects system locations rather than requiring notarization for a user-local Go binary.
 - [Apple Developer ID](https://developer.apple.com/developer-id/) and [Notarizing macOS software before distribution](https://developer.apple.com/documentation/security/notarizing-macos-software-before-distribution) describe the distribution trust path deferred from v1.
 - [Go minimum requirements](https://go.dev/wiki/MinimumRequirements) establishes macOS 12 Monterey as the supported floor for the selected Go toolchain.
@@ -396,7 +397,7 @@ flowchart TB
 
 - KTD1. Use a two-surface Codex adapter: a cgo-free SQLite connection opened with `mode=ro` performs the idle inventory and freshness gate, while one short-lived App Server process performs changed-task reads, ephemeral model work, notices, and all mutations. The SQLite adapter validates required columns before every scan and never writes Codex storage; App Server methods are feature-detected before any mutation. This preserves the literal zero-Codex idle path without treating an internal schema as permanently stable. Governs R3-R9, R37-R40.
 
-- KTD2. Start each semantic call with App Server `thread/start` using `ephemeral: true`, then run Luna medium with an output schema, no environments, no tools, no approvals, and no persisted history. (session-settled: user-approved — chosen over reusing or auto-archiving classifier tasks: non-persisted sessions eliminate control-task history replay and never create sidebar tasks) The visible control task is reserved for user commands and update notices. Governs R3, R13-R16, R35-R36.
+- KTD2. Start each semantic call with App Server `thread/start` using `ephemeral: true`, then run the configured classifier model (default Luna medium; R43) with an output schema, no environments, no tools, no approvals, and no persisted history. (session-settled: user-approved — chosen over reusing or auto-archiving classifier tasks: non-persisted sessions eliminate control-task history replay and never create sidebar tasks) The visible control task is reserved for user commands and update notices. Governs R3, R13-R16, R35-R36, R43.
 
 - KTD3. Pack unresolved candidates by the complete serialized payload against the model's advertised context window, reserving measured prompt/schema overhead and using a conservative UTF-8 byte upper bound when no tokenizer count is exposed. ThreadBear starts with one call and adds calls only when the payload cannot fit; it never uses a fixed task count, silently drops a task, or truncates a message. An individually oversized task becomes `unknown` with a stable diagnostic and retry record. Governs R4, R13-R16.
 
@@ -474,7 +475,7 @@ LICENSE                        MIT license
 
 ### State and Output Contracts
 
-- `~/.local/share/threadbear/config.json` stores schema version, exact control-task ID, heartbeat seconds, archive setting/days, rename setting, and AGENTS setting. The daily update-check cadence is fixed by R36 rather than exposed as a preference. The file is mode `0600` under a mode `0700` directory.
+- `~/.local/share/threadbear/config.json` stores schema version, exact control-task ID, heartbeat seconds, archive setting/days, rename setting, AGENTS setting, and classifier model/effort (default `gpt-5.6-luna`, `medium`; R43). The daily update-check cadence is fixed by R36 rather than exposed as a preference. The file is mode `0600` under a mode `0700` directory.
 - `~/.local/share/threadbear/state.json` stores one generation number, last completed heartbeat/update check, per-task captured revision, classification provenance, state start, substantive activity, durable subject, managed action, last applied title, retry state, ThreadBear-owned archive records, and delivered notice versions.
 - `~/.local/share/threadbear/cycle.json` is a private write-ahead checkpoint for the captured inventory and model results. It is deleted only after the corresponding committed state generation is durable.
 - Changed heartbeat stdout is one minified object with version, cycle ID, changed task IDs/states, archived/restored IDs, retries, and one error code when present. Idle stdout is exactly zero bytes.
@@ -531,7 +532,7 @@ The zero-model notice proof and non-persisted classifier proof are hard release 
 ### U1. Establish the Go product and domain contracts
 
 - **Goal:** Create the public repository scaffold and one typed foundation for configuration, task state, status, output, private persistence, and command dispatch.
-- **Requirements:** R1-R2, R19, R23, R27, R32, R37-R42.
+- **Requirements:** R1-R2, R19, R23, R27, R32, R37-R43.
 - **Flows / acceptance:** F1, F6; AE9-AE10, AE23-AE24.
 - **Decisions:** KTD6, KTD8, KTD12-KTD13.
 - **Dependencies:** None.
@@ -579,13 +580,13 @@ The zero-model notice proof and non-persisted classifier proof are hard release 
 ### U5. Add context-sized ephemeral Luna classification
 
 - **Goal:** Classify only semantically unresolved changed tasks with complete evidence and cost proportional to current work.
-- **Requirements:** R13-R18, R23.
+- **Requirements:** R13-R18, R23, R43.
 - **Flows / acceptance:** F3; AE4-AE6, AE14-AE16, AE19-AE20.
 - **Decisions:** KTD2-KTD4.
 - **Dependencies:** U3, U4.
 - **Files:** `internal/status/classifier.go`, `internal/status/packing.go`, `internal/status/schema.json`, `internal/status/classifier_test.go`, `internal/status/packing_test.go`, `testdata/status/cases.json`, `testdata/status/expected.json`.
-- **Approach:** Build the compact seven-state prompt and strict response schema, serialize complete latest user/final-agent messages only, and pack them under KTD3. Start a new ephemeral Luna-medium thread per call, set tools/environments unavailable, correlate the exact terminal response, reject missing/duplicate IDs or wrong states, and checkpoint successful results by task revision. A `previous` result triggers another fresh session containing only requested IDs and the immediately previous turn.
-- **Test Scenarios:** One and multiple context-safe calls; boundary-sized payload; individually oversized task; malformed/missing/duplicate response; timeout and rate limit; Luna unavailable or wrong model; first-pass previous subset; no tools; no persistent thread; no control-task turn; zero false-complete and false-next-steps synthetic corpus results.
+- **Approach:** Build the compact seven-state prompt and strict response schema, serialize complete latest user/final-agent messages only, and pack them under KTD3. Start a new ephemeral thread per call with the configured classifier model (default Luna medium; R43), set tools/environments unavailable, correlate the exact terminal response, reject missing/duplicate IDs or wrong states, and checkpoint successful results by task revision. A `previous` result triggers another fresh session containing only requested IDs and the immediately previous turn.
+- **Test Scenarios:** One and multiple context-safe calls; boundary-sized payload; individually oversized task; malformed/missing/duplicate response; timeout and rate limit; Luna unavailable or wrong model; non-default configured model and effort honored; first-pass previous subset; no tools; no persistent thread; no control-task turn; zero false-complete and false-next-steps synthetic corpus results.
 - **Verification:** `go test ./internal/status -run 'Test(Classifier|Pack|SyntheticCorpus)'`, plus `THREADBEAR_LIVE_EVAL=1 go test -tags=integration ./internal/status -run TestLiveLunaMediumCorpus` before a release candidate.
 
 ### U6. Assemble the transactional heartbeat and archive lifecycle
@@ -603,7 +604,7 @@ The zero-model notice proof and non-persisted classifier proof are hard release 
 ### U7. Expose operator diagnostics and recovery commands
 
 - **Goal:** Let a user or control-task agent understand and operate ThreadBear without editing state or relying on Desktop UI.
-- **Requirements:** R23, R29-R30, R37-R42.
+- **Requirements:** R23, R29-R30, R37-R43.
 - **Flows / acceptance:** F6; AE22, AE24.
 - **Decisions:** KTD8.
 - **Dependencies:** U6.
@@ -701,5 +702,5 @@ ThreadBear v1 is done only when:
 - Install, configure, migration, update, disable/enable, restore, and uninstall serialize through one lock and remain idempotent without dual schedulers or duplicate managed blocks.
 - The exact installed paths, defaults, permissions, data retention, unsigned distribution, update behavior, and LaunchAgent timing are documented and match runtime behavior.
 - The public GitHub repository is MIT-licensed, contains only safe synthetic fixtures, publishes verified cgo-free binaries and checksums, and serves the guided installer at `threadbear.dev`.
-- BEA-1 links the final repository, release, verification evidence, and documented scope boundaries.
+- BEAR-1 links the final repository, release, verification evidence, and documented scope boundaries.
 - No abandoned experiment, stray ThreadWatch branding outside the tested legacy migration adapter and migration documentation, temporary compatibility shim without a test, private corpus artifact, dead code, or unused release path remains in the shipped tree.
