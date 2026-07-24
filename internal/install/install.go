@@ -443,7 +443,7 @@ func (i Installer) stageCandidate(ctx context.Context, candidateConfig config.Co
 }
 
 func (i Installer) stoppedLegacyFailure(step string, err error) error {
-	cause := fmt.Sprintf("legacy scheduler was stopped before ThreadBear installation completed: %v. To re-enable it, rename %s back to %s, then run `launchctl enable gui/$(id -u)/org.litman.threadwatch` and `launchctl bootstrap gui/$(id -u) %s`", err, i.Paths.LegacyLaunchAgent+".disabled-by-threadbear", i.Paths.LegacyLaunchAgent, i.Paths.LegacyLaunchAgent)
+	cause := fmt.Sprintf("ThreadWatch was stopped before ThreadBear installation completed: %v. To re-enable ThreadWatch, rename %s back to %s, then run `launchctl enable gui/$(id -u)/org.litman.threadwatch` and `launchctl bootstrap gui/$(id -u) %s`", err, i.Paths.LegacyLaunchAgent+".disabled-by-threadbear", i.Paths.LegacyLaunchAgent, i.Paths.LegacyLaunchAgent)
 	return Fail(step, errors.New(cause))
 }
 

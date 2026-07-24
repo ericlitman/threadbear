@@ -828,7 +828,7 @@ func TestPostStopFinalReadFailureIsActionableAndRerunConverges(t *testing.T) {
 	installer := Installer{Paths: paths, Store: store, Scheduler: scheduler, ControlTasks: tasks, Binary: &fakeBinary{}, SelfTester: &fakeSelfTest{}, Legacy: loader, CodexExecutable: testCodexExecutable(t, home)}
 	_, err := installer.Install(context.Background(), InstallRequest{NonInteractive: true, Confirm: true})
 	var failure *InstallFailure
-	if !errors.As(err, &failure) || failure.Step != "load_final_migration" || !strings.Contains(failure.Cause, "legacy scheduler was stopped") || !strings.Contains(failure.Cause, ".disabled-by-threadbear") || !strings.Contains(failure.Cause, "launchctl enable") || !strings.Contains(failure.Cause, "launchctl bootstrap") {
+	if !errors.As(err, &failure) || failure.Step != "load_final_migration" || !strings.Contains(failure.Cause, "ThreadWatch was stopped") || !strings.Contains(failure.Cause, ".disabled-by-threadbear") || !strings.Contains(failure.Cause, "launchctl enable") || !strings.Contains(failure.Cause, "launchctl bootstrap") {
 		t.Fatalf("failure=%v", err)
 	}
 	if store.configExists || store.stateExists || tasks.ensures != 0 {
