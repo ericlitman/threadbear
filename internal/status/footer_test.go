@@ -145,3 +145,18 @@ func TestParseFooterAcceptsImperativeThatInvestigatesRecordedWork(t *testing.T) 
 		t.Fatalf("ParseFooter() = %+v", got)
 	}
 }
+
+func TestParseFooterAcceptsConcreteActionsUsingRecordedArtifacts(t *testing.T) {
+	actions := []string{
+		"analyze captured logs for the failure cause",
+		"compare recorded outcomes before release",
+	}
+	for _, action := range actions {
+		t.Run(action, func(t *testing.T) {
+			got := ParseFooter(FooterInput{Message: "Analysis complete.\n🐻 next steps · next (agent): " + action, LatestTurnCompleted: true})
+			if !got.Accepted || got.Footer.Status != state.StatusNextSteps {
+				t.Fatalf("ParseFooter() = %+v", got)
+			}
+		})
+	}
+}

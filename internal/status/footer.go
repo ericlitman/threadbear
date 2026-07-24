@@ -157,27 +157,58 @@ func concreteAction(action string) bool {
 			return false
 		}
 	}
-	if recordOnly(normalized, words[0]) {
+	if recordOnly(words) {
 		return false
 	}
 	return true
 }
 
-func recordOnly(action, firstWord string) bool {
-	imperative := map[string]bool{
-		"add": true, "apply": true, "approve": true, "build": true, "choose": true,
-		"confirm": true, "create": true, "decide": true, "deploy": true, "fix": true,
-		"implement": true, "investigate": true, "merge": true, "pick": true, "prepare": true,
-		"pressure-test": true, "provide": true, "recover": true, "release": true, "remove": true,
-		"resolve": true, "review": true, "run": true, "select": true, "send": true,
-		"set": true, "supply": true, "test": true, "update": true, "verify": true,
+func recordOnly(words []string) bool {
+	recordWords := map[string]bool{
+		"recorded": true, "filed": true, "created": true, "logged": true,
+		"captured": true, "tracked": true, "noted": true, "documented": true,
 	}
-	if imperative[firstWord] {
-		return false
+	for index, word := range words {
+		if !recordWords[word] {
+			continue
+		}
+		if subordinateClause(words[:index]) {
+			continue
+		}
+		if index == 0 || passiveAuxiliary(words[max(0, index-3):index]) || recordSubject(words[index-1]) {
+			return true
+		}
 	}
-	recordWords := []string{"recorded", "filed", "created", "logged", "captured", "tracked", "noted", "documented"}
-	for _, word := range recordWords {
-		if strings.Contains(action, word) {
+	return false
+}
+
+func subordinateClause(words []string) bool {
+	for _, word := range words {
+		switch word {
+		case "how", "why", "whether":
+			return true
+		}
+	}
+	return false
+}
+
+func passiveAuxiliary(words []string) bool {
+	for _, word := range words {
+		switch word {
+		case "is", "are", "was", "were", "be", "been", "being", "has", "have", "had":
+			return true
+		}
+	}
+	return false
+}
+
+func recordSubject(word string) bool {
+	switch word {
+	case "issue", "ticket", "task", "follow-up", "followup", "work", "request", "recommendation":
+		return true
+	}
+	for _, char := range word {
+		if char >= '0' && char <= '9' && strings.ContainsRune(word, '-') {
 			return true
 		}
 	}
