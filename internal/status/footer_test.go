@@ -103,6 +103,7 @@ func TestParseFooterRejectsWeakActions(t *testing.T) {
 		"ticket filed for deployment",
 		"BEAR-19 was filed for deployment",
 		"deployment follow-up was captured in BEAR-19",
+		"why deployment failed was documented in BEAR-19",
 	}
 	for _, action := range actions {
 		t.Run(action, func(t *testing.T) {
@@ -150,6 +151,7 @@ func TestParseFooterAcceptsConcreteActionsUsingRecordedArtifacts(t *testing.T) {
 	actions := []string{
 		"analyze captured logs for the failure cause",
 		"compare recorded outcomes before release",
+		"review ticket filed for deployment",
 	}
 	for _, action := range actions {
 		t.Run(action, func(t *testing.T) {

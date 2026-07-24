@@ -172,22 +172,36 @@ func recordOnly(words []string) bool {
 		if !recordWords[word] {
 			continue
 		}
-		if subordinateClause(words[:index]) {
+		if embeddedQuestion(words[:index]) {
 			continue
 		}
-		if index == 0 || passiveAuxiliary(words[max(0, index-3):index]) || recordSubject(words[index-1]) {
+		if index == 0 || passiveAuxiliary(words[max(0, index-3):index]) {
+			return true
+		}
+		if recordSubject(words[index-1]) && (index == 1 || summaryLead(words[0])) {
 			return true
 		}
 	}
 	return false
 }
 
-func subordinateClause(words []string) bool {
-	for _, word := range words {
+func embeddedQuestion(words []string) bool {
+	for index, word := range words {
+		if index == 0 {
+			continue
+		}
 		switch word {
 		case "how", "why", "whether":
 			return true
 		}
+	}
+	return false
+}
+
+func summaryLead(word string) bool {
+	switch word {
+	case "a", "an", "the", "this", "that", "these", "those", "it", "they", "how", "why", "whether":
+		return true
 	}
 	return false
 }
