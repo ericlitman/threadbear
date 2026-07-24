@@ -1,0 +1,4 @@
+{"type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"earlier request"}]}}
+{"type":"response_item","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"earlier result"}]}}
+{"type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"latest request"}]}}
+{"type":"response_item","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"latest result"}]}}
