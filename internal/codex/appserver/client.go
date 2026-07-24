@@ -312,6 +312,28 @@ func (c *Client) ReadLatestTurn(ctx context.Context, threadID, rolloutPath strin
 	}
 }
 
+func (c *Client) ReadPersistedAssistantMessage(ctx context.Context, threadID, text string) (PersistedMessageResult, error) {
+	if strings.TrimSpace(threadID) == "" {
+		return PersistedMessageResult{}, errors.New("thread ID is required")
+	}
+	if strings.TrimSpace(text) == "" {
+		return PersistedMessageResult{}, errors.New("message text is required")
+	}
+	if err := c.capabilities.requireMethod("thread/read"); err != nil {
+		return PersistedMessageResult{}, err
+	}
+	var read struct {
+		Thread Thread `json:"thread"`
+	}
+	if err := c.call(ctx, "thread/read", map[string]any{"threadId": threadID, "includeTurns": false}, &read); err != nil {
+		return PersistedMessageResult{}, err
+	}
+	if read.Thread.Path == nil || strings.TrimSpace(*read.Thread.Path) == "" {
+		return PersistedMessageResult{}, errors.New("thread rollout path is unavailable")
+	}
+	return rolloutHasAssistantMessage(*read.Thread.Path, text)
+}
+
 func (c *Client) ReadPreviousTurn(ctx context.Context, threadID, rolloutPath string) (*EvidenceTurn, error) {
 	evidence, err := c.ReadRecentTurns(ctx, threadID, rolloutPath)
 	if err != nil {
@@ -482,6 +504,58 @@ func (c *Client) waitForTurn(ctx context.Context, threadID, turnID string) (Turn
 		}
 	}
 }
+func rolloutHasAssistantMessage(path, text string) (PersistedMessageResult, error) {
+	file, err := os.Open(path)
+	if err != nil {
+		return PersistedMessageResult{}, fmt.Errorf("open Codex rollout: %w", err)
+	}
+	defer file.Close()
+	reader := bufio.NewReader(file)
+	result := PersistedMessageResult{}
+	parseable := 0
+	for {
+		line, readErr := reader.ReadBytes(byte(10))
+		if len(strings.TrimSpace(string(line))) > 0 {
+			if errors.Is(readErr, io.EOF) {
+				break
+			}
+			var envelope struct {
+				Type    string          `json:"type"`
+				Payload json.RawMessage `json:"payload"`
+			}
+			if err := json.Unmarshal(line, &envelope); err != nil {
+				result.SkippedLines++
+			} else if envelope.Type == "response_item" {
+				var item struct {
+					Type    string          `json:"type"`
+					Role    string          `json:"role"`
+					Content json.RawMessage `json:"content"`
+				}
+				if err := json.Unmarshal(envelope.Payload, &item); err != nil {
+					result.SkippedLines++
+				} else {
+					parseable++
+					if item.Type == "message" && item.Role == "assistant" && (TurnItem{Content: item.Content}).messageText() == text {
+						result.Found = true
+					}
+				}
+			} else {
+				parseable++
+			}
+		}
+		if readErr != nil {
+			if errors.Is(readErr, io.EOF) {
+				break
+			}
+			return result, fmt.Errorf("read Codex rollout: %w", readErr)
+		}
+	}
+	if parseable == 0 {
+		return result, errors.New("Codex rollout contains no parseable records")
+	}
+	return result, nil
+}
+
 func readRolloutEvidence(path string, limit int) (RecentEvidence, error) {
 	file, err := os.Open(path)
 	if err != nil {

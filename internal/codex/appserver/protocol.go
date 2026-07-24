@@ -96,6 +96,10 @@ type EvidenceTurn struct {
 	UserMessage  string
 	AgentMessage string
 }
+type PersistedMessageResult struct {
+	Found        bool
+	SkippedLines int
+}
 type RecentEvidence struct {
 	ThreadStatus ThreadStatus
 	RecencyAt    *int64

@@ -37,6 +37,7 @@ type InventoryReader interface {
 type AppServer interface {
 	ReadLatestTurn(context.Context, string, string) (appserver.RecentEvidence, error)
 	ReadPreviousTurn(context.Context, string, string) (*appserver.EvidenceTurn, error)
+	ReadPersistedAssistantMessage(context.Context, string, string) (appserver.PersistedMessageResult, error)
 	SetTitle(context.Context, string, string) error
 	Archive(context.Context, string) error
 	InsertNotice(context.Context, string, string) error
@@ -496,11 +497,8 @@ func noticeText(version string) string {
 }
 
 func noticeDelivered(ctx context.Context, client AppServer, controlTaskID, text string) (bool, error) {
-	evidence, err := client.ReadLatestTurn(ctx, controlTaskID, "")
-	if err != nil {
-		return false, err
-	}
-	return evidence.Latest != nil && evidence.Latest.AgentMessage == text, nil
+	result, err := client.ReadPersistedAssistantMessage(ctx, controlTaskID, text)
+	return result.Found, err
 }
 
 func contains(values []string, target string) bool {

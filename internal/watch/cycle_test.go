@@ -67,6 +67,8 @@ type fakeClient struct {
 	previous               map[string]*appserver.EvidenceTurn
 	latestReads            []string
 	previousReads          []string
+	persistedReads         []string
+	persisted              map[string][]string
 	titles                 []string
 	archives               []string
 	notices                []string
@@ -89,6 +91,15 @@ func (f *fakeClient) ReadLatestTurn(_ context.Context, taskID, _ string) (appser
 func (f *fakeClient) ReadPreviousTurn(_ context.Context, taskID, _ string) (*appserver.EvidenceTurn, error) {
 	f.previousReads = append(f.previousReads, taskID)
 	return f.previous[taskID], nil
+}
+func (f *fakeClient) ReadPersistedAssistantMessage(_ context.Context, taskID, text string) (appserver.PersistedMessageResult, error) {
+	f.persistedReads = append(f.persistedReads, taskID)
+	for _, message := range f.persisted[taskID] {
+		if message == text {
+			return appserver.PersistedMessageResult{Found: true}, nil
+		}
+	}
+	return appserver.PersistedMessageResult{}, nil
 }
 func (f *fakeClient) SetTitle(_ context.Context, taskID, value string) error {
 	if f.failTitle[taskID] {
@@ -113,10 +124,8 @@ func (f *fakeClient) Archive(_ context.Context, taskID string) error {
 	return nil
 }
 func (f *fakeClient) InsertNotice(_ context.Context, taskID string, text string) error {
-	if !f.failNotice {
-		f.notices = append(f.notices, text)
-		f.latest[taskID] = appserver.RecentEvidence{Latest: &appserver.EvidenceTurn{ID: "notice", Status: "completed", AgentMessage: text}}
-	}
+	f.notices = append(f.notices, text)
+	f.persisted[taskID] = append(f.persisted[taskID], text)
 	if f.failNotice {
 		return errors.New("notice response lost")
 	}
@@ -654,8 +663,8 @@ func TestCrashApplyingJournalRecoversWithoutRepeatingMutation(t *testing.T) {
 			t.Fatal(err)
 		}
 		stored, _ := deps.store.store.LoadState()
-		if !contains(stored.DeliveredNoticeVersions, "1.2.0") || len(deps.client.notices) != 1 {
-			t.Fatalf("delivered=%v notices=%v", stored.DeliveredNoticeVersions, deps.client.notices)
+		if len(stored.DeliveredNoticeVersions) != 1 || stored.DeliveredNoticeVersions[0] != "1.2.0" || len(deps.client.notices) != 1 || len(deps.client.latestReads) != 0 {
+			t.Fatalf("delivered=%v notices=%v latestReads=%v", stored.DeliveredNoticeVersions, deps.client.notices, deps.client.latestReads)
 		}
 	})
 }
@@ -762,8 +771,9 @@ func TestHeartbeatUpdateNoticeDeliveredOnce(t *testing.T) {
 	if _, err := runner.Run(context.Background(), false); err != nil {
 		t.Fatal(err)
 	}
-	if len(deps.client.notices) != 1 || deps.update.calls != 0 || deps.factory.opens != 0 {
-		t.Fatalf("notices=%v checks=%d opens=%d", deps.client.notices, deps.update.calls, deps.factory.opens)
+	stored, _ := deps.store.store.LoadState()
+	if len(stored.DeliveredNoticeVersions) != 1 || stored.DeliveredNoticeVersions[0] != "1.2.0" || len(deps.client.notices) != 1 || deps.update.calls != 0 || deps.factory.opens != 0 || len(deps.client.latestReads) != 0 {
+		t.Fatalf("delivered=%v notices=%v checks=%d opens=%d latestReads=%v", stored.DeliveredNoticeVersions, deps.client.notices, deps.update.calls, deps.factory.opens, deps.client.latestReads)
 	}
 }
 
@@ -787,8 +797,14 @@ func TestCrashAmbiguousMutationKeepsApplyingJournal(t *testing.T) {
 			t.Fatal(err)
 		}
 		stored, _ := deps.store.store.LoadState()
-		if !contains(stored.DeliveredNoticeVersions, "1.2.0") || len(deps.client.notices) != 1 {
-			t.Fatalf("delivered=%v notices=%v", stored.DeliveredNoticeVersions, deps.client.notices)
+		if len(stored.DeliveredNoticeVersions) != 1 || stored.DeliveredNoticeVersions[0] != "1.2.0" || len(deps.client.notices) != 1 || len(deps.client.latestReads) != 0 {
+			t.Fatalf("delivered=%v notices=%v latestReads=%v", stored.DeliveredNoticeVersions, deps.client.notices, deps.client.latestReads)
+		}
+		if _, err := runner.Run(context.Background(), false); err != nil {
+			t.Fatal(err)
+		}
+		if len(deps.client.notices) != 1 {
+			t.Fatalf("recovery duplicated notice: %v", deps.client.notices)
 		}
 	})
 	t.Run("archive", func(t *testing.T) {
@@ -853,7 +869,7 @@ func testRunner(t *testing.T, now time.Time, tasks []codex.Task, committed state
 		t.Fatal(err)
 	}
 	index := &fakeIndex{tasks: append([]codex.Task{}, tasks...)}
-	client := &fakeClient{index: index, latest: make(map[string]appserver.RecentEvidence), previous: make(map[string]*appserver.EvidenceTurn), failTitle: make(map[string]bool)}
+	client := &fakeClient{index: index, latest: make(map[string]appserver.RecentEvidence), previous: make(map[string]*appserver.EvidenceTurn), persisted: make(map[string][]string), failTitle: make(map[string]bool)}
 	factory := &fakeFactory{client: client}
 	classifier := &fakeClassifier{results: make(map[string]status.Classification)}
 	update := &fakeUpdateChecker{result: UpdateStatus{LatestVersion: "1.0.0"}}
