@@ -10,16 +10,17 @@ import (
 )
 
 const (
-	CurrentSchemaVersion    = 1
-	ProductName             = "ThreadBear"
-	ControlTaskTitle        = "🧵🐻 ThreadBear 🐻🧵"
-	Website                 = "https://threadbear.dev"
-	BinaryPath              = "~/.local/bin/threadbear"
-	StateDirectory          = "~/.local/share/threadbear"
-	LaunchAgentLabel        = "org.litman.threadbear"
-	DefaultHeartbeatSeconds = 300
-	DefaultArchiveAfterDays = 14
-	DefaultClassifierModel  = "gpt-5.6-luna"
+	CurrentSchemaVersion                = 1
+	ProductName                         = "ThreadBear"
+	ControlTaskTitle                    = "🧵🐻 ThreadBear 🐻🧵"
+	Website                             = "https://threadbear.dev"
+	BinaryPath                          = "~/.local/bin/threadbear"
+	StateDirectory                      = "~/.local/share/threadbear"
+	LaunchAgentLabel                    = "org.litman.threadbear"
+	DefaultHeartbeatSeconds             = 300
+	DefaultArchiveAfterDays             = 14
+	DefaultClassifierModel              = "gpt-5.6-luna"
+	DefaultClassifierContextBudgetBytes = 250000
 )
 
 type ClassifierEffort string
@@ -34,32 +35,38 @@ const (
 var ErrUnsupportedSchema = errors.New("unsupported config schema")
 
 type Config struct {
-	SchemaVersion    int              `json:"schema_version"`
-	ControlTaskID    string           `json:"control_task_id"`
-	HeartbeatSeconds int              `json:"heartbeat_seconds"`
-	ArchiveEnabled   bool             `json:"archive_enabled"`
-	ArchiveAfterDays int              `json:"archive_after_days"`
-	RenameEnabled    bool             `json:"rename_enabled"`
-	AgentsEnabled    bool             `json:"agents_enabled"`
-	ClassifierModel  string           `json:"classifier_model"`
-	ClassifierEffort ClassifierEffort `json:"classifier_effort"`
+	SchemaVersion                int              `json:"schema_version"`
+	ControlTaskID                string           `json:"control_task_id"`
+	HeartbeatSeconds             int              `json:"heartbeat_seconds"`
+	ArchiveEnabled               bool             `json:"archive_enabled"`
+	ArchiveAfterDays             int              `json:"archive_after_days"`
+	RenameEnabled                bool             `json:"rename_enabled"`
+	AgentsEnabled                bool             `json:"agents_enabled"`
+	ClassifierModel              string           `json:"classifier_model"`
+	ClassifierEffort             ClassifierEffort `json:"classifier_effort"`
+	ClassifierContextBudgetBytes int              `json:"classifier_context_budget_bytes"`
 }
 
 func Default(controlTaskID string) Config {
 	return Config{
-		SchemaVersion:    CurrentSchemaVersion,
-		ControlTaskID:    controlTaskID,
-		HeartbeatSeconds: DefaultHeartbeatSeconds,
-		ArchiveEnabled:   true,
-		ArchiveAfterDays: DefaultArchiveAfterDays,
-		RenameEnabled:    true,
-		AgentsEnabled:    true,
-		ClassifierModel:  DefaultClassifierModel,
-		ClassifierEffort: EffortMedium,
+		SchemaVersion:                CurrentSchemaVersion,
+		ControlTaskID:                controlTaskID,
+		HeartbeatSeconds:             DefaultHeartbeatSeconds,
+		ArchiveEnabled:               true,
+		ArchiveAfterDays:             DefaultArchiveAfterDays,
+		RenameEnabled:                true,
+		AgentsEnabled:                true,
+		ClassifierModel:              DefaultClassifierModel,
+		ClassifierEffort:             EffortMedium,
+		ClassifierContextBudgetBytes: DefaultClassifierContextBudgetBytes,
 	}
 }
 
 func (c Config) Validate() error {
+	return c.validate(true)
+}
+
+func (c Config) validate(requireBudget bool) error {
 	if c.SchemaVersion != CurrentSchemaVersion {
 		return fmt.Errorf("%w: got %d, want %d", ErrUnsupportedSchema, c.SchemaVersion, CurrentSchemaVersion)
 	}
@@ -80,6 +87,9 @@ func (c Config) Validate() error {
 	}
 	if strings.TrimSpace(c.ClassifierModel) != c.ClassifierModel {
 		return errors.New("classifier_model must not contain surrounding whitespace")
+	}
+	if requireBudget && c.ClassifierContextBudgetBytes <= 0 {
+		return errors.New("classifier_context_budget_bytes must be positive")
 	}
 	switch c.ClassifierEffort {
 	case EffortLow, EffortMedium, EffortHigh, EffortXHigh:
@@ -105,15 +115,16 @@ func Decode(data []byte) (Config, error) {
 	}
 
 	var wire struct {
-		SchemaVersion    *int              `json:"schema_version"`
-		ControlTaskID    *string           `json:"control_task_id"`
-		HeartbeatSeconds *int              `json:"heartbeat_seconds"`
-		ArchiveEnabled   *bool             `json:"archive_enabled"`
-		ArchiveAfterDays *int              `json:"archive_after_days"`
-		RenameEnabled    *bool             `json:"rename_enabled"`
-		AgentsEnabled    *bool             `json:"agents_enabled"`
-		ClassifierModel  *string           `json:"classifier_model"`
-		ClassifierEffort *ClassifierEffort `json:"classifier_effort"`
+		SchemaVersion                *int              `json:"schema_version"`
+		ControlTaskID                *string           `json:"control_task_id"`
+		HeartbeatSeconds             *int              `json:"heartbeat_seconds"`
+		ArchiveEnabled               *bool             `json:"archive_enabled"`
+		ArchiveAfterDays             *int              `json:"archive_after_days"`
+		RenameEnabled                *bool             `json:"rename_enabled"`
+		AgentsEnabled                *bool             `json:"agents_enabled"`
+		ClassifierModel              *string           `json:"classifier_model"`
+		ClassifierEffort             *ClassifierEffort `json:"classifier_effort"`
+		ClassifierContextBudgetBytes *int              `json:"classifier_context_budget_bytes"`
 	}
 	if err := decodeStrict(data, &wire, true); err != nil {
 		return Config{}, fmt.Errorf("decode config: %w", err)
@@ -121,18 +132,25 @@ func Decode(data []byte) (Config, error) {
 	if wire.ControlTaskID == nil || wire.HeartbeatSeconds == nil || wire.ArchiveEnabled == nil || wire.ArchiveAfterDays == nil || wire.RenameEnabled == nil || wire.AgentsEnabled == nil || wire.ClassifierModel == nil || wire.ClassifierEffort == nil {
 		return Config{}, errors.New("config is missing a required field")
 	}
-	c := Config{
-		SchemaVersion:    *wire.SchemaVersion,
-		ControlTaskID:    *wire.ControlTaskID,
-		HeartbeatSeconds: *wire.HeartbeatSeconds,
-		ArchiveEnabled:   *wire.ArchiveEnabled,
-		ArchiveAfterDays: *wire.ArchiveAfterDays,
-		RenameEnabled:    *wire.RenameEnabled,
-		AgentsEnabled:    *wire.AgentsEnabled,
-		ClassifierModel:  *wire.ClassifierModel,
-		ClassifierEffort: *wire.ClassifierEffort,
+	budget := 0
+	if wire.ClassifierContextBudgetBytes != nil {
+		budget = *wire.ClassifierContextBudgetBytes
+	} else if *wire.ClassifierModel == DefaultClassifierModel {
+		budget = DefaultClassifierContextBudgetBytes
 	}
-	if err := c.Validate(); err != nil {
+	c := Config{
+		SchemaVersion:                *wire.SchemaVersion,
+		ControlTaskID:                *wire.ControlTaskID,
+		HeartbeatSeconds:             *wire.HeartbeatSeconds,
+		ArchiveEnabled:               *wire.ArchiveEnabled,
+		ArchiveAfterDays:             *wire.ArchiveAfterDays,
+		RenameEnabled:                *wire.RenameEnabled,
+		AgentsEnabled:                *wire.AgentsEnabled,
+		ClassifierModel:              *wire.ClassifierModel,
+		ClassifierEffort:             *wire.ClassifierEffort,
+		ClassifierContextBudgetBytes: budget,
+	}
+	if err := c.validate(false); err != nil {
 		return Config{}, err
 	}
 	return c, nil

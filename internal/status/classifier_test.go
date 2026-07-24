@@ -83,6 +83,37 @@ func TestClassifierSelectivePreviousExpansion(t *testing.T) {
 	}
 }
 
+func TestClassifierLoadsPreviousOnlyForRequestedTasks(t *testing.T) {
+	tasks := []TaskEvidence{
+		{TaskID: "task-a", Revision: "rev-a", Latest: TurnEvidence{User: "a", FinalAgent: "done"}},
+		{TaskID: "task-b", Revision: "rev-b", Latest: TurnEvidence{User: "b", FinalAgent: "continue"}},
+	}
+	runner := &fakeEphemeralRunner{run: func(call int, request appserver.EphemeralRequest) (appserver.EphemeralResult, error) {
+		envelope := decodePrompt(t, request.Input)
+		if call == 0 {
+			return successfulEphemeral(responseText([]classifierWireItem{
+				{TaskID: "task-a", TaskRevision: "rev-a", State: state.StatusComplete, DurableSubject: "Task A"},
+				{TaskID: "task-b", TaskRevision: "rev-b", State: state.StatusUnknown, RequestPrevious: true},
+			})), nil
+		}
+		if len(envelope.Tasks) != 1 || envelope.Tasks[0].TaskID != "task-b" || envelope.Tasks[0].Previous == nil {
+			t.Fatalf("second envelope=%+v", envelope)
+		}
+		return successfulEphemeral(responseText([]classifierWireItem{{TaskID: "task-b", TaskRevision: "rev-b", State: state.StatusComplete, DurableSubject: "Task B"}})), nil
+	}}
+	loaded := []string{}
+	results := newTestClassifier(t, runner, 1<<20, "model", "medium").ClassifyWithPrevious(context.Background(), tasks, func(_ context.Context, requested []TaskEvidence) []PreviousEvidenceResult {
+		for _, task := range requested {
+			loaded = append(loaded, task.TaskID)
+		}
+		previous := TurnEvidence{User: "before", FinalAgent: "before answer"}
+		return []PreviousEvidenceResult{{TaskID: "task-b", Revision: "rev-b", Evidence: &previous}}
+	})
+	if strings.Join(loaded, ",") != "task-b" || len(runner.requests) != 2 || results[0].Status != state.StatusComplete || results[1].Status != state.StatusComplete {
+		t.Fatalf("loaded=%v calls=%d results=%+v", loaded, len(runner.requests), results)
+	}
+}
+
 func TestClassifierContextSplittingAndBatchFailureIsolation(t *testing.T) {
 	tasks := []TaskEvidence{
 		{TaskID: "task-a", Revision: "rev-a", Latest: TurnEvidence{User: "a", FinalAgent: strings.Repeat("a", 500)}},

@@ -265,6 +265,61 @@ func (c *Client) fail(err error) {
 	}
 	c.mu.Unlock()
 }
+func (c *Client) ReadLatestTurn(ctx context.Context, threadID, rolloutPath string) (RecentEvidence, error) {
+	if strings.TrimSpace(threadID) == "" {
+		return RecentEvidence{}, errors.New("thread ID is required")
+	}
+	switch c.capabilities.RecentTurnsMethod() {
+	case "thread/turns/list":
+		var page struct {
+			Data []Turn `json:"data"`
+		}
+		if err := c.call(ctx, "thread/turns/list", map[string]any{"threadId": threadID, "limit": 1, "sortDirection": "desc", "itemsView": "full"}, &page); err != nil {
+			return RecentEvidence{}, err
+		}
+		var status ThreadStatus
+		var recencyAt *int64
+		if c.capabilities.HasMethod("thread/read") {
+			var read struct {
+				Thread Thread `json:"thread"`
+			}
+			if err := c.call(ctx, "thread/read", map[string]any{"threadId": threadID, "includeTurns": false}, &read); err != nil {
+				return RecentEvidence{}, err
+			}
+			status = read.Thread.Status
+			recencyAt = read.Thread.RecencyAt
+		}
+		result := evidenceFromDescendingTurns(status, recencyAt, page.Data)
+		result.Previous = nil
+		return result, nil
+	case "thread/read":
+		var read struct {
+			Thread Thread `json:"thread"`
+		}
+		if err := c.call(ctx, "thread/read", map[string]any{"threadId": threadID, "includeTurns": true}, &read); err != nil {
+			return RecentEvidence{}, err
+		}
+		result := evidenceFromTurns(read.Thread.Status, read.Thread.RecencyAt, read.Thread.Turns)
+		result.Previous = nil
+		return result, nil
+	default:
+		if rolloutPath == "" {
+			return RecentEvidence{}, fmt.Errorf("%w: latest-turn read", ErrCapability)
+		}
+		result, err := readRolloutEvidence(rolloutPath, 1)
+		result.Previous = nil
+		return result, err
+	}
+}
+
+func (c *Client) ReadPreviousTurn(ctx context.Context, threadID, rolloutPath string) (*EvidenceTurn, error) {
+	evidence, err := c.ReadRecentTurns(ctx, threadID, rolloutPath)
+	if err != nil {
+		return nil, err
+	}
+	return evidence.Previous, nil
+}
+
 func (c *Client) ReadRecentTurns(ctx context.Context, threadID, rolloutPath string) (RecentEvidence, error) {
 	if strings.TrimSpace(threadID) == "" {
 		return RecentEvidence{}, errors.New("thread ID is required")
@@ -278,6 +333,7 @@ func (c *Client) ReadRecentTurns(ctx context.Context, threadID, rolloutPath stri
 			return RecentEvidence{}, err
 		}
 		var status ThreadStatus
+		var recencyAt *int64
 		if c.capabilities.HasMethod("thread/read") {
 			var read struct {
 				Thread Thread `json:"thread"`
@@ -286,8 +342,9 @@ func (c *Client) ReadRecentTurns(ctx context.Context, threadID, rolloutPath stri
 				return RecentEvidence{}, err
 			}
 			status = read.Thread.Status
+			recencyAt = read.Thread.RecencyAt
 		}
-		return evidenceFromDescendingTurns(status, page.Data), nil
+		return evidenceFromDescendingTurns(status, recencyAt, page.Data), nil
 	case "thread/read":
 		var read struct {
 			Thread Thread `json:"thread"`
@@ -295,12 +352,12 @@ func (c *Client) ReadRecentTurns(ctx context.Context, threadID, rolloutPath stri
 		if err := c.call(ctx, "thread/read", map[string]any{"threadId": threadID, "includeTurns": true}, &read); err != nil {
 			return RecentEvidence{}, err
 		}
-		return evidenceFromTurns(read.Thread.Status, read.Thread.Turns), nil
+		return evidenceFromTurns(read.Thread.Status, read.Thread.RecencyAt, read.Thread.Turns), nil
 	default:
 		if rolloutPath == "" {
 			return RecentEvidence{}, fmt.Errorf("%w: recent-turn read", ErrCapability)
 		}
-		return readRolloutEvidence(rolloutPath)
+		return readRolloutEvidence(rolloutPath, 2)
 	}
 }
 func (c *Client) SetTitle(ctx context.Context, threadID, title string) error {
@@ -425,7 +482,7 @@ func (c *Client) waitForTurn(ctx context.Context, threadID, turnID string) (Turn
 		}
 	}
 }
-func readRolloutEvidence(path string) (RecentEvidence, error) {
+func readRolloutEvidence(path string, limit int) (RecentEvidence, error) {
 	file, err := os.Open(path)
 	if err != nil {
 		return RecentEvidence{}, fmt.Errorf("open Codex rollout: %w", err)
@@ -433,6 +490,7 @@ func readRolloutEvidence(path string) (RecentEvidence, error) {
 	defer file.Close()
 	reader := bufio.NewReader(file)
 	turns := make([]Turn, 0)
+	turnCount := 0
 	for {
 		line, readErr := reader.ReadBytes(byte(10))
 		if len(strings.TrimSpace(string(line))) > 0 {
@@ -455,7 +513,11 @@ func readRolloutEvidence(path string) (RecentEvidence, error) {
 					switch item.Role {
 					case "user":
 						mapped.Type = "userMessage"
-						turns = append(turns, Turn{ID: fmt.Sprintf("rollout-%d", len(turns)+1), Status: "inProgress", Items: []TurnItem{mapped}})
+						turnCount++
+						turns = append(turns, Turn{ID: fmt.Sprintf("rollout-%d", turnCount), Status: "inProgress", Items: []TurnItem{mapped}})
+						if limit > 0 && len(turns) > limit {
+							turns = append([]Turn{}, turns[len(turns)-limit:]...)
+						}
 					case "assistant":
 						mapped.Type = "agentMessage"
 						if len(turns) > 0 {
@@ -502,10 +564,10 @@ func readRolloutEvidence(path string) (RecentEvidence, error) {
 			return RecentEvidence{}, fmt.Errorf("read Codex rollout: %w", readErr)
 		}
 	}
-	if len(turns) > 2 {
-		turns = turns[len(turns)-2:]
+	if limit > 0 && len(turns) > limit {
+		turns = turns[len(turns)-limit:]
 	}
-	return evidenceFromTurns(ThreadStatus{}, turns), nil
+	return evidenceFromTurns(ThreadStatus{}, nil, turns), nil
 }
 
 func markFinalAgentMessage(turn *Turn) {

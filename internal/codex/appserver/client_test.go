@@ -145,6 +145,36 @@ func TestEvidenceAndFallbacks(t *testing.T) {
 		t.Fatalf("rollout=%+v %v", e, err)
 	}
 }
+func TestLatestAndPreviousEvidenceAreReadSeparately(t *testing.T) {
+	c := startFake(t, "normal", fixtureCaps(t))
+	defer c.Close()
+	latest, err := c.ReadLatestTurn(context.Background(), "task-1", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if latest.Latest == nil || latest.Latest.ID != "latest" || latest.Previous != nil || latest.RecencyAt == nil || *latest.RecencyAt != 1770000000 {
+		t.Fatalf("latest=%+v", latest)
+	}
+	previous, err := c.ReadPreviousTurn(context.Background(), "task-1", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if previous == nil || previous.ID != "previous" {
+		t.Fatalf("previous=%+v", previous)
+	}
+	empty := Capabilities{Methods: map[string]bool{}, ThreadStartFields: map[string]bool{}, TurnStartFields: map[string]bool{}}
+	fallback := startFake(t, "normal", empty)
+	defer fallback.Close()
+	latest, err = fallback.ReadLatestTurn(context.Background(), "task-1", filepath.Join("..", "..", "..", "testdata", "appserver", "rollout.jsonl"))
+	if err != nil || latest.Latest == nil || latest.Previous != nil || latest.Latest.Status != "interrupted" {
+		t.Fatalf("fallback latest=%+v err=%v", latest, err)
+	}
+	previous, err = fallback.ReadPreviousTurn(context.Background(), "task-1", filepath.Join("..", "..", "..", "testdata", "appserver", "rollout.jsonl"))
+	if err != nil || previous == nil || previous.Status != "failed" {
+		t.Fatalf("fallback previous=%+v err=%v", previous, err)
+	}
+}
+
 func TestMutations(t *testing.T) {
 	c := startFake(t, "normal", fixtureCaps(t))
 	defer c.Close()
@@ -345,7 +375,7 @@ func fakeServe(scenario string) {
 		case "thread/turns/list":
 			encoder.Encode(map[string]any{"id": request.ID, "result": map[string]any{"data": []any{fakeTurns()[1], fakeTurns()[0]}}})
 		case "thread/read":
-			encoder.Encode(map[string]any{"id": request.ID, "result": map[string]any{"thread": map[string]any{"id": "task-1", "status": map[string]any{"type": "active", "activeFlags": []string{"waitingOnApproval"}}, "turns": fakeTurns()}}})
+			encoder.Encode(map[string]any{"id": request.ID, "result": map[string]any{"thread": map[string]any{"id": "task-1", "status": map[string]any{"type": "active", "activeFlags": []string{"waitingOnApproval"}}, "recencyAt": 1770000000, "turns": fakeTurns()}}})
 		case "thread/name/set", "thread/archive", "thread/inject_items":
 			if scenario == "notification-burst" && request.Method == "thread/archive" {
 				for index := 0; index < 256; index++ {

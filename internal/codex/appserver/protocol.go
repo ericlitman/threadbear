@@ -57,6 +57,7 @@ type Thread struct {
 	Ephemeral bool         `json:"ephemeral,omitempty"`
 	Path      *string      `json:"path,omitempty"`
 	Status    ThreadStatus `json:"status"`
+	RecencyAt *int64       `json:"recencyAt,omitempty"`
 	Turns     []Turn       `json:"turns,omitempty"`
 }
 type Turn struct {
@@ -97,12 +98,13 @@ type EvidenceTurn struct {
 }
 type RecentEvidence struct {
 	ThreadStatus ThreadStatus
+	RecencyAt    *int64
 	Latest       *EvidenceTurn
 	Previous     *EvidenceTurn
 }
 
-func evidenceFromTurns(status ThreadStatus, turns []Turn) RecentEvidence {
-	result := RecentEvidence{ThreadStatus: status}
+func evidenceFromTurns(status ThreadStatus, recencyAt *int64, turns []Turn) RecentEvidence {
+	result := RecentEvidence{ThreadStatus: status, RecencyAt: recencyAt}
 	if len(turns) == 0 {
 		return result
 	}
@@ -114,8 +116,8 @@ func evidenceFromTurns(status ThreadStatus, turns []Turn) RecentEvidence {
 	}
 	return result
 }
-func evidenceFromDescendingTurns(status ThreadStatus, turns []Turn) RecentEvidence {
-	result := RecentEvidence{ThreadStatus: status}
+func evidenceFromDescendingTurns(status ThreadStatus, recencyAt *int64, turns []Turn) RecentEvidence {
+	result := RecentEvidence{ThreadStatus: status, RecencyAt: recencyAt}
 	if len(turns) == 0 {
 		return result
 	}

@@ -292,7 +292,7 @@ func TestLoadRejectsUnsupportedSchemas(t *testing.T) {
 	}{
 		{"old state", stateFileName, `{"schema_version":0}`, func() error { _, err := store.LoadState(); return err }},
 		{"new state", stateFileName, `{"schema_version":2}`, func() error { _, err := store.LoadState(); return err }},
-		{"new cycle", cycleFileName, `{"schema_version":2}`, func() error { _, err := store.LoadCycle(); return err }},
+		{"new cycle", cycleFileName, `{"schema_version":3}`, func() error { _, err := store.LoadCycle(); return err }},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			if err := os.WriteFile(filepath.Join(dir, test.file), []byte(test.data), 0600); err != nil {
@@ -362,6 +362,21 @@ func TestStateAndCycleValidation(t *testing.T) {
 	nullCycle.Inventory = nil
 	if err := nullCycle.Validate(); err == nil {
 		t.Fatal("CycleCheckpoint.Validate() accepted null collections")
+	}
+	nullJournal := validCycle()
+	nullJournal.Operations = nil
+	if err := nullJournal.Validate(); err == nil {
+		t.Fatal("CycleCheckpoint.Validate() accepted a null operation journal")
+	}
+	invalidDiagnostic := validCycle()
+	invalidDiagnostic.Diagnostics["task-1"] = CycleDiagnostic{TaskID: "task-1", Operation: "bad operation", ErrorCode: "failed"}
+	if err := invalidDiagnostic.Validate(); err == nil {
+		t.Fatal("CycleCheckpoint.Validate() accepted an invalid diagnostic")
+	}
+	invalidOperation := validCycle()
+	invalidOperation.Operations["title:task-1"] = CycleOperation{Kind: OperationTitle, Stage: StageVerified, TaskID: "task-1"}
+	if err := invalidOperation.Validate(); err == nil {
+		t.Fatal("CycleCheckpoint.Validate() accepted an incomplete operation")
 	}
 	paddedArchive := validState()
 	archive := paddedArchive.Archives["task-archived"]
@@ -455,6 +470,8 @@ func validCycle() CycleCheckpoint {
 		Provenance:     ProvenanceFooter,
 		DurableSubject: "Ship ThreadBear",
 	}
+	cycle.Diagnostics["task-1"] = CycleDiagnostic{TaskID: "task-1", Operation: "classifier", ErrorCode: "synthetic_retry"}
+	cycle.Operations["title:task-1"] = CycleOperation{Kind: OperationTitle, Stage: StagePrepared, TaskID: "task-1", ExpectedRevision: "rev-1", ExpectedTitle: "Ship ThreadBear", DesiredTitle: "✅ Ship ThreadBear"}
 	return cycle
 }
 

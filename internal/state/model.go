@@ -9,7 +9,7 @@ import (
 
 const (
 	CurrentStateSchemaVersion = 1
-	CurrentCycleSchemaVersion = 1
+	CurrentCycleSchemaVersion = 2
 )
 
 var ErrUnsupportedSchema = errors.New("unsupported state schema")
@@ -193,6 +193,37 @@ type ClassificationResult struct {
 	ManagedAction  string     `json:"managed_action,omitempty"`
 }
 
+type CycleDiagnostic struct {
+	TaskID    string `json:"task_id"`
+	Operation string `json:"operation"`
+	ErrorCode string `json:"error_code"`
+}
+
+type OperationKind string
+
+type OperationStage string
+
+const (
+	OperationTitle   OperationKind  = "title"
+	OperationArchive OperationKind  = "archive"
+	OperationNotice  OperationKind  = "notice"
+	StagePrepared    OperationStage = "prepared"
+	StageApplying    OperationStage = "applying"
+	StageVerified    OperationStage = "verified"
+)
+
+type CycleOperation struct {
+	Kind             OperationKind  `json:"kind"`
+	Stage            OperationStage `json:"stage"`
+	TaskID           string         `json:"task_id,omitempty"`
+	NoticeVersion    string         `json:"notice_version,omitempty"`
+	ExpectedRevision string         `json:"expected_revision,omitempty"`
+	ExpectedTitle    string         `json:"expected_title,omitempty"`
+	DesiredTitle     string         `json:"desired_title,omitempty"`
+	VerifiedRevision string         `json:"verified_revision,omitempty"`
+	VerifiedTitle    string         `json:"verified_title,omitempty"`
+}
+
 type CycleCheckpoint struct {
 	SchemaVersion  int                             `json:"schema_version"`
 	CycleID        string                          `json:"cycle_id"`
@@ -200,6 +231,8 @@ type CycleCheckpoint struct {
 	CapturedAt     time.Time                       `json:"captured_at"`
 	Inventory      map[string]CapturedTask         `json:"inventory"`
 	Results        map[string]ClassificationResult `json:"results"`
+	Diagnostics    map[string]CycleDiagnostic      `json:"diagnostics"`
+	Operations     map[string]CycleOperation       `json:"operations"`
 }
 
 func NewCycle(cycleID string, baseGeneration uint64, capturedAt time.Time) CycleCheckpoint {
@@ -210,6 +243,8 @@ func NewCycle(cycleID string, baseGeneration uint64, capturedAt time.Time) Cycle
 		CapturedAt:     capturedAt.UTC(),
 		Inventory:      make(map[string]CapturedTask),
 		Results:        make(map[string]ClassificationResult),
+		Diagnostics:    make(map[string]CycleDiagnostic),
+		Operations:     make(map[string]CycleOperation),
 	}
 }
 
@@ -223,7 +258,7 @@ func (c CycleCheckpoint) Validate() error {
 	if strings.TrimSpace(c.CycleID) != c.CycleID {
 		return errors.New("cycle_id must not contain surrounding whitespace")
 	}
-	if c.Inventory == nil || c.Results == nil {
+	if c.Inventory == nil || c.Results == nil || c.Diagnostics == nil || c.Operations == nil {
 		return errors.New("cycle collections must not be null")
 	}
 	for key, task := range c.Inventory {
@@ -240,7 +275,37 @@ func (c CycleCheckpoint) Validate() error {
 			return fmt.Errorf("classification result %q is invalid", key)
 		}
 	}
+	for key, diagnostic := range c.Diagnostics {
+		if !canonicalIdentifier(key) || diagnostic.TaskID != key || !stableCode(diagnostic.Operation) || !stableCode(diagnostic.ErrorCode) {
+			return fmt.Errorf("cycle diagnostic %q is invalid", key)
+		}
+	}
+	for key, operation := range c.Operations {
+		if !canonicalIdentifier(key) || !operation.Valid() {
+			return fmt.Errorf("cycle operation %q is invalid", key)
+		}
+	}
 	return nil
+}
+
+func (o CycleOperation) Valid() bool {
+	if o.Stage != StagePrepared && o.Stage != StageApplying && o.Stage != StageVerified {
+		return false
+	}
+	switch o.Kind {
+	case OperationTitle:
+		valid := canonicalIdentifier(o.TaskID) && canonicalIdentifier(o.ExpectedRevision) && o.DesiredTitle != "" && o.NoticeVersion == ""
+		if o.Stage == StageVerified {
+			valid = valid && canonicalIdentifier(o.VerifiedRevision) && o.VerifiedTitle != ""
+		}
+		return valid
+	case OperationArchive:
+		return canonicalIdentifier(o.TaskID) && canonicalIdentifier(o.ExpectedRevision) && o.NoticeVersion == ""
+	case OperationNotice:
+		return o.TaskID == "" && canonicalIdentifier(o.NoticeVersion)
+	default:
+		return false
+	}
 }
 
 func canonicalIdentifier(value string) bool {
