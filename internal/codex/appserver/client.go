@@ -22,18 +22,19 @@ var (
 )
 
 type Client struct {
-	capabilities  Capabilities
-	command       *exec.Cmd
-	stdin         io.WriteCloser
-	nextID        atomic.Int64
-	write         sync.Mutex
-	mu            sync.Mutex
-	pending       map[int64]chan responseMessage
-	err           error
-	notifications chan Notification
-	done          chan struct{}
-	wait          chan error
-	closeOnce     sync.Once
+	capabilities      Capabilities
+	command           *exec.Cmd
+	stdin             io.WriteCloser
+	nextID            atomic.Int64
+	write             sync.Mutex
+	mu                sync.Mutex
+	pending           map[int64]chan responseMessage
+	err               error
+	notificationInput chan Notification
+	notifications     chan Notification
+	done              chan struct{}
+	wait              chan error
+	closeOnce         sync.Once
 }
 
 func Start(ctx context.Context, process ProcessSpec, capabilities Capabilities) (*Client, error) {
@@ -54,7 +55,8 @@ func Start(ctx context.Context, process ProcessSpec, capabilities Capabilities) 
 		stdin.Close()
 		return nil, fmt.Errorf("start App Server: %w", err)
 	}
-	client := &Client{capabilities: capabilities, command: command, stdin: stdin, pending: make(map[int64]chan responseMessage), notifications: make(chan Notification, 128), done: make(chan struct{}), wait: make(chan error, 1)}
+	client := &Client{capabilities: capabilities, command: command, stdin: stdin, pending: make(map[int64]chan responseMessage), notificationInput: make(chan Notification), notifications: make(chan Notification), done: make(chan struct{}), wait: make(chan error, 1)}
+	go client.notificationLoop()
 	go client.readLoop(stdout)
 	go func() { err := command.Wait(); client.wait <- err; client.fail(processExitError(err)) }()
 	initialize := map[string]any{"clientInfo": map[string]any{"name": "threadbear", "title": "ThreadBear", "version": "0.0.0"}, "capabilities": map[string]any{"experimentalApi": true}}
@@ -79,6 +81,26 @@ func processExitError(err error) error {
 }
 func (c *Client) Capabilities() Capabilities         { return c.capabilities }
 func (c *Client) Notifications() <-chan Notification { return c.notifications }
+func (c *Client) notificationLoop() {
+	queue := make([]Notification, 0)
+	for {
+		var output chan Notification
+		var next Notification
+		if len(queue) > 0 {
+			output = c.notifications
+			next = queue[0]
+		}
+		select {
+		case <-c.done:
+			return
+		case notification := <-c.notificationInput:
+			queue = append(queue, notification)
+		case output <- next:
+			queue[0] = Notification{}
+			queue = queue[1:]
+		}
+	}
+}
 func (c *Client) Close() error {
 	c.closeOnce.Do(func() {
 		c.stdin.Close()
@@ -137,11 +159,11 @@ func (c *Client) handleLine(line []byte) error {
 	if message.Method != "" {
 		notification := Notification{Method: message.Method, Params: append(json.RawMessage(nil), message.Params...)}
 		select {
-		case c.notifications <- notification:
-		default:
-			return errors.New("App Server notification buffer is full")
+		case c.notificationInput <- notification:
+			return nil
+		case <-c.done:
+			return ErrClosed
 		}
-		return nil
 	}
 	if len(message.ID) == 0 {
 		return errors.New("App Server message has neither method nor ID")

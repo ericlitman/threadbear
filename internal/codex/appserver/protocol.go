@@ -175,17 +175,14 @@ func (i TurnItem) messageText() string {
 }
 
 type ToolRestriction struct {
-	ConfigOverride       bool `json:"configOverride"`
-	PermissionProfile    bool `json:"permissionProfile"`
-	EnvironmentsDisabled bool `json:"environmentsDisabled"`
-	DynamicToolsDisabled bool `json:"dynamicToolsDisabled"`
-	ApprovalsDisabled    bool `json:"approvalsDisabled"`
-	ReadOnlySandbox      bool `json:"readOnlySandbox"`
-	OutputConstrained    bool `json:"outputConstrained"`
-}
-
-func (r ToolRestriction) CompensatingSet() bool {
-	return r.EnvironmentsDisabled && r.DynamicToolsDisabled && r.ApprovalsDisabled && r.ReadOnlySandbox && r.OutputConstrained
+	ConfigOverride       bool     `json:"configOverride"`
+	PermissionProfile    bool     `json:"permissionProfile"`
+	EnvironmentsDisabled bool     `json:"environmentsDisabled"`
+	DynamicToolsDisabled bool     `json:"dynamicToolsDisabled"`
+	ApprovalsDisabled    bool     `json:"approvalsDisabled"`
+	ReadOnlySandbox      bool     `json:"readOnlySandbox"`
+	OutputConstrained    bool     `json:"outputConstrained"`
+	UnprovenToolSources  []string `json:"unprovenToolSources"`
 }
 
 type EphemeralRequest struct {

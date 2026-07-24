@@ -32,7 +32,8 @@ func TestLiveEphemeralDoesNotPersist(t *testing.T) {
 		t.Fatal(err)
 	}
 	output := strings.TrimSpace(evidenceFromTurn(result.Turn).AgentMessage)
-	if result.ThreadID == "" || !result.ToolRestriction.CompensatingSet() || output == "" {
+	restriction := result.ToolRestriction
+	if result.ThreadID == "" || output == "" || !restriction.EnvironmentsDisabled || !restriction.DynamicToolsDisabled || !restriction.ApprovalsDisabled || !restriction.ReadOnlySandbox || !restriction.OutputConstrained || restriction.ConfigOverride || restriction.PermissionProfile || strings.Join(restriction.UnprovenToolSources, ",") != "core,mcp,extension,hosted" {
 		t.Fatalf("result=%+v output=%q", result, output)
 	}
 	after := liveThreadIDs(t, home)

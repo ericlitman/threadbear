@@ -34,10 +34,35 @@ func (s ProcessSpec) command(ctx context.Context, arguments ...string) (*exec.Cm
 	if s.Env == nil {
 		return nil, errors.New("App Server environment must be explicit")
 	}
+	executable, err := resolveExecutable(s.Path, s.Env)
+	if err != nil {
+		return nil, err
+	}
 	args := append(append([]string{}, s.Args...), arguments...)
-	command := exec.CommandContext(ctx, s.Path, args...)
+	command := exec.CommandContext(ctx, executable, args...)
 	command.Env = append([]string{}, s.Env...)
 	return command, nil
+}
+
+func resolveExecutable(name string, environment []string) (string, error) {
+	if filepath.IsAbs(name) || strings.ContainsRune(name, os.PathSeparator) {
+		return name, nil
+	}
+	pathValue := ""
+	for _, entry := range environment {
+		if strings.HasPrefix(entry, "PATH=") {
+			pathValue = strings.TrimPrefix(entry, "PATH=")
+			break
+		}
+	}
+	for _, directory := range filepath.SplitList(pathValue) {
+		candidate := filepath.Join(directory, name)
+		info, err := os.Stat(candidate)
+		if err == nil && !info.IsDir() && info.Mode().Perm()&0111 != 0 {
+			return candidate, nil
+		}
+	}
+	return "", fmt.Errorf("resolve App Server executable %s from explicit PATH: %w", name, exec.ErrNotFound)
 }
 
 type Capabilities struct {
@@ -84,11 +109,12 @@ func (c Capabilities) requireEphemeral(request EphemeralRequest) (ToolRestrictio
 		}
 	}
 	restriction := c.ToolRestrictionCandidates()
-	if !restriction.CompensatingSet() {
-		return ToolRestriction{}, fmt.Errorf("%w: compensating tool restriction set", ErrCapability)
+	if !restriction.EnvironmentsDisabled || !restriction.DynamicToolsDisabled || !restriction.ApprovalsDisabled || !restriction.ReadOnlySandbox || !restriction.OutputConstrained {
+		return ToolRestriction{}, fmt.Errorf("%w: compensating tool restriction controls", ErrCapability)
 	}
 	restriction.ConfigOverride = restriction.ConfigOverride && len(request.ToolConfig) > 0
 	restriction.PermissionProfile = restriction.PermissionProfile && request.PermissionProfile != ""
+	restriction.UnprovenToolSources = []string{"core", "mcp", "extension", "hosted"}
 	return restriction, nil
 }
 func DiscoverCapabilities(ctx context.Context, process ProcessSpec) (Capabilities, error) {

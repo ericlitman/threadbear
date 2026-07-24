@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -30,10 +31,31 @@ func TestCapabilities(t *testing.T) {
 		t.Fatalf("caps=%+v", caps)
 	}
 	r := caps.ToolRestrictionCandidates()
-	if !r.ConfigOverride || !r.PermissionProfile || !r.CompensatingSet() {
+	if !r.ConfigOverride || !r.PermissionProfile || !r.EnvironmentsDisabled || !r.DynamicToolsDisabled || !r.ApprovalsDisabled || !r.ReadOnlySandbox || !r.OutputConstrained {
 		t.Fatalf("restriction=%+v", r)
 	}
 }
+func TestProcessSpecResolvesExplicitPath(t *testing.T) {
+	directory := t.TempDir()
+	executable := filepath.Join(directory, "codex")
+	if err := os.WriteFile(executable, []byte("synthetic"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", t.TempDir())
+	process := ProcessSpec{Path: "codex", Env: []string{"PATH=" + directory}}
+	command, err := process.command(context.Background(), "app-server")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if command.Path != executable {
+		t.Fatalf("command path=%q, want %q", command.Path, executable)
+	}
+	missing := ProcessSpec{Path: "codex", Env: []string{"PATH=" + t.TempDir()}}
+	if _, err := missing.command(context.Background(), "app-server"); !errors.Is(err, exec.ErrNotFound) {
+		t.Fatalf("missing command error=%v, want exec.ErrNotFound", err)
+	}
+}
+
 func TestTransport(t *testing.T) {
 	for _, tc := range []struct {
 		name, scenario string
@@ -152,6 +174,17 @@ func TestMutations(t *testing.T) {
 		t.Fatalf("error=%v", err)
 	}
 }
+func TestMutationNotificationsHaveNoFixedBufferCap(t *testing.T) {
+	c := startFake(t, "notification-burst", fixtureCaps(t))
+	defer c.Close()
+	if err := c.Archive(context.Background(), "task-1"); err != nil {
+		t.Fatal(err)
+	}
+	if err := c.SetTitle(context.Background(), "task-1", "✅ Still connected"); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestEphemeralControls(t *testing.T) {
 	c := startFake(t, "normal", fixtureCaps(t))
 	defer c.Close()
@@ -160,15 +193,16 @@ func TestEphemeralControls(t *testing.T) {
 		t.Fatal(err)
 	}
 	output := evidenceFromTurn(result.Turn).AgentMessage
-	if result.ThreadID != "ephemeral-1" || result.Turn.Status != "completed" || output != `{"state":"complete"}` || !result.ToolRestriction.ConfigOverride || !result.ToolRestriction.PermissionProfile || result.ToolRestriction.ReadOnlySandbox || !result.ToolRestriction.EnvironmentsDisabled || !result.ToolRestriction.DynamicToolsDisabled || !result.ToolRestriction.ApprovalsDisabled || !result.ToolRestriction.OutputConstrained {
+	if result.ThreadID != "ephemeral-1" || result.Turn.Status != "completed" || output != `{"state":"complete"}` || !result.ToolRestriction.ConfigOverride || !result.ToolRestriction.PermissionProfile || result.ToolRestriction.ReadOnlySandbox || !result.ToolRestriction.EnvironmentsDisabled || !result.ToolRestriction.DynamicToolsDisabled || !result.ToolRestriction.ApprovalsDisabled || !result.ToolRestriction.OutputConstrained || strings.Join(result.ToolRestriction.UnprovenToolSources, ",") != "core,mcp,extension,hosted" {
 		t.Fatalf("result=%+v output=%q", result, output)
 	}
 	legacy, err := c.RunEphemeral(context.Background(), EphemeralRequest{Model: "gpt-5.6-luna", Effort: "medium", Input: "classify", OutputSchema: map[string]any{"type": "object"}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !legacy.ToolRestriction.CompensatingSet() || legacy.ToolRestriction.PermissionProfile {
-		t.Fatalf("legacy restriction=%+v", legacy.ToolRestriction)
+	legacyRestriction := legacy.ToolRestriction
+	if !legacyRestriction.EnvironmentsDisabled || !legacyRestriction.DynamicToolsDisabled || !legacyRestriction.ApprovalsDisabled || !legacyRestriction.ReadOnlySandbox || !legacyRestriction.OutputConstrained || legacyRestriction.ConfigOverride || legacyRestriction.PermissionProfile || strings.Join(legacyRestriction.UnprovenToolSources, ",") != "core,mcp,extension,hosted" {
+		t.Fatalf("legacy restriction=%+v", legacyRestriction)
 	}
 	caps := fixtureCaps(t)
 	delete(caps.ThreadStartFields, "dynamicTools")
@@ -313,6 +347,11 @@ func fakeServe(scenario string) {
 		case "thread/read":
 			encoder.Encode(map[string]any{"id": request.ID, "result": map[string]any{"thread": map[string]any{"id": "task-1", "status": map[string]any{"type": "active", "activeFlags": []string{"waitingOnApproval"}}, "turns": fakeTurns()}}})
 		case "thread/name/set", "thread/archive", "thread/inject_items":
+			if scenario == "notification-burst" && request.Method == "thread/archive" {
+				for index := 0; index < 256; index++ {
+					encoder.Encode(map[string]any{"method": "thread/archived", "params": map[string]any{"threadId": fmt.Sprintf("task-%d", index)}})
+				}
+			}
 			encoder.Encode(map[string]any{"id": request.ID, "result": map[string]any{}})
 		case "thread/unarchive":
 			encoder.Encode(map[string]any{"id": request.ID, "result": map[string]any{"thread": map[string]any{"id": "task-1"}}})
