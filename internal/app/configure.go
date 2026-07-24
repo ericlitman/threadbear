@@ -39,6 +39,9 @@ func ConfigureHandler(store OperatorStore, launchAgent LaunchAgent) Handler {
 				return commandError("configure", "launch_agent_unavailable", ErrUnavailable)
 			}
 			if err := launchAgent.Apply(ctx, next); err != nil {
+				if errors.Is(err, ErrLaunchAgentUnavailable) {
+					return commandError("configure", "launch_agent_unavailable", err)
+				}
 				return commandError("configure", "launch_agent_apply_failed", err)
 			}
 			resources = append(resources, config.LaunchAgentLabel)
@@ -46,7 +49,11 @@ func ConfigureHandler(store OperatorStore, launchAgent LaunchAgent) Handler {
 		if err := store.SaveConfig(next); err != nil {
 			if schedulerChanged {
 				if rollbackErr := launchAgent.Apply(ctx, current); rollbackErr != nil {
-					return commandError("configure", "launch_agent_rollback_failed", errors.Join(err, rollbackErr))
+					code := "launch_agent_rollback_failed"
+					if errors.Is(rollbackErr, ErrLaunchAgentUnavailable) {
+						code = "launch_agent_unavailable"
+					}
+					return commandError("configure", code, errors.Join(err, rollbackErr))
 				}
 			}
 			return commandError("configure", "config_write_failed", err)

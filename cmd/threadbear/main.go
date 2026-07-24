@@ -144,15 +144,17 @@ func (systemClock) Now() time.Time { return time.Now() }
 
 type unavailableLaunchAgent struct{}
 
-func (unavailableLaunchAgent) Healthy(context.Context) (bool, error) { return false, nil }
+func (unavailableLaunchAgent) Healthy(context.Context) (bool, error) {
+	return false, app.ErrLaunchAgentUnavailable
+}
 func (unavailableLaunchAgent) Apply(context.Context, config.Config) error {
-	return app.ErrUnavailable
+	return app.ErrLaunchAgentUnavailable
 }
 func (unavailableLaunchAgent) Enable(context.Context) (bool, error) {
-	return false, app.ErrUnavailable
+	return false, app.ErrLaunchAgentUnavailable
 }
 func (unavailableLaunchAgent) Disable(context.Context) (bool, error) {
-	return false, app.ErrUnavailable
+	return false, app.ErrLaunchAgentUnavailable
 }
 
 type appServerFactory struct{}

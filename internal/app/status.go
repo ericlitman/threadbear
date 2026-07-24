@@ -13,6 +13,8 @@ import (
 	"github.com/ericlitman/threadbear/internal/state"
 )
 
+var ErrLaunchAgentUnavailable = errors.New("LaunchAgent adapter is unavailable")
+
 type OperatorStore interface {
 	LoadConfig() (config.Config, error)
 	SaveConfig(config.Config) error
@@ -80,6 +82,14 @@ func StatusHandler(version string, store OperatorStore, launchAgent LaunchAgent)
 			return commandError("status", "state_read_failed", err)
 		}
 		healthy, err := launchAgent.Healthy(ctx)
+		launchStatus := "unhealthy"
+		if healthy {
+			launchStatus = "healthy"
+		}
+		if errors.Is(err, ErrLaunchAgentUnavailable) {
+			launchStatus = "unavailable"
+			err = nil
+		}
 		if err != nil {
 			return commandError("status", "launch_agent_health_failed", err)
 		}
@@ -101,6 +111,7 @@ func StatusHandler(version string, store OperatorStore, launchAgent LaunchAgent)
 		return output.StatusResult{
 			InstalledVersion:       version,
 			LaunchAgentHealthy:     healthy,
+			LaunchAgentStatus:      launchStatus,
 			LastCompletedHeartbeat: committed.LastCompletedHeartbeat,
 			ControlTaskID:          cfg.ControlTaskID,
 			Preferences: output.Preferences{
@@ -198,7 +209,7 @@ func archiveEligibleOperatorTasks(inventory codex.Inventory, committed state.Sta
 	result := make([]string, 0)
 	for _, task := range inventory.Tasks {
 		record, ok := committed.Tasks[task.TaskID]
-		if !ok || record.Retry != nil && now.Before(record.Retry.NextAttemptAt) {
+		if !ok || record.CapturedRevision != task.Revision || record.CapturedTitle != task.Title || record.Retry != nil && now.Before(record.Retry.NextAttemptAt) {
 			continue
 		}
 		if archiveEligibleForInspect(record, now, cfg.ArchiveAfterDays) {

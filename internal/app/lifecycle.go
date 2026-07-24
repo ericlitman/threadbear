@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"errors"
 
 	"github.com/ericlitman/threadbear/internal/config"
 	"github.com/ericlitman/threadbear/internal/output"
@@ -31,6 +32,9 @@ func LifecycleHandler(store OperatorStore, launchAgent LaunchAgent, enable bool)
 			changed, err = launchAgent.Disable(ctx)
 		}
 		if err != nil {
+			if errors.Is(err, ErrLaunchAgentUnavailable) {
+				return commandError(command, "launch_agent_unavailable", err)
+			}
 			return commandError(command, "launch_agent_"+command+"_failed", err)
 		}
 		return output.ActionResult{Command: command, Changed: changed, ResourceIDs: []string{config.LaunchAgentLabel}}, nil

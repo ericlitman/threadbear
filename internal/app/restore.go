@@ -96,7 +96,7 @@ func RestoreHandler(store OperatorStore, inventory OperatorInventory, unarchiver
 		}
 		if cycleExists && cycleOwner {
 			for key, operation := range cycle.Operations {
-				if operation.Kind == state.OperationArchive && operation.Stage == state.StageApplied && operation.TaskID == request.TaskID {
+				if operation.Kind == state.OperationArchive && (operation.Stage == state.StageApplied || operation.Stage == state.StageVerified) && operation.TaskID == request.TaskID {
 					delete(cycle.Operations, key)
 				}
 			}
@@ -140,7 +140,7 @@ func exclusiveAppliedArchiveCycle(cycle state.CycleCheckpoint, taskID string) bo
 
 func appliedArchiveOperation(cycle state.CycleCheckpoint, taskID string) bool {
 	for _, operation := range cycle.Operations {
-		if operation.Kind == state.OperationArchive && operation.Stage == state.StageApplied && operation.TaskID == taskID {
+		if operation.Kind == state.OperationArchive && (operation.Stage == state.StageApplied || operation.Stage == state.StageVerified) && operation.TaskID == taskID {
 			return true
 		}
 	}

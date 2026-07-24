@@ -599,6 +599,137 @@ func TestRestoreRefusesAppliedCycleWithUnrelatedWork(t *testing.T) {
 	}
 }
 
+func TestStatusReportsUnavailableSchedulerAdapterHonestly(t *testing.T) {
+	now := time.Date(2026, 7, 24, 12, 0, 0, 0, time.UTC)
+	store := commandStore(t, now)
+	launch := &unavailableCommandLaunchAgent{}
+	result, err := StatusHandler("test", store, launch)(context.Background(), Request{Command: CommandStatus})
+	if err != nil {
+		t.Fatal(err)
+	}
+	statusResult := result.(output.StatusResult)
+	if statusResult.LaunchAgentStatus != "unavailable" || statusResult.LaunchAgentHealthy {
+		t.Fatalf("status=%+v", statusResult)
+	}
+	var human, machine bytes.Buffer
+	if err := output.Write(&human, output.FormatHuman, statusResult); err != nil {
+		t.Fatal(err)
+	}
+	if err := output.Write(&machine, output.FormatJSON, statusResult); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(human.String(), "scheduler adapter unavailable (pending install unit)") || !strings.Contains(machine.String(), `"launch_agent_status":"unavailable"`) {
+		t.Fatalf("human=%q json=%q", human.String(), machine.String())
+	}
+	result, err = LifecycleHandler(store, launch, true)(context.Background(), Request{Command: CommandEnable})
+	if err == nil || result.(output.ErrorResult).ErrorCode != "launch_agent_unavailable" {
+		t.Fatalf("enable result=%+v err=%v", result, err)
+	}
+	seconds := 60
+	result, err = ConfigureHandler(store, launch)(context.Background(), Request{Command: CommandConfigure, Configure: ConfigPatch{HeartbeatSeconds: &seconds}})
+	if err == nil || result.(output.ErrorResult).ErrorCode != "launch_agent_unavailable" {
+		t.Fatalf("configure result=%+v err=%v", result, err)
+	}
+}
+
+type unavailableCommandLaunchAgent struct{}
+
+func (*unavailableCommandLaunchAgent) Healthy(context.Context) (bool, error) {
+	return false, ErrLaunchAgentUnavailable
+}
+func (*unavailableCommandLaunchAgent) Apply(context.Context, config.Config) error {
+	return ErrLaunchAgentUnavailable
+}
+func (*unavailableCommandLaunchAgent) Enable(context.Context) (bool, error) {
+	return false, ErrLaunchAgentUnavailable
+}
+func (*unavailableCommandLaunchAgent) Disable(context.Context) (bool, error) {
+	return false, ErrLaunchAgentUnavailable
+}
+
+func TestInspectCurrentRevisionInvalidatesPersistedClassification(t *testing.T) {
+	now := time.Date(2026, 7, 24, 12, 0, 0, 0, time.UTC)
+	store := commandStore(t, now)
+	committed, err := store.LoadState()
+	if err != nil {
+		t.Fatal(err)
+	}
+	record := commandRecord("task-a", now)
+	record.CapturedRevision = "rev-1"
+	record.CapturedTitle = "Old"
+	committed.Tasks[record.TaskID] = record
+	if err := store.SaveState(committed); err != nil {
+		t.Fatal(err)
+	}
+	cycle := state.NewCycle("cycle-1", committed.Generation, now)
+	cycle.Inventory["task-a"] = state.CapturedTask{TaskID: "task-a", Revision: "rev-1", Title: "Old", LastSubstantiveActivity: now}
+	cycle.Results["task-a"] = state.ClassificationResult{TaskID: "task-a", Revision: "rev-1", Status: state.StatusComplete, Provenance: state.ProvenanceLuna}
+	if err := store.SaveCycle(cycle); err != nil {
+		t.Fatal(err)
+	}
+	inventory := &commandInventory{tasks: []codex.Task{{TaskID: "task-a", Revision: "rev-2", Title: "New"}}}
+	result, err := InspectHandler(store, inventory, commandClock{now})(context.Background(), Request{Command: CommandInspect, TaskID: "task-a"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	inspect := result.(output.InspectResult)
+	if inspect.CapturedRevision != "rev-2" || inspect.State != state.StatusUnknown || inspect.Provenance != state.ProvenanceUnknown || inspect.ArchiveEligible {
+		t.Fatalf("inspect=%+v", inspect)
+	}
+}
+
+func TestRestoreVerifiedCheckpointOwnership(t *testing.T) {
+	now := time.Date(2026, 7, 24, 12, 0, 0, 0, time.UTC)
+	store := commandStore(t, now)
+	cycle := state.NewCycle("cycle-1", 0, now.Add(-time.Hour))
+	cycle.Inventory["task-a"] = state.CapturedTask{TaskID: "task-a", Revision: "rev-1", Title: "Archived", Archived: true, LastSubstantiveActivity: now.Add(-time.Hour)}
+	cycle.Results["task-a"] = state.ClassificationResult{TaskID: "task-a", Revision: "rev-1", Status: state.StatusComplete, Provenance: state.ProvenanceRuntime}
+	cycle.Operations["archive:task-a"] = state.CycleOperation{Kind: state.OperationArchive, Stage: state.StageVerified, TaskID: "task-a", ExpectedRevision: "rev-1", ExpectedTitle: "Archived"}
+	if err := store.SaveCycle(cycle); err != nil {
+		t.Fatal(err)
+	}
+	inventory := &commandInventory{}
+	unarchiver := &commandUnarchiver{inventory: inventory}
+	result, err := RestoreHandler(store, inventory, unarchiver, commandClock{now})(context.Background(), Request{Command: CommandRestore, TaskID: "task-a"})
+	if err != nil || !result.(output.ActionResult).Changed || unarchiver.calls != 1 {
+		t.Fatalf("result=%+v err=%v unarchiver=%d", result, err, unarchiver.calls)
+	}
+	stored, err := store.LoadState()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !stored.Tasks["task-a"].LastSubstantiveActivity.Equal(now) {
+		t.Fatalf("state=%+v", stored)
+	}
+}
+
+func TestDryRunDoesNotPreviewArchiveForChangedUnresolvedTask(t *testing.T) {
+	now := time.Date(2026, 7, 24, 12, 0, 0, 0, time.UTC)
+	store := commandStore(t, now)
+	committed, err := store.LoadState()
+	if err != nil {
+		t.Fatal(err)
+	}
+	lastUpdate := now
+	committed.LastUpdateCheck = &lastUpdate
+	record := commandRecord("task-a", now)
+	record.CapturedRevision = "rev-1"
+	record.CapturedTitle = "Old complete"
+	committed.Tasks[record.TaskID] = record
+	if err := store.SaveState(committed); err != nil {
+		t.Fatal(err)
+	}
+	inventory := &commandInventory{tasks: []codex.Task{{TaskID: "task-a", Revision: "rev-2", Title: "Now running"}}}
+	result, err := heartbeatDryRun(context.Background(), store, inventory, commandClock{now})
+	if err != nil {
+		t.Fatal(err)
+	}
+	preview := result.(output.PreviewResult)
+	if !reflect.DeepEqual(preview.Effects, []string{"classify.task-a"}) {
+		t.Fatalf("preview=%+v", preview)
+	}
+}
+
 func commandStore(t *testing.T, now time.Time) *state.Store {
 	t.Helper()
 	store := state.NewStore(t.TempDir() + "/state")

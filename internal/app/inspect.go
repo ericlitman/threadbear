@@ -49,14 +49,16 @@ func InspectHandler(store OperatorStore, inventory OperatorInventory, clock Oper
 		provenance := state.ProvenanceUnknown
 		managedAction := ""
 		var retry *output.RetryResult
+		recordMatchesCurrent := currentExists && recordExists && record.CapturedRevision == current.Revision && record.CapturedTitle == current.Title
+		cycleMatchesCurrent := currentExists && cycleExists && capturedExists && classified && captured.Revision == current.Revision && captured.Title == current.Title && classification.Revision == current.Revision
 		if currentExists {
 			revision = current.Revision
-		}
-		if archived {
+		} else if archived {
 			revision = archive.CapturedRevision
-		}
-		if recordExists {
+		} else if recordExists {
 			revision = record.CapturedRevision
+		}
+		if recordExists && (!currentExists || recordMatchesCurrent) {
 			statusValue = record.Status
 			provenance = record.Provenance
 			managedAction = record.ManagedAction
@@ -64,19 +66,15 @@ func InspectHandler(store OperatorStore, inventory OperatorInventory, clock Oper
 				retry = &output.RetryResult{TaskID: request.TaskID, Operation: record.Retry.Operation, ErrorCode: record.Retry.ErrorCode}
 			}
 		}
-		if cycleExists && capturedExists {
-			revision = captured.Revision
-		}
-		if cycleExists && classified {
-			revision = classification.Revision
+		if cycleMatchesCurrent {
 			statusValue = classification.Status
 			provenance = classification.Provenance
 			managedAction = classification.ManagedAction
+			if diagnostic, ok := cycle.Diagnostics[request.TaskID]; ok {
+				retry = &output.RetryResult{TaskID: request.TaskID, Operation: diagnostic.Operation, ErrorCode: diagnostic.ErrorCode}
+			}
 		}
-		if diagnostic, ok := cycle.Diagnostics[request.TaskID]; ok {
-			retry = &output.RetryResult{TaskID: request.TaskID, Operation: diagnostic.Operation, ErrorCode: diagnostic.ErrorCode}
-		}
-		eligible := recordExists && currentExists && archiveEligibleForInspect(record, clock.Now().UTC(), cfg.ArchiveAfterDays) && cfg.ArchiveEnabled
+		eligible := recordMatchesCurrent && archiveEligibleForInspect(record, clock.Now().UTC(), cfg.ArchiveAfterDays) && cfg.ArchiveEnabled
 		return output.InspectResult{
 			TaskID:           request.TaskID,
 			CapturedRevision: revision,

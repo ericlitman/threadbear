@@ -112,6 +112,7 @@ type StatusResult struct {
 	Version                int         `json:"version"`
 	InstalledVersion       string      `json:"installed_version"`
 	LaunchAgentHealthy     bool        `json:"launch_agent_healthy"`
+	LaunchAgentStatus      string      `json:"launch_agent_status"`
 	LastCompletedHeartbeat *time.Time  `json:"last_completed_heartbeat,omitempty"`
 	ControlTaskID          string      `json:"control_task_id"`
 	Preferences            Preferences `json:"preferences"`
@@ -122,9 +123,15 @@ type StatusResult struct {
 func (StatusResult) result()     {}
 func (StatusResult) Empty() bool { return false }
 func (r StatusResult) Human() string {
-	health := "unhealthy"
-	if r.LaunchAgentHealthy {
-		health = "healthy"
+	health := r.LaunchAgentStatus
+	if health == "" {
+		health = "unhealthy"
+		if r.LaunchAgentHealthy {
+			health = "healthy"
+		}
+	}
+	if health == "unavailable" {
+		health = "scheduler adapter unavailable (pending install unit)"
 	}
 	return fmt.Sprintf("ThreadBear %s · LaunchAgent %s · heartbeat %s · control task %s · heartbeat interval %ds · archive %t/%dd · rename %t · AGENTS %t · classifier %s/%s/%dB · retries %d · update check %s", r.InstalledVersion, health, formatTime(r.LastCompletedHeartbeat), r.ControlTaskID, r.Preferences.HeartbeatSeconds, r.Preferences.ArchiveEnabled, r.Preferences.ArchiveAfterDays, r.Preferences.RenameEnabled, r.Preferences.AgentsEnabled, r.Preferences.ClassifierModel, r.Preferences.ClassifierEffort, r.Preferences.ClassifierContextBudgetBytes, r.PendingRetries, formatTime(r.LastUpdateCheck))
 }
@@ -336,6 +343,12 @@ func withVersion(value Result) Result {
 		if result.Version == 0 {
 			result.Version = CurrentResultVersion
 		}
+		if result.LaunchAgentStatus == "" {
+			result.LaunchAgentStatus = "unhealthy"
+			if result.LaunchAgentHealthy {
+				result.LaunchAgentStatus = "healthy"
+			}
+		}
 		return result
 	case InspectResult:
 		if result.Version == 0 {
@@ -447,6 +460,9 @@ func validateResult(value Result) error {
 			}
 		}
 	case StatusResult:
+		if result.LaunchAgentStatus != "" && result.LaunchAgentStatus != "healthy" && result.LaunchAgentStatus != "unhealthy" && result.LaunchAgentStatus != "unavailable" {
+			return errors.New("status result has invalid launch_agent_status")
+		}
 		if result.InstalledVersion == "" || result.ControlTaskID == "" || result.Preferences.HeartbeatSeconds <= 0 || result.Preferences.ArchiveAfterDays <= 0 || result.Preferences.ClassifierModel == "" || result.Preferences.ClassifierEffort == "" || result.Preferences.ClassifierContextBudgetBytes <= 0 || result.PendingRetries < 0 {
 			return errors.New("status result is incomplete")
 		}
