@@ -67,9 +67,9 @@ func ResolveCodexHome() (string, error) {
 }
 
 func ResolveSQLiteHome(codexHome string) (string, error) {
-	if value := strings.TrimSpace(os.Getenv("CODEX_SQLITE_HOME")); value != "" {
-		return filepath.Abs(value)
-	}
+	// Codex 0.145 resolves an explicit sqlite_home config value first and uses
+	// CODEX_SQLITE_HOME only as the fallback (core/src/config/mod.rs: cfg.sqlite_home
+	// .or_else(resolve_sqlite_home_env)).
 	data, err := os.ReadFile(filepath.Join(codexHome, "config.toml"))
 	if err != nil && !errors.Is(err, os.ErrNotExist) {
 		return "", fmt.Errorf("read Codex config: %w", err)
@@ -86,19 +86,24 @@ func ResolveSQLiteHome(codexHome string) (string, error) {
 			return filepath.Abs(value)
 		}
 	}
+	if value := strings.TrimSpace(os.Getenv("CODEX_SQLITE_HOME")); value != "" {
+		return filepath.Abs(value)
+	}
 	return filepath.Abs(codexHome)
 }
 
 func OpenDefaultIndex() (*Index, error) {
-	if value := strings.TrimSpace(os.Getenv("CODEX_SQLITE_HOME")); value != "" {
-		sqliteHome, err := filepath.Abs(value)
-		if err != nil {
-			return nil, err
-		}
-		return OpenIndex(sqliteHome)
-	}
 	codexHome, err := ResolveCodexHome()
 	if err != nil {
+		// A Codex home is required to read config-first precedence; without one,
+		// the environment override still names a database home on its own.
+		if value := strings.TrimSpace(os.Getenv("CODEX_SQLITE_HOME")); value != "" {
+			sqliteHome, absErr := filepath.Abs(value)
+			if absErr != nil {
+				return nil, absErr
+			}
+			return OpenIndex(sqliteHome)
+		}
 		return nil, err
 	}
 	sqliteHome, err := ResolveSQLiteHome(codexHome)

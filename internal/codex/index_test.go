@@ -61,7 +61,7 @@ func TestIndexFailsClosedOnUnboundedHigherVersion(t *testing.T) {
 	}
 }
 
-func TestIndexUsesSQLiteHomeEnvironmentOverride(t *testing.T) {
+func TestIndexPrefersConfigSQLiteHomeOverEnvironment(t *testing.T) {
 	root := t.TempDir()
 	codexHome := filepath.Join(root, "codex")
 	configHome := filepath.Join(root, "config-sqlite")
@@ -85,8 +85,8 @@ func TestIndexUsesSQLiteHomeEnvironmentOverride(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer index.Close()
-	if got, want := index.Path(), filepath.Join(environmentHome, "state_7.sqlite"); got != want {
-		t.Fatalf("Path() = %q, want environment override %q", got, want)
+	if got, want := index.Path(), filepath.Join(configHome, "state_6.sqlite"); got != want {
+		t.Fatalf("Path() = %q, want config sqlite_home %q (config precedes CODEX_SQLITE_HOME in Codex 0.145)", got, want)
 	}
 }
 
