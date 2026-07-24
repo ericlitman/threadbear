@@ -5,6 +5,8 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"os/exec"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
@@ -244,5 +246,37 @@ func TestApplicationPreservesTypedFailureResult(t *testing.T) {
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("Dispatch() result = %#v, want %#v", got, want)
+	}
+}
+
+func TestCLIUnknownCommandResult(t *testing.T) {
+	root, err := filepath.Abs(filepath.Join("..", ".."))
+	if err != nil {
+		t.Fatal(err)
+	}
+	binary := filepath.Join(t.TempDir(), "threadbear")
+	build := exec.Command("go", "build", "-o", binary, "./cmd/threadbear")
+	build.Dir = root
+	build.Env = append(build.Environ(), "CGO_ENABLED=0", "GOTOOLCHAIN=local")
+	if output, err := build.CombinedOutput(); err != nil {
+		t.Fatalf("build CLI: %v: %s", err, output)
+	}
+	for _, args := range [][]string{
+		{"bogus", "--dry-run", "--json"},
+		{"BOGUS", "--json"},
+	} {
+		command := exec.Command(binary, args...)
+		stdout, err := command.Output()
+		exitError, ok := err.(*exec.ExitError)
+		if !ok || exitError.ExitCode() != 2 {
+			t.Fatalf("threadbear %v error = %v", args, err)
+		}
+		want := "{\"version\":1,\"operation\":\"dispatch\",\"error_code\":\"unknown_command\"}\n"
+		if string(stdout) != want {
+			t.Fatalf("threadbear %v stdout = %q, want %q", args, stdout, want)
+		}
+		if len(exitError.Stderr) != 0 {
+			t.Fatalf("threadbear %v stderr = %q", args, exitError.Stderr)
+		}
 	}
 }
