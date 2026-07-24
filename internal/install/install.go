@@ -214,20 +214,14 @@ func (i Installer) Install(ctx context.Context, request InstallRequest) (Install
 	if err != nil {
 		return InstallResult{}, Fail("detect_legacy_interval", err)
 	}
-	candidateMigration, candidateMigrated, err := i.loadMigrationState(migrationNeeded)
-	if err != nil {
-		return InstallResult{}, Fail("load_candidate_migration", err)
-	}
+	legacyStateExists := migrationNeeded && migrationCandidate(i.Paths.LegacyState)
 	previewPreferences := DefaultPreferences()
 	previewControlTaskID := "threadbear-install-candidate"
 	if previewConfigExists {
 		previewPreferences = preferencesFromConfig(previewConfig)
 		previewControlTaskID = previewConfig.ControlTaskID
-	} else if candidateMigrated {
-		previewControlTaskID = candidateMigration.ControlTaskID
-		if legacyIntervalFound {
-			previewPreferences.HeartbeatSeconds = legacyInterval
-		}
+	} else if legacyStateExists && legacyIntervalFound {
+		previewPreferences.HeartbeatSeconds = legacyInterval
 	}
 	var selectedPreferences *Preferences
 	if request.Preferences != nil {
@@ -254,7 +248,7 @@ func (i Installer) Install(ctx context.Context, request InstallRequest) (Install
 	if err := previewPreferences.Validate(); err != nil {
 		return InstallResult{}, Fail("preferences", err)
 	}
-	preview, err := installPreview(i.Paths, previewPreferences, previewConfigExists, migrationNeeded && candidateMigrated)
+	preview, err := installPreview(i.Paths, previewPreferences, previewConfigExists, migrationNeeded && legacyStateExists)
 	if err != nil {
 		return InstallResult{}, Fail("preview", err)
 	}
@@ -278,11 +272,7 @@ func (i Installer) Install(ctx context.Context, request InstallRequest) (Install
 	}
 	candidateState := previewState
 	if !previewStateExists {
-		if candidateMigrated {
-			candidateState = candidateMigration.State
-		} else {
-			candidateState = state.New()
-		}
+		candidateState = state.New()
 	}
 	candidateConfig := previewPreferences.config(previewControlTaskID, i.CodexExecutable, i.CodexSpawnPath)
 	resources, err := i.stageCandidate(ctx, candidateConfig, candidateState)
@@ -304,7 +294,7 @@ func (i Installer) Install(ctx context.Context, request InstallRequest) (Install
 		return InstallResult{}, Fail("reload_existing", err)
 	}
 	if err := i.Scheduler.StopLegacy(ctx); err != nil {
-		return InstallResult{}, i.stoppedLegacyFailure("stop_legacy_scheduler", err)
+		return InstallResult{}, Fail("stop_legacy_scheduler", err)
 	}
 	fail := func(step string, err error) error { return i.stoppedLegacyFailure(step, err) }
 	if err := i.Scheduler.VerifyLegacyStopped(ctx); err != nil {
@@ -542,62 +532,58 @@ func applyPreferencePatch(value Preferences, patch PreferencePatch) Preferences 
 }
 
 func (i Installer) resolveCodexExecutableSpec(persisted config.Config, persistedExists bool) (codex.ExecutableSpec, error) {
-	pathValue := os.Getenv("PATH")
+	capturedPath := codex.SanitizePath(os.Getenv("PATH"))
 	if persistedExists && persisted.CodexExecutable != "" {
-		if err := codex.ValidateExecutable(persisted.CodexExecutable); err == nil {
-			spec := codex.ExecutableSpec{Path: persisted.CodexExecutable, SpawnPath: persisted.CodexSpawnPath}
-			if spec.SpawnPath == "" {
-				derived, err := codex.DeriveExecutableSpec(i.Paths.Home, spec.Path, pathValue)
-				if err != nil {
-					return codex.ExecutableSpec{}, err
-				}
+		spec := codex.ExecutableSpec{Path: persisted.CodexExecutable, SpawnPath: persisted.CodexSpawnPath}
+		if spec.SpawnPath == "" {
+			derived, err := codex.DeriveExecutableSpec(i.Paths.Home, spec.Path, capturedPath)
+			if err == nil {
 				spec = derived
 			}
-			if err := codex.VerifyExecutableSpec(i.Paths.Home, spec); err != nil {
-				return codex.ExecutableSpec{}, err
-			}
+		}
+		if err := codex.ProbeExecutable(i.Paths.Home, spec); err == nil {
 			return spec, nil
 		}
 	}
-	if i.CodexExecutable != "" {
+	if i.CodexExecutable != "" || i.CodexSpawnPath != "" {
 		spec := codex.ExecutableSpec{Path: i.CodexExecutable, SpawnPath: i.CodexSpawnPath}
 		if spec.SpawnPath == "" {
-			derived, err := codex.DeriveExecutableSpec(i.Paths.Home, spec.Path, pathValue)
+			derived, err := codex.DeriveExecutableSpec(i.Paths.Home, spec.Path, capturedPath)
 			if err != nil {
 				return codex.ExecutableSpec{}, err
 			}
 			spec = derived
 		}
-		if err := codex.VerifyExecutableSpec(i.Paths.Home, spec); err != nil {
+		if err := codex.ProbeExecutable(i.Paths.Home, spec); err != nil {
 			return codex.ExecutableSpec{}, err
 		}
 		return spec, nil
 	}
 	if i.ResolveCodexExecutableSpec != nil {
-		spec, err := i.ResolveCodexExecutableSpec(i.Paths.Home, pathValue)
+		spec, err := i.ResolveCodexExecutableSpec(i.Paths.Home, capturedPath)
 		if err != nil {
 			return codex.ExecutableSpec{}, err
 		}
-		if err := codex.VerifyExecutableSpec(i.Paths.Home, spec); err != nil {
+		if err := codex.ProbeExecutable(i.Paths.Home, spec); err != nil {
 			return codex.ExecutableSpec{}, err
 		}
 		return spec, nil
 	}
 	if i.ResolveCodexExecutable != nil {
-		executable, err := i.ResolveCodexExecutable(i.Paths.Home, pathValue)
+		executable, err := i.ResolveCodexExecutable(i.Paths.Home, capturedPath)
 		if err != nil {
 			return codex.ExecutableSpec{}, err
 		}
-		spec, err := codex.DeriveExecutableSpec(i.Paths.Home, executable, pathValue)
+		spec, err := codex.DeriveExecutableSpec(i.Paths.Home, executable, capturedPath)
 		if err != nil {
 			return codex.ExecutableSpec{}, err
 		}
-		if err := codex.VerifyExecutableSpec(i.Paths.Home, spec); err != nil {
+		if err := codex.ProbeExecutable(i.Paths.Home, spec); err != nil {
 			return codex.ExecutableSpec{}, err
 		}
 		return spec, nil
 	}
-	return codex.ResolveExecutableSpec(i.Paths.Home, pathValue)
+	return codex.ResolveExecutableSpec(i.Paths.Home, capturedPath)
 }
 
 func (i Installer) validate() error {
@@ -877,7 +863,7 @@ func (RuntimeProbe) Platform() (string, string, int) {
 }
 
 func (RuntimeProbe) ValidateCodex(_ context.Context, home, codexHome string, spec codex.ExecutableSpec) error {
-	if err := codex.VerifyExecutableSpec(home, spec); err != nil {
+	if err := codex.ProbeExecutable(home, spec); err != nil {
 		return err
 	}
 	info, err := os.Stat(codexHome)

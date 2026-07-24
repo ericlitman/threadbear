@@ -10,6 +10,8 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+
+	"github.com/ericlitman/threadbear/internal/codex"
 )
 
 var ErrCapability = errors.New("required Codex App Server capability is unavailable")
@@ -28,22 +30,16 @@ func DefaultProcessSpec(codexHome string) ProcessSpec {
 	return ProcessSpec{Path: "codex", Env: []string{"CODEX_HOME=" + codexHome, "HOME=" + home, "LC_ALL=C", "PATH=/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin", "TMPDIR=" + os.TempDir()}}
 }
 
-func PinnedProcessSpec(executable, codexHome, home, spawnPath string) (ProcessSpec, error) {
+func PinnedProcessSpec(executable, codexHome, home, pinnedSpawnPath string) (ProcessSpec, error) {
 	if !filepath.IsAbs(executable) {
 		return ProcessSpec{}, errors.New("App Server executable must be absolute")
 	}
 	if !filepath.IsAbs(codexHome) || !filepath.IsAbs(home) {
 		return ProcessSpec{}, errors.New("App Server homes must be absolute")
 	}
-	if spawnPath == "" {
-		return ProcessSpec{}, errors.New("App Server spawn PATH must not be empty")
-	}
-	seen := make(map[string]bool)
-	for _, directory := range filepath.SplitList(spawnPath) {
-		if directory == "" || strings.TrimSpace(directory) != directory || !filepath.IsAbs(directory) || filepath.Clean(directory) != directory || seen[directory] {
-			return ProcessSpec{}, errors.New("App Server spawn PATH must be canonical, absolute-only, and deduplicated")
-		}
-		seen[directory] = true
+	spawnPath, err := codex.ComposeSpawnPath(pinnedSpawnPath)
+	if err != nil {
+		return ProcessSpec{}, fmt.Errorf("App Server spawn PATH: %w", err)
 	}
 	return ProcessSpec{Path: executable, Env: []string{"CODEX_HOME=" + codexHome, "HOME=" + home, "LC_ALL=C", "PATH=" + spawnPath, "TMPDIR=" + os.TempDir()}}, nil
 }
