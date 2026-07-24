@@ -694,7 +694,7 @@ The release candidate must pass AE1-AE24 end to end. Evidence may be grouped by 
 
 ThreadBear v1 is done only when:
 
-- The Product Contract's R1-R42 and AE1-AE24 are implemented without private Desktop state writes, arbitrary task caps, fixed message clipping, visible classifier tasks, automatic updates, or rollback machinery.
+- The Product Contract's R1-R43 and AE1-AE24 are implemented without private Desktop state writes, arbitrary task caps, fixed message clipping, visible classifier tasks, automatic updates, or rollback machinery.
 - U1-U10 each pass their listed verification and the full Verification Contract passes on Apple silicon and Intel release artifacts.
 - The installed idle heartbeat produces zero bytes and starts no Codex/App Server/model process.
 - Structured evidence and valid footers bypass Luna; unresolved work uses only fresh ephemeral Luna-medium sessions and never appends classifier history to the control task.
