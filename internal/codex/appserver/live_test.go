@@ -31,8 +31,9 @@ func TestLiveEphemeralDoesNotPersist(t *testing.T) {
 	if err := client.Close(); err != nil {
 		t.Fatal(err)
 	}
-	if result.ThreadID == "" || !result.ToolRestriction.CompensatingSet() {
-		t.Fatalf("result=%+v", result)
+	output := strings.TrimSpace(evidenceFromTurn(result.Turn).AgentMessage)
+	if result.ThreadID == "" || !result.ToolRestriction.CompensatingSet() || output == "" {
+		t.Fatalf("result=%+v output=%q", result, output)
 	}
 	after := liveThreadIDs(t, home)
 	if !reflect.DeepEqual(after, before) {

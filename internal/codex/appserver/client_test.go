@@ -119,7 +119,7 @@ func TestEvidenceAndFallbacks(t *testing.T) {
 	c = startFake(t, "normal", empty)
 	defer c.Close()
 	e, err = c.ReadRecentTurns(context.Background(), "task-1", filepath.Join("..", "..", "..", "testdata", "appserver", "rollout.jsonl"))
-	if err != nil || e.Latest == nil || e.Latest.AgentMessage != "latest result" || e.Previous == nil {
+	if err != nil || e.Latest == nil || e.Latest.Status != "interrupted" || e.Latest.AgentMessage != "aborted partial" || e.Previous == nil || e.Previous.Status != "failed" || e.Previous.Error == nil || e.Previous.Error.Message != "synthetic rollout failure" {
 		t.Fatalf("rollout=%+v %v", e, err)
 	}
 }
@@ -159,8 +159,16 @@ func TestEphemeralControls(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.ThreadID != "ephemeral-1" || result.Turn.Status != "completed" || !result.ToolRestriction.ConfigOverride || !result.ToolRestriction.PermissionProfile || !result.ToolRestriction.CompensatingSet() {
-		t.Fatalf("result=%+v", result)
+	output := evidenceFromTurn(result.Turn).AgentMessage
+	if result.ThreadID != "ephemeral-1" || result.Turn.Status != "completed" || output != `{"state":"complete"}` || !result.ToolRestriction.ConfigOverride || !result.ToolRestriction.PermissionProfile || result.ToolRestriction.ReadOnlySandbox || !result.ToolRestriction.EnvironmentsDisabled || !result.ToolRestriction.DynamicToolsDisabled || !result.ToolRestriction.ApprovalsDisabled || !result.ToolRestriction.OutputConstrained {
+		t.Fatalf("result=%+v output=%q", result, output)
+	}
+	legacy, err := c.RunEphemeral(context.Background(), EphemeralRequest{Model: "gpt-5.6-luna", Effort: "medium", Input: "classify", OutputSchema: map[string]any{"type": "object"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !legacy.ToolRestriction.CompensatingSet() || legacy.ToolRestriction.PermissionProfile {
+		t.Fatalf("legacy restriction=%+v", legacy.ToolRestriction)
 	}
 	caps := fixtureCaps(t)
 	delete(caps.ThreadStartFields, "dynamicTools")
@@ -320,7 +328,8 @@ func fakeServe(scenario string) {
 				continue
 			}
 			encoder.Encode(map[string]any{"id": request.ID, "result": map[string]any{"turn": map[string]any{"id": "turn-1", "status": "inProgress"}}})
-			encoder.Encode(map[string]any{"method": "turn/completed", "params": map[string]any{"threadId": "ephemeral-1", "turn": map[string]any{"id": "turn-1", "status": "completed"}}})
+			encoder.Encode(map[string]any{"method": "item/completed", "params": map[string]any{"threadId": "ephemeral-1", "turnId": "turn-1", "completedAtMs": 1, "item": map[string]any{"id": "item-1", "type": "agentMessage", "phase": "final_answer", "text": `{"state":"complete"}`}}})
+			encoder.Encode(map[string]any{"method": "turn/completed", "params": map[string]any{"threadId": "ephemeral-1", "turn": map[string]any{"id": "turn-1", "status": "completed", "items": []any{}, "itemsView": "notLoaded"}}})
 		default:
 			encoder.Encode(fakeError(request.ID, "unknown"))
 		}
@@ -337,13 +346,21 @@ func validateStart(raw json.RawMessage) error {
 	if err := json.Unmarshal(raw, &p); err != nil {
 		return err
 	}
-	for _, f := range []string{"ephemeral", "model", "environments", "dynamicTools", "approvalPolicy", "sandbox"} {
+	for _, f := range []string{"ephemeral", "model", "environments", "dynamicTools", "approvalPolicy"} {
 		if _, ok := p[f]; !ok {
 			return fmt.Errorf("missing %s", f)
 		}
 	}
-	if p["ephemeral"] != true || p["approvalPolicy"] != "never" || p["sandbox"] != "read-only" {
+	_, permissions := p["permissions"]
+	_, sandbox := p["sandbox"]
+	if permissions == sandbox {
+		return errors.New("thread/start must choose exactly one of permissions or sandbox")
+	}
+	if p["ephemeral"] != true || p["approvalPolicy"] != "never" {
 		return errors.New("unsafe controls")
+	}
+	if sandbox && p["sandbox"] != "read-only" {
+		return errors.New("sandbox is not read-only")
 	}
 	return nil
 }
@@ -352,10 +369,15 @@ func validateTurn(raw json.RawMessage) error {
 	if err := json.Unmarshal(raw, &p); err != nil {
 		return err
 	}
-	for _, f := range []string{"threadId", "input", "model", "effort", "outputSchema", "environments", "approvalPolicy", "sandboxPolicy"} {
+	for _, f := range []string{"threadId", "input", "model", "effort", "outputSchema", "environments", "approvalPolicy"} {
 		if _, ok := p[f]; !ok {
 			return fmt.Errorf("missing %s", f)
 		}
+	}
+	_, permissions := p["permissions"]
+	_, sandbox := p["sandboxPolicy"]
+	if permissions == sandbox {
+		return errors.New("turn/start must choose exactly one of permissions or sandboxPolicy")
 	}
 	if p["approvalPolicy"] != "never" {
 		return errors.New("approvals enabled")

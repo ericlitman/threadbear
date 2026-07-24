@@ -323,12 +323,15 @@ func (c *Client) RunEphemeral(ctx context.Context, request EphemeralRequest) (Ep
 	if err != nil {
 		return EphemeralResult{}, err
 	}
-	threadParams := map[string]any{"ephemeral": true, "model": request.Model, "environments": []any{}, "dynamicTools": []any{}, "approvalPolicy": "never", "sandbox": "read-only"}
+	threadParams := map[string]any{"ephemeral": true, "model": request.Model, "environments": []any{}, "dynamicTools": []any{}, "approvalPolicy": "never"}
 	if restriction.ConfigOverride {
 		threadParams["config"] = request.ToolConfig
 	}
 	if restriction.PermissionProfile {
 		threadParams["permissions"] = request.PermissionProfile
+		restriction.ReadOnlySandbox = false
+	} else {
+		threadParams["sandbox"] = "read-only"
 	}
 	var started struct {
 		Thread Thread `json:"thread"`
@@ -339,9 +342,11 @@ func (c *Client) RunEphemeral(ctx context.Context, request EphemeralRequest) (Ep
 	if !started.Thread.Ephemeral || started.Thread.Path != nil {
 		return EphemeralResult{}, errors.New("App Server did not confirm an in-memory ephemeral thread")
 	}
-	turnParams := map[string]any{"threadId": started.Thread.ID, "input": []map[string]any{{"type": "text", "text": request.Input}}, "model": request.Model, "effort": request.Effort, "outputSchema": request.OutputSchema, "environments": []any{}, "approvalPolicy": "never", "sandboxPolicy": map[string]any{"type": "readOnly", "networkAccess": false}}
+	turnParams := map[string]any{"threadId": started.Thread.ID, "input": []map[string]any{{"type": "text", "text": request.Input}}, "model": request.Model, "effort": request.Effort, "outputSchema": request.OutputSchema, "environments": []any{}, "approvalPolicy": "never"}
 	if restriction.PermissionProfile {
 		turnParams["permissions"] = request.PermissionProfile
+	} else {
+		turnParams["sandboxPolicy"] = map[string]any{"type": "readOnly", "networkAccess": false}
 	}
 	var turnStarted struct {
 		Turn Turn `json:"turn"`
@@ -356,6 +361,7 @@ func (c *Client) RunEphemeral(ctx context.Context, request EphemeralRequest) (Ep
 	return EphemeralResult{ThreadID: started.Thread.ID, Turn: turn, ToolRestriction: restriction}, nil
 }
 func (c *Client) waitForTurn(ctx context.Context, threadID, turnID string) (Turn, error) {
+	items := make([]TurnItem, 0)
 	for {
 		select {
 		case <-ctx.Done():
@@ -366,18 +372,33 @@ func (c *Client) waitForTurn(ctx context.Context, threadID, turnID string) (Turn
 			c.mu.Unlock()
 			return Turn{}, err
 		case notification := <-c.notifications:
-			if notification.Method != "turn/completed" {
-				continue
-			}
-			var completed struct {
-				ThreadID string `json:"threadId"`
-				Turn     Turn   `json:"turn"`
-			}
-			if err := json.Unmarshal(notification.Params, &completed); err != nil {
-				return Turn{}, fmt.Errorf("decode turn completion: %w", err)
-			}
-			if completed.ThreadID == threadID && completed.Turn.ID == turnID {
-				return completed.Turn, nil
+			switch notification.Method {
+			case "item/completed":
+				var completed struct {
+					ThreadID string   `json:"threadId"`
+					TurnID   string   `json:"turnId"`
+					Item     TurnItem `json:"item"`
+				}
+				if err := json.Unmarshal(notification.Params, &completed); err != nil {
+					return Turn{}, fmt.Errorf("decode item completion: %w", err)
+				}
+				if completed.ThreadID == threadID && completed.TurnID == turnID {
+					items = append(items, completed.Item)
+				}
+			case "turn/completed":
+				var completed struct {
+					ThreadID string `json:"threadId"`
+					Turn     Turn   `json:"turn"`
+				}
+				if err := json.Unmarshal(notification.Params, &completed); err != nil {
+					return Turn{}, fmt.Errorf("decode turn completion: %w", err)
+				}
+				if completed.ThreadID == threadID && completed.Turn.ID == turnID {
+					if len(completed.Turn.Items) == 0 {
+						completed.Turn.Items = items
+					}
+					return completed.Turn, nil
+				}
 			}
 		}
 	}
@@ -400,7 +421,8 @@ func readRolloutEvidence(path string) (RecentEvidence, error) {
 			if err := json.Unmarshal(line, &envelope); err != nil {
 				return RecentEvidence{}, fmt.Errorf("parse Codex rollout: %w", err)
 			}
-			if envelope.Type == "response_item" {
+			switch envelope.Type {
+			case "response_item":
 				var item struct {
 					Type    string          `json:"type"`
 					Role    string          `json:"role"`
@@ -411,14 +433,43 @@ func readRolloutEvidence(path string) (RecentEvidence, error) {
 					switch item.Role {
 					case "user":
 						mapped.Type = "userMessage"
-						turns = append(turns, Turn{ID: fmt.Sprintf("rollout-%d", len(turns)+1), Status: "completed", Items: []TurnItem{mapped}})
+						turns = append(turns, Turn{ID: fmt.Sprintf("rollout-%d", len(turns)+1), Status: "inProgress", Items: []TurnItem{mapped}})
 					case "assistant":
 						mapped.Type = "agentMessage"
-						mapped.Phase = "final_answer"
 						if len(turns) > 0 {
 							turns[len(turns)-1].Items = append(turns[len(turns)-1].Items, mapped)
 						}
 					}
+				}
+			case "event_msg":
+				if len(turns) == 0 {
+					break
+				}
+				var event struct {
+					Type    string          `json:"type"`
+					Message string          `json:"message"`
+					Reason  string          `json:"reason"`
+					Error   *TurnError      `json:"error"`
+					Info    json.RawMessage `json:"codex_error_info"`
+				}
+				if err := json.Unmarshal(envelope.Payload, &event); err != nil {
+					return RecentEvidence{}, fmt.Errorf("parse Codex rollout event: %w", err)
+				}
+				turn := &turns[len(turns)-1]
+				switch event.Type {
+				case "turn_complete":
+					if event.Error != nil {
+						turn.Status = "failed"
+						turn.Error = event.Error
+					} else {
+						turn.Status = "completed"
+						markFinalAgentMessage(turn)
+					}
+				case "error":
+					turn.Status = "failed"
+					turn.Error = &TurnError{Message: event.Message, CodexErrorInfo: event.Info}
+				case "turn_aborted":
+					turn.Status = "interrupted"
 				}
 			}
 		}
@@ -433,4 +484,13 @@ func readRolloutEvidence(path string) (RecentEvidence, error) {
 		turns = turns[len(turns)-2:]
 	}
 	return evidenceFromTurns(ThreadStatus{}, turns), nil
+}
+
+func markFinalAgentMessage(turn *Turn) {
+	for index := len(turn.Items) - 1; index >= 0; index-- {
+		if turn.Items[index].Type == "agentMessage" {
+			turn.Items[index].Phase = "final_answer"
+			return
+		}
+	}
 }
