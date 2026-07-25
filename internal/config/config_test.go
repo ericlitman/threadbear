@@ -317,3 +317,81 @@ func TestCLIUnknownCommandResult(t *testing.T) {
 		}
 	}
 }
+
+func TestConfigCodexExecutableIsOptionalForSchemaV1AndValidatedWhenPresent(t *testing.T) {
+	value := config.Default("control-123")
+	data, err := json.Marshal(value)
+	if err != nil {
+		t.Fatal(err)
+	}
+	decoded, err := config.Decode(data)
+	if err != nil || decoded.CodexExecutable != "" {
+		t.Fatalf("decoded=%+v err=%v", decoded, err)
+	}
+	value.CodexExecutable = "/opt/homebrew/bin/codex"
+	data, err = json.Marshal(value)
+	if err != nil {
+		t.Fatal(err)
+	}
+	decoded, err = config.Decode(data)
+	if err != nil || decoded.CodexExecutable != value.CodexExecutable {
+		t.Fatalf("decoded=%+v err=%v", decoded, err)
+	}
+	value.CodexExecutable = "relative/codex"
+	if err := value.Validate(); err == nil {
+		t.Fatal("relative codex executable accepted")
+	}
+}
+
+func TestConfigCodexSpawnPathValidationAndLegacyDecode(t *testing.T) {
+	legacy := config.Default("control-123")
+	legacy.CodexExecutable = "/opt/homebrew/bin/codex"
+	data, err := json.Marshal(legacy)
+	if err != nil {
+		t.Fatal(err)
+	}
+	decoded, err := config.Decode(data)
+	if err != nil || decoded.CodexSpawnPath != "" {
+		t.Fatalf("legacy decode=%+v err=%v", decoded, err)
+	}
+
+	valid := legacy
+	valid.CodexSpawnPath = "/opt/homebrew/bin:/usr/bin:/bin"
+	data, err = json.Marshal(valid)
+	if err != nil {
+		t.Fatal(err)
+	}
+	decoded, err = config.Decode(data)
+	if err != nil || decoded.CodexSpawnPath != valid.CodexSpawnPath {
+		t.Fatalf("spawn decode=%+v err=%v", decoded, err)
+	}
+	if err := valid.Validate(); err != nil {
+		t.Fatal(err)
+	}
+
+	legacyArray := strings.Replace(string(data), `"codex_spawn_path":"/opt/homebrew/bin:/usr/bin:/bin"`, `"codex_spawn_path":["/opt/homebrew/bin","/usr/bin","/opt/homebrew/bin","/bin"]`, 1)
+	decoded, err = config.Decode([]byte(legacyArray))
+	if err != nil || decoded.CodexSpawnPath != valid.CodexSpawnPath {
+		t.Fatalf("legacy array decode=%+v err=%v", decoded, err)
+	}
+
+	for name, spawnPath := range map[string]string{"relative": "usr/bin", "duplicate": "/usr/bin:/usr/bin", "unclean": "/usr/bin/../bin"} {
+		t.Run(name, func(t *testing.T) {
+			value := valid
+			value.CodexSpawnPath = spawnPath
+			if err := value.Validate(); err == nil {
+				t.Fatalf("accepted spawn path %q", spawnPath)
+			}
+		})
+	}
+	withoutExecutable := config.Default("control-123")
+	withoutExecutable.CodexSpawnPath = "/usr/bin"
+	if err := withoutExecutable.Validate(); err == nil {
+		t.Fatal("accepted codex_spawn_path without codex_executable")
+	}
+	withoutSpawn := config.Default("control-123")
+	withoutSpawn.CodexExecutable = "/usr/bin/codex"
+	if err := withoutSpawn.Validate(); err == nil {
+		t.Fatal("accepted codex_executable without codex_spawn_path")
+	}
+}

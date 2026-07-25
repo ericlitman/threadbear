@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"path/filepath"
 	"strings"
 )
 
@@ -37,6 +38,8 @@ var ErrUnsupportedSchema = errors.New("unsupported config schema")
 type Config struct {
 	SchemaVersion                int              `json:"schema_version"`
 	ControlTaskID                string           `json:"control_task_id"`
+	CodexExecutable              string           `json:"codex_executable,omitempty"`
+	CodexSpawnPath               string           `json:"codex_spawn_path,omitempty"`
 	HeartbeatSeconds             int              `json:"heartbeat_seconds"`
 	ArchiveEnabled               bool             `json:"archive_enabled"`
 	ArchiveAfterDays             int              `json:"archive_after_days"`
@@ -62,11 +65,9 @@ func Default(controlTaskID string) Config {
 	}
 }
 
-func (c Config) Validate() error {
-	return c.validate(true)
-}
+func (c Config) Validate() error { return c.validate(true, true) }
 
-func (c Config) validate(requireBudget bool) error {
+func (c Config) validate(requireBudget, requirePair bool) error {
 	if c.SchemaVersion != CurrentSchemaVersion {
 		return fmt.Errorf("%w: got %d, want %d", ErrUnsupportedSchema, c.SchemaVersion, CurrentSchemaVersion)
 	}
@@ -75,6 +76,18 @@ func (c Config) validate(requireBudget bool) error {
 	}
 	if strings.TrimSpace(c.ControlTaskID) != c.ControlTaskID {
 		return errors.New("control_task_id must not contain surrounding whitespace")
+	}
+	if c.CodexExecutable != "" && (!filepath.IsAbs(c.CodexExecutable) || strings.TrimSpace(c.CodexExecutable) != c.CodexExecutable) {
+		return errors.New("codex_executable must be an absolute path")
+	}
+	if c.CodexSpawnPath != "" && c.CodexExecutable == "" {
+		return errors.New("codex_spawn_path requires codex_executable")
+	}
+	if requirePair && c.CodexExecutable != "" && c.CodexSpawnPath == "" {
+		return errors.New("codex_executable requires codex_spawn_path")
+	}
+	if c.CodexSpawnPath != "" && sanitizePath(c.CodexSpawnPath) != c.CodexSpawnPath {
+		return errors.New("codex_spawn_path must be canonical, absolute-only, and deduplicated")
 	}
 	if c.HeartbeatSeconds <= 0 {
 		return errors.New("heartbeat_seconds must be positive")
@@ -113,10 +126,11 @@ func Decode(data []byte) (Config, error) {
 		}
 		return Config{}, fmt.Errorf("%w: got %d, want %d", ErrUnsupportedSchema, found, CurrentSchemaVersion)
 	}
-
 	var wire struct {
 		SchemaVersion                *int              `json:"schema_version"`
 		ControlTaskID                *string           `json:"control_task_id"`
+		CodexExecutable              *string           `json:"codex_executable"`
+		CodexSpawnPath               json.RawMessage   `json:"codex_spawn_path"`
 		HeartbeatSeconds             *int              `json:"heartbeat_seconds"`
 		ArchiveEnabled               *bool             `json:"archive_enabled"`
 		ArchiveAfterDays             *int              `json:"archive_after_days"`
@@ -132,6 +146,10 @@ func Decode(data []byte) (Config, error) {
 	if wire.ControlTaskID == nil || wire.HeartbeatSeconds == nil || wire.ArchiveEnabled == nil || wire.ArchiveAfterDays == nil || wire.RenameEnabled == nil || wire.AgentsEnabled == nil || wire.ClassifierModel == nil || wire.ClassifierEffort == nil {
 		return Config{}, errors.New("config is missing a required field")
 	}
+	spawnPath, err := decodeSpawnPath(wire.CodexSpawnPath)
+	if err != nil {
+		return Config{}, fmt.Errorf("decode config: %w", err)
+	}
 	budget := 0
 	if wire.ClassifierContextBudgetBytes != nil {
 		budget = *wire.ClassifierContextBudgetBytes
@@ -141,6 +159,8 @@ func Decode(data []byte) (Config, error) {
 	c := Config{
 		SchemaVersion:                *wire.SchemaVersion,
 		ControlTaskID:                *wire.ControlTaskID,
+		CodexExecutable:              optionalString(wire.CodexExecutable),
+		CodexSpawnPath:               spawnPath,
 		HeartbeatSeconds:             *wire.HeartbeatSeconds,
 		ArchiveEnabled:               *wire.ArchiveEnabled,
 		ArchiveAfterDays:             *wire.ArchiveAfterDays,
@@ -150,12 +170,50 @@ func Decode(data []byte) (Config, error) {
 		ClassifierEffort:             *wire.ClassifierEffort,
 		ClassifierContextBudgetBytes: budget,
 	}
-	if err := c.validate(false); err != nil {
+	if err := c.validate(false, false); err != nil {
 		return Config{}, err
 	}
 	return c, nil
 }
 
+func decodeSpawnPath(raw json.RawMessage) (string, error) {
+	if len(raw) == 0 || string(raw) == "null" {
+		return "", nil
+	}
+	var value string
+	if err := json.Unmarshal(raw, &value); err == nil {
+		return value, nil
+	}
+	var legacy []string
+	if err := json.Unmarshal(raw, &legacy); err != nil {
+		return "", errors.New("codex_spawn_path must be a string")
+	}
+	return sanitizePath(strings.Join(legacy, string(filepath.ListSeparator))), nil
+}
+
+func sanitizePath(value string) string {
+	result := make([]string, 0)
+	seen := make(map[string]bool)
+	for _, entry := range filepath.SplitList(value) {
+		if !filepath.IsAbs(entry) {
+			continue
+		}
+		entry = filepath.Clean(entry)
+		if seen[entry] {
+			continue
+		}
+		seen[entry] = true
+		result = append(result, entry)
+	}
+	return strings.Join(result, string(filepath.ListSeparator))
+}
+
+func optionalString(value *string) string {
+	if value == nil {
+		return ""
+	}
+	return *value
+}
 func decodeStrict(data []byte, target any, disallowUnknown bool) error {
 	decoder := json.NewDecoder(bytes.NewReader(data))
 	if disallowUnknown {

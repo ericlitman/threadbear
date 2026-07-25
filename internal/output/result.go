@@ -165,12 +165,13 @@ type PreviewResult struct {
 	Version int      `json:"version"`
 	Command string   `json:"command"`
 	Effects []string `json:"effects"`
+	Details []string `json:"details"`
 }
 
 func (PreviewResult) result()     {}
 func (PreviewResult) Empty() bool { return false }
 func (r PreviewResult) Human() string {
-	return fmt.Sprintf("ThreadBear preview for %s: %s", r.Command, strings.Join(r.Effects, ", "))
+	return fmt.Sprintf("ThreadBear preview for %s: %s · %s", r.Command, strings.Join(r.Effects, ", "), strings.Join(r.Details, " · "))
 }
 
 type ActionResult struct {
@@ -178,6 +179,7 @@ type ActionResult struct {
 	Command     string   `json:"command"`
 	Changed     bool     `json:"changed"`
 	ResourceIDs []string `json:"resource_ids"`
+	Preview     []string `json:"preview"`
 }
 
 func (ActionResult) result()     {}
@@ -191,7 +193,30 @@ func (r ActionResult) Human() string {
 	if len(r.ResourceIDs) > 0 {
 		resources = strings.Join(r.ResourceIDs, ",")
 	}
-	return fmt.Sprintf("ThreadBear %s: %s · resources %s", r.Command, outcome, resources)
+	return fmt.Sprintf("ThreadBear %s outcome: %s · resources %s", r.Command, outcome, resources)
+}
+
+type LifecycleResult struct {
+	Version             int      `json:"version"`
+	Command             string   `json:"command"`
+	Changed             bool     `json:"changed"`
+	Resources           []string `json:"resources"`
+	ControlTaskID       string   `json:"control_task_id"`
+	Migrated            bool     `json:"migrated"`
+	Reinstalled         bool     `json:"reinstalled"`
+	ArchivedControlTask bool     `json:"archived_control_task"`
+	DeletedState        bool     `json:"deleted_state"`
+	Preview             []string `json:"preview"`
+}
+
+func (LifecycleResult) result()     {}
+func (LifecycleResult) Empty() bool { return false }
+func (r LifecycleResult) Human() string {
+	resources := "none"
+	if len(r.Resources) > 0 {
+		resources = strings.Join(r.Resources, ",")
+	}
+	return fmt.Sprintf("ThreadBear %s changed=%t · resources %s · control task %s · migrated=%t · reinstalled=%t · archived control task=%t · deleted state=%t", r.Command, r.Changed, resources, r.ControlTaskID, r.Migrated, r.Reinstalled, r.ArchivedControlTask, r.DeletedState)
 }
 
 type CheckResult struct {
@@ -244,11 +269,16 @@ type ErrorResult struct {
 	Version   int    `json:"version"`
 	Operation string `json:"operation"`
 	ErrorCode string `json:"error_code"`
+	Step      string `json:"step,omitempty"`
+	Cause     string `json:"cause,omitempty"`
 }
 
 func (ErrorResult) result()     {}
 func (ErrorResult) Empty() bool { return false }
 func (r ErrorResult) Human() string {
+	if r.Step != "" {
+		return fmt.Sprintf("ThreadBear couldn't %s (%s) · failed step %s · %s", r.Operation, r.ErrorCode, r.Step, r.Cause)
+	}
 	return fmt.Sprintf("ThreadBear couldn't %s (%s)", r.Operation, r.ErrorCode)
 }
 
@@ -315,6 +345,11 @@ func dereferenceResult(value Result) (Result, error) {
 			return nil, errors.New("result is required")
 		}
 		return *result, nil
+	case *LifecycleResult:
+		if result == nil {
+			return nil, errors.New("result is required")
+		}
+		return *result, nil
 	case *SelfTestResult:
 		if result == nil {
 			return nil, errors.New("result is required")
@@ -360,9 +395,13 @@ func withVersion(value Result) Result {
 			result.Version = CurrentResultVersion
 		}
 		result.Effects = slices.Clone(result.Effects)
+		result.Details = slices.Clone(result.Details)
 		slices.Sort(result.Effects)
 		if result.Effects == nil {
 			result.Effects = []string{}
+		}
+		if result.Details == nil {
+			result.Details = []string{}
 		}
 		return result
 	case ActionResult:
@@ -370,9 +409,27 @@ func withVersion(value Result) Result {
 			result.Version = CurrentResultVersion
 		}
 		result.ResourceIDs = slices.Clone(result.ResourceIDs)
+		result.Preview = slices.Clone(result.Preview)
 		slices.Sort(result.ResourceIDs)
 		if result.ResourceIDs == nil {
 			result.ResourceIDs = []string{}
+		}
+		if result.Preview == nil {
+			result.Preview = []string{}
+		}
+		return result
+	case LifecycleResult:
+		if result.Version == 0 {
+			result.Version = CurrentResultVersion
+		}
+		result.Resources = slices.Clone(result.Resources)
+		result.Preview = slices.Clone(result.Preview)
+		slices.Sort(result.Resources)
+		if result.Resources == nil {
+			result.Resources = []string{}
+		}
+		if result.Preview == nil {
+			result.Preview = []string{}
 		}
 		return result
 	case SelfTestResult:
@@ -509,6 +566,18 @@ func validateResult(value Result) error {
 				return err
 			}
 		}
+	case LifecycleResult:
+		if err := checkCode("command", result.Command, false); err != nil {
+			return err
+		}
+		for _, resource := range result.Resources {
+			if err := checkID("resource", resource); err != nil {
+				return err
+			}
+		}
+		if result.ControlTaskID != "" {
+			return checkID("control_task_id", result.ControlTaskID)
+		}
 	case SelfTestResult:
 		if len(result.Checks) == 0 {
 			return errors.New("self-test result requires checks")
@@ -537,7 +606,21 @@ func validateResult(value Result) error {
 		if err := checkCode("operation", result.Operation, false); err != nil {
 			return err
 		}
-		return checkCode("error_code", result.ErrorCode, false)
+		if err := checkCode("error_code", result.ErrorCode, false); err != nil {
+			return err
+		}
+		if (result.Step == "") != (result.Cause == "") {
+			return errors.New("error result step and cause must be provided together")
+		}
+		if result.Step != "" {
+			if err := checkCode("step", result.Step, false); err != nil {
+				return err
+			}
+			if strings.TrimSpace(result.Cause) != result.Cause || result.Cause == "" {
+				return errors.New("error result cause must be nonempty without surrounding whitespace")
+			}
+		}
+		return nil
 	}
 	return nil
 }
@@ -553,6 +636,8 @@ func resultVersion(value Result) int {
 	case PreviewResult:
 		return result.Version
 	case ActionResult:
+		return result.Version
+	case LifecycleResult:
 		return result.Version
 	case SelfTestResult:
 		return result.Version
