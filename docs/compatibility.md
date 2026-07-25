@@ -2,7 +2,7 @@
 
 ## Supported platform
 
-ThreadBear v1 supports macOS 12 Monterey or newer on Apple silicon (`darwin/arm64`) and Intel (`darwin/amd64`), with Codex Desktop and compatible local index/App Server surfaces validated by `threadbear self-test`.
+ThreadBear v1 supports macOS 12 Monterey or newer on Apple silicon (`darwin/arm64`) and Intel (`darwin/amd64`), with Codex Desktop and compatible local index/App Server surfaces validated by `~/.local/bin/threadbear self-test`.
 
 Release binaries are standalone pure-Go executables built with `CGO_ENABLED=0`. End users do not need Go, cgo, Python, Node.js, or another runtime. Windows and Linux are not v1 targets.
 
@@ -14,7 +14,7 @@ v1 binaries are not Developer ID signed or notarized. The supported installer ve
 
 ThreadBear depends on compatibility-detectable local Codex capabilities for complete read-only inventory; persistent title, archive, and unarchive operations; fresh non-persisted classifier sessions with model/effort overrides; and a zero-model notice insertion into the control task.
 
-`threadbear self-test` checks the supported platform/architecture, binary, pinned Codex executable, local Codex home, state/config integrity, managed files, and LaunchAgent health. Candidate self-test is read-only and does not mutate titles or archives. If a required surface changes or config/state uses an unsupported schema, ThreadBear fails conservatively instead of guessing.
+`~/.local/bin/threadbear self-test` checks the supported platform/architecture, binary, pinned Codex executable, local Codex home, state/config integrity, managed files, and LaunchAgent health. Candidate self-test is read-only and does not mutate titles or archives. If a required surface changes or config/state uses an unsupported schema, ThreadBear fails conservatively instead of guessing.
 
 ## Sidebar expectations
 
@@ -35,19 +35,19 @@ Ordinary inventory and deterministic classification are local. Network/model act
 Use read-only commands first:
 
 ```sh
-threadbear version
-threadbear status
-threadbear self-test
-threadbear heartbeat --dry-run
-threadbear inspect TASK_ID
+~/.local/bin/threadbear version
+~/.local/bin/threadbear status
+~/.local/bin/threadbear self-test
+~/.local/bin/threadbear heartbeat --dry-run
+~/.local/bin/threadbear inspect TASK_ID
 ```
 
-`threadbear status` reports installed version, LaunchAgent health, last completed heartbeat, control-task identity, preferences, pending retries, and last update check without invoking a model.
+`~/.local/bin/threadbear status` reports installed version, LaunchAgent health, last completed heartbeat, control-task identity, preferences, pending retries, and last update check without invoking a model.
 
-If scheduling is intentionally paused, run `threadbear enable`. Inspect the job with `launchctl print "gui/$(id -u)/org.litman.threadbear"`. For a legacy migration failure after ThreadWatch was stopped, follow the exact recovery command printed by the installer; do not run both automation jobs concurrently.
+If scheduling is intentionally paused, run `~/.local/bin/threadbear enable`. Inspect the job with `launchctl print "gui/$(id -u)/org.litman.threadbear"`. For a legacy migration failure after ThreadWatch was stopped, follow the exact recovery command printed by the installer; do not run both automation jobs concurrently.
 
 ## Updates, downgrades, and removal
 
-`threadbear update` installs only after checksum, version, and candidate self-test validation. `threadbear update --version N.N.N` selects an exact release and is also the explicit downgrade mechanism. ThreadBear has no automatic rollback or local release history.
+`~/.local/bin/threadbear update` installs only after checksum, version, and candidate self-test validation. `~/.local/bin/threadbear update --version N.N.N` selects an exact release and is also the explicit downgrade mechanism. ThreadBear has no automatic rollback or local release history.
 
-`threadbear uninstall` removes managed executable/scheduler/guidance resources after preview and confirmation. Control-task archival and persistent-state deletion are separate choices, both defaulting to retention. Existing task titles and archives are left alone.
+`~/.local/bin/threadbear uninstall` removes managed executable/scheduler/guidance resources after preview and confirmation. Control-task archival and persistent-state deletion are separate choices, both defaulting to retention. Existing task titles and archives are left alone.

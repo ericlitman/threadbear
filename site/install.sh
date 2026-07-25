@@ -3,7 +3,7 @@ set -eu
 
 umask 077
 
-release_base=${THREADBEAR_RELEASE_BASE_URL:-https://threadbear.dev/releases}
+release_base=${THREADBEAR_RELEASE_BASE_URL:-https://github.com/ericlitman/threadbear/releases}
 selected_version=
 previous=
 for argument in "$@"; do
@@ -25,22 +25,33 @@ validate_version() {
 	printf '%s\n' "$1" | awk '/^[0-9]+\.[0-9]+\.[0-9]+$/ { valid=1 } END { exit(valid ? 0 : 1) }'
 }
 
-if [ -n "$selected_version" ]; then
-	if ! validate_version "$selected_version"; then
+requested_version=$selected_version
+load_manifest() {
+	manifest=$(curl -fsSL "$manifest_url")
+	manifest_version=$(printf '%s\n' "$manifest" | sed -n 's/.*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | sed -n '1p')
+	if [ -z "$manifest_version" ]; then
+		echo "threadbear: release manifest has no version" >&2
+		exit 1
+	fi
+	if ! validate_version "$manifest_version"; then
+		echo "threadbear: release manifest version must be exact N.N.N" >&2
+		exit 1
+	fi
+	if [ -n "$requested_version" ] && [ "$manifest_version" != "$requested_version" ]; then
+		echo "threadbear: release manifest version mismatch" >&2
+		exit 1
+	fi
+	selected_version=$manifest_version
+}
+if [ -n "$requested_version" ]; then
+	if ! validate_version "$requested_version"; then
 		echo "threadbear: version must be exact N.N.N without a leading v" >&2
 		exit 2
 	fi
+	manifest_url="$release_base/download/v$requested_version/latest.json"
 else
-	manifest=$(curl -fsSL "$release_base/latest.json")
-	selected_version=$(printf '%s\n' "$manifest" | sed -n 's/.*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | sed -n '1p')
-	if [ -z "$selected_version" ]; then
-		echo "threadbear: latest release manifest has no version" >&2
-		exit 1
-	fi
-	if ! validate_version "$selected_version"; then
-		echo "threadbear: latest release manifest version must be exact N.N.N" >&2
-		exit 1
-	fi
+	manifest_url="$release_base/latest/download/latest.json"
+	load_manifest
 fi
 
 case $(uname -s) in
@@ -52,6 +63,31 @@ case $(uname -m) in
 	x86_64|amd64) architecture=amd64 ;;
 	*) echo "threadbear: unsupported architecture" >&2; exit 1 ;;
 esac
+asset_key="${platform}_${architecture}"
+if [ -n "$requested_version" ]; then
+	load_manifest
+fi
+
+manifest_asset() {
+	field=$1
+	printf '%s\n' "$manifest" | awk -v asset_key="$asset_key" -v field="$field" '
+		index($0, "\"" asset_key "\"") { selected=1; next }
+		selected && index($0, "\"" field "\"") {
+			value=$0
+			sub(/^[^:]*:[[:space:]]*"/, "", value)
+			sub(/".*/, "", value)
+			print value
+			exit
+		}
+		selected && index($0, "}") { exit }
+	'
+}
+binary_url=$(manifest_asset url)
+checksum_url=$(manifest_asset sha256_url)
+if [ -z "$binary_url" ] || [ -z "$checksum_url" ]; then
+	echo "threadbear: release manifest has no $asset_key asset" >&2
+	exit 1
+fi
 
 temporary_directory=$(mktemp -d "${TMPDIR:-/tmp}/threadbear.XXXXXX")
 candidate=$temporary_directory/threadbear
@@ -60,9 +96,8 @@ cleanup() {
 }
 trap cleanup EXIT HUP INT TERM
 
-asset="threadbear_${platform}_${architecture}"
-curl -fsSL "$release_base/$selected_version/$asset" -o "$candidate"
-curl -fsSL "$release_base/$selected_version/$asset.sha256" -o "$candidate.sha256"
+curl -fsSL "$binary_url" -o "$candidate"
+curl -fsSL "$checksum_url" -o "$candidate.sha256"
 expected=$(sed -n 's/^\([0-9A-Fa-f][0-9A-Fa-f]*\).*/\1/p' "$candidate.sha256" | sed -n '1p' | tr 'A-F' 'a-f')
 if [ -z "$expected" ] || [ "${#expected}" -ne 64 ]; then
 	echo "threadbear: release checksum is missing" >&2

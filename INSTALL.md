@@ -16,7 +16,7 @@ curl -fsSL https://threadbear.dev/install.sh | sh
 
 The pipe supplies the script, not the answers. ThreadBear opens `/dev/tty` for prompts so script input cannot accidentally accept them.
 
-The bootstrap selects the latest stable release, detects `darwin/arm64` or `darwin/amd64`, downloads the binary and SHA-256 file to a private temporary directory, verifies the checksum, runs `self-test --candidate`, verifies the embedded version, and only then delegates to `threadbear install`.
+The bootstrap fetches the selected release manifest, detects `darwin/arm64` or `darwin/amd64`, and downloads that architecture’s absolute `url` and `sha256_url` exactly as published. It uses a private temporary directory, verifies the checksum, runs `self-test --candidate`, verifies the embedded version, and only then delegates to `threadbear install`.
 
 To install an exact release:
 
@@ -107,25 +107,32 @@ launchctl print "gui/$(id -u)/org.litman.threadbear"
 Read-only diagnosis is also available:
 
 ```sh
-threadbear heartbeat --dry-run
-threadbear inspect TASK_ID
-threadbear status --json
+~/.local/bin/threadbear heartbeat --dry-run
+~/.local/bin/threadbear inspect TASK_ID
+~/.local/bin/threadbear status --json
 ```
 
-These commands do not invoke a model or mutate task titles/archives. A normal unchanged `threadbear heartbeat` emits zero bytes when no update notice is due.
+These commands do not invoke a model or mutate task titles/archives. A normal unchanged `~/.local/bin/threadbear heartbeat` emits zero bytes when no update notice is due.
+
+For optional bare invocations in the current shell, add the standard user-local bin directory and verify it explicitly:
+
+```sh
+export PATH="$HOME/.local/bin:$PATH"
+command -v threadbear
+```
 
 ## Reconfigure later
 
-`threadbear configure` changes every onboarding preference and previews effects before confirmation:
+`~/.local/bin/threadbear configure` changes every onboarding preference and previews effects before confirmation:
 
 ```sh
-threadbear configure --heartbeat-seconds 600 --archive-after-days 30
-threadbear configure --archive=false --rename=true --agents=false
-threadbear configure --classifier-model gpt-5.6-luna --classifier-effort medium --classifier-context-budget-bytes 250000
-threadbear configure --dry-run --heartbeat-seconds 900
+~/.local/bin/threadbear configure --heartbeat-seconds 600 --archive-after-days 30
+~/.local/bin/threadbear configure --archive=false --rename=true --agents=false
+~/.local/bin/threadbear configure --classifier-model gpt-5.6-luna --classifier-effort medium --classifier-context-budget-bytes 250000
+~/.local/bin/threadbear configure --dry-run --heartbeat-seconds 900
 ```
 
-For automation, add `--noninteractive --confirm`. Reconfiguration updates the existing job and managed block; it does not duplicate LaunchAgents, control tasks, state, or AGENTS.md blocks. Use `threadbear disable` to stop scheduled heartbeats without uninstalling, and `threadbear enable` to load the same job again.
+For automation, add `--noninteractive --confirm`. Reconfiguration updates the existing job and managed block; it does not duplicate LaunchAgents, control tasks, state, or AGENTS.md blocks. Use `~/.local/bin/threadbear disable` to stop scheduled heartbeats without uninstalling, and `~/.local/bin/threadbear enable` to load the same job again.
 
 ## ThreadWatch migration
 
@@ -140,13 +147,13 @@ Rerunning the installer is an idempotent reinstall: it adopts the existing Threa
 Install the latest newer release:
 
 ```sh
-threadbear update
+~/.local/bin/threadbear update
 ```
 
 Select an exact release, including an intentional downgrade:
 
 ```sh
-threadbear update --version 1.2.0
+~/.local/bin/threadbear update --version 1.2.0
 ```
 
 The updater downloads to a private temporary path, verifies the published checksum, embedded version, and candidate self-test, then atomically replaces the installed binary. Any pre-replacement failure removes the candidate and leaves the current binary untouched. ThreadBear does not create rollback state or retain a local release history; an explicit older version is the downgrade path and still must pass compatibility checks.
@@ -156,6 +163,8 @@ A daily deterministic metadata check is silent when current. For each newer vers
 ```text
 🧵🐻 ThreadBear VERSION is ready. Run threadbear update, or tell me “update ThreadBear.”
 ```
+
+The notice wording is fixed. If `~/.local/bin` is not on `PATH`, run `~/.local/bin/threadbear update` instead of the bare command shown in the notice.
 
 No binary changes until the user invokes an update. From the control task, Codex uses its normal command approval panel; choose one-time or Always approval there. ThreadBear does not request full-access defaults or bypass task permissions.
 
@@ -172,7 +181,7 @@ Do not disable Gatekeeper globally.
 ## Uninstall
 
 ```sh
-threadbear uninstall
+~/.local/bin/threadbear uninstall
 ```
 
 ThreadBear separately asks whether to archive the control task (default `no`) and delete persistent state (default `no`), then previews the full removal and asks once for confirmation. It removes the loaded LaunchAgent/plist, binary, managed AGENTS.md block, managed skill block, and update-notice integration. Existing user text outside managed blocks is preserved, as are task titles and archives.
@@ -180,7 +189,7 @@ ThreadBear separately asks whether to archive the control task (default `no`) an
 Noninteractive example:
 
 ```sh
-threadbear uninstall --noninteractive --confirm --archive-control-task --delete-state
+~/.local/bin/threadbear uninstall --noninteractive --confirm --archive-control-task --delete-state
 ```
 
 Omit `--archive-control-task` to leave the control task unarchived. Omit `--delete-state` to retain `~/.local/share/threadbear` for diagnosis or later reinstall.

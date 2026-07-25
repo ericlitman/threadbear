@@ -24,7 +24,7 @@ Completed work with no warranted follow-up must end:
 🐻 needs input · next (you): choose the release region
 🐻 next steps · next (agent): create the implementation plan
 🐻 blocked · next (external): wait for vendor access
-🐻 automation · next (agent): monitor the deployment
+🐻 automation · next (none): none
 🐻 complete · next (none): none
 ```
 

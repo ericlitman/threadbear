@@ -34,7 +34,7 @@ EMOJI durable subject → concise next action
 
 The action is omitted when none is warranted. ThreadBear strips existing canonical status prefixes, preserves user-edited subjects, and records its last applied title so it can update its own prefix/action without consuming user ownership. Persistent Codex task state is the verification authority; an already-open sidebar may show cached text until a supported refresh.
 
-Only `complete` tasks can be auto-archived. Running, blocked, needs-input, automation, next-steps, and unknown tasks remain active regardless of age. A manual unarchive or `threadbear restore TASK_ID` starts a new inactivity grace period.
+Only `complete` tasks can be auto-archived. Running, blocked, needs-input, automation, next-steps, and unknown tasks remain active regardless of age. A manual unarchive or `~/.local/bin/threadbear restore TASK_ID` starts a new inactivity grace period.
 
 ## Scheduler
 

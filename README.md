@@ -31,17 +31,17 @@ For exact-version, noninteractive, migration, Gatekeeper, update/downgrade, and 
 
 | Command | Purpose | Model-free |
 |---|---|---:|
-| `threadbear status` | Show version, LaunchAgent health, heartbeat, control task, preferences, retries, and update check | yes |
-| `threadbear inspect TASK_ID` | Explain saved state, evidence source, next action, retry, and archive eligibility | yes |
-| `threadbear heartbeat --dry-run` | Preview due classification/archive/update-check work without models or mutation | yes |
-| `threadbear self-test` | Validate platform, Codex surfaces, state, config, binary, managed files, and LaunchAgent | yes |
-| `threadbear configure …` | Preview and change onboarding preferences | yes |
-| `threadbear enable` / `disable` | Enable or disable the user LaunchAgent | yes |
-| `threadbear restore TASK_ID` | Restore a task archived by ThreadBear and restart its inactivity grace period | yes |
-| `threadbear update [--version N.N.N]` | Stage, verify, and explicitly install a release | yes |
-| `threadbear uninstall` | Preview removal and choose control-task/state retention | yes |
-| `threadbear version` | Show installed version and website | yes |
-| `threadbear heartbeat` | Run the normal classification and lifecycle cycle | only if semantic fallback is needed |
+| `~/.local/bin/threadbear status` | Show version, LaunchAgent health, heartbeat, control task, preferences, retries, and update check | yes |
+| `~/.local/bin/threadbear inspect TASK_ID` | Explain saved state, evidence source, next action, retry, and archive eligibility | yes |
+| `~/.local/bin/threadbear heartbeat --dry-run` | Preview due classification/archive/update-check work without models or mutation | yes |
+| `~/.local/bin/threadbear self-test` | Validate platform, Codex surfaces, state, config, binary, managed files, and LaunchAgent | yes |
+| `~/.local/bin/threadbear configure …` | Preview and change onboarding preferences | yes |
+| `~/.local/bin/threadbear enable` / `~/.local/bin/threadbear disable` | Enable or disable the user LaunchAgent | yes |
+| `~/.local/bin/threadbear restore TASK_ID` | Restore a task archived by ThreadBear and restart its inactivity grace period | yes |
+| `~/.local/bin/threadbear update [--version N.N.N]` | Stage, verify, and explicitly install a release | yes |
+| `~/.local/bin/threadbear uninstall` | Preview removal and choose control-task/state retention | yes |
+| `~/.local/bin/threadbear version` | Show installed version and website | yes |
+| `~/.local/bin/threadbear heartbeat` | Run the normal classification and lifecycle cycle | only if semantic fallback is needed |
 
 All commands accept `--json` for stable machine-readable output where applicable.
 
