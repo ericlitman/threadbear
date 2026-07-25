@@ -270,6 +270,13 @@ func (c *Classifier) runBatch(ctx context.Context, batch PackedBatch) (map[strin
 		return nil, &batchDiagnostic{Code: code, Message: "ephemeral classifier call failed"}
 	}
 	metadata := ClassificationMetadata{UnprovenToolSources: normalizedSources(result.ToolRestriction.UnprovenToolSources)}
+	if result.Turn.Status != "completed" {
+		if _, diagnostic := finalAssistantText(result.Turn.Items); diagnostic != nil && diagnostic.OffendingItem != "" {
+			diagnostic.Metadata = metadata
+			return nil, diagnostic
+		}
+		return nil, &batchDiagnostic{Code: "classifier_turn_incomplete", Message: "ephemeral classifier turn did not complete", Metadata: metadata}
+	}
 	text, itemDiagnostic := finalAssistantText(result.Turn.Items)
 	if itemDiagnostic != nil {
 		itemDiagnostic.Metadata = metadata
@@ -277,9 +284,6 @@ func (c *Classifier) runBatch(ctx context.Context, batch PackedBatch) (map[strin
 	}
 	if !validToolRestrictions(result.ToolRestriction) {
 		return nil, &batchDiagnostic{Code: "tool_controls_unconfirmed", Message: "ephemeral classifier controls were not fully confirmed", Metadata: metadata}
-	}
-	if result.Turn.Status != "completed" {
-		return nil, &batchDiagnostic{Code: "classifier_turn_incomplete", Message: "ephemeral classifier turn did not complete", Metadata: metadata}
 	}
 	response, decodeErr := decodeClassifierResponse(text)
 	if decodeErr != nil {
@@ -309,7 +313,7 @@ func finalAssistantText(items []appserver.TurnItem) (string, *batchDiagnostic) {
 	for index := range items {
 		item := &items[index]
 		switch item.Type {
-		case "reasoning":
+		case "reasoning", "userMessage", "user_message":
 			continue
 		case "agentMessage", "agent_message":
 			if final != nil {
@@ -324,7 +328,15 @@ func finalAssistantText(items []appserver.TurnItem) (string, *batchDiagnostic) {
 		}
 	}
 	if final == nil {
-		return "", &batchDiagnostic{Code: "unexpected_output_item", Message: "classifier batch contained no final assistant item"}
+		types := make([]string, 0, len(items))
+		for _, item := range items {
+			types = append(types, safeItemName(item.Type))
+		}
+		message := "classifier batch contained no final assistant item"
+		if len(types) > 0 {
+			message += "; observed item types: " + strings.Join(types, ",")
+		}
+		return "", &batchDiagnostic{Code: "unexpected_output_item", Message: message}
 	}
 	text := final.Text
 	if text != "" && len(final.Content) > 0 && !bytes.Equal(final.Content, []byte("null")) {

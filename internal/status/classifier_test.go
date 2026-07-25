@@ -259,11 +259,12 @@ func TestClassifierOutputItemAllowlistRejectsWholeBatchWithoutPayload(t *testing
 	}
 }
 
-func TestClassifierAllowsReasoningAroundFinalAssistant(t *testing.T) {
+func TestClassifierAllowsInputAndReasoningAroundFinalAssistant(t *testing.T) {
 	task := TaskEvidence{TaskID: "task-a", Revision: "rev-a", Latest: TurnEvidence{User: "a", FinalAgent: "a"}}
 	runner := &fakeEphemeralRunner{run: func(_ int, _ appserver.EphemeralRequest) (appserver.EphemeralResult, error) {
 		result := successfulEphemeral(responseText([]classifierWireItem{{TaskID: task.TaskID, TaskRevision: task.Revision, State: state.StatusComplete, DurableSubject: "Task A"}}))
 		result.Turn.Items = []appserver.TurnItem{
+			{Type: "userMessage", Text: "classifier input"},
 			{Type: "reasoning", Phase: "SECRET PHASE", Text: "SECRET BEFORE", Content: json.RawMessage(`not-json-before`)},
 			result.Turn.Items[0],
 			{Type: "reasoning", Phase: "SECRET PHASE", Text: "SECRET AFTER", Content: json.RawMessage(`not-json-after`)},
@@ -310,6 +311,20 @@ func TestClassifierObservedToolItemOutranksControlAndTurnFailures(t *testing.T) 
 	}}
 	result := newTestClassifier(t, runner, 1<<20, "model", "medium").Classify(context.Background(), []TaskEvidence{task})[0]
 	if result.Diagnostic == nil || result.Diagnostic.Code != "unexpected_output_item" || result.Diagnostic.OffendingItem != "hosted/toolResult" || strings.Contains(result.Diagnostic.Message, "SECRET") {
+		t.Fatalf("result=%+v", result)
+	}
+}
+
+func TestClassifierIncompleteTurnWithOnlyInputReportsTurnFailure(t *testing.T) {
+	task := TaskEvidence{TaskID: "task-a", Revision: "rev-a", Latest: TurnEvidence{User: "a", FinalAgent: "a"}}
+	runner := &fakeEphemeralRunner{run: func(_ int, _ appserver.EphemeralRequest) (appserver.EphemeralResult, error) {
+		result := successfulEphemeral("unused")
+		result.Turn.Status = "failed"
+		result.Turn.Items = []appserver.TurnItem{{Type: "userMessage", Text: "classifier input"}}
+		return result, nil
+	}}
+	result := newTestClassifier(t, runner, 1<<20, "model", "medium").Classify(context.Background(), []TaskEvidence{task})[0]
+	if result.Diagnostic == nil || result.Diagnostic.Code != "classifier_turn_incomplete" {
 		t.Fatalf("result=%+v", result)
 	}
 }
@@ -420,6 +435,20 @@ func TestClassifierSyntheticCorpus(t *testing.T) {
 		if result.Status != expected[index].State || result.DurableSubject != expected[index].DurableSubject || result.ManagedAction != expected[index].ManagedAction {
 			t.Fatalf("result[%d]=%+v expected=%+v", index, result, expected[index])
 		}
+	}
+}
+
+func TestClassifierStructuredOutputSchemaTypesConstAndEnumStrings(t *testing.T) {
+	classifier := newTestClassifier(t, &fakeEphemeralRunner{}, 1<<20, "model", "medium")
+	properties := classifier.schema["properties"].(map[string]any)
+	if properties["schema_revision"].(map[string]any)["type"] != "string" {
+		t.Fatalf("schema_revision schema=%+v", properties["schema_revision"])
+	}
+	results := properties["results"].(map[string]any)
+	items := results["items"].(map[string]any)
+	resultProperties := items["properties"].(map[string]any)
+	if resultProperties["state"].(map[string]any)["type"] != "string" {
+		t.Fatalf("state schema=%+v", resultProperties["state"])
 	}
 }
 
