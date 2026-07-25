@@ -30,15 +30,15 @@ func TestParseFooterValidStatusMatrix(t *testing.T) {
 		owner  Owner
 		action string
 	}{
-		{"complete", "🧵🐻 complete · next (none): none", state.StatusComplete, OwnerNone, "none"},
-		{"AE17 next steps agent", "🧵🐻 next steps · next (agent): create the implementation plan", state.StatusNextSteps, OwnerAgent, "create the implementation plan"},
-		{"next steps you", "🧵🐻 next steps · next (you): choose the release region", state.StatusNextSteps, OwnerYou, "choose the release region"},
-		{"next steps external", "🧵🐻 next steps · next (external): approve the production release", state.StatusNextSteps, OwnerExternal, "approve the production release"},
-		{"AE7 needs input", "🧵🐻 needs input · next (you): choose the release region", state.StatusNeedsInput, OwnerYou, "choose the release region"},
-		{"blocked", "🧵🐻 blocked · next (external): restore the signing service", state.StatusBlocked, OwnerExternal, "restore the signing service"},
-		{"automation", "🧵🐻 automation · next (none): none", state.StatusAutomation, OwnerNone, "none"},
-		{"AE14 pressure test", "🧵🐻 next steps · next (agent): pressure-test the requirements before implementation", state.StatusNextSteps, OwnerAgent, "pressure-test the requirements before implementation"},
-		{"concrete noun phrase", "🧵🐻 needs input · next (you): release region choice", state.StatusNeedsInput, OwnerYou, "release region choice"},
+		{"complete", "🧵🐻 complete", state.StatusComplete, OwnerNone, "none"},
+		{"AE17 next steps agent", "🧵🐻 next steps (agent): create the implementation plan", state.StatusNextSteps, OwnerAgent, "create the implementation plan"},
+		{"next steps you", "🧵🐻 next steps (you): choose the release region", state.StatusNextSteps, OwnerYou, "choose the release region"},
+		{"next steps external", "🧵🐻 next steps (external): approve the production release", state.StatusNextSteps, OwnerExternal, "approve the production release"},
+		{"AE7 needs input", "🧵🐻 needs input (you): choose the release region", state.StatusNeedsInput, OwnerYou, "choose the release region"},
+		{"blocked", "🧵🐻 blocked (external): restore the signing service", state.StatusBlocked, OwnerExternal, "restore the signing service"},
+		{"automation", "🧵🐻 automation", state.StatusAutomation, OwnerNone, "none"},
+		{"AE14 pressure test", "🧵🐻 next steps (agent): pressure-test the requirements before implementation", state.StatusNextSteps, OwnerAgent, "pressure-test the requirements before implementation"},
+		{"concrete noun phrase", "🧵🐻 needs input (you): release region choice", state.StatusNeedsInput, OwnerYou, "release region choice"},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -57,7 +57,7 @@ func TestParseFooterValidStatusMatrix(t *testing.T) {
 }
 
 func TestParseFooterRejectsNonCurrentOrMalformedSignals(t *testing.T) {
-	valid := "Response.\n🧵🐻 complete · next (none): none"
+	valid := "Response.\n🧵🐻 complete"
 	tests := []struct {
 		name  string
 		input FooterInput
@@ -68,9 +68,9 @@ func TestParseFooterRejectsNonCurrentOrMalformedSignals(t *testing.T) {
 		{"running is not a footer status", FooterInput{Message: "Response.\n🧵🐻 running · next (none): none", LatestTurnCompleted: true}, FooterMalformed},
 		{"unknown is not a footer status", FooterInput{Message: "Response.\n🧵🐻 unknown · next (none): none", LatestTurnCompleted: true}, FooterMalformed},
 		{"malformed spacing", FooterInput{Message: "Response.\n🧵🐻 complete - next (none): none", LatestTurnCompleted: true}, FooterMalformed},
-		{"embedded", FooterInput{Message: "🧵🐻 complete · next (none): none\nMore response.", LatestTurnCompleted: true}, FooterEmbedded},
-		{"quoted block", FooterInput{Message: "Response.\n> 🧵🐻 complete · next (none): none", LatestTurnCompleted: true}, FooterQuoted},
-		{"quoted string", FooterInput{Message: "Response.\n\"🧵🐻 complete · next (none): none\"", LatestTurnCompleted: true}, FooterQuoted},
+		{"embedded", FooterInput{Message: "🧵🐻 complete\nMore response.", LatestTurnCompleted: true}, FooterEmbedded},
+		{"quoted block", FooterInput{Message: "Response.\n> 🧵🐻 complete", LatestTurnCompleted: true}, FooterQuoted},
+		{"quoted string", FooterInput{Message: "Response.\n\"🧵🐻 complete\"", LatestTurnCompleted: true}, FooterQuoted},
 		{"stale", FooterInput{Message: valid, LatestTurnCompleted: true, Stale: true}, FooterStale},
 		{"turn incomplete", FooterInput{Message: valid}, FooterTurnIncomplete},
 		{"newer user", FooterInput{Message: valid, LatestTurnCompleted: true, NewerUserMessage: true}, FooterNewerUserMessage},
@@ -88,13 +88,13 @@ func TestParseFooterRejectsNonCurrentOrMalformedSignals(t *testing.T) {
 
 func TestParseFooterRejectsInvalidOwnerActionMatrix(t *testing.T) {
 	lines := []string{
-		"🧵🐻 complete · next (agent): create the plan",
-		"🧵🐻 complete · next (none): create the plan",
-		"🧵🐻 automation · next (external): restore the service",
-		"🧵🐻 needs input · next (agent): choose the region",
-		"🧵🐻 blocked · next (you): restore the service",
-		"🧵🐻 next steps · next (none): none",
-		"🧵🐻 next steps · next (team): create the plan",
+		"🧵🐻 complete (agent): create the plan",
+		"🧵🐻 complete (none): create the plan",
+		"🧵🐻 automation (external): restore the service",
+		"🧵🐻 needs input (agent): choose the region",
+		"🧵🐻 blocked (you): restore the service",
+		"🧵🐻 next steps (none): none",
+		"🧵🐻 next steps (team): create the plan",
 	}
 	for _, line := range lines {
 		t.Run(line, func(t *testing.T) {
@@ -123,7 +123,7 @@ func TestParseFooterRejectsWeakActions(t *testing.T) {
 	}
 	for _, action := range actions {
 		t.Run(action, func(t *testing.T) {
-			got := ParseFooter(FooterInput{Message: "Response.\n🧵🐻 next steps · next (agent): " + action, LatestTurnCompleted: true})
+			got := ParseFooter(FooterInput{Message: "Response.\n🧵🐻 next steps (agent): " + action, LatestTurnCompleted: true})
 			if got.Accepted || got.Rejection != FooterWeakAction {
 				t.Fatalf("ParseFooter() = %+v", got)
 			}
@@ -132,14 +132,14 @@ func TestParseFooterRejectsWeakActions(t *testing.T) {
 }
 
 func TestParseFooterAE18CompletionDoesNotInventAction(t *testing.T) {
-	got := ParseFooter(FooterInput{Message: "Finished without a warranted follow-up.\n🧵🐻 complete · next (none): none", LatestTurnCompleted: true})
+	got := ParseFooter(FooterInput{Message: "Finished without a warranted follow-up.\n🧵🐻 complete", LatestTurnCompleted: true})
 	if !got.Accepted || got.Footer.Status != state.StatusComplete || got.Footer.Action != "none" {
 		t.Fatalf("ParseFooter() = %+v", got)
 	}
 }
 
 func TestParseFooterKeepsRejectedFooterForClassifier(t *testing.T) {
-	message := "Finished.\n🧵🐻 next steps · next (agent): I can help with that"
+	message := "Finished.\n🧵🐻 next steps (agent): I can help with that"
 	got := ParseFooter(FooterInput{Message: message, LatestTurnCompleted: true})
 	if got.Accepted || got.Rejection != FooterWeakAction {
 		t.Fatalf("ParseFooter() = %+v", got)
@@ -150,7 +150,7 @@ func TestParseFooterKeepsRejectedFooterForClassifier(t *testing.T) {
 }
 
 func TestParseFooterAcceptsConcreteImperativeWithEmbeddedModal(t *testing.T) {
-	got := ParseFooter(FooterInput{Message: "Analysis complete.\n🧵🐻 next steps · next (agent): investigate whether the service could lose data", LatestTurnCompleted: true})
+	got := ParseFooter(FooterInput{Message: "Analysis complete.\n🧵🐻 next steps (agent): investigate whether the service could lose data", LatestTurnCompleted: true})
 	if !got.Accepted || got.Footer.Status != state.StatusNextSteps {
 		t.Fatalf("ParseFooter() = %+v", got)
 	}
@@ -170,7 +170,7 @@ func TestParseFooterRecordWordsFallThroughPerRuling(t *testing.T) {
 	}
 	for _, action := range actions {
 		t.Run(action, func(t *testing.T) {
-			got := ParseFooter(FooterInput{Message: "Analysis complete.\n🧵🐻 next steps · next (agent): " + action, LatestTurnCompleted: true})
+			got := ParseFooter(FooterInput{Message: "Analysis complete.\n🧵🐻 next steps (agent): " + action, LatestTurnCompleted: true})
 			if got.Accepted {
 				t.Fatalf("record-word action must fall through, got %+v", got)
 			}
@@ -178,5 +178,27 @@ func TestParseFooterRecordWordsFallThroughPerRuling(t *testing.T) {
 				t.Fatalf("Rejection = %v, want FooterWeakAction", got.Rejection)
 			}
 		})
+	}
+}
+
+func TestParseFooterBareShapeOnlyForNoFollowUpStates(t *testing.T) {
+	// BEAR-26: complete and automation carry no owner or action, so they take
+	// the bare shape. States that require an action must not.
+	for _, line := range []string{"🧵🐻 complete", "🧵🐻 automation"} {
+		got := ParseFooter(FooterInput{Message: "Work finished.\n" + line, LatestTurnCompleted: true})
+		if !got.Accepted || got.Footer.Owner != OwnerNone || got.Footer.Action != "none" {
+			t.Fatalf("%s must be accepted as none/none, got %+v", line, got)
+		}
+	}
+	for _, line := range []string{"🧵🐻 next steps", "🧵🐻 needs input", "🧵🐻 blocked"} {
+		got := ParseFooter(FooterInput{Message: "Work finished.\n" + line, LatestTurnCompleted: true})
+		if got.Accepted {
+			t.Fatalf("%s must not be accepted without an owner and action, got %+v", line, got)
+		}
+	}
+	// The retired verbose shape is no longer a footer.
+	got := ParseFooter(FooterInput{Message: "Done.\n🧵🐻 complete · next (none): none", LatestTurnCompleted: true})
+	if got.Accepted {
+		t.Fatalf("retired verbose shape must not be accepted, got %+v", got)
 	}
 }

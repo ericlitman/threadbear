@@ -8,7 +8,7 @@ import (
 )
 
 const footerPrefix = "🧵🐻 "
-const footerMiddle = " · next ("
+const footerOpen = " ("
 
 var footerStatuses = map[string]state.TaskStatus{
 	"complete":    state.StatusComplete,
@@ -82,7 +82,13 @@ func parseFooterLine(line string) (Footer, bool) {
 		return Footer{}, false
 	}
 	remainder := strings.TrimPrefix(line, footerPrefix)
-	statusText, ownerAction, ok := strings.Cut(remainder, footerMiddle)
+	// Two shapes carry all the information: a bare terminal state, or a state
+	// with the owner and action that state requires. `complete` and
+	// `automation` never carry an owner or action, so they have no suffix.
+	if taskStatus, ok := footerStatuses[remainder]; ok {
+		return Footer{Status: taskStatus, Owner: OwnerNone, Action: "none"}, true
+	}
+	statusText, ownerAction, ok := strings.Cut(remainder, footerOpen)
 	if !ok || statusText == "" {
 		return Footer{}, false
 	}

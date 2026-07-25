@@ -257,7 +257,7 @@ func TestHeartbeatDeterministicRuntimeAndPartialSiblingFailure(t *testing.T) {
 	runner, deps := testRunner(t, now, tasks, committed)
 	activeAt := now.Unix()
 	deps.client.latest["task-a"] = appserver.RecentEvidence{ThreadStatus: appserver.ThreadStatus{Type: "active"}, RecencyAt: &activeAt, Latest: &appserver.EvidenceTurn{ID: "turn-a", Status: "inProgress", UserMessage: "continue"}}
-	deps.client.latest["task-b"] = completedEvidence(now, "done", "🧵🐻 complete · next (none): none")
+	deps.client.latest["task-b"] = completedEvidence(now, "done", "🧵🐻 complete")
 	deps.client.failTitle["task-b"] = true
 	value, err := runner.Run(context.Background(), false)
 	if err != nil {
@@ -307,7 +307,7 @@ func TestCyclePreservesUnchangedManagedAction(t *testing.T) {
 	unchanged.ManagedAction = "deploy production"
 	committed.Tasks["unchanged"] = unchanged
 	runner, deps := testRunner(t, now, tasks, committed)
-	deps.client.latest["sibling"] = completedEvidence(now, "done", "🧵🐻 complete · next (none): none")
+	deps.client.latest["sibling"] = completedEvidence(now, "done", "🧵🐻 complete")
 	if _, err := runner.Run(context.Background(), false); err != nil {
 		t.Fatal(err)
 	}
@@ -328,7 +328,7 @@ func TestCyclePreservesFutureRetryUntilDue(t *testing.T) {
 	retryRecord.Retry = &state.Retry{Operation: "classifier", ErrorCode: "ephemeral_call_failed", Attempts: 1, LastAttemptAt: now.Add(-time.Minute), NextAttemptAt: now.Add(time.Hour)}
 	committed.Tasks["retry"] = retryRecord
 	runner, deps := testRunner(t, now, tasks, committed)
-	deps.client.latest["sibling"] = completedEvidence(now, "done", "🧵🐻 complete · next (none): none")
+	deps.client.latest["sibling"] = completedEvidence(now, "done", "🧵🐻 complete")
 	if _, err := runner.Run(context.Background(), false); err != nil {
 		t.Fatal(err)
 	}
@@ -337,7 +337,7 @@ func TestCyclePreservesFutureRetryUntilDue(t *testing.T) {
 		t.Fatalf("retry=%+v reads=%v", stored.Tasks["retry"].Retry, deps.client.latestReads)
 	}
 	deps.clock.now = now.Add(time.Hour + time.Second)
-	deps.client.latest["retry"] = completedEvidence(deps.clock.now, "done", "🧵🐻 complete · next (none): none")
+	deps.client.latest["retry"] = completedEvidence(deps.clock.now, "done", "🧵🐻 complete")
 	if _, err := runner.Run(context.Background(), false); err != nil {
 		t.Fatal(err)
 	}
@@ -432,7 +432,7 @@ func TestCycleLazyPreviousAndManualUnarchiveGrace(t *testing.T) {
 	committed.Archives["restored"] = state.ArchiveRecord{TaskID: "restored", ArchivedAt: now.Add(-time.Hour), CapturedRevision: "1", StateGeneration: 1}
 	committed.Tasks["semantic"] = record(codex.Task{TaskID: "semantic", Revision: "1", Title: "Semantic"}, state.StatusUnknown, now.Add(-time.Hour))
 	runner, deps := testRunner(t, now, tasks, committed)
-	deps.client.latest["restored"] = completedEvidence(now, "restore", "🧵🐻 complete · next (none): none")
+	deps.client.latest["restored"] = completedEvidence(now, "restore", "🧵🐻 complete")
 	deps.client.latest["semantic"] = completedEvidence(now, "continue", "no footer")
 	deps.client.previous["semantic"] = &appserver.EvidenceTurn{ID: "previous", Status: "completed", UserMessage: "before", AgentMessage: "before answer"}
 	deps.classifier.requestPrev = []string{"semantic"}
