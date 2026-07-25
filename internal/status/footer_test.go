@@ -87,20 +87,23 @@ func TestParseFooterRejectsNonCurrentOrMalformedSignals(t *testing.T) {
 }
 
 func TestParseFooterRejectsInvalidOwnerActionMatrix(t *testing.T) {
-	lines := []string{
-		"🧵🐻 complete (agent): create the plan",
-		"🧵🐻 complete (none): create the plan",
-		"🧵🐻 automation (external): restore the service",
-		"🧵🐻 needs input (agent): choose the region",
-		"🧵🐻 blocked (you): restore the service",
-		"🧵🐻 next steps (none): none",
-		"🧵🐻 next steps (team): create the plan",
+	// States that take an owner and action are rejected for binding the wrong
+	// pair. complete and automation take no suffix at all under the two-shape
+	// grammar, so a suffixed line is not a footer: it is malformed.
+	cases := map[string]FooterRejection{
+		"🧵🐻 complete (agent): create the plan":          FooterMalformed,
+		"🧵🐻 complete (none): create the plan":           FooterMalformed,
+		"🧵🐻 automation (external): restore the service": FooterMalformed,
+		"🧵🐻 needs input (agent): choose the region":     FooterInvalidOwnerAction,
+		"🧵🐻 blocked (you): restore the service":         FooterInvalidOwnerAction,
+		"🧵🐻 next steps (none): none":                    FooterInvalidOwnerAction,
+		"🧵🐻 next steps (team): create the plan":         FooterInvalidOwnerAction,
 	}
-	for _, line := range lines {
+	for line, want := range cases {
 		t.Run(line, func(t *testing.T) {
 			got := ParseFooter(FooterInput{Message: "Response.\n" + line, LatestTurnCompleted: true})
-			if got.Accepted || got.Rejection != FooterInvalidOwnerAction {
-				t.Fatalf("ParseFooter() = %+v", got)
+			if got.Accepted || got.Rejection != want {
+				t.Fatalf("ParseFooter() = %+v, want rejection %v", got, want)
 			}
 		})
 	}
@@ -196,9 +199,16 @@ func TestParseFooterBareShapeOnlyForNoFollowUpStates(t *testing.T) {
 			t.Fatalf("%s must not be accepted without an owner and action, got %+v", line, got)
 		}
 	}
-	// The retired verbose shape is no longer a footer.
-	got := ParseFooter(FooterInput{Message: "Done.\n🧵🐻 complete · next (none): none", LatestTurnCompleted: true})
-	if got.Accepted {
-		t.Fatalf("retired verbose shape must not be accepted, got %+v", got)
+	// Neither the retired verbose shape nor a suffixed no-follow-up state is a
+	// footer: both fall through to classification.
+	for _, line := range []string{
+		"🧵🐻 complete · next (none): none",
+		"🧵🐻 complete (none): none",
+		"🧵🐻 automation (none): none",
+	} {
+		got := ParseFooter(FooterInput{Message: "Done.\n" + line, LatestTurnCompleted: true})
+		if got.Accepted {
+			t.Fatalf("%s must not be accepted, got %+v", line, got)
+		}
 	}
 }

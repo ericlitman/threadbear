@@ -88,6 +88,9 @@ func parseFooterLine(line string) (Footer, bool) {
 	if taskStatus, ok := footerStatuses[remainder]; ok {
 		return Footer{Status: taskStatus, Owner: OwnerNone, Action: "none"}, true
 	}
+	// Only states that require an owner and action may carry the suffix; a
+	// suffixed complete/automation is not the documented shape, so it is not a
+	// footer and falls through to classification (R12).
 	statusText, ownerAction, ok := strings.Cut(remainder, footerOpen)
 	if !ok || statusText == "" {
 		return Footer{}, false
@@ -97,7 +100,7 @@ func parseFooterLine(line string) (Footer, bool) {
 		return Footer{}, false
 	}
 	taskStatus, ok := footerStatuses[statusText]
-	if !ok {
+	if !ok || taskStatus == state.StatusComplete || taskStatus == state.StatusAutomation {
 		return Footer{}, false
 	}
 	return Footer{Status: taskStatus, Owner: Owner(ownerText), Action: action}, true

@@ -12,7 +12,7 @@ When managed global guidance is enabled, ThreadBear asks terminal agents to end 
 🧵🐻 automation
 ```
 
-The grammar is a bear, one lowercase state, the fixed `next` separator, an owner in parentheses, and an action after the colon. The five states are `complete`, `next steps`, `needs input`, `blocked`, and `automation`; the four owners are `you`, `agent`, `external`, and `none`.
+The grammar has two shapes: the mark followed by one lowercase state on its own (`complete` and `automation`, which carry no owner or action), or the mark, the state, an owner in parentheses, and an action after the colon (`next steps`, `needs input`, `blocked`). The five states are `complete`, `next steps`, `needs input`, `blocked`, and `automation`; the four owners are `you`, `agent`, `external`, and `none`.
 
 The governing instruction is:
 
