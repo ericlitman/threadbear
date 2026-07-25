@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="ThreadBear is a playful, token-conscious Codex task manager for macOS.">
+  <title>ThreadBear — tidy Codex tasks, zero-token idle</title>
+  <style>
+    :root { color-scheme: light; --ink:#241b17; --muted:#675950; --cream:#fff8e8; --honey:#f5b942; --brown:#6b4226; --leaf:#2f6f55; }
+    * { box-sizing: border-box; }
+    body { margin:0; color:var(--ink); background:linear-gradient(160deg,#fffaf0 0%,#f7ead0 100%); font:17px/1.6 ui-rounded,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; }
+    main { width:min(980px,calc(100% - 32px)); margin:auto; padding:64px 0 80px; }
+    header { padding:54px; border:2px solid var(--brown); border-radius:28px; background:rgba(255,248,232,.92); box-shadow:10px 10px 0 var(--honey); }
+    h1 { margin:0; font-size:clamp(3rem,9vw,6.5rem); line-height:.95; letter-spacing:-.06em; }
+    h2 { margin-top:54px; font-size:2rem; }
+    .eyebrow { color:var(--leaf); font-weight:800; letter-spacing:.08em; text-transform:uppercase; }
+    .lede { max-width:760px; font-size:1.28rem; }
+    pre { overflow:auto; padding:18px 20px; color:#fffaf0; background:var(--ink); border-radius:14px; }
+    code { font-family:"SFMono-Regular",Consolas,monospace; }
+    .grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(240px,1fr)); gap:18px; }
+    .card { padding:24px; border:1px solid #b99b76; border-radius:18px; background:rgba(255,255,255,.62); }
+    .card strong { display:block; margin-bottom:8px; color:var(--brown); font-size:1.1rem; }
+    .states { font-size:2rem; letter-spacing:.15em; }
+    a { color:var(--leaf); font-weight:700; }
+    .links { display:flex; flex-wrap:wrap; gap:12px 24px; margin-top:28px; }
+    footer { margin-top:56px; color:var(--muted); }
+    @media (max-width:600px) { header { padding:32px 24px; box-shadow:6px 6px 0 var(--honey); } }
+  </style>
+</head>
+<body>
+<main>
+  <header>
+    <div class="eyebrow">A local task-state bear for macOS</div>
+    <h1>ThreadBear</h1>
+    <p class="lede">Keeps Codex Desktop tasks classified, usefully titled, and safely archived. Unchanged heartbeats use zero model tokens and produce zero output.</p>
+    <pre><code>curl -fsSL https://threadbear.dev/install.sh | sh</code></pre>
+    <p>macOS 12+ · Apple silicon and Intel · no sudo · standalone pure-Go binary</p>
+    <nav class="links" aria-label="Documentation">
+      <a href="https://github.com/ericlitman/threadbear">GitHub</a>
+      <a href="https://github.com/ericlitman/threadbear/blob/main/INSTALL.md">Install guide</a>
+      <a href="https://github.com/ericlitman/threadbear/blob/main/docs/architecture.md">Architecture</a>
+      <a href="https://github.com/ericlitman/threadbear/blob/main/docs/compatibility.md">Compatibility</a>
+    </nav>
+  </header>
+  <h2>Attention before inference</h2>
+  <div class="grid">
+    <div class="card"><strong>Idle means zero</strong>ThreadBear reads the complete local inventory and exits silently when nothing changed and no update check is due.</div>
+    <div class="card"><strong>Structured evidence wins</strong>Runtime, errors, automation state, and valid agent footers settle work before semantic fallback.</div>
+    <div class="card"><strong>Unresolved work stays small</strong>Only unresolved changed tasks enter fresh, non-persisted classifier sessions—Luna medium by default, never the years of control-task history.</div>
+    <div class="card"><strong>Mutations stay current</strong>Every title or archive operation rechecks task revision and title so newer user activity wins.</div>
+  </div>
+  <h2>Seven visible states</h2>
+  <p class="states" aria-label="running, blocked, needs input, automation, next steps, complete, unknown">⏳ 🚨 🙋 🤖 ➡️ ✅ ❔</p>
+  <p>Only completed inactive tasks can be auto-archived. Open loops remain visible, and restored tasks receive a new inactivity grace period.</p>
+  <h2>Small, private footprint</h2>
+  <p>ThreadBear installs at <code>~/.local/bin/threadbear</code>, keeps private state under <code>~/.local/share/threadbear</code>, and runs the user LaunchAgent <code>org.litman.threadbear</code>. Logs contain IDs, counts, transitions, and errors—not message bodies or classifier payloads.</p>
+  <p>v1 binaries are not Developer ID signed or notarized. The installer verifies the published SHA-256 checksum and candidate self-test before installation.</p>
+  <h2>Honest boundaries</h2>
+  <p>ThreadBear does not edit Codex private global state, force sidebar cache refreshes, click through Desktop, auto-update, create rollback history, or organize projects. Persisted task state is authoritative; an already-open sidebar may refresh later.</p>
+  <footer>MIT licensed. Built for tidy threads and quiet heartbeats. 🧵🐻</footer>
+</main>
+</body>
+</html>
