@@ -12,17 +12,22 @@ import (
 type managedAgentsFake struct {
 	calls   int
 	enabled bool
+	stale   bool
 }
 
 func (m *managedAgentsFake) Apply(enabled bool) (bool, error) {
 	m.calls++
-	changed := m.enabled != enabled
+	changed := m.enabled != enabled || m.stale
 	m.enabled = enabled
+	m.stale = false
 	return changed, nil
 }
 
-func (m *managedAgentsFake) Preview(enabled bool) (string, error) {
-	return fmt.Sprintf("AGENTS managed block enabled=%t", enabled), nil
+func (m *managedAgentsFake) Preview(enabled bool) (ManagedAgentsPreview, error) {
+	return ManagedAgentsPreview{
+		Detail:  fmt.Sprintf("AGENTS managed block enabled=%t", enabled),
+		Changed: m.enabled != enabled || m.stale,
+	}, nil
 }
 
 func TestConfigurePreviewConfirmationAndManagedAgents(t *testing.T) {
@@ -94,5 +99,31 @@ func TestNoninteractiveConfigurePreviewsWithoutPrompting(t *testing.T) {
 	result, err := ConfigureHandler(store, nil, func(output.PreviewResult) error { previews++; return nil }, func() (bool, error) { prompts++; return true, nil }, managed)(context.Background(), Request{Command: CommandConfigure, NonInteractive: true, Configure: ConfigPatch{AgentsEnabled: &disabled}})
 	if err == nil || result.(output.ErrorResult).ErrorCode != "confirmation_required" || previews != 1 || prompts != 0 || managed.calls != 0 {
 		t.Fatalf("result=%+v err=%v previews=%d prompts=%d managed=%+v", result, err, previews, prompts, managed)
+	}
+}
+
+func TestConfigureRefreshesStaleManagedAgentsWhenConfigIsUnchanged(t *testing.T) {
+	store := commandStore(t, time.Date(2026, 7, 24, 12, 0, 0, 0, time.UTC))
+	managed := &managedAgentsFake{enabled: true, stale: true}
+	request := Request{Command: CommandConfigure, NonInteractive: true, Confirm: true}
+
+	dryRun := request
+	dryRun.DryRun = true
+	result, err := ConfigureHandler(store, nil, nil, nil, managed)(context.Background(), dryRun)
+	preview := result.(output.PreviewResult)
+	if err != nil || managed.calls != 0 || len(preview.Effects) != 1 || preview.Effects[0] != "agents" {
+		t.Fatalf("preview=%+v err=%v managed=%+v", preview, err, managed)
+	}
+
+	result, err = ConfigureHandler(store, nil, nil, nil, managed)(context.Background(), request)
+	action := result.(output.ActionResult)
+	if err != nil || !action.Changed || managed.calls != 1 || managed.stale {
+		t.Fatalf("result=%+v err=%v managed=%+v", result, err, managed)
+	}
+
+	result, err = ConfigureHandler(store, nil, nil, nil, managed)(context.Background(), request)
+	action = result.(output.ActionResult)
+	if err != nil || action.Changed || managed.calls != 1 {
+		t.Fatalf("idempotent result=%+v err=%v managed=%+v", result, err, managed)
 	}
 }

@@ -11,7 +11,12 @@ import (
 
 type ManagedAgents interface {
 	Apply(bool) (bool, error)
-	Preview(bool) (string, error)
+	Preview(bool) (ManagedAgentsPreview, error)
+}
+
+type ManagedAgentsPreview struct {
+	Detail  string
+	Changed bool
 }
 
 func ConfigureHandler(store OperatorStore, launchAgent LaunchAgent, previewer func(output.PreviewResult) error, confirmer func() (bool, error), managedAgents ...ManagedAgents) Handler {
@@ -35,22 +40,29 @@ func ConfigureHandler(store OperatorStore, launchAgent LaunchAgent, previewer fu
 		if err := next.Validate(); err != nil {
 			return commandError("configure", "invalid_configuration", err)
 		}
-		preview := []string{"config: write validated preferences"}
-		if next == current {
-			return output.ActionResult{Command: "configure", Changed: false}, nil
-		}
-		resources := []string{"config"}
-		agentsChanged := next.AgentsEnabled != current.AgentsEnabled
-		if agentsChanged {
-			resources = append(resources, "agents")
-			if len(managedAgents) == 0 || managedAgents[0] == nil {
-				return commandError("configure", "agents_unavailable", ErrUnavailable)
-			}
-			detail, err := managedAgents[0].Preview(next.AgentsEnabled)
+		configChanged := next != current
+		agentsSettingChanged := next.AgentsEnabled != current.AgentsEnabled
+		var agentsPreview ManagedAgentsPreview
+		if len(managedAgents) > 0 && managedAgents[0] != nil {
+			agentsPreview, err = managedAgents[0].Preview(next.AgentsEnabled)
 			if err != nil {
 				return commandError("configure", "agents_preview_failed", err)
 			}
-			preview = append(preview, detail)
+		} else if agentsSettingChanged {
+			return commandError("configure", "agents_unavailable", ErrUnavailable)
+		}
+		if !configChanged && !agentsPreview.Changed {
+			return output.ActionResult{Command: "configure", Changed: false}, nil
+		}
+		preview := make([]string, 0, 2)
+		resources := make([]string, 0, 2)
+		if configChanged {
+			preview = append(preview, "config: write validated preferences")
+			resources = append(resources, "config")
+		}
+		if agentsPreview.Changed {
+			resources = append(resources, "agents")
+			preview = append(preview, agentsPreview.Detail)
 		}
 		if next.HeartbeatSeconds != current.HeartbeatSeconds {
 			preview = append(preview, fmt.Sprintf("LaunchAgent interval: %ds -> %ds", current.HeartbeatSeconds, next.HeartbeatSeconds))
@@ -92,10 +104,7 @@ func ConfigureHandler(store OperatorStore, launchAgent LaunchAgent, previewer fu
 			}
 			resources = append(resources, config.LaunchAgentLabel)
 		}
-		if agentsChanged {
-			if len(managedAgents) == 0 || managedAgents[0] == nil {
-				return commandError("configure", "agents_unavailable", ErrUnavailable)
-			}
+		if agentsPreview.Changed {
 			if _, err := managedAgents[0].Apply(next.AgentsEnabled); err != nil {
 				if schedulerChanged {
 					_ = launchAgent.Apply(ctx, current)
@@ -103,8 +112,11 @@ func ConfigureHandler(store OperatorStore, launchAgent LaunchAgent, previewer fu
 				return commandError("configure", "agents_apply_failed", err)
 			}
 		}
-		if err := store.SaveConfig(next); err != nil {
-			if agentsChanged {
+		if configChanged {
+			err = store.SaveConfig(next)
+		}
+		if err != nil {
+			if agentsPreview.Changed {
 				_, _ = managedAgents[0].Apply(current.AgentsEnabled)
 			}
 			if schedulerChanged {

@@ -684,11 +684,11 @@ func installPreview(paths Paths, preferences Preferences, reinstall, migration b
 	} else if migration {
 		mode = "migration install"
 	}
-	agents, err := ManagedMutationPreview(paths.Agents, preferences.AgentsEnabled, []byte(assets.AgentsManagedContent))
+	agents, _, err := ManagedMutationPreview(paths.Agents, preferences.AgentsEnabled, []byte(assets.AgentsManagedContent))
 	if err != nil {
 		return Preview{}, fmt.Errorf("preview AGENTS.md mutation: %w", err)
 	}
-	skill, err := ManagedMutationPreview(paths.Skill, true, []byte(assets.SkillManagedContent))
+	skill, _, err := ManagedMutationPreview(paths.Skill, true, []byte(assets.SkillManagedContent))
 	if err != nil {
 		return Preview{}, fmt.Errorf("preview skill mutation: %w", err)
 	}
@@ -704,10 +704,10 @@ func installPreview(paths Paths, preferences Preferences, reinstall, migration b
 	}}, nil
 }
 
-func ManagedMutationPreview(path string, enabled bool, content []byte) (string, error) {
+func ManagedMutationPreview(path string, enabled bool, content []byte) (string, bool, error) {
 	original, err := os.ReadFile(path)
 	if err != nil && !errors.Is(err, fs.ErrNotExist) {
-		return "", err
+		return "", false, err
 	}
 	var updated []byte
 	if enabled {
@@ -716,16 +716,17 @@ func ManagedMutationPreview(path string, enabled bool, content []byte) (string, 
 		updated, err = RemoveManagedBlock(original)
 	}
 	if err != nil {
-		return "", err
+		return "", false, err
 	}
+	changed := !bytes.Equal(original, updated)
 	action := "no change"
-	if !bytes.Equal(original, updated) {
+	if changed {
 		action = "write managed block"
 		if !enabled {
 			action = "remove managed block"
 		}
 	}
-	return path + ": " + action, nil
+	return path + ": " + action, changed, nil
 }
 
 type FileLegacyLoader struct{}
