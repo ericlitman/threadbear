@@ -633,8 +633,9 @@ func (m managedAgents) Apply(enabled bool) (bool, error) {
 	return string(before) != string(after), nil
 }
 
-func (m managedAgents) Preview(enabled bool) (string, error) {
-	return install.ManagedMutationPreview(m.path, enabled, []byte(assets.AgentsManagedContent))
+func (m managedAgents) Preview(enabled bool) (app.ManagedAgentsPreview, error) {
+	detail, changed, err := install.ManagedMutationPreview(m.path, enabled, []byte(assets.AgentsManagedContent))
+	return app.ManagedAgentsPreview{Detail: detail, Changed: changed}, err
 }
 
 type runtimeSelfTest struct {

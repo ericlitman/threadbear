@@ -6,6 +6,8 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/ericlitman/threadbear/assets"
 )
 
 func TestManagedBlockPreservesBytesAndIsIdempotent(t *testing.T) {
@@ -38,6 +40,71 @@ func TestManagedBlockPreservesBytesAndIsIdempotent(t *testing.T) {
 	}
 	if !bytes.Equal(removed, original) {
 		t.Fatalf("removed=%q want=%q", removed, original)
+	}
+}
+
+func TestManagedBlockUpgradePreservesBytesOutsideLegacyBlock(t *testing.T) {
+	prefix := []byte("user guidance before\r\n")
+	suffix := []byte("user guidance after without final newline")
+	legacy := ManagedBlock([]byte("legacy ThreadBear guidance"))
+	original := append(append(append([]byte(nil), prefix...), legacy...), suffix...)
+
+	updated, err := UpdateManagedBlock(original, []byte("new ThreadBear guidance"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.HasPrefix(updated, prefix) {
+		t.Fatalf("prefix changed: %q", updated)
+	}
+	if !bytes.HasSuffix(updated, suffix) {
+		t.Fatalf("suffix changed: %q", updated)
+	}
+	if bytes.Contains(updated, []byte("legacy ThreadBear guidance")) {
+		t.Fatalf("legacy managed content survived: %q", updated)
+	}
+
+	again, err := UpdateManagedBlock(updated, []byte("new ThreadBear guidance"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(updated, again) {
+		t.Fatalf("upgrade is not idempotent\n%q\n%q", updated, again)
+	}
+}
+
+func TestApplyManagedUpgradesLegacyAgentsContentOnce(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "AGENTS.md")
+	prefix := []byte("user guidance before\n")
+	suffix := []byte("user guidance after\n")
+	legacy := ManagedBlock([]byte("legacy ThreadBear guidance"))
+	original := append(append(append([]byte(nil), prefix...), legacy...), suffix...)
+	if err := os.WriteFile(path, original, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	detail, changed, err := ManagedMutationPreview(path, true, []byte(assets.AgentsManagedContent))
+	if err != nil || !changed {
+		t.Fatalf("preview=%q changed=%t err=%v", detail, changed, err)
+	}
+	changed, err = applyManaged(path, true, []byte(assets.AgentsManagedContent))
+	if err != nil || !changed {
+		t.Fatalf("changed=%t err=%v", changed, err)
+	}
+	updated, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.HasPrefix(updated, prefix) || !bytes.HasSuffix(updated, suffix) {
+		t.Fatalf("outside bytes changed: %q", updated)
+	}
+
+	detail, changed, err = ManagedMutationPreview(path, true, []byte(assets.AgentsManagedContent))
+	if err != nil || changed {
+		t.Fatalf("second preview=%q changed=%t err=%v", detail, changed, err)
+	}
+	changed, err = applyManaged(path, true, []byte(assets.AgentsManagedContent))
+	if err != nil || changed {
+		t.Fatalf("second apply changed=%t err=%v", changed, err)
 	}
 }
 

@@ -1,32 +1,24 @@
 # ThreadBear status convention
 
-When managed global guidance is enabled, ThreadBear asks terminal agents to end each response with exactly one compact line:
+When managed global guidance is enabled, ThreadBear asks terminal agents to end each response with exactly one compact line. The managed block leads with concrete forms:
 
 ```text
-🐻 STATUS · next (OWNER): ACTION
+🐻 complete · next (none): none
+🐻 next steps · next (you): approve the release plan
+🐻 next steps · next (agent): implement the approved plan
+🐻 next steps · next (external): review the security exception
+🐻 needs input · next (you): choose the release region
+🐻 blocked · next (external): restore the signing service
+🐻 automation · next (none): none
 ```
 
-Allowed `STATUS` values are `complete`, `next steps`, `needs input`, `blocked`, and `automation`. Allowed `OWNER` values are `you`, `agent`, `external`, and `none`.
+The grammar is a bear, one lowercase state, the fixed `next` separator, an owner in parentheses, and an action after the colon. The five states are `complete`, `next steps`, `needs input`, `blocked`, and `automation`; the four owners are `you`, `agent`, `external`, and `none`.
 
 The governing instruction is:
 
-> Report the turn's actual disposition; do not invent or recommend work to populate this line. After finished work, use `complete · next (none): none` unless the substantive response already ends with one clear, concrete, warranted next step; generic offers, speculative possibilities, and mentions of recorded work do not qualify.
+> Report the turn's actual disposition; do not invent or recommend work to populate this line. Use `complete` unless the substantive response already ends with one clear, concrete, warranted next step. Generic offers, speculative possibilities, and mentions of recorded work do not qualify.
 
-Completed work with no warranted follow-up must end:
-
-```text
-🐻 complete · next (none): none
-```
-
-## Footer examples
-
-```text
-🐻 needs input · next (you): choose the release region
-🐻 next steps · next (agent): create the implementation plan
-🐻 blocked · next (external): wait for vendor access
-🐻 automation · next (none): none
-🐻 complete · next (none): none
-```
+Agents must never emit the literal placeholder words `STATUS`, `OWNER`, or `ACTION`. The examples above are complete footer lines, not fill-in-the-blank templates.
 
 A valid footer is a deterministic signal, so ThreadBear can update the title without another classifier call. The footer itself is removed from title input.
 

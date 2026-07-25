@@ -62,11 +62,11 @@ func (u Uninstaller) Uninstall(ctx context.Context, request UninstallRequest) (U
 			return UninstallResult{}, err
 		}
 	}
-	agentsPreview, err := ManagedMutationPreview(u.Paths.Agents, false, nil)
+	agentsPreview, _, err := ManagedMutationPreview(u.Paths.Agents, false, nil)
 	if err != nil {
 		return UninstallResult{}, fmt.Errorf("preview AGENTS.md mutation: %w", err)
 	}
-	skillPreview, err := ManagedMutationPreview(u.Paths.Skill, false, nil)
+	skillPreview, _, err := ManagedMutationPreview(u.Paths.Skill, false, nil)
 	if err != nil {
 		return UninstallResult{}, fmt.Errorf("preview skill mutation: %w", err)
 	}
