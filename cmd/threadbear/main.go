@@ -27,6 +27,7 @@ import (
 	"github.com/ericlitman/threadbear/internal/output"
 	"github.com/ericlitman/threadbear/internal/state"
 	statusresolver "github.com/ericlitman/threadbear/internal/status"
+	updatepkg "github.com/ericlitman/threadbear/internal/update"
 	"github.com/ericlitman/threadbear/internal/watch"
 )
 
@@ -99,7 +100,7 @@ func newOperatorService(installedVersion string, stdout, stderr io.Writer, forma
 	}
 	runner, err := watch.New(watch.Dependencies{
 		Store: store, Inventory: inventory, AppServer: appServerFactory{runtime: appServers}, Clock: clock,
-		InstalledVersion: installedVersion, NewCycleID: newCycleID, UpdateChecker: currentVersionChecker{},
+		InstalledVersion: installedVersion, NewCycleID: newCycleID, UpdateChecker: heartbeatUpdateChecker{checker: updatepkg.Checker{}},
 		NewClassifier: func(client watch.AppServer, cfg config.Config) (watch.Classifier, error) {
 			runner, ok := client.(statusresolver.EphemeralRunner)
 			if !ok {
@@ -174,6 +175,7 @@ func newOperatorService(installedVersion string, stdout, stderr io.Writer, forma
 			return prompter.Confirm()
 		},
 		Install: app.InstallHandler(installFactory), SelfTest: app.SelfTestHandler(runtimeSelfTest{paths: paths, launchAgent: launch}),
+		Update:    updatepkg.Replacer{ExecutablePath: paths.Binary, InstalledVersion: installedVersion},
 		Uninstall: app.UninstallHandler(uninstallFactory),
 	})
 	return service, func() { inventory.Close() }, nil
@@ -278,10 +280,11 @@ func (f appServerFactory) Open(ctx context.Context) (watch.AppServer, error) {
 	return f.runtime.open(ctx)
 }
 
-type currentVersionChecker struct{}
+type heartbeatUpdateChecker struct{ checker updatepkg.Checker }
 
-func (currentVersionChecker) Check(_ context.Context, installedVersion string) (watch.UpdateStatus, error) {
-	return watch.UpdateStatus{LatestVersion: installedVersion}, nil
+func (c heartbeatUpdateChecker) Check(ctx context.Context, installedVersion string) (watch.UpdateStatus, error) {
+	status, err := c.checker.Check(ctx, installedVersion)
+	return watch.UpdateStatus{LatestVersion: status.LatestVersion, Newer: status.Newer}, err
 }
 
 func newCycleID() string {
@@ -339,7 +342,9 @@ func parseRequest(args []string) (app.Request, error) {
 		flags.BoolVar(&request.DryRun, "dry-run", false, "preview configuration effects")
 		flags.BoolVar(&request.Confirm, "confirm", false, "confirm the previewed changes")
 	case app.CommandSelfTest:
-		flags.BoolVar(&request.Candidate, "candidate", false, "validate this candidate without installed state")
+		flags.BoolVar(&request.Candidate, "candidate", false, "validate this candidate before installation")
+	case app.CommandUpdate:
+		flags.StringVar(&request.Version, "version", "", "exact release version without a leading v")
 	case app.CommandUninstall:
 		registerLifecycleFlags(flags, &request)
 		flags.BoolVar(&request.ArchiveControlTask, "archive-control-task", false, "archive the control task")
@@ -637,6 +642,35 @@ type runtimeSelfTest struct {
 	launchAgent app.LaunchAgent
 }
 
+func validateInstalledState(paths install.Paths) error {
+	info, err := os.Stat(paths.StateDirectory)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	if !info.IsDir() {
+		return errors.New("state directory is not a directory")
+	}
+	store := install.NewDiskStore(paths)
+	cfg, err := store.LoadConfig()
+	if err != nil {
+		return fmt.Errorf("load installed config: %w", err)
+	}
+	if err := cfg.Validate(); err != nil {
+		return fmt.Errorf("validate installed config: %w", err)
+	}
+	committed, err := store.LoadState()
+	if err != nil {
+		return fmt.Errorf("load installed state: %w", err)
+	}
+	if err := committed.Validate(); err != nil {
+		return fmt.Errorf("validate installed state: %w", err)
+	}
+	return nil
+}
+
 func (s runtimeSelfTest) Run(ctx context.Context, candidate bool) output.SelfTestResult {
 	checks := make([]output.CheckResult, 0, 8)
 	add := func(name string, err error) {
@@ -681,6 +715,7 @@ func (s runtimeSelfTest) Run(ctx context.Context, candidate bool) output.SelfTes
 	}
 	add("codex_executable", codexErr)
 	if candidate {
+		add("installed_state", validateInstalledState(s.paths))
 		ok := true
 		for _, check := range checks {
 			ok = ok && check.OK

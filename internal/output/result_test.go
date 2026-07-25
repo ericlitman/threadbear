@@ -113,3 +113,21 @@ func TestInstallErrorStepCauseHumanJSONParity(t *testing.T) {
 		}
 	}
 }
+
+func TestUpdateResultHumanJSONParity(t *testing.T) {
+	result := UpdateResult{Changed: true, PreviousVersion: "1.1.0", InstalledVersion: "1.2.0"}
+	var human bytes.Buffer
+	if err := Write(&human, FormatHuman, result); err != nil {
+		t.Fatal(err)
+	}
+	if human.String() != "ThreadBear updated 1.1.0 → 1.2.0\n" {
+		t.Fatalf("human=%q", human.String())
+	}
+	var encoded bytes.Buffer
+	if err := Write(&encoded, FormatJSON, result); err != nil {
+		t.Fatal(err)
+	}
+	if encoded.String() != `{"version":1,"changed":true,"previous_version":"1.1.0","installed_version":"1.2.0"}`+"\n" {
+		t.Fatalf("json=%q", encoded.String())
+	}
+}

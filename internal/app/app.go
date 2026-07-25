@@ -143,11 +143,11 @@ func (r Request) Validate() error {
 	if (r.ArchiveControlTask || r.DeleteState) && r.Command != CommandUninstall {
 		return fmt.Errorf("%w: uninstall choices are uninstall-only", ErrInvalidRequest)
 	}
-	if r.Version != "" && r.Command != CommandInstall {
-		return fmt.Errorf("%w: --version selection is install-only", ErrInvalidRequest)
+	if r.Version != "" && r.Command != CommandInstall && r.Command != CommandUpdate {
+		return fmt.Errorf("%w: --version selection is install- or update-only", ErrInvalidRequest)
 	}
 	if r.Version != "" && !exactVersion(r.Version) {
-		return fmt.Errorf("%w: install version must be an exact version without a leading v", ErrInvalidRequest)
+		return fmt.Errorf("%w: version must be an exact version without a leading v", ErrInvalidRequest)
 	}
 	if value := r.Configure.HeartbeatSeconds; value != nil && *value <= 0 {
 		return fmt.Errorf("%w: heartbeat seconds must be positive", ErrInvalidRequest)

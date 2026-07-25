@@ -1,0 +1,102 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  ci:
+    runs-on: macos-14
+    outputs:
+      publish: ${{ steps.release_tag.outputs.publish }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Validate release tag
+        id: release_tag
+        run: |
+          version=${GITHUB_REF_NAME#v}
+          publish=false
+          if printf '%s\n' "$version" | awk '/^[0-9]+\.[0-9]+\.[0-9]+$/ { ok=1 } END { exit(ok ? 0 : 1) }'; then
+            publish=true
+          elif [ "$GITHUB_REF_NAME" = v0.0.0-dryrun ]; then
+            version=0.0.0
+          else
+            echo "release tag must be stable vN.N.N or v0.0.0-dryrun" >&2
+            exit 1
+          fi
+          echo "VERSION=$version" >> "$GITHUB_ENV"
+          echo "publish=$publish" >> "$GITHUB_OUTPUT"
+      - run: go test ./...
+      - run: go vet ./...
+      - run: sh -n install.sh
+      - run: if [ -f site/install.sh ]; then cmp install.sh site/install.sh; fi
+      - name: Lint rendered plist fixture
+        run: |
+          sed \
+            -e 's#{{xml .Label}}#org.litman.threadbear#g' \
+            -e 's#{{xml .BinaryPath}}#/tmp/threadbear#g' \
+            -e 's#{{.StartInterval}}#300#g' \
+            -e 's#{{xml .Home}}#/tmp/threadbear-home#g' \
+            -e 's#{{xml .CodexHome}}#/tmp/threadbear-home/.codex#g' \
+            -e 's#{{xml .Path}}#/usr/bin:/bin#g' \
+            -e 's#{{xml .LCAll}}#C#g' \
+            -e 's#{{xml .StdoutPath}}#/tmp/threadbear.stdout.log#g' \
+            -e 's#{{xml .StderrPath}}#/tmp/threadbear.stderr.log#g' \
+            assets/org.litman.threadbear.plist.tmpl > /tmp/org.litman.threadbear.plist
+          plutil -lint /tmp/org.litman.threadbear.plist
+      - name: Build Darwin release binaries
+        run: |
+          mkdir -p dist
+          CGO_ENABLED=0 GOOS=darwin GOARCH=arm64 go build -trimpath -ldflags "-s -w -X main.version=$VERSION" -o dist/threadbear_darwin_arm64 ./cmd/threadbear
+          CGO_ENABLED=0 GOOS=darwin GOARCH=amd64 go build -trimpath -ldflags "-s -w -X main.version=$VERSION" -o dist/threadbear_darwin_amd64 ./cmd/threadbear
+          for asset in dist/threadbear_darwin_arm64 dist/threadbear_darwin_amd64; do
+            shasum -a 256 "$asset" > "$asset.sha256"
+            shasum -a 256 -c "$asset.sha256"
+            strings "$asset" | grep -Fx "$VERSION"
+          done
+          go version -m dist/threadbear_darwin_arm64 | grep -F 'build	GOARCH=arm64'
+          go version -m dist/threadbear_darwin_amd64 | grep -F 'build	GOARCH=amd64'
+      - name: Generate latest release manifest
+        run: |
+          cat > dist/latest.json <<EOF
+          {
+            "version": "$VERSION",
+            "assets": {
+              "darwin_arm64": {
+                "url": "https://github.com/ericlitman/threadbear/releases/download/$GITHUB_REF_NAME/threadbear_darwin_arm64",
+                "sha256_url": "https://github.com/ericlitman/threadbear/releases/download/$GITHUB_REF_NAME/threadbear_darwin_arm64.sha256"
+              },
+              "darwin_amd64": {
+                "url": "https://github.com/ericlitman/threadbear/releases/download/$GITHUB_REF_NAME/threadbear_darwin_amd64",
+                "sha256_url": "https://github.com/ericlitman/threadbear/releases/download/$GITHUB_REF_NAME/threadbear_darwin_amd64.sha256"
+              }
+            }
+          }
+          EOF
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-assets
+          path: dist/
+          if-no-files-found: error
+
+  publish:
+    needs: ci
+    if: needs.ci.outputs.publish == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: release-assets
+          path: dist
+      - name: Publish GitHub release after CI succeeds
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "$GITHUB_REF_NAME" dist/* --repo "$GITHUB_REPOSITORY" --verify-tag --generate-notes

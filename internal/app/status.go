@@ -56,6 +56,7 @@ type OperatorDependencies struct {
 	Heartbeat     HeartbeatRunner
 	Install       Handler
 	SelfTest      Handler
+	Update        Updater
 	Uninstall     Handler
 }
 
@@ -73,6 +74,9 @@ func NewWithOperatorCommands(version string, deps OperatorDependencies) *Service
 	}
 	if deps.SelfTest != nil {
 		service.handlers[CommandSelfTest] = deps.SelfTest
+	}
+	if deps.Update != nil {
+		service.handlers[CommandUpdate] = UpdateHandler(deps.Store, deps.Update)
 	}
 	if deps.Uninstall != nil {
 		service.handlers[CommandUninstall] = deps.Uninstall

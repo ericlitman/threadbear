@@ -152,17 +152,13 @@ func (r *Runner) Run(ctx context.Context, dryRun bool) (output.Result, error) {
 	result := output.HeartbeatResult{CycleID: checkpoint.CycleID}
 	pendingUpdate := UpdateStatus{}
 	if updateDue {
+		committed.LastUpdateCheck = &now
 		if r.deps.UpdateChecker == nil {
 			result.ErrorCode = "update_checker_unavailable"
 		} else {
 			checked, checkErr := r.deps.UpdateChecker.Check(ctx, r.deps.InstalledVersion)
-			if checkErr != nil {
-				result.ErrorCode = "update_check_failed"
-			} else {
-				committed.LastUpdateCheck = &now
-				if checked.Newer && checked.LatestVersion != "" && !contains(committed.DeliveredNoticeVersions, checked.LatestVersion) && !checkpointHasNotice(checkpoint, checked.LatestVersion) {
-					pendingUpdate = checked
-				}
+			if checkErr == nil && checked.Newer && checked.LatestVersion != "" && !contains(committed.DeliveredNoticeVersions, checked.LatestVersion) && !checkpointHasNotice(checkpoint, checked.LatestVersion) {
+				pendingUpdate = checked
 			}
 		}
 	}

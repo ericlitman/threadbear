@@ -252,6 +252,22 @@ func (r SelfTestResult) Human() string {
 	return "ThreadBear self-test: " + status + " · " + strings.Join(checks, ",")
 }
 
+type UpdateResult struct {
+	Version          int    `json:"version"`
+	Changed          bool   `json:"changed"`
+	PreviousVersion  string `json:"previous_version"`
+	InstalledVersion string `json:"installed_version"`
+}
+
+func (UpdateResult) result()     {}
+func (UpdateResult) Empty() bool { return false }
+func (r UpdateResult) Human() string {
+	if !r.Changed {
+		return fmt.Sprintf("ThreadBear is already at %s", r.InstalledVersion)
+	}
+	return fmt.Sprintf("ThreadBear updated %s → %s", r.PreviousVersion, r.InstalledVersion)
+}
+
 type VersionResult struct {
 	Version          int    `json:"version"`
 	Product          string `json:"product"`
@@ -355,6 +371,11 @@ func dereferenceResult(value Result) (Result, error) {
 			return nil, errors.New("result is required")
 		}
 		return *result, nil
+	case *UpdateResult:
+		if result == nil {
+			return nil, errors.New("result is required")
+		}
+		return *result, nil
 	case *VersionResult:
 		if result == nil {
 			return nil, errors.New("result is required")
@@ -440,6 +461,11 @@ func withVersion(value Result) Result {
 		sort.Slice(result.Checks, func(i, j int) bool { return result.Checks[i].Name < result.Checks[j].Name })
 		if result.Checks == nil {
 			result.Checks = []CheckResult{}
+		}
+		return result
+	case UpdateResult:
+		if result.Version == 0 {
+			result.Version = CurrentResultVersion
 		}
 		return result
 	case VersionResult:
@@ -598,6 +624,10 @@ func validateResult(value Result) error {
 		if result.OK != allOK {
 			return errors.New("self-test summary contradicts checks")
 		}
+	case UpdateResult:
+		if result.InstalledVersion == "" || result.PreviousVersion == "" {
+			return errors.New("update result is incomplete")
+		}
 	case VersionResult:
 		if result.Product == "" || result.InstalledVersion == "" || result.Website == "" {
 			return errors.New("version result is incomplete")
@@ -640,6 +670,8 @@ func resultVersion(value Result) int {
 	case LifecycleResult:
 		return result.Version
 	case SelfTestResult:
+		return result.Version
+	case UpdateResult:
 		return result.Version
 	case VersionResult:
 		return result.Version

@@ -13,6 +13,7 @@ import (
 	"github.com/ericlitman/threadbear/internal/codex"
 	"github.com/ericlitman/threadbear/internal/codex/appserver"
 	"github.com/ericlitman/threadbear/internal/config"
+	"github.com/ericlitman/threadbear/internal/install"
 )
 
 func TestParseLifecycleFlags(t *testing.T) {
@@ -255,5 +256,50 @@ func TestHeartbeatRuntimeUsesInstalledPinnedCodexExecutable(t *testing.T) {
 	}
 	if !found {
 		t.Fatalf("process env=%v want stored PATH=%q", process.Env, storedPath)
+	}
+}
+
+func TestCandidateSelfTestRejectsUnsupportedInstalledState(t *testing.T) {
+	home := t.TempDir()
+	paths := install.PathsForHomes(home, filepath.Join(home, "codex"))
+	store := install.NewDiskStore(paths)
+	if err := store.SaveConfig(config.Default("control")); err != nil {
+		t.Fatal(err)
+	}
+	unsupported := []byte(`{"schema_version":2}` + "\n")
+	if err := os.WriteFile(paths.State, unsupported, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	originalResolver := resolveCodexExecutableSpec
+	resolveCodexExecutableSpec = func(string, string) (codex.ExecutableSpec, error) {
+		return codex.ExecutableSpec{}, errors.New("synthetic Codex failure")
+	}
+	t.Cleanup(func() { resolveCodexExecutableSpec = originalResolver })
+	result := (runtimeSelfTest{paths: paths}).Run(context.Background(), true)
+	found := false
+	for _, check := range result.Checks {
+		if check.Name == "installed_state" {
+			found = true
+			if check.OK {
+				t.Fatal("unsupported installed state passed candidate self-test")
+			}
+		}
+	}
+	if !found {
+		t.Fatal("candidate self-test omitted installed state compatibility")
+	}
+	after, err := os.ReadFile(paths.State)
+	if err != nil || string(after) != string(unsupported) {
+		t.Fatalf("installed state mutated: %q err=%v", after, err)
+	}
+}
+
+func TestParseUpdateExactVersion(t *testing.T) {
+	request, err := parseRequest([]string{"update", "--version", "1.2.3", "--json"})
+	if err != nil || request.Command != app.CommandUpdate || request.Version != "1.2.3" || !request.JSON {
+		t.Fatalf("request=%+v err=%v", request, err)
+	}
+	if _, err := parseRequest([]string{"update", "--version", "v1.2.3"}); err == nil {
+		t.Fatal("leading v update version was accepted")
 	}
 }
