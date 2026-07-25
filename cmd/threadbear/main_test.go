@@ -257,3 +257,13 @@ func TestHeartbeatRuntimeUsesInstalledPinnedCodexExecutable(t *testing.T) {
 		t.Fatalf("process env=%v want stored PATH=%q", process.Env, storedPath)
 	}
 }
+
+func TestParseUpdateExactVersion(t *testing.T) {
+	request, err := parseRequest([]string{"update", "--version", "1.2.3", "--json"})
+	if err != nil || request.Command != app.CommandUpdate || request.Version != "1.2.3" || !request.JSON {
+		t.Fatalf("request=%+v err=%v", request, err)
+	}
+	if _, err := parseRequest([]string{"update", "--version", "v1.2.3"}); err == nil {
+		t.Fatal("leading v update version was accepted")
+	}
+}

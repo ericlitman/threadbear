@@ -1,0 +1,40 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - run: go test ./...
+      - run: go vet ./...
+      - run: CGO_ENABLED=0 GOOS=darwin GOARCH=arm64 go build -o /tmp/threadbear_darwin_arm64 ./cmd/threadbear
+      - run: CGO_ENABLED=0 GOOS=darwin GOARCH=amd64 go build -o /tmp/threadbear_darwin_amd64 ./cmd/threadbear
+      - run: sh -n install.sh
+      - run: if [ -f site/install.sh ]; then cmp install.sh site/install.sh; fi
+      - name: Lint rendered plist fixture
+        run: |
+          sed \
+            -e 's#{{xml .Label}}#org.litman.threadbear#g' \
+            -e 's#{{xml .BinaryPath}}#/tmp/threadbear#g' \
+            -e 's#{{.StartInterval}}#300#g' \
+            -e 's#{{xml .Home}}#/tmp/threadbear-home#g' \
+            -e 's#{{xml .CodexHome}}#/tmp/threadbear-home/.codex#g' \
+            -e 's#{{xml .Path}}#/usr/bin:/bin#g' \
+            -e 's#{{xml .LCAll}}#C#g' \
+            -e 's#{{xml .StdoutPath}}#/tmp/threadbear.stdout.log#g' \
+            -e 's#{{xml .StderrPath}}#/tmp/threadbear.stderr.log#g' \
+            assets/org.litman.threadbear.plist.tmpl > /tmp/org.litman.threadbear.plist
+          plutil -lint /tmp/org.litman.threadbear.plist
