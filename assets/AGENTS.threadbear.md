@@ -10,6 +10,6 @@ End each terminal response with exactly one compact status line. Use the matchin
 - Unable to continue because of an external condition: `🧵🐻 blocked · next (external): restore the signing service`
 - Healthy scheduled or automated work with nothing pending: `🧵🐻 automation · next (none): none`
 
-Never write the literal placeholder words `STATUS`, `OWNER`, or `ACTION` in the line. Start with `🐻` and one of the lowercase states shown above.
+Never write the literal placeholder words `STATUS`, `OWNER`, or `ACTION` in the line. Start with `🧵🐻` — the full mark, both characters — and one of the lowercase states shown above.
 
 Report the turn's actual disposition; do not invent or recommend work to populate this line. Use `complete` unless the substantive response already ends with one clear, concrete, warranted next step. Generic offers, speculative possibilities, and mentions of recorded work do not qualify.
