@@ -43,6 +43,7 @@ func TestDecodeLiveEvalCorpusValidatesContract(t *testing.T) {
 		{"missing facts", omitLiveEvalField(t, valid, "facts")},
 		{"missing footer", omitLiveEvalField(t, valid, "facts", "footer")},
 		{"missing latest", omitLiveEvalField(t, valid, "latest")},
+		{"split message", strings.Replace(valid, `"final_agent":"Finished.\n🧵🐻 complete · next (none): none"`, `"final_agent":"Different final answer."`, 1)},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {

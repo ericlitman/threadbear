@@ -136,6 +136,9 @@ func decodeLiveEvalCorpus(data []byte) (liveEvalCorpus, error) {
 		if item.Facts == nil || item.Facts.Footer == nil || item.Latest == nil {
 			return liveEvalCorpus{}, fmt.Errorf("case %q must include facts, facts.footer, and latest objects", item.ID)
 		}
+		if item.Facts.Footer.Message != item.Latest.FinalAgent {
+			return liveEvalCorpus{}, fmt.Errorf("case %q facts.footer.message must equal latest.final_agent", item.ID)
+		}
 		provenance := item.Provenance
 		if strings.TrimSpace(provenance.Model) == "" ||
 			strings.TrimSpace(provenance.Effort) == "" ||
