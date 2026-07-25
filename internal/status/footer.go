@@ -7,7 +7,7 @@ import (
 	"github.com/ericlitman/threadbear/internal/state"
 )
 
-const footerPrefix = "🐻 "
+const footerPrefix = "🧵🐻 "
 const footerMiddle = " · next ("
 
 var footerStatuses = map[string]state.TaskStatus{
@@ -40,7 +40,7 @@ func ParseFooter(input FooterInput) FooterResult {
 	}
 	footer, ok := parseFooterLine(line)
 	if !ok {
-		if strings.HasPrefix(line, footerPrefix) || strings.Contains(line, "🐻 STATUS") {
+		if strings.HasPrefix(line, footerPrefix) || strings.Contains(line, "🧵🐻 STATUS") {
 			result.Rejection = FooterMalformed
 		}
 		return result

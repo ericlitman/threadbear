@@ -72,6 +72,39 @@ func TestManagedBlockUpgradePreservesBytesOutsideLegacyBlock(t *testing.T) {
 	}
 }
 
+func TestApplyManagedUpgradesBareBearBlockToCurrentMark(t *testing.T) {
+	// BEAR-23: installed users carry a managed block whose footer examples use
+	// the bare 🐻. Reconfiguring must replace it in place with the current
+	// 🧵🐻 content, byte-preserving everything outside the markers.
+	path := filepath.Join(t.TempDir(), "AGENTS.md")
+	prefix := []byte("user guidance before\n")
+	suffix := []byte("user guidance after\n")
+	stale := ManagedBlock([]byte("# ThreadBear status\n\n`🐻 complete · next (none): none`\n"))
+	original := append(append(append([]byte(nil), prefix...), stale...), suffix...)
+	if err := os.WriteFile(path, original, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := WriteManagedBlock(path, []byte(assets.AgentsManagedContent)); err != nil {
+		t.Fatal(err)
+	}
+	updated, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.HasPrefix(updated, prefix) || !bytes.HasSuffix(updated, suffix) {
+		t.Fatalf("user content outside the block changed: %q", updated)
+	}
+	if bytes.Contains(updated, []byte("`🐻 complete")) {
+		t.Fatal("stale bare-bear example survived the upgrade")
+	}
+	if !bytes.Contains(updated, []byte("🧵🐻 complete · next (none): none")) {
+		t.Fatalf("current mark missing after upgrade: %q", updated)
+	}
+	if got := bytes.Count(updated, []byte(ManagedBlockStart)); got != 1 {
+		t.Fatalf("managed block count = %d, want 1", got)
+	}
+}
+
 func TestApplyManagedUpgradesLegacyAgentsContentOnce(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "AGENTS.md")
 	prefix := []byte("user guidance before\n")
