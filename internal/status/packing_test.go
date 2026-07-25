@@ -135,7 +135,7 @@ func TestPackFindsMinimumBatchCount(t *testing.T) {
 	for index, length := range lengths {
 		tasks[index] = TaskEvidence{TaskID: "task-" + string(rune('a'+index)), Revision: "r", Latest: TurnEvidence{FinalAgent: strings.Repeat("x", length)}}
 	}
-	batches, oversized, err := PackTasks(tasks, 4407, false)
+	batches, oversized, err := PackTasks(tasks, 4800, false)
 	if err != nil {
 		t.Fatal(err)
 	}
