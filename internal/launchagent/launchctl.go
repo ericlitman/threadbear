@@ -250,7 +250,7 @@ func (a *Adapter) Enable(ctx context.Context) (bool, error) {
 	if !disabled && loaded {
 		return false, nil
 	}
-	if disabled {
+	if disabled || !loaded {
 		if err := a.command(ctx, "enable", a.service); err != nil {
 			return false, err
 		}
@@ -422,10 +422,16 @@ func (a *Adapter) disabled(ctx context.Context, label string) (bool, error) {
 	if err != nil {
 		return false, commandError("inspect disabled LaunchAgent state", output, err)
 	}
-	text := string(output)
-	for _, separator := range []string{"=>", "="} {
-		if strings.Contains(text, `"`+label+`" `+separator+` true`) || strings.Contains(text, label+" "+separator+" true") {
-			return true, nil
+	for _, line := range strings.Split(string(output), "\n") {
+		for _, separator := range []string{"=>", "="} {
+			key, value, found := strings.Cut(line, separator)
+			if !found || strings.Trim(strings.TrimSpace(key), `"`) != label {
+				continue
+			}
+			switch strings.ToLower(strings.TrimSpace(value)) {
+			case "true", "disabled":
+				return true, nil
+			}
 		}
 	}
 	return false, nil

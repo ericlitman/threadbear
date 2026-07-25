@@ -14,9 +14,10 @@ import (
 )
 
 type fakeRunner struct {
-	disabled map[string]bool
-	loaded   map[string]bool
-	calls    []string
+	disabled            map[string]bool
+	loaded              map[string]bool
+	calls               []string
+	printDisabledOutput *string
 }
 
 func newFakeRunner() *fakeRunner {
@@ -30,6 +31,9 @@ func (r *fakeRunner) Run(_ context.Context, name string, args ...string) ([]byte
 	}
 	switch args[0] {
 	case "print-disabled":
+		if r.printDisabledOutput != nil {
+			return []byte(*r.printDisabledOutput), nil
+		}
 		var lines []string
 		for label, disabled := range r.disabled {
 			lines = append(lines, fmt.Sprintf("\"%s\" => %t", label, disabled))
@@ -48,6 +52,9 @@ func (r *fakeRunner) Run(_ context.Context, name string, args ...string) ([]byte
 		label := Label
 		if strings.Contains(string(data), LegacyLabel) {
 			label = LegacyLabel
+		}
+		if r.disabled[label] {
+			return []byte("Bootstrap failed: service is disabled"), errors.New("exit status 5")
 		}
 		r.loaded[args[1]+"/"+label] = true
 		return nil, nil
@@ -223,6 +230,82 @@ func TestEnableDisableAndRemoveAreIdempotent(t *testing.T) {
 	}
 	if _, err := os.Stat(adapter.plistPath); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("plist still exists: %v", err)
+	}
+}
+
+func TestEnablePrecedesBootstrapAndPreservesIdempotency(t *testing.T) {
+	runner := newFakeRunner()
+	adapter, _ := testAdapter(t, runner)
+	cfg := config.Default("control")
+	cfg.CodexExecutable = "/custom/codex/bin/codex"
+	cfg.CodexSpawnPath = "/custom/codex/bin:/custom/node/bin"
+	if _, err := adapter.Stage(context.Background(), cfg); err != nil {
+		t.Fatal(err)
+	}
+	reported := fmt.Sprintf(`"%s" => false`, Label)
+	runner.printDisabledOutput = &reported
+	callStart := len(runner.calls)
+	changed, err := adapter.Enable(context.Background())
+	if err != nil || !changed {
+		t.Fatalf("Enable = %v, %v", changed, err)
+	}
+	calls := runner.calls[callStart:]
+	enableIndex, bootstrapIndex := -1, -1
+	for index, call := range calls {
+		if strings.Contains(call, " enable "+adapter.service) {
+			enableIndex = index
+		}
+		if strings.Contains(call, " bootstrap "+adapter.domain+" "+adapter.plistPath) {
+			bootstrapIndex = index
+		}
+	}
+	if enableIndex < 0 || bootstrapIndex < 0 || enableIndex >= bootstrapIndex {
+		t.Fatalf("enable did not precede bootstrap: %v", calls)
+	}
+	changed, err = adapter.Enable(context.Background())
+	if err != nil || changed {
+		t.Fatalf("repeated Enable = %v, %v", changed, err)
+	}
+
+	runner.printDisabledOutput = nil
+	runner.disabled[Label] = true
+	callStart = len(runner.calls)
+	changed, err = adapter.Enable(context.Background())
+	if err != nil || !changed {
+		t.Fatalf("loaded disabled Enable = %v, %v", changed, err)
+	}
+	for _, call := range runner.calls[callStart:] {
+		if strings.Contains(call, " bootstrap ") || strings.Contains(call, " kickstart ") {
+			t.Fatalf("loaded disabled Enable reloaded service: %s", call)
+		}
+	}
+	changed, err = adapter.Enable(context.Background())
+	if err != nil || changed {
+		t.Fatalf("enabled loaded Enable = %v, %v", changed, err)
+	}
+}
+
+func TestDisabledRecognizesLaunchctlValues(t *testing.T) {
+	tests := []struct {
+		output   string
+		disabled bool
+	}{
+		{output: fmt.Sprintf(`"%s" => disabled`, Label), disabled: true},
+		{output: fmt.Sprintf(`"%s" => true`, Label), disabled: true},
+		{output: fmt.Sprintf(`%s = true`, Label), disabled: true},
+		{output: fmt.Sprintf(`"%s" => false`, Label)},
+		{output: fmt.Sprintf(`"%s" => enabled`, Label)},
+	}
+	for _, test := range tests {
+		t.Run(test.output, func(t *testing.T) {
+			runner := newFakeRunner()
+			runner.printDisabledOutput = &test.output
+			adapter, _ := testAdapter(t, runner)
+			disabled, err := adapter.disabled(context.Background(), Label)
+			if err != nil || disabled != test.disabled {
+				t.Fatalf("disabled = %v, %v; want %v", disabled, err, test.disabled)
+			}
+		})
 	}
 }
 
