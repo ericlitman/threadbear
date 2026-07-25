@@ -17,12 +17,12 @@ When explaining title state, use the canonical meanings: `⏳` running, `🚨` b
 
 When managed global guidance is enabled, terminal responses use one concrete footer line:
 
-- `🐻 complete · next (none): none`
-- `🐻 next steps · next (you): approve the release plan`
-- `🐻 next steps · next (agent): implement the approved plan`
-- `🐻 next steps · next (external): review the security exception`
-- `🐻 needs input · next (you): choose the release region`
-- `🐻 blocked · next (external): restore the signing service`
-- `🐻 automation · next (none): none`
+- `🧵🐻 complete · next (none): none`
+- `🧵🐻 next steps · next (you): approve the release plan`
+- `🧵🐻 next steps · next (agent): implement the approved plan`
+- `🧵🐻 next steps · next (external): review the security exception`
+- `🧵🐻 needs input · next (you): choose the release region`
+- `🧵🐻 blocked · next (external): restore the signing service`
+- `🧵🐻 automation · next (none): none`
 
 Never emit the literal placeholder words `STATUS`, `OWNER`, or `ACTION`. Report the actual disposition, and do not invent work merely to populate a next action; generic offers, speculative possibilities, and recorded-work mentions do not qualify.
