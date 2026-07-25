@@ -752,6 +752,33 @@ func TestCycleStaleMutationIsSkippedWithoutRetry(t *testing.T) {
 	}
 }
 
+func TestHeartbeatFailedUpdateCheckWaitsUntilNextDay(t *testing.T) {
+	now := time.Date(2026, 7, 24, 12, 0, 0, 0, time.UTC)
+	committed := state.New()
+	committed.LastUpdateCheck = timePointer(now.Add(-25 * time.Hour))
+	runner, deps := testRunner(t, now, nil, committed)
+	deps.update.err = errors.New("release service unavailable")
+	value, err := runner.Run(context.Background(), false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result := value.(output.HeartbeatResult); !result.Empty() {
+		t.Fatalf("failed daily update check was noisy: %+v", result)
+	}
+	stored, err := deps.store.store.LoadState()
+	if err != nil || stored.LastUpdateCheck == nil || !stored.LastUpdateCheck.Equal(now) || deps.update.calls != 1 {
+		t.Fatalf("last_check=%v calls=%d err=%v", stored.LastUpdateCheck, deps.update.calls, err)
+	}
+	deps.update.calls = 0
+	value, err = runner.Run(context.Background(), false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result := value.(output.HeartbeatResult); !result.Empty() || deps.update.calls != 0 {
+		t.Fatalf("same-day heartbeat retried update: result=%+v calls=%d", result, deps.update.calls)
+	}
+}
+
 func TestHeartbeatUpdateNoticeDeliveredOnce(t *testing.T) {
 	now := time.Date(2026, 7, 24, 12, 0, 0, 0, time.UTC)
 	committed := state.New()

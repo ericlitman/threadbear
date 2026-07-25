@@ -9,12 +9,14 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
+	"time"
 )
 
 const (
 	DefaultManifestURL    = "https://github.com/ericlitman/threadbear/releases/latest/download/latest.json"
 	DefaultReleaseBaseURL = "https://github.com/ericlitman/threadbear/releases/download"
 	maximumMetadataBytes  = 1 << 20
+	releaseRequestTimeout = 60 * time.Second
 )
 
 type Asset struct {
@@ -185,7 +187,7 @@ func normalizeArchitecture(value string) (string, error) {
 
 func clientOrDefault(client *http.Client) *http.Client {
 	if client == nil {
-		return http.DefaultClient
+		return &http.Client{Timeout: releaseRequestTimeout}
 	}
 	return client
 }

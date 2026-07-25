@@ -342,7 +342,7 @@ func parseRequest(args []string) (app.Request, error) {
 		flags.BoolVar(&request.DryRun, "dry-run", false, "preview configuration effects")
 		flags.BoolVar(&request.Confirm, "confirm", false, "confirm the previewed changes")
 	case app.CommandSelfTest:
-		flags.BoolVar(&request.Candidate, "candidate", false, "validate this candidate without installed state")
+		flags.BoolVar(&request.Candidate, "candidate", false, "validate this candidate before installation")
 	case app.CommandUpdate:
 		flags.StringVar(&request.Version, "version", "", "exact release version without a leading v")
 	case app.CommandUninstall:
@@ -642,6 +642,35 @@ type runtimeSelfTest struct {
 	launchAgent app.LaunchAgent
 }
 
+func validateInstalledState(paths install.Paths) error {
+	info, err := os.Stat(paths.StateDirectory)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	if !info.IsDir() {
+		return errors.New("state directory is not a directory")
+	}
+	store := install.NewDiskStore(paths)
+	cfg, err := store.LoadConfig()
+	if err != nil {
+		return fmt.Errorf("load installed config: %w", err)
+	}
+	if err := cfg.Validate(); err != nil {
+		return fmt.Errorf("validate installed config: %w", err)
+	}
+	committed, err := store.LoadState()
+	if err != nil {
+		return fmt.Errorf("load installed state: %w", err)
+	}
+	if err := committed.Validate(); err != nil {
+		return fmt.Errorf("validate installed state: %w", err)
+	}
+	return nil
+}
+
 func (s runtimeSelfTest) Run(ctx context.Context, candidate bool) output.SelfTestResult {
 	checks := make([]output.CheckResult, 0, 8)
 	add := func(name string, err error) {
@@ -686,6 +715,7 @@ func (s runtimeSelfTest) Run(ctx context.Context, candidate bool) output.SelfTes
 	}
 	add("codex_executable", codexErr)
 	if candidate {
+		add("installed_state", validateInstalledState(s.paths))
 		ok := true
 		for _, check := range checks {
 			ok = ok && check.OK

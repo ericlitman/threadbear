@@ -12,7 +12,14 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
+
+func TestDefaultClientHasBoundedTimeout(t *testing.T) {
+	if timeout := clientOrDefault(nil).Timeout; timeout != 60*time.Second {
+		t.Fatalf("timeout=%s", timeout)
+	}
+}
 
 func TestCheckerUsesLatestStableVersion(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
