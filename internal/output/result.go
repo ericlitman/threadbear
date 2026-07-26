@@ -322,6 +322,9 @@ type ErrorResult struct {
 func (ErrorResult) result()     {}
 func (ErrorResult) Empty() bool { return false }
 func (r ErrorResult) Human() string {
+	if r.Operation == "status" && r.ErrorCode == "not_installed" {
+		return "ThreadBear is not installed"
+	}
 	if r.Step != "" {
 		return fmt.Sprintf("ThreadBear couldn't %s (%s) · failed step %s · %s", r.Operation, r.ErrorCode, r.Step, r.Cause)
 	}

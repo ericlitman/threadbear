@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"os"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
@@ -157,6 +158,107 @@ func TestStatusHumanJSONParityAndPendingDiagnostics(t *testing.T) {
 		if !strings.Contains(human.String(), fact) || !strings.Contains(machine.String(), fact) {
 			t.Fatalf("missing %q human=%q json=%q", fact, human.String(), machine.String())
 		}
+	}
+}
+
+func TestStatusInstallStateMatrix(t *testing.T) {
+	tests := []struct {
+		name          string
+		setup         func(*testing.T, *state.Store)
+		wantErrorCode string
+	}{
+		{name: "absent", wantErrorCode: "not_installed"},
+		{name: "lock only", setup: func(t *testing.T, store *state.Store) {
+			lock, err := store.AcquireLock()
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := lock.Close(); err != nil {
+				t.Fatal(err)
+			}
+		}, wantErrorCode: "not_installed"},
+		{name: "partial config without state", setup: func(t *testing.T, store *state.Store) {
+			if err := store.SaveConfig(config.Default("control-task")); err != nil {
+				t.Fatal(err)
+			}
+		}, wantErrorCode: "state_read_failed"},
+		{name: "partial state without config", setup: func(t *testing.T, store *state.Store) {
+			if err := store.SaveState(state.New()); err != nil {
+				t.Fatal(err)
+			}
+		}, wantErrorCode: "not_installed"},
+		{name: "malformed config", setup: func(t *testing.T, store *state.Store) {
+			if err := store.SaveState(state.New()); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(filepath.Join(store.Directory(), "config.json"), []byte("{\n"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+		}, wantErrorCode: "config_read_failed"},
+		{name: "valid install", setup: func(t *testing.T, store *state.Store) {
+			if err := store.SaveConfig(config.Default("control-task")); err != nil {
+				t.Fatal(err)
+			}
+			if err := store.SaveState(state.New()); err != nil {
+				t.Fatal(err)
+			}
+		}},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			store := state.NewStore(filepath.Join(t.TempDir(), "missing-home", ".local", "share", "threadbear"))
+			if test.setup != nil {
+				test.setup(t, store)
+			}
+			launch := &commandLaunchAgent{healthy: true}
+			result, err := StatusHandler("test", store, launch)(context.Background(), Request{Command: CommandStatus})
+			if test.wantErrorCode == "" {
+				if err != nil {
+					t.Fatal(err)
+				}
+				if _, ok := result.(output.StatusResult); !ok || launch.healthCalls != 1 {
+					t.Fatalf("result=%+v launch=%+v", result, launch)
+				}
+				return
+			}
+			if err == nil {
+				t.Fatalf("result=%+v err=nil", result)
+			}
+			errorResult, ok := result.(output.ErrorResult)
+			if !ok || errorResult.ErrorCode != test.wantErrorCode || launch.healthCalls != 0 {
+				t.Fatalf("result=%+v err=%v launch=%+v", result, err, launch)
+			}
+			var human, machine bytes.Buffer
+			if err := output.Write(&human, output.FormatHuman, errorResult); err != nil {
+				t.Fatal(err)
+			}
+			if err := output.Write(&machine, output.FormatJSON, errorResult); err != nil {
+				t.Fatal(err)
+			}
+			if test.wantErrorCode == "not_installed" && human.String() != "ThreadBear is not installed\n" {
+				t.Fatalf("human=%q", human.String())
+			}
+			if strings.Contains(machine.String(), store.Directory()) || strings.Contains(machine.String(), "cause") {
+				t.Fatalf("JSON leaked internal detail: %q", machine.String())
+			}
+		})
+	}
+}
+
+func TestStatusUnreadableConfigRemainsConfigReadFailed(t *testing.T) {
+	store := state.NewStore(filepath.Join(t.TempDir(), "state"))
+	if err := store.SaveConfig(config.Default("control-task")); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.SaveState(state.New()); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(filepath.Join(store.Directory(), "config.json"), 0); err != nil {
+		t.Fatal(err)
+	}
+	result, err := StatusHandler("test", store, &commandLaunchAgent{healthy: true})(context.Background(), Request{Command: CommandStatus})
+	if err == nil || result.(output.ErrorResult).ErrorCode != "config_read_failed" {
+		t.Fatalf("result=%+v err=%v", result, err)
 	}
 }
 
