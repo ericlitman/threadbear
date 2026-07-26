@@ -20,7 +20,7 @@ ThreadBear does not edit `.codex-global-state.json`, click through Codex Desktop
 ThreadBear v1 supports macOS 12 or newer on Apple silicon and Intel Macs. Release binaries are pure Go, require no end-user runtime, and are not Developer ID signed or notarized.
 
 ```sh
-curl -fsSL https://threadbear.dev/install.sh | sh
+curl -fsSL https://threadbear.sh/install.sh | sh
 ```
 
 The guided installer reads answers from `/dev/tty`, previews every effect, and asks once before mutation. It requires no `sudo` and defaults to a five-minute heartbeat, automatic archiving after 14 inactive days, managed title updates, and managed global AGENTS instructions.
