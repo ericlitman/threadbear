@@ -118,7 +118,12 @@ if [ "$actual" != "$expected" ]; then
 	exit 1
 fi
 chmod 700 "$candidate"
-"$candidate" self-test --candidate >/dev/null
+if ! selftest_output=$("$candidate" self-test --candidate 2>&1); then
+	printf '%s\n' "$selftest_output" >&2
+	echo "threadbear: the downloaded candidate failed its self-test; nothing was installed." >&2
+	echo "threadbear: the check named above is the reason. If it mentions installed_state, a previous install may have left partial state in ~/.local/share/threadbear." >&2
+	exit 1
+fi
 embedded=$("$candidate" version --json | sed -n 's/.*"installed_version":"\([^"]*\)".*/\1/p')
 if [ "$embedded" != "$selected_version" ]; then
 	echo "threadbear: candidate version mismatch" >&2
