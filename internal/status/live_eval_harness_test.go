@@ -184,16 +184,17 @@ func TestAggregateLiveEvalSeriesSeparatesSystematicFromFlap(t *testing.T) {
 		}},
 		{Errors: []liveEvalError{
 			{ID: "stable", Expected: state.StatusComplete, Actual: state.StatusNextSteps},
+			{ID: "flappy", Expected: state.StatusComplete, Actual: state.StatusNextSteps},
 		}},
 		{Errors: []liveEvalError{
-			{ID: "stable", Expected: state.StatusComplete, Actual: state.StatusComplete + "x"},
+			{ID: "stable", Expected: state.StatusComplete, Actual: state.StatusNextSteps},
 		}},
 	}
 	series := aggregateLiveEvalSeries(cases, reports)
-	if series.Runs != 3 || series.Threshold != 2 {
+	if series.Runs != 3 || series.Threshold != 3 {
 		t.Fatalf("series=%+v", series)
 	}
-	if len(series.Systematic) != 1 || series.Systematic[0].ID != "stable" || series.Systematic[0].Dangerous != 2 {
+	if len(series.Systematic) != 1 || series.Systematic[0].ID != "stable" || series.Systematic[0].Dangerous != 3 {
 		t.Fatalf("systematic=%+v", series.Systematic)
 	}
 	if len(series.Flapping) != 1 || series.Flapping[0].ID != "flappy" {
@@ -210,10 +211,10 @@ func TestAggregateLiveEvalSeriesFlagsPersistentDiagnostics(t *testing.T) {
 	reports := []liveEvalReport{
 		{Diagnostics: []liveEvalDiagnostic{diagnostic}},
 		{Diagnostics: []liveEvalDiagnostic{diagnostic}},
-		{},
+		{Diagnostics: []liveEvalDiagnostic{diagnostic}},
 	}
 	series := aggregateLiveEvalSeries(cases, reports)
-	if len(series.Unscoreable) != 1 || series.Unscoreable[0].ID != "ghost" || series.Unscoreable[0].Diagnosed != 2 {
+	if len(series.Unscoreable) != 1 || series.Unscoreable[0].ID != "ghost" || series.Unscoreable[0].Diagnosed != 3 {
 		t.Fatalf("unscoreable=%+v", series.Unscoreable)
 	}
 }
