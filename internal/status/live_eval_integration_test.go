@@ -61,28 +61,38 @@ func TestLiveLunaMediumCorpus(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	client, err := appserver.Start(ctx, process, caps)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer func() {
-		if err := client.Close(); err != nil {
-			t.Errorf("close App Server: %v", err)
-		}
-	}()
-
-	classifier, err := NewClassifier(client, ClassifierConfig{
+	config := ClassifierConfig{
 		Model:              liveEvalValue("THREADBEAR_LIVE_MODEL", "gpt-5.6-luna"),
 		Effort:             liveEvalValue("THREADBEAR_LIVE_EFFORT", "medium"),
 		ContextBudgetBytes: liveEvalInt(t, "THREADBEAR_LIVE_EVAL_CONTEXT_BYTES", 1<<20),
-	})
-	if err != nil {
-		t.Fatal(err)
 	}
-	series, err := runLiveEvalSeries(ctx, corpus, classifier, runs)
-	if err != nil {
-		t.Fatal(err)
+	// One fresh App Server per run: a shared session degrades over a long
+	// series - 45 turn-incomplete diagnostics clustered in the back half of a
+	// 69-minute five-run session, while the first two runs were clean.
+	reports := make([]liveEvalReport, 0, runs)
+	for run := 0; run < runs; run++ {
+		report, err := func() (liveEvalReport, error) {
+			client, err := appserver.Start(ctx, process, caps)
+			if err != nil {
+				return liveEvalReport{}, err
+			}
+			defer func() {
+				if err := client.Close(); err != nil {
+					t.Errorf("close App Server (run %d): %v", run+1, err)
+				}
+			}()
+			classifier, err := NewClassifier(client, config)
+			if err != nil {
+				return liveEvalReport{}, err
+			}
+			return runLiveEval(ctx, corpus, classifier)
+		}()
+		if err != nil {
+			t.Fatalf("run %d: %v", run+1, err)
+		}
+		reports = append(reports, report)
 	}
+	series := aggregateLiveEvalSeries(corpus.Cases, reports)
 	encoded, err := json.MarshalIndent(series, "", "  ")
 	if err != nil {
 		t.Fatal(err)

@@ -255,6 +255,15 @@ func runLiveEval(ctx context.Context, corpus liveEvalCorpus, classifier *Classif
 		}
 		classification := classifications[0]
 		if classification.Diagnostic != nil {
+			// previous_evidence_unavailable is a terminal production disposition,
+			// not an infrastructure failure: the classifier returns status
+			// unknown for it (classifier.go), and the heartbeat records exactly
+			// that. Scoring it as unknown is the faithful treatment; only
+			// transient codes (turn incomplete, call failed) stay unscored.
+			if classification.Diagnostic.Code == "previous_evidence_unavailable" {
+				actual[classification.TaskID] = classification.Status
+				continue
+			}
 			diagnostics = append(diagnostics, liveEvalDiagnostic{
 				ID:      evidence.TaskID,
 				Code:    classification.Diagnostic.Code,
@@ -279,23 +288,6 @@ func runLiveEval(ctx context.Context, corpus liveEvalCorpus, classifier *Classif
 	report.ByProvenance = provenance
 	report.Diagnostics = diagnostics
 	return report, nil
-}
-
-// runLiveEvalSeries runs the corpus n times and aggregates per-case outcomes.
-// Threshold is a strict majority of runs.
-func runLiveEvalSeries(ctx context.Context, corpus liveEvalCorpus, classifier *Classifier, runs int) (liveEvalSeries, error) {
-	if runs < 1 {
-		return liveEvalSeries{}, errors.New("series needs at least one run")
-	}
-	reports := make([]liveEvalReport, 0, runs)
-	for run := 0; run < runs; run++ {
-		report, err := runLiveEval(ctx, corpus, classifier)
-		if err != nil {
-			return liveEvalSeries{}, fmt.Errorf("run %d: %w", run+1, err)
-		}
-		reports = append(reports, report)
-	}
-	return aggregateLiveEvalSeries(corpus.Cases, reports), nil
 }
 
 func aggregateLiveEvalSeries(cases []liveEvalCase, reports []liveEvalReport) liveEvalSeries {
