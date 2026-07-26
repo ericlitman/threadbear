@@ -11,6 +11,7 @@ import (
 	"github.com/ericlitman/threadbear/internal/config"
 	"github.com/ericlitman/threadbear/internal/output"
 	"github.com/ericlitman/threadbear/internal/state"
+	"github.com/ericlitman/threadbear/internal/tokens"
 )
 
 var ErrLaunchAgentUnavailable = errors.New("LaunchAgent adapter is unavailable")
@@ -138,6 +139,7 @@ func StatusHandler(version string, store OperatorStore, launchAgent LaunchAgent)
 				ArchiveEnabled:               cfg.ArchiveEnabled,
 				ArchiveAfterDays:             cfg.ArchiveAfterDays,
 				RenameEnabled:                cfg.RenameEnabled,
+				TokenDisplay:                 string(cfg.TokenDisplay),
 				AgentsEnabled:                cfg.AgentsEnabled,
 				ClassifierModel:              cfg.ClassifierModel,
 				ClassifierEffort:             string(cfg.ClassifierEffort),
@@ -189,6 +191,7 @@ func heartbeatDryRun(ctx context.Context, store OperatorStore, inventory Operato
 	now := clock.Now().UTC()
 	comparison := codex.CompareInventory(observed, committed)
 	changed := dueOperatorCandidates(comparison.Changed, committed, now)
+	changed = includeTokenDisplayOperatorCandidates(changed, observed, committed, cfg)
 	archiveIDs := archiveEligibleOperatorTasks(observed, committed, cfg, now)
 	effects := make([]string, 0, len(changed)+len(comparison.RemovedIDs)+len(archiveIDs)+1)
 	for _, task := range changed {
@@ -216,6 +219,35 @@ func dueOperatorCandidates(tasks []codex.Task, committed state.State, now time.T
 		previous, ok := committed.Tasks[task.TaskID]
 		if !ok || previous.CapturedRevision != task.Revision || previous.CapturedTitle != task.Title || previous.Retry == nil || !now.Before(previous.Retry.NextAttemptAt) {
 			result = append(result, task)
+		}
+	}
+	return result
+}
+
+func includeTokenDisplayOperatorCandidates(changed []codex.Task, inventory codex.Inventory, committed state.State, cfg config.Config) []codex.Task {
+	if !cfg.RenameEnabled {
+		return changed
+	}
+	result := append([]codex.Task(nil), changed...)
+	included := make(map[string]struct{}, len(result))
+	for _, task := range result {
+		included[task.TaskID] = struct{}{}
+	}
+	for _, task := range inventory.Tasks {
+		if _, ok := included[task.TaskID]; ok {
+			continue
+		}
+		record, ok := committed.Tasks[task.TaskID]
+		if !ok {
+			continue
+		}
+		applied := record.TokenDisplayPosition
+		if applied == "" {
+			applied = tokens.PositionOff
+		}
+		if applied != cfg.TokenDisplay {
+			result = append(result, task)
+			included[task.TaskID] = struct{}{}
 		}
 	}
 	return result

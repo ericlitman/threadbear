@@ -6,10 +6,11 @@ import (
 	"testing"
 
 	"github.com/ericlitman/threadbear/internal/config"
+	"github.com/ericlitman/threadbear/internal/tokens"
 )
 
 func TestTTYPrompterDefaultsCustomAndSingleConfirmation(t *testing.T) {
-	input := strings.NewReader("\n\n\n\n\n\n\n\n yes\n")
+	input := strings.NewReader("\n\n\n\n\n\n\n\n\n yes\n")
 	var output bytes.Buffer
 	prompt := NewTTYPrompter(input, &output)
 	got, err := prompt.Collect(DefaultPreferences())
@@ -30,12 +31,12 @@ func TestTTYPrompterDefaultsCustomAndSingleConfirmation(t *testing.T) {
 		t.Fatalf("output=%q", output.String())
 	}
 
-	customInput := strings.NewReader("60\nno\n30\nno\nyes\ngpt-custom\nhigh\n9000\n")
+	customInput := strings.NewReader("60\nno\n30\nno\nend\nyes\ngpt-custom\nhigh\n9000\n")
 	custom, err := NewTTYPrompter(customInput, &bytes.Buffer{}).Collect(DefaultPreferences())
 	if err != nil {
 		t.Fatal(err)
 	}
-	if custom.HeartbeatSeconds != 60 || custom.ArchiveEnabled || custom.ArchiveAfterDays != 30 || custom.RenameEnabled || !custom.AgentsEnabled || custom.ClassifierModel != "gpt-custom" || custom.ClassifierEffort != config.EffortHigh || custom.ClassifierContextBudgetBytes != 9000 {
+	if custom.HeartbeatSeconds != 60 || custom.ArchiveEnabled || custom.ArchiveAfterDays != 30 || custom.RenameEnabled || custom.TokenDisplay != tokens.PositionEnd || !custom.AgentsEnabled || custom.ClassifierModel != "gpt-custom" || custom.ClassifierEffort != config.EffortHigh || custom.ClassifierContextBudgetBytes != 9000 {
 		t.Fatalf("custom=%+v", custom)
 	}
 }

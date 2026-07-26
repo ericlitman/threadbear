@@ -507,6 +507,7 @@ func fakeServe(scenario string) {
 				return
 			case "unexpected":
 				encoder.Encode(map[string]any{"id": 9, "method": "tool/requestUserInput"})
+				time.Sleep(5 * time.Second)
 				return
 			case "interleaved":
 				encoder.Encode(map[string]any{"method": "thread/started", "params": map[string]any{}})

@@ -46,3 +46,5 @@ Title:  🙋 Release deployment → choose the release region
 ```
 
 ThreadBear preserves the durable subject, adds the concise action, and never places the footer line itself in the title.
+
+When token display is enabled, ThreadBear formats cumulative output tokens from the rollout's latest `token_count` event with stable magnitude buckets such as `1.2k`, `340k`, and `1.6m`. Start mode renders `🚨 1.6m Subject`; end mode renders `🚨 Subject · out 1.6m`. The figure is part of the managed title zone, so user edits remain the durable subject, disabling the setting removes only the figure, and a title write occurs only when the rendered bucket changes.

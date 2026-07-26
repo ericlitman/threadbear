@@ -16,6 +16,7 @@ import (
 	"github.com/ericlitman/threadbear/internal/state"
 	"github.com/ericlitman/threadbear/internal/status"
 	"github.com/ericlitman/threadbear/internal/title"
+	"github.com/ericlitman/threadbear/internal/tokens"
 )
 
 const updateInterval = 24 * time.Hour
@@ -63,6 +64,16 @@ type UpdateChecker interface {
 	Check(context.Context, string) (UpdateStatus, error)
 }
 
+type TokenReader interface {
+	ReadRollout(string, tokens.Snapshot) (tokens.Snapshot, error)
+}
+
+type filesystemTokenReader struct{}
+
+func (filesystemTokenReader) ReadRollout(path string, previous tokens.Snapshot) (tokens.Snapshot, error) {
+	return tokens.ReadRollout(path, previous)
+}
+
 type Clock interface {
 	Now() time.Time
 }
@@ -73,6 +84,7 @@ type Dependencies struct {
 	AppServer        AppServerFactory
 	NewClassifier    ClassifierFactory
 	UpdateChecker    UpdateChecker
+	TokenReader      TokenReader
 	Clock            Clock
 	InstalledVersion string
 	NewCycleID       func() string
@@ -85,6 +97,9 @@ type Runner struct {
 func New(deps Dependencies) (*Runner, error) {
 	if deps.Store == nil || deps.Inventory == nil || deps.Clock == nil || deps.NewCycleID == nil {
 		return nil, errors.New("heartbeat dependencies are incomplete")
+	}
+	if deps.TokenReader == nil {
+		deps.TokenReader = filesystemTokenReader{}
 	}
 	return &Runner{deps: deps}, nil
 }
@@ -113,6 +128,7 @@ func (r *Runner) Run(ctx context.Context, dryRun bool) (output.Result, error) {
 	comparison.Changed = dueChanged(comparison.Changed, committed, now)
 	archiveDue := archiveDueTasks(inventory, committed, cfg, now)
 	comparison.Changed = mergeChanged(comparison.Changed, archiveDue)
+	comparison.Changed = mergeChanged(comparison.Changed, tokenDisplayDueTasks(inventory, committed, cfg))
 	updateDue := committed.LastUpdateCheck == nil || !now.Before(committed.LastUpdateCheck.Add(updateInterval))
 
 	checkpoint, checkpointExists, err := r.loadCheckpoint(committed)
@@ -136,7 +152,13 @@ func (r *Runner) Run(ctx context.Context, dryRun bool) (output.Result, error) {
 			if _, archived := committed.Archives[task.TaskID]; archived {
 				activity = now
 			}
-			checkpoint.Inventory[task.TaskID] = state.CapturedTask{TaskID: task.TaskID, Revision: task.Revision, Title: task.Title, Archived: task.Archived, LastSubstantiveActivity: activity}
+			checkpoint.Inventory[task.TaskID] = state.CapturedTask{TaskID: task.TaskID, Revision: task.Revision, Title: task.Title, RolloutPath: task.RolloutPath, Archived: task.Archived, LastSubstantiveActivity: activity}
+			if previous, ok := committed.Tasks[task.TaskID]; ok && previous.Retry == nil && previous.CapturedRevision == task.Revision && previous.CapturedTitle == task.Title && tokenDisplayDue(previous, cfg) {
+				checkpoint.Results[task.TaskID] = state.ClassificationResult{
+					TaskID: task.TaskID, Revision: task.Revision, Status: previous.Status, Provenance: previous.Provenance,
+					DurableSubject: previous.DurableSubject, ManagedAction: previous.ManagedAction,
+				}
+			}
 		}
 		for _, task := range archiveDue {
 			previous := committed.Tasks[task.TaskID]
@@ -357,6 +379,27 @@ func archiveDueTasks(inventory codex.Inventory, committed state.State, cfg confi
 	return result
 }
 
+func tokenDisplayDueTasks(inventory codex.Inventory, committed state.State, cfg config.Config) []codex.Task {
+	if !cfg.RenameEnabled {
+		return nil
+	}
+	result := make([]codex.Task, 0)
+	for _, task := range inventory.Tasks {
+		if previous, ok := committed.Tasks[task.TaskID]; ok && tokenDisplayDue(previous, cfg) {
+			result = append(result, task)
+		}
+	}
+	return result
+}
+
+func tokenDisplayDue(record state.TaskRecord, cfg config.Config) bool {
+	applied := record.TokenDisplayPosition
+	if applied == "" {
+		applied = tokens.PositionOff
+	}
+	return cfg.RenameEnabled && applied != cfg.TokenDisplay
+}
+
 func mergeChanged(left, right []codex.Task) []codex.Task {
 	byID := make(map[string]codex.Task, len(left)+len(right))
 	for _, task := range left {
@@ -371,6 +414,35 @@ func mergeChanged(left, right []codex.Task) []codex.Task {
 	}
 	sort.Slice(result, func(i, j int) bool { return result[i].TaskID < result[j].TaskID })
 	return result
+}
+
+func tokenSnapshot(record state.TaskRecord) tokens.Snapshot {
+	return tokens.Snapshot{
+		RolloutPath:  record.TokenRolloutPath,
+		Offset:       record.TokenReadOffset,
+		Size:         record.TokenRolloutSize,
+		OutputTokens: record.OutputTokens,
+		TotalTokens:  record.TotalTokens,
+		Found:        record.TokenUsageFound,
+	}
+}
+
+func applyTokenSnapshot(record *state.TaskRecord, snapshot tokens.Snapshot) {
+	record.TokenRolloutPath = snapshot.RolloutPath
+	record.TokenReadOffset = snapshot.Offset
+	record.TokenRolloutSize = snapshot.Size
+	record.OutputTokens = snapshot.OutputTokens
+	record.TotalTokens = snapshot.TotalTokens
+	record.TokenUsageFound = snapshot.Found
+}
+
+func clearTokenSnapshot(record *state.TaskRecord) {
+	record.TokenRolloutPath = ""
+	record.TokenReadOffset = 0
+	record.TokenRolloutSize = 0
+	record.OutputTokens = 0
+	record.TotalTokens = 0
+	record.TokenUsageFound = false
 }
 
 func dryRunResult(comparison codex.Comparison, updateDue bool) output.Result {
@@ -600,6 +672,34 @@ func (r *Runner) prepareRecords(cfg config.Config, committed state.State, checkp
 			DurableSubject: durableSubject, ManagedAction: managedAction,
 			LastAppliedTitle: lastAppliedTitle,
 		}
+		record := records[taskID]
+		if hadPrevious {
+			record.ManagedTokenDisplay = previous.ManagedTokenDisplay
+			record.ManagedTokenPosition = previous.ManagedTokenPosition
+			record.TokenDisplayPosition = previous.TokenDisplayPosition
+			record.TokenRolloutPath = previous.TokenRolloutPath
+			record.TokenReadOffset = previous.TokenReadOffset
+			record.TokenRolloutSize = previous.TokenRolloutSize
+			record.OutputTokens = previous.OutputTokens
+			record.TotalTokens = previous.TotalTokens
+			record.TokenUsageFound = previous.TokenUsageFound
+		}
+		if cfg.RenameEnabled {
+			record.TokenDisplayPosition = cfg.TokenDisplay
+			if cfg.TokenDisplay != tokens.PositionOff {
+				if captured.RolloutPath == "" {
+					clearTokenSnapshot(&record)
+				} else {
+					snapshot, readErr := r.deps.TokenReader.ReadRollout(captured.RolloutPath, tokenSnapshot(record))
+					if readErr != nil {
+						clearTokenSnapshot(&record)
+					} else {
+						applyTokenSnapshot(&record, snapshot)
+					}
+				}
+			}
+		}
+		records[taskID] = record
 	}
 	return records
 }
@@ -614,17 +714,32 @@ func (r *Runner) prepareOperations(cfg config.Config, records map[string]state.T
 		record := records[taskID]
 		classification, classified := checkpoint.Results[taskID]
 		if cfg.RenameEnabled && classified {
-			rendered, err := title.Reconcile(record, record.Status, classification.DurableSubject, classification.ManagedAction)
+			display := tokens.Display{}
+			if record.TokenUsageFound && cfg.TokenDisplay != tokens.PositionOff {
+				display = tokens.Display{Position: cfg.TokenDisplay, Value: tokens.Format(record.OutputTokens)}
+			}
+			rendered, err := title.Reconcile(record, record.Status, classification.DurableSubject, classification.ManagedAction, display)
 			if err != nil {
 				r.setDiagnostic(checkpoint, taskID, "title", "title_reconcile_failed")
 			} else {
 				record.DurableSubject = rendered.DurableSubject
 				record.ManagedAction = rendered.ManagedAction
+				record.ManagedTokenDisplay = rendered.ManagedTokenDisplay
+				record.ManagedTokenPosition = rendered.ManagedTokenPosition
 				records[taskID] = record
-				if rendered.Title != record.CapturedTitle {
-					key := "title:" + taskID
-					if _, exists := checkpoint.Operations[key]; !exists {
-						checkpoint.Operations[key] = state.CycleOperation{Kind: state.OperationTitle, Stage: state.StagePrepared, TaskID: taskID, ExpectedRevision: record.CapturedRevision, ExpectedTitle: record.CapturedTitle, DesiredTitle: rendered.Title}
+				key := "title:" + taskID
+				operation, exists := checkpoint.Operations[key]
+				expectedRevision := record.CapturedRevision
+				expectedTitle := record.CapturedTitle
+				if exists && operation.Stage == state.StageVerified {
+					expectedRevision = operation.VerifiedRevision
+					expectedTitle = operation.VerifiedTitle
+				}
+				if !exists || operation.Stage != state.StageVerified || rendered.Title != expectedTitle {
+					if rendered.Title == expectedTitle {
+						delete(checkpoint.Operations, key)
+					} else {
+						checkpoint.Operations[key] = state.CycleOperation{Kind: state.OperationTitle, Stage: state.StagePrepared, TaskID: taskID, ExpectedRevision: expectedRevision, ExpectedTitle: expectedTitle, DesiredTitle: rendered.Title}
 					}
 				}
 			}

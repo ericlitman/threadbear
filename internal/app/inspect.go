@@ -9,6 +9,7 @@ import (
 	"github.com/ericlitman/threadbear/internal/codex"
 	"github.com/ericlitman/threadbear/internal/output"
 	"github.com/ericlitman/threadbear/internal/state"
+	"github.com/ericlitman/threadbear/internal/tokens"
 )
 
 func InspectHandler(store OperatorStore, inventory OperatorInventory, clock OperatorClock) Handler {
@@ -48,6 +49,10 @@ func InspectHandler(store OperatorStore, inventory OperatorInventory, clock Oper
 		statusValue := state.StatusUnknown
 		provenance := state.ProvenanceUnknown
 		managedAction := ""
+		tokenDisplayPosition := cfg.TokenDisplay
+		managedTokenPosition := tokens.PositionOff
+		managedTokenDisplay := ""
+		tokenUsageFound := false
 		var retry *output.RetryResult
 		recordMatchesCurrent := currentExists && recordExists && record.CapturedRevision == current.Revision && record.CapturedTitle == current.Title
 		cycleMatchesCurrent := currentExists && cycleExists && capturedExists && classified && captured.Revision == current.Revision && captured.Title == current.Title && classification.Revision == current.Revision
@@ -66,6 +71,13 @@ func InspectHandler(store OperatorStore, inventory OperatorInventory, clock Oper
 				retry = &output.RetryResult{TaskID: request.TaskID, Operation: record.Retry.Operation, ErrorCode: record.Retry.ErrorCode}
 			}
 		}
+		if recordMatchesCurrent {
+			if record.ManagedTokenDisplay != "" && (record.ManagedTokenPosition == tokens.PositionStart || record.ManagedTokenPosition == tokens.PositionEnd) {
+				managedTokenPosition = record.ManagedTokenPosition
+				managedTokenDisplay = record.ManagedTokenDisplay
+			}
+			tokenUsageFound = record.TokenUsageFound
+		}
 		if cycleMatchesCurrent {
 			statusValue = classification.Status
 			provenance = classification.Provenance
@@ -76,13 +88,17 @@ func InspectHandler(store OperatorStore, inventory OperatorInventory, clock Oper
 		}
 		eligible := recordMatchesCurrent && archiveEligibleForInspect(record, clock.Now().UTC(), cfg.ArchiveAfterDays) && cfg.ArchiveEnabled
 		return output.InspectResult{
-			TaskID:           request.TaskID,
-			CapturedRevision: revision,
-			State:            statusValue,
-			Provenance:       provenance,
-			ManagedAction:    managedAction,
-			Retry:            retry,
-			ArchiveEligible:  eligible,
+			TaskID:               request.TaskID,
+			CapturedRevision:     revision,
+			State:                statusValue,
+			Provenance:           provenance,
+			ManagedAction:        managedAction,
+			Retry:                retry,
+			ArchiveEligible:      eligible,
+			TokenDisplayPosition: tokenDisplayPosition,
+			ManagedTokenPosition: managedTokenPosition,
+			ManagedTokenDisplay:  managedTokenDisplay,
+			TokenUsageFound:      tokenUsageFound,
 		}, nil
 	}
 }

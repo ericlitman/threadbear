@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/ericlitman/threadbear/internal/config"
+	"github.com/ericlitman/threadbear/internal/tokens"
 )
 
 var ErrCancelled = errors.New("operation cancelled")
@@ -19,6 +20,7 @@ type Preferences struct {
 	ArchiveEnabled               bool
 	ArchiveAfterDays             int
 	RenameEnabled                bool
+	TokenDisplay                 tokens.Position
 	AgentsEnabled                bool
 	ClassifierModel              string
 	ClassifierEffort             config.ClassifierEffort
@@ -34,6 +36,7 @@ func preferencesFromConfig(value config.Config) Preferences {
 	return Preferences{
 		HeartbeatSeconds: value.HeartbeatSeconds, ArchiveEnabled: value.ArchiveEnabled,
 		ArchiveAfterDays: value.ArchiveAfterDays, RenameEnabled: value.RenameEnabled,
+		TokenDisplay:  value.TokenDisplay,
 		AgentsEnabled: value.AgentsEnabled, ClassifierModel: value.ClassifierModel,
 		ClassifierEffort:             value.ClassifierEffort,
 		ClassifierContextBudgetBytes: value.ClassifierContextBudgetBytes,
@@ -45,6 +48,7 @@ func (p Preferences) config(controlTaskID, codexExecutable, codexSpawnPath strin
 		SchemaVersion: config.CurrentSchemaVersion, ControlTaskID: controlTaskID, CodexExecutable: codexExecutable, CodexSpawnPath: codexSpawnPath,
 		HeartbeatSeconds: p.HeartbeatSeconds, ArchiveEnabled: p.ArchiveEnabled,
 		ArchiveAfterDays: p.ArchiveAfterDays, RenameEnabled: p.RenameEnabled,
+		TokenDisplay:  p.TokenDisplay,
 		AgentsEnabled: p.AgentsEnabled, ClassifierModel: p.ClassifierModel,
 		ClassifierEffort:             p.ClassifierEffort,
 		ClassifierContextBudgetBytes: p.ClassifierContextBudgetBytes,
@@ -105,6 +109,11 @@ func (p *TTYPrompter) Collect(value Preferences) (Preferences, error) {
 	if value.RenameEnabled, err = p.askBool("Automatically maintain status and next-action titles", value.RenameEnabled); err != nil {
 		return Preferences{}, err
 	}
+	tokenDisplay, err := p.askString("Show output tokens in managed titles (off, start, end)", string(value.TokenDisplay))
+	if err != nil {
+		return Preferences{}, err
+	}
+	value.TokenDisplay = tokens.Position(tokenDisplay)
 	if value.AgentsEnabled, err = p.askBool("Install managed AGENTS.md instructions", value.AgentsEnabled); err != nil {
 		return Preferences{}, err
 	}

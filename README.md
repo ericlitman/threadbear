@@ -8,6 +8,7 @@ An unchanged heartbeat reads the complete local inventory, sees that nothing mov
 
 - Maintains one persistent control task titled `🧵🐻 ThreadBear 🐻🧵`.
 - Prefixes managed task titles with one of seven states: `⏳` `🚨` `🙋` `🤖` `➡️` `✅` `❔`.
+- Optionally places a compact cumulative output-token figure at the start or end of managed titles.
 - Preserves a durable task subject and adds a concise next action when warranted.
 - Automatically archives only completed, inactive tasks; unfinished work remains visible.
 - Checks release metadata once per day and posts one control-task notice per newer version. Updates still require user action.
@@ -32,7 +33,7 @@ For exact-version, noninteractive, migration, Gatekeeper, update/downgrade, and 
 | Command | Purpose | Model-free |
 |---|---|---:|
 | `~/.local/bin/threadbear status` | Show version, LaunchAgent health, heartbeat, control task, preferences, retries, and update check | yes |
-| `~/.local/bin/threadbear inspect TASK_ID` | Explain saved state, evidence source, next action, retry, and archive eligibility | yes |
+| `~/.local/bin/threadbear inspect TASK_ID` | Explain saved state, evidence source, next action, managed token figure, retry, and archive eligibility | yes |
 | `~/.local/bin/threadbear heartbeat --dry-run` | Preview due classification/archive/update-check work without models or mutation | yes |
 | `~/.local/bin/threadbear self-test` | Validate platform, Codex surfaces, state, config, binary, managed files, and LaunchAgent | yes |
 | `~/.local/bin/threadbear configure …` | Preview and change onboarding preferences | yes |

@@ -14,6 +14,7 @@ import (
 	"github.com/ericlitman/threadbear/internal/config"
 	"github.com/ericlitman/threadbear/internal/output"
 	"github.com/ericlitman/threadbear/internal/state"
+	"github.com/ericlitman/threadbear/internal/tokens"
 )
 
 type commandClock struct{ now time.Time }
@@ -162,7 +163,25 @@ func TestStatusHumanJSONParityAndPendingDiagnostics(t *testing.T) {
 func TestInspectAE24ReadOnlyCycleFactsAndPrivacy(t *testing.T) {
 	now := time.Date(2026, 7, 24, 12, 0, 0, 0, time.UTC)
 	store := commandStore(t, now)
-	cycle := state.NewCycle("cycle-1", 0, now)
+	committed, err := store.LoadState()
+	if err != nil {
+		t.Fatal(err)
+	}
+	record := commandRecord("task-a", now)
+	record.CapturedRevision = "rev-2"
+	record.CapturedTitle = "unexpected secret message body"
+	record.ManagedTokenDisplay = "1.6m"
+	record.ManagedTokenPosition = tokens.PositionEnd
+	record.TokenDisplayPosition = tokens.PositionEnd
+	record.TokenRolloutPath = "/private/private-rollout.jsonl"
+	record.OutputTokens = 1_600_000
+	record.TotalTokens = 2_000_000
+	record.TokenUsageFound = true
+	committed.Tasks[record.TaskID] = record
+	if err := store.SaveState(committed); err != nil {
+		t.Fatal(err)
+	}
+	cycle := state.NewCycle("cycle-1", committed.Generation, now)
 	cycle.Inventory["task-a"] = state.CapturedTask{TaskID: "task-a", Revision: "rev-2", Title: "unexpected secret message body", LastSubstantiveActivity: now}
 	cycle.Results["task-a"] = state.ClassificationResult{TaskID: "task-a", Revision: "rev-2", Status: state.StatusNeedsInput, Provenance: state.ProvenanceFooter, ManagedAction: "choose_region"}
 	cycle.Diagnostics["task-a"] = state.CycleDiagnostic{TaskID: "task-a", Operation: "title", ErrorCode: "stale_revision"}
@@ -170,16 +189,19 @@ func TestInspectAE24ReadOnlyCycleFactsAndPrivacy(t *testing.T) {
 		t.Fatal(err)
 	}
 	inventory := &commandInventory{tasks: []codex.Task{{TaskID: "task-a", Revision: "rev-2", Title: "unexpected secret message body"}}}
-	beforeState, err := os.ReadFile(store.Directory() + "/state.json")
-	if err != nil {
-		t.Fatal(err)
-	}
+	before := snapshotStateDirectory(t, store.Directory())
 	result, err := InspectHandler(store, inventory, commandClock{now})(context.Background(), Request{Command: CommandInspect, TaskID: "task-a"})
 	if err != nil {
 		t.Fatal(err)
 	}
 	inspectResult := result.(output.InspectResult)
-	if inspectResult.State != state.StatusNeedsInput || inspectResult.Provenance != state.ProvenanceFooter || inspectResult.Retry == nil {
+	if inspectResult.State != state.StatusNeedsInput ||
+		inspectResult.Provenance != state.ProvenanceFooter ||
+		inspectResult.Retry == nil ||
+		inspectResult.TokenDisplayPosition != tokens.PositionStart ||
+		inspectResult.ManagedTokenPosition != tokens.PositionEnd ||
+		inspectResult.ManagedTokenDisplay != "1.6m" ||
+		!inspectResult.TokenUsageFound {
 		t.Fatalf("inspect=%+v", inspectResult)
 	}
 	var human, machine bytes.Buffer
@@ -189,17 +211,75 @@ func TestInspectAE24ReadOnlyCycleFactsAndPrivacy(t *testing.T) {
 	if err := output.Write(&machine, output.FormatJSON, inspectResult); err != nil {
 		t.Fatal(err)
 	}
-	for _, forbidden := range []string{"secret message body", "hidden_reasoning", "classifier_payload"} {
+	for _, fact := range []string{"token configured start", "token applied end/1.6m", "token usage found true"} {
+		if !strings.Contains(human.String(), fact) {
+			t.Fatalf("human output missing %q: %q", fact, human.String())
+		}
+	}
+	for _, fact := range []string{
+		`"token_display_position":"start"`,
+		`"managed_token_position":"end"`,
+		`"managed_token_display":"1.6m"`,
+		`"token_usage_found":true`,
+	} {
+		if !strings.Contains(machine.String(), fact) {
+			t.Fatalf("JSON output missing %q: %q", fact, machine.String())
+		}
+	}
+	for _, forbidden := range []string{"secret message body", "private-rollout.jsonl", "hidden_reasoning", "classifier_payload"} {
 		if strings.Contains(human.String(), forbidden) || strings.Contains(machine.String(), forbidden) {
 			t.Fatalf("diagnostic leaked %q", forbidden)
 		}
 	}
-	afterState, err := os.ReadFile(store.Directory() + "/state.json")
+	after := snapshotStateDirectory(t, store.Directory())
+	if !reflect.DeepEqual(before, after) || inventory.calls != 1 {
+		t.Fatalf("inspect mutated state or over-read inventory")
+	}
+}
+
+func TestInspectReportsLiveConfiguredTokenDisplayAfterConfigure(t *testing.T) {
+	now := time.Date(2026, 7, 26, 12, 0, 0, 0, time.UTC)
+	store := commandStore(t, now)
+	tokenDisplay := tokens.PositionEnd
+	result, err := ConfigureHandler(store, nil, nil, nil)(context.Background(), Request{
+		Command:   CommandConfigure,
+		Confirm:   true,
+		Configure: ConfigPatch{TokenDisplay: &tokenDisplay},
+	})
+	if err != nil || !result.(output.ActionResult).Changed {
+		t.Fatalf("configure result=%+v err=%v", result, err)
+	}
+	committed, err := store.LoadState()
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !bytes.Equal(beforeState, afterState) || inventory.calls != 1 {
-		t.Fatalf("inspect mutated state or over-read inventory")
+	record := commandRecord("task-a", now)
+	record.TokenDisplayPosition = tokens.PositionStart
+	record.ManagedTokenDisplay = "1.6m"
+	record.ManagedTokenPosition = tokens.PositionStart
+	committed.Tasks[record.TaskID] = record
+	if err := store.SaveState(committed); err != nil {
+		t.Fatal(err)
+	}
+	inventory := &commandInventory{tasks: []codex.Task{{
+		TaskID:   record.TaskID,
+		Revision: record.CapturedRevision,
+		Title:    record.CapturedTitle,
+	}}}
+
+	result, err = InspectHandler(store, inventory, commandClock{now})(context.Background(), Request{
+		Command: CommandInspect,
+		TaskID:  record.TaskID,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	inspect := result.(output.InspectResult)
+	if inspect.TokenDisplayPosition != tokens.PositionEnd ||
+		inspect.ManagedTokenPosition != tokens.PositionStart ||
+		inspect.ManagedTokenDisplay != "1.6m" {
+		t.Fatalf("inspect=%+v", inspect)
 	}
 }
 
@@ -331,7 +411,8 @@ func TestStatusConfigurePartialPatchAndApplyFailure(t *testing.T) {
 	store := commandStore(t, now)
 	falseValue := false
 	budget := 123456
-	result, err := ConfigureHandler(store, nil, nil, nil)(context.Background(), Request{Command: CommandConfigure, Confirm: true, Configure: ConfigPatch{ArchiveEnabled: &falseValue, ClassifierContextBudgetBytes: &budget}})
+	tokenDisplay := tokens.PositionEnd
+	result, err := ConfigureHandler(store, nil, nil, nil)(context.Background(), Request{Command: CommandConfigure, Confirm: true, Configure: ConfigPatch{ArchiveEnabled: &falseValue, TokenDisplay: &tokenDisplay, ClassifierContextBudgetBytes: &budget}})
 	if err != nil || !result.(output.ActionResult).Changed {
 		t.Fatalf("result=%+v err=%v", result, err)
 	}
@@ -339,7 +420,7 @@ func TestStatusConfigurePartialPatchAndApplyFailure(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if stored.ArchiveEnabled || stored.RenameEnabled != true || stored.ClassifierContextBudgetBytes != budget {
+	if stored.ArchiveEnabled || stored.RenameEnabled != true || stored.TokenDisplay != tokens.PositionEnd || stored.ClassifierContextBudgetBytes != budget {
 		t.Fatalf("config=%+v", stored)
 	}
 	seconds := 60
@@ -657,6 +738,11 @@ func TestInspectCurrentRevisionInvalidatesPersistedClassification(t *testing.T) 
 	record := commandRecord("task-a", now)
 	record.CapturedRevision = "rev-1"
 	record.CapturedTitle = "Old"
+	record.ManagedTokenDisplay = "1.6m"
+	record.ManagedTokenPosition = tokens.PositionStart
+	record.TokenDisplayPosition = tokens.PositionStart
+	record.TokenRolloutPath = "/private/private-rollout.jsonl"
+	record.TokenUsageFound = true
 	committed.Tasks[record.TaskID] = record
 	if err := store.SaveState(committed); err != nil {
 		t.Fatal(err)
@@ -673,8 +759,76 @@ func TestInspectCurrentRevisionInvalidatesPersistedClassification(t *testing.T) 
 		t.Fatal(err)
 	}
 	inspect := result.(output.InspectResult)
-	if inspect.CapturedRevision != "rev-2" || inspect.State != state.StatusUnknown || inspect.Provenance != state.ProvenanceUnknown || inspect.ArchiveEligible {
+	if inspect.CapturedRevision != "rev-2" ||
+		inspect.State != state.StatusUnknown ||
+		inspect.Provenance != state.ProvenanceUnknown ||
+		inspect.ArchiveEligible ||
+		inspect.TokenDisplayPosition != tokens.PositionStart ||
+		inspect.ManagedTokenPosition != tokens.PositionOff ||
+		inspect.ManagedTokenDisplay != "" ||
+		inspect.TokenUsageFound {
 		t.Fatalf("inspect=%+v", inspect)
+	}
+}
+
+func TestInspectCurrentTitleInvalidatesPersistedTokenFacts(t *testing.T) {
+	now := time.Date(2026, 7, 24, 12, 0, 0, 0, time.UTC)
+	store := commandStore(t, now)
+	committed, err := store.LoadState()
+	if err != nil {
+		t.Fatal(err)
+	}
+	record := commandRecord("task-a", now)
+	record.CapturedTitle = "Old title"
+	record.ManagedTokenDisplay = "1.6m"
+	record.ManagedTokenPosition = tokens.PositionEnd
+	record.TokenDisplayPosition = tokens.PositionEnd
+	record.TokenRolloutPath = "/private/private-rollout.jsonl"
+	record.TokenUsageFound = true
+	committed.Tasks[record.TaskID] = record
+	if err := store.SaveState(committed); err != nil {
+		t.Fatal(err)
+	}
+	inventory := &commandInventory{tasks: []codex.Task{{TaskID: record.TaskID, Revision: record.CapturedRevision, Title: "User-edited title"}}}
+
+	result, err := InspectHandler(store, inventory, commandClock{now})(context.Background(), Request{Command: CommandInspect, TaskID: record.TaskID})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	inspect := result.(output.InspectResult)
+	if inspect.TokenDisplayPosition != tokens.PositionStart ||
+		inspect.ManagedTokenPosition != tokens.PositionOff ||
+		inspect.ManagedTokenDisplay != "" ||
+		inspect.TokenUsageFound {
+		t.Fatalf("inspect exposed stale token facts: %+v", inspect)
+	}
+	var human, machine bytes.Buffer
+	if err := output.Write(&human, output.FormatHuman, inspect); err != nil {
+		t.Fatal(err)
+	}
+	if err := output.Write(&machine, output.FormatJSON, inspect); err != nil {
+		t.Fatal(err)
+	}
+	for _, fact := range []string{"token configured start", "token applied off/none", "token usage found false"} {
+		if !strings.Contains(human.String(), fact) {
+			t.Fatalf("human output missing %q: %q", fact, human.String())
+		}
+	}
+	for _, fact := range []string{
+		`"token_display_position":"start"`,
+		`"managed_token_position":"off"`,
+		`"managed_token_display":""`,
+		`"token_usage_found":false`,
+	} {
+		if !strings.Contains(machine.String(), fact) {
+			t.Fatalf("JSON output missing safe default %q: %q", fact, machine.String())
+		}
+	}
+	for _, forbidden := range []string{"Old title", "User-edited title", "private-rollout.jsonl"} {
+		if strings.Contains(human.String(), forbidden) || strings.Contains(machine.String(), forbidden) {
+			t.Fatalf("inspect leaked %q", forbidden)
+		}
 	}
 }
 
@@ -730,6 +884,47 @@ func TestDryRunDoesNotPreviewArchiveForChangedUnresolvedTask(t *testing.T) {
 	}
 }
 
+func TestDryRunPreviewsTokenDisplayRepositionWithoutMutation(t *testing.T) {
+	now := time.Date(2026, 7, 26, 12, 0, 0, 0, time.UTC)
+	store := commandStore(t, now)
+	cfg, err := store.LoadConfig()
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg.TokenDisplay = tokens.PositionEnd
+	if err := store.SaveConfig(cfg); err != nil {
+		t.Fatal(err)
+	}
+	committed, err := store.LoadState()
+	if err != nil {
+		t.Fatal(err)
+	}
+	committed.LastUpdateCheck = &now
+	record := commandRecord("task-a", now)
+	record.Status = state.StatusNextSteps
+	record.TokenDisplayPosition = tokens.PositionStart
+	committed.Tasks[record.TaskID] = record
+	if err := store.SaveState(committed); err != nil {
+		t.Fatal(err)
+	}
+	inventory := &commandInventory{tasks: []codex.Task{{TaskID: record.TaskID, Revision: record.CapturedRevision, Title: record.CapturedTitle}}}
+	before := snapshotStateDirectory(t, store.Directory())
+
+	result, err := heartbeatDryRun(context.Background(), store, inventory, commandClock{now})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	after := snapshotStateDirectory(t, store.Directory())
+	if !reflect.DeepEqual(before, after) {
+		t.Fatalf("dry run mutated state directory\nbefore=%+v\nafter=%+v", before, after)
+	}
+	preview := result.(output.PreviewResult)
+	if !reflect.DeepEqual(preview.Effects, []string{"classify.task-a"}) {
+		t.Fatalf("preview=%+v", preview)
+	}
+}
+
 func commandStore(t *testing.T, now time.Time) *state.Store {
 	t.Helper()
 	store := state.NewStore(t.TempDir() + "/state")
@@ -745,5 +940,5 @@ func commandStore(t *testing.T, now time.Time) *state.Store {
 }
 
 func commandRecord(taskID string, now time.Time) state.TaskRecord {
-	return state.TaskRecord{TaskID: taskID, CapturedRevision: "rev-1", CapturedTitle: "Task", Status: state.StatusComplete, Provenance: state.ProvenanceRuntime, StateStartedAt: now.Add(-20 * 24 * time.Hour), LastSubstantiveActivity: now.Add(-20 * 24 * time.Hour)}
+	return state.TaskRecord{TaskID: taskID, CapturedRevision: "rev-1", CapturedTitle: "Task", Status: state.StatusComplete, Provenance: state.ProvenanceRuntime, StateStartedAt: now.Add(-20 * 24 * time.Hour), LastSubstantiveActivity: now.Add(-20 * 24 * time.Hour), TokenDisplayPosition: tokens.PositionStart}
 }

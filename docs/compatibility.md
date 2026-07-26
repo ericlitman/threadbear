@@ -42,7 +42,7 @@ Use read-only commands first:
 ~/.local/bin/threadbear inspect TASK_ID
 ```
 
-`~/.local/bin/threadbear status` reports installed version, LaunchAgent health, last completed heartbeat, control-task identity, preferences, pending retries, and last update check without invoking a model.
+`~/.local/bin/threadbear status` reports installed version, LaunchAgent health, last completed heartbeat, control-task identity, preferences, pending retries, and last update check without invoking a model. `~/.local/bin/threadbear inspect TASK_ID` reports the task's configured and applied token-display positions, managed figure, and token-usage availability without exposing rollout paths or task prose.
 
 If scheduling is intentionally paused, run `~/.local/bin/threadbear enable`. Inspect the job with `launchctl print "gui/$(id -u)/org.litman.threadbear"`. For a legacy migration failure after ThreadWatch was stopped, follow the exact recovery command printed by the installer; do not run both automation jobs concurrently.
 

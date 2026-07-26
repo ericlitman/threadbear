@@ -16,10 +16,14 @@ import (
 	"github.com/ericlitman/threadbear/internal/config"
 	"github.com/ericlitman/threadbear/internal/output"
 	"github.com/ericlitman/threadbear/internal/state"
+	"github.com/ericlitman/threadbear/internal/tokens"
 )
 
 func TestDefault(t *testing.T) {
 	got := config.Default("control-123")
+	if config.CurrentSchemaVersion != 2 {
+		t.Fatalf("CurrentSchemaVersion = %d, want 2", config.CurrentSchemaVersion)
+	}
 	want := config.Config{
 		SchemaVersion:                config.CurrentSchemaVersion,
 		ControlTaskID:                "control-123",
@@ -27,6 +31,7 @@ func TestDefault(t *testing.T) {
 		ArchiveEnabled:               true,
 		ArchiveAfterDays:             14,
 		RenameEnabled:                true,
+		TokenDisplay:                 tokens.PositionStart,
 		AgentsEnabled:                true,
 		ClassifierModel:              "gpt-5.6-luna",
 		ClassifierEffort:             config.EffortMedium,
@@ -47,12 +52,13 @@ func TestConfigValidation(t *testing.T) {
 		mutate func(*config.Config)
 		target error
 	}{
-		{"old schema", func(c *config.Config) { c.SchemaVersion = 0 }, config.ErrUnsupportedSchema},
-		{"new schema", func(c *config.Config) { c.SchemaVersion = 2 }, config.ErrUnsupportedSchema},
+		{"old schema", func(c *config.Config) { c.SchemaVersion = 1 }, config.ErrUnsupportedSchema},
+		{"new schema", func(c *config.Config) { c.SchemaVersion = 3 }, config.ErrUnsupportedSchema},
 		{"missing control task", func(c *config.Config) { c.ControlTaskID = "" }, nil},
 		{"padded control task", func(c *config.Config) { c.ControlTaskID = " control-123 " }, nil},
 		{"zero heartbeat", func(c *config.Config) { c.HeartbeatSeconds = 0 }, nil},
 		{"negative archive days", func(c *config.Config) { c.ArchiveAfterDays = -1 }, nil},
+		{"invalid token display", func(c *config.Config) { c.TokenDisplay = "middle" }, nil},
 		{"missing model", func(c *config.Config) { c.ClassifierModel = "" }, nil},
 		{"zero context budget", func(c *config.Config) { c.ClassifierContextBudgetBytes = 0 }, nil},
 		{"invalid effort", func(c *config.Config) { c.ClassifierEffort = "extreme" }, nil},
@@ -72,7 +78,7 @@ func TestConfigValidation(t *testing.T) {
 	}
 }
 
-func TestDecodeStrictConfig(t *testing.T) {
+func TestDecodeSchemaV2RoundTrip(t *testing.T) {
 	valid := config.Default("control-123")
 	valid.ArchiveEnabled = false
 	valid.RenameEnabled = false
@@ -99,11 +105,16 @@ func TestDecodeStrictConfig(t *testing.T) {
 		t.Fatal("Decode() accepted a missing boolean")
 	}
 	fields["archive_enabled"] = false
+	delete(fields, "token_display")
+	missingDisplay, _ := json.Marshal(fields)
+	if _, err := config.Decode(missingDisplay); err == nil {
+		t.Fatal("Decode() accepted a schema v2 config without token_display")
+	}
+	fields["token_display"] = string(tokens.PositionStart)
 	delete(fields, "classifier_context_budget_bytes")
 	missingBudget, _ := json.Marshal(fields)
-	legacy, err := config.Decode(missingBudget)
-	if err != nil || legacy.ClassifierContextBudgetBytes != config.DefaultClassifierContextBudgetBytes {
-		t.Fatalf("Decode() did not default a legacy classifier context budget: %#v, %v", legacy, err)
+	if _, err := config.Decode(missingBudget); err == nil {
+		t.Fatal("Decode() accepted a schema v2 config without classifier_context_budget_bytes")
 	}
 	fields["classifier_context_budget_bytes"] = 250000
 	fields["unexpected"] = true
@@ -113,6 +124,44 @@ func TestDecodeStrictConfig(t *testing.T) {
 	}
 	if _, err := config.Decode(append(data, []byte(` {}`)...)); err == nil {
 		t.Fatal("Decode() accepted multiple JSON values")
+	}
+}
+
+func TestDecodeMigratesSchemaV1(t *testing.T) {
+	value := config.Default("control-123")
+	data, err := json.Marshal(value)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var fields map[string]any
+	if err := json.Unmarshal(data, &fields); err != nil {
+		t.Fatal(err)
+	}
+	fields["schema_version"] = 1
+	delete(fields, "token_display")
+	delete(fields, "classifier_context_budget_bytes")
+	data, err = json.Marshal(fields)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	decoded, err := config.Decode(data)
+	if err != nil {
+		t.Fatalf("Decode() error = %v", err)
+	}
+	value.SchemaVersion = config.CurrentSchemaVersion
+	value.TokenDisplay = tokens.PositionOff
+	if !reflect.DeepEqual(decoded, value) {
+		t.Fatalf("Decode() = %#v, want migrated %#v", decoded, value)
+	}
+
+	fields["token_display"] = string(tokens.PositionStart)
+	data, err = json.Marshal(fields)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := config.Decode(data); err == nil {
+		t.Fatal("Decode() accepted token_display in a schema v1 config")
 	}
 }
 
@@ -127,10 +176,12 @@ func TestDecodeUnavailableContextBudgetForCustomModel(t *testing.T) {
 	if err := json.Unmarshal(data, &fields); err != nil {
 		t.Fatal(err)
 	}
+	fields["schema_version"] = 1
+	delete(fields, "token_display")
 	delete(fields, "classifier_context_budget_bytes")
 	data, _ = json.Marshal(fields)
 	decoded, err := config.Decode(data)
-	if err != nil || decoded.ClassifierContextBudgetBytes != 0 {
+	if err != nil || decoded.SchemaVersion != config.CurrentSchemaVersion || decoded.ClassifierContextBudgetBytes != 0 {
 		t.Fatalf("Decode() = %#v, %v", decoded, err)
 	}
 	if err := decoded.Validate(); err == nil {
@@ -145,7 +196,7 @@ func TestDecodeUnavailableContextBudgetForCustomModel(t *testing.T) {
 }
 
 func TestDecodeRejectsUnsupportedSchema(t *testing.T) {
-	for _, schema := range []int{0, 2} {
+	for _, schema := range []int{0, 3} {
 		data := []byte(`{"schema_version":` + string(rune('0'+schema)) + `}`)
 		_, err := config.Decode(data)
 		if !errors.Is(err, config.ErrUnsupportedSchema) {
@@ -232,6 +283,7 @@ func TestOutputSerialization(t *testing.T) {
 			ArchiveEnabled:   true,
 			ArchiveAfterDays: 14,
 			RenameEnabled:    true,
+			TokenDisplay:     "start",
 			AgentsEnabled:    true,
 			ClassifierModel:  "gpt-5.6-luna",
 			ClassifierEffort: "medium",
@@ -239,7 +291,7 @@ func TestOutputSerialization(t *testing.T) {
 		PendingRetries:  2,
 		LastUpdateCheck: &now,
 	}
-	for _, fact := range []string{"2026-07-23T12:00:00Z", "300s", "archive true/14d", "rename true", "AGENTS true", "gpt-5.6-luna/medium", "retries 2"} {
+	for _, fact := range []string{"2026-07-23T12:00:00Z", "300s", "archive true/14d", "rename true", "token display start", "AGENTS true", "gpt-5.6-luna/medium", "retries 2"} {
 		if !strings.Contains(status.Human(), fact) {
 			t.Fatalf("status human output omitted %q: %s", fact, status.Human())
 		}
@@ -318,7 +370,7 @@ func TestCLIUnknownCommandResult(t *testing.T) {
 	}
 }
 
-func TestConfigCodexExecutableIsOptionalForSchemaV1AndValidatedWhenPresent(t *testing.T) {
+func TestConfigCodexExecutableMigrationAndValidation(t *testing.T) {
 	value := config.Default("control-123")
 	data, err := json.Marshal(value)
 	if err != nil {
@@ -333,8 +385,12 @@ func TestConfigCodexExecutableIsOptionalForSchemaV1AndValidatedWhenPresent(t *te
 	if err != nil {
 		t.Fatal(err)
 	}
+	if _, err := config.Decode(data); err == nil {
+		t.Fatal("schema v2 config accepted codex_executable without codex_spawn_path")
+	}
+	data = schemaV1JSON(t, value)
 	decoded, err = config.Decode(data)
-	if err != nil || decoded.CodexExecutable != value.CodexExecutable {
+	if err != nil || decoded.SchemaVersion != config.CurrentSchemaVersion || decoded.CodexExecutable != value.CodexExecutable {
 		t.Fatalf("decoded=%+v err=%v", decoded, err)
 	}
 	value.CodexExecutable = "relative/codex"
@@ -346,12 +402,9 @@ func TestConfigCodexExecutableIsOptionalForSchemaV1AndValidatedWhenPresent(t *te
 func TestConfigCodexSpawnPathValidationAndLegacyDecode(t *testing.T) {
 	legacy := config.Default("control-123")
 	legacy.CodexExecutable = "/opt/homebrew/bin/codex"
-	data, err := json.Marshal(legacy)
-	if err != nil {
-		t.Fatal(err)
-	}
+	data := schemaV1JSON(t, legacy)
 	decoded, err := config.Decode(data)
-	if err != nil || decoded.CodexSpawnPath != "" {
+	if err != nil || decoded.SchemaVersion != config.CurrentSchemaVersion || decoded.CodexSpawnPath != "" {
 		t.Fatalf("legacy decode=%+v err=%v", decoded, err)
 	}
 
@@ -369,7 +422,11 @@ func TestConfigCodexSpawnPathValidationAndLegacyDecode(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	legacyArray := strings.Replace(string(data), `"codex_spawn_path":"/opt/homebrew/bin:/usr/bin:/bin"`, `"codex_spawn_path":["/opt/homebrew/bin","/usr/bin","/opt/homebrew/bin","/bin"]`, 1)
+	currentArray := strings.Replace(string(data), `"codex_spawn_path":"/opt/homebrew/bin:/usr/bin:/bin"`, `"codex_spawn_path":["/opt/homebrew/bin","/usr/bin","/opt/homebrew/bin","/bin"]`, 1)
+	if _, err := config.Decode([]byte(currentArray)); err == nil {
+		t.Fatal("schema v2 config accepted a legacy codex_spawn_path array")
+	}
+	legacyArray := strings.Replace(string(schemaV1JSON(t, valid)), `"codex_spawn_path":"/opt/homebrew/bin:/usr/bin:/bin"`, `"codex_spawn_path":["/opt/homebrew/bin","/usr/bin","/opt/homebrew/bin","/bin"]`, 1)
 	decoded, err = config.Decode([]byte(legacyArray))
 	if err != nil || decoded.CodexSpawnPath != valid.CodexSpawnPath {
 		t.Fatalf("legacy array decode=%+v err=%v", decoded, err)
@@ -394,4 +451,23 @@ func TestConfigCodexSpawnPathValidationAndLegacyDecode(t *testing.T) {
 	if err := withoutSpawn.Validate(); err == nil {
 		t.Fatal("accepted codex_executable without codex_spawn_path")
 	}
+}
+
+func schemaV1JSON(t *testing.T, value config.Config) []byte {
+	t.Helper()
+	data, err := json.Marshal(value)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var fields map[string]any
+	if err := json.Unmarshal(data, &fields); err != nil {
+		t.Fatal(err)
+	}
+	fields["schema_version"] = 1
+	delete(fields, "token_display")
+	data, err = json.Marshal(fields)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return data
 }

@@ -141,7 +141,7 @@ func (c *Client) readLoop(reader io.Reader) {
 			}
 		}
 		if err != nil {
-			if !errors.Is(err, io.EOF) {
+			if !errors.Is(err, io.EOF) && !errors.Is(err, os.ErrClosed) {
 				c.fail(fmt.Errorf("read App Server response: %w", err))
 			}
 			return

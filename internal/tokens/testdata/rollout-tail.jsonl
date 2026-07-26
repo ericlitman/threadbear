@@ -1,0 +1,4 @@
+{"timestamp":"2026-07-26T12:00:00Z","type":"event_msg","payload":{"type":"agent_message","message":"Synthetic content only."}}
+{"timestamp":"2026-07-26T12:00:01Z","type":"event_msg","payload":{"type":"token_count","info":{"total_token_usage":{"input_tokens":88100000,"cached_input_tokens":82000000,"cache_write_input_tokens":0,"output_tokens":1200000,"reasoning_output_tokens":200000,"total_tokens":89300000}}}}
+{"timestamp":"2026-07-26T12:00:02Z","type":"event_msg","payload":{"type":"agent_message","message":"More synthetic content."}}
+{"timestamp":"2026-07-26T12:00:03Z","type":"event_msg","payload":{"type":"token_count","info":{"total_token_usage":{"input_tokens":431399877,"cached_input_tokens":424100000,"cache_write_input_tokens":0,"output_tokens":1600123,"reasoning_output_tokens":300123,"total_tokens":433000000}}}}
