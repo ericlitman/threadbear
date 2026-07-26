@@ -49,9 +49,6 @@ func TestParseFooterValidStatusMatrix(t *testing.T) {
 			if got.Footer.Status != test.status || got.Footer.Owner != test.owner || got.Footer.Action != test.action {
 				t.Fatalf("footer = %+v", got.Footer)
 			}
-			if got.TitleMessage != "Substantive response." {
-				t.Fatalf("substantive = %q", got.TitleMessage)
-			}
 		})
 	}
 }
@@ -147,8 +144,8 @@ func TestParseFooterKeepsRejectedFooterForClassifier(t *testing.T) {
 	if got.Accepted || got.Rejection != FooterWeakAction {
 		t.Fatalf("ParseFooter() = %+v", got)
 	}
-	if got.ClassifierMessage != message || got.TitleMessage != "Finished." {
-		t.Fatalf("classifier = %q, title = %q", got.ClassifierMessage, got.TitleMessage)
+	if got.ClassifierMessage != message {
+		t.Fatalf("classifier = %q", got.ClassifierMessage)
 	}
 }
 

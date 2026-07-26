@@ -20,7 +20,7 @@ The governing instruction is:
 
 Agents must never emit the literal placeholder words `STATUS`, `OWNER`, or `ACTION`. The examples above are complete footer lines, not fill-in-the-blank templates.
 
-A valid footer is a deterministic signal, so ThreadBear can update the title without another classifier call. The footer itself is removed from title input.
+A valid footer is a deterministic signal, so ThreadBear can update the title without another classifier call. The footer stays out of the title by construction: managed titles are composed from the durable subject and the footer's action clause, never from the body of the message.
 
 Do not manufacture next steps. “If you want, I can help with that,” generic possibilities, and references to recorded work do not qualify as concrete recommendations. Stronger unfinished evidence also wins: a response that still needs a user choice is `needs input`, even if it suggests what might happen afterward.
 

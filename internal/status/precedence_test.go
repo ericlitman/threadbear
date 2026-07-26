@@ -33,15 +33,16 @@ func TestResolvePrecedence(t *testing.T) {
 	}
 }
 
-func TestResolveStructuredEvidenceStillRemovesFooterFromMessage(t *testing.T) {
+func TestResolveStructuredEvidenceKeepsCompleteMessageForClassifier(t *testing.T) {
+	message := "Quoted success is not authoritative.\n🧵🐻 complete"
 	got := Resolve(Facts{
 		StructuredFailure: true,
 		Footer: FooterInput{
-			Message:             "Quoted success is not authoritative.\n🧵🐻 complete",
+			Message:             message,
 			LatestTurnCompleted: true,
 		},
 	})
-	if got.Status != state.StatusBlocked || got.TitleMessage != "Quoted success is not authoritative." || got.ClassifierMessage == got.TitleMessage {
+	if got.Status != state.StatusBlocked || got.ClassifierMessage != message {
 		t.Fatalf("Resolve() = %+v", got)
 	}
 }

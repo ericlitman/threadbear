@@ -21,7 +21,6 @@ var footerStatuses = map[string]state.TaskStatus{
 func ParseFooter(input FooterInput) FooterResult {
 	result := FooterResult{
 		ClassifierMessage: input.Message,
-		TitleMessage:      input.Message,
 		Rejection:         FooterAbsent,
 	}
 	lines := strings.Split(input.Message, "\n")
@@ -45,7 +44,6 @@ func ParseFooter(input FooterInput) FooterResult {
 		}
 		return result
 	}
-	result.TitleMessage = substantiveLines(lines[:index])
 	if !input.LatestTurnCompleted {
 		result.Rejection = FooterTurnIncomplete
 		return result
@@ -217,8 +215,4 @@ func quotedFooter(line string) bool {
 		}
 	}
 	return false
-}
-
-func substantiveLines(lines []string) string {
-	return strings.TrimRightFunc(strings.Join(lines, "\n"), unicode.IsSpace)
 }

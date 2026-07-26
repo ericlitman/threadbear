@@ -54,7 +54,7 @@ func Resolve(facts Facts) Resolution {
 		}
 		return resolved(footer.Footer.Status, state.ProvenanceFooter, action, footer)
 	}
-	return Resolution{ClassifierMessage: footer.ClassifierMessage, TitleMessage: footer.TitleMessage}
+	return Resolution{ClassifierMessage: footer.ClassifierMessage}
 }
 
 func resolved(taskStatus state.TaskStatus, provenance state.Provenance, action string, footer FooterResult) Resolution {
@@ -63,7 +63,6 @@ func resolved(taskStatus state.TaskStatus, provenance state.Provenance, action s
 		Provenance:        provenance,
 		ManagedAction:     action,
 		ClassifierMessage: footer.ClassifierMessage,
-		TitleMessage:      footer.TitleMessage,
 		Resolved:          true,
 	}
 }
