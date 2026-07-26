@@ -230,3 +230,34 @@ func TestScoreLiveEvalExcludesDiagnosedCases(t *testing.T) {
 		t.Fatalf("report=%+v", report)
 	}
 }
+
+func TestDualAcceptedCasesScoreEitherStateAsCorrect(t *testing.T) {
+	cases := []liveEvalCase{
+		{ID: "ambiguous", Expected: state.StatusNextSteps, Accepted: []state.TaskStatus{state.StatusNextSteps, state.StatusComplete}},
+		{ID: "single", Expected: state.StatusNextSteps},
+	}
+	actual := map[string]state.TaskStatus{
+		"ambiguous": state.StatusComplete,
+		"single":    state.StatusComplete,
+	}
+	report := scoreLiveEval(cases, actual, nil)
+	if report.Correct != 1 || report.FalseComplete != 1 || len(report.Errors) != 1 || report.Errors[0].ID != "single" {
+		t.Fatalf("report=%+v", report)
+	}
+	reports := []liveEvalReport{
+		{Errors: []liveEvalError{{ID: "single", Expected: state.StatusNextSteps, Actual: state.StatusComplete}}},
+		{Errors: []liveEvalError{{ID: "single", Expected: state.StatusNextSteps, Actual: state.StatusComplete}}},
+		{Errors: []liveEvalError{{ID: "single", Expected: state.StatusNextSteps, Actual: state.StatusComplete}}},
+	}
+	series := aggregateLiveEvalSeries(cases, reports)
+	if len(series.Systematic) != 1 || series.Systematic[0].ID != "single" {
+		t.Fatalf("systematic=%+v", series.Systematic)
+	}
+}
+
+func TestDecodeRejectsAcceptedSetMissingExpected(t *testing.T) {
+	corpus := `{"schema_revision":"threadbear.live-eval.v1","cases":[{"id":"a","expected":"next_steps","accepted":["complete"],"provenance":{"model":"m","effort":"e","source":"s","agents_block_version":"v"},"facts":{"footer":{"message":"x","latest_turn_completed":true}},"latest":{"user":"u","final_agent":"x"}}]}`
+	if _, err := decodeLiveEvalCorpus([]byte(corpus)); err == nil || !strings.Contains(err.Error(), "must contain its expected state") {
+		t.Fatalf("err=%v", err)
+	}
+}
