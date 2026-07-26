@@ -4,14 +4,14 @@ This guide is written for an installing agent. Explain the plan to the user, use
 
 ## Preconditions
 
-Confirm macOS 12 or newer, `arm64` or `x86_64`/`amd64` hardware, Codex Desktop with a compatible local `codex` executable/App Server surface, and HTTPS access to `threadbear.dev` and GitHub Releases. v1 is not Developer ID signed or notarized. Installation is user-local and must not use `sudo`.
+Confirm macOS 12 or newer, `arm64` or `x86_64`/`amd64` hardware, Codex Desktop with a compatible local `codex` executable/App Server surface, and HTTPS access to `threadbear.sh` and GitHub Releases. v1 is not Developer ID signed or notarized. Installation is user-local and must not use `sudo`.
 
 ## Guided installation dialogue
 
 ### 1. Start the canonical bootstrap
 
 ```sh
-curl -fsSL https://threadbear.dev/install.sh | sh
+curl -fsSL https://threadbear.sh/install.sh | sh
 ```
 
 The pipe supplies the script, not the answers. ThreadBear opens `/dev/tty` for prompts so script input cannot accidentally accept them.
@@ -21,7 +21,7 @@ The bootstrap fetches the selected release manifest, detects `darwin/arm64` or `
 To install an exact release:
 
 ```sh
-curl -fsSL https://threadbear.dev/install.sh | sh -s -- --version 1.2.0
+curl -fsSL https://threadbear.sh/install.sh | sh -s -- --version 1.2.0
 ```
 
 Versions must be exact `N.N.N` values without a leading `v`. A missing checksum, mismatch, wrong embedded version, or failed candidate self-test stops before a working installed binary is replaced.
@@ -74,7 +74,7 @@ The LaunchAgent uses `StartInterval`, `ProcessType=Background`, and `KeepAlive=f
 Noninteractive installation requires both `--noninteractive` and the explicit confirmation assertion `--confirm`:
 
 ```sh
-curl -fsSL https://threadbear.dev/install.sh | sh -s -- \
+curl -fsSL https://threadbear.sh/install.sh | sh -s -- \
   --noninteractive \
   --confirm \
   --heartbeat-seconds 300 \
