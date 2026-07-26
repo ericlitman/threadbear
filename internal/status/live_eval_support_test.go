@@ -24,12 +24,29 @@ type liveEvalCorpus struct {
 }
 
 type liveEvalCase struct {
-	ID         string             `json:"id"`
-	Expected   state.TaskStatus   `json:"expected"`
+	ID       string           `json:"id"`
+	Expected state.TaskStatus `json:"expected"`
+	// Accepted is the operator-certified set of states scored as correct for a
+	// genuinely ambiguous case (Verification Contract amendment, 2026-07-26).
+	// Empty means only Expected is correct. When present it must contain
+	// Expected. Certification lives in the corpus rulings record, never here.
+	Accepted   []state.TaskStatus `json:"accepted,omitempty"`
 	Provenance liveEvalProvenance `json:"provenance"`
 	Facts      *liveEvalFacts     `json:"facts"`
 	Latest     *TurnEvidence      `json:"latest"`
 	Previous   *TurnEvidence      `json:"previous,omitempty"`
+}
+
+func (c liveEvalCase) accepts(status state.TaskStatus) bool {
+	if status == c.Expected {
+		return true
+	}
+	for _, accepted := range c.Accepted {
+		if status == accepted {
+			return true
+		}
+	}
+	return false
 }
 
 type liveEvalProvenance struct {
@@ -180,6 +197,20 @@ func decodeLiveEvalCorpus(data []byte) (liveEvalCorpus, error) {
 		if !item.Expected.Valid() {
 			return liveEvalCorpus{}, fmt.Errorf("case %q has invalid expected state %q", item.ID, item.Expected)
 		}
+		if len(item.Accepted) > 0 {
+			containsExpected := false
+			for _, accepted := range item.Accepted {
+				if !accepted.Valid() {
+					return liveEvalCorpus{}, fmt.Errorf("case %q has invalid accepted state %q", item.ID, accepted)
+				}
+				if accepted == item.Expected {
+					containsExpected = true
+				}
+			}
+			if !containsExpected {
+				return liveEvalCorpus{}, fmt.Errorf("case %q accepted set must contain its expected state", item.ID)
+			}
+		}
 		if item.Facts == nil || item.Facts.Footer == nil || item.Latest == nil {
 			return liveEvalCorpus{}, fmt.Errorf("case %q must include facts, facts.footer, and latest objects", item.ID)
 		}
@@ -304,8 +335,10 @@ func aggregateLiveEvalSeries(cases []liveEvalCase, reports []liveEvalReport) liv
 		Reports:        reports,
 	}
 	expected := make(map[string]state.TaskStatus, len(cases))
+	byID := make(map[string]liveEvalCase, len(cases))
 	for _, item := range cases {
 		expected[item.ID] = item.Expected
+		byID[item.ID] = item
 	}
 	wrong := make(map[string][]state.TaskStatus)
 	diagnosedRuns := make(map[string]int)
@@ -327,11 +360,11 @@ func aggregateLiveEvalSeries(cases []liveEvalCase, reports []liveEvalReport) liv
 		entry := liveEvalCaseSeries{ID: id, Expected: expected[id], Actuals: actuals}
 		directions := make(map[string]bool)
 		for _, actual := range actuals {
-			if actual == state.StatusComplete && expected[id] != state.StatusComplete {
+			if actual == state.StatusComplete && !byID[id].accepts(state.StatusComplete) {
 				entry.Dangerous++
 				directions["false_complete"] = true
 			}
-			if actual == state.StatusNextSteps && expected[id] != state.StatusNextSteps {
+			if actual == state.StatusNextSteps && !byID[id].accepts(state.StatusNextSteps) {
 				entry.Dangerous++
 				directions["false_next_steps"] = true
 			}
@@ -374,17 +407,17 @@ func scoreLiveEval(cases []liveEvalCase, actual map[string]state.TaskStatus, dia
 		got := actual[item.ID]
 		score := report.ByState[item.Expected]
 		score.Total++
-		if got == item.Expected {
+		if item.accepts(got) {
 			score.Correct++
 			report.Correct++
 		} else {
 			report.Errors = append(report.Errors, liveEvalError{ID: item.ID, Expected: item.Expected, Actual: got})
 		}
 		report.ByState[item.Expected] = score
-		if got == state.StatusComplete && item.Expected != state.StatusComplete {
+		if got == state.StatusComplete && !item.accepts(state.StatusComplete) {
 			report.FalseComplete++
 		}
-		if got == state.StatusNextSteps && item.Expected != state.StatusNextSteps {
+		if got == state.StatusNextSteps && !item.accepts(state.StatusNextSteps) {
 			report.FalseNextSteps++
 		}
 	}
