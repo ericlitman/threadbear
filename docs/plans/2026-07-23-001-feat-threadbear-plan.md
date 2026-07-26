@@ -68,7 +68,7 @@ ThreadBear therefore keeps the visible control task but moves semantic classific
 
 **Product identity and ownership**
 
-- R1. The public product is named ThreadBear, uses the control-task title `🧵🐻 ThreadBear 🐻🧵`, is documented at `threadbear.sh`, and lives in a public `ericlitman/threadbear` GitHub repository.
+- R1. The public product is named ThreadBear, uses the control-task title `🧵🐻 ThreadBear 🐻🧵`, is documented at `threadbear.sh`, and lives in a public `ericlitman/threadbear` GitHub repository. `threadbare.sh` is a second registered domain that redirects to `threadbear.sh`; it is a deliberate play on the word rather than a typo guard, and it is never the canonical origin published in documentation, installer commands, or release metadata.
 - R2. The repository is MIT-licensed, the default language is playful and bear-themed without obscuring operational meaning, v1 supports macOS only, and v1 release binaries ship without Developer ID signing or notarization.
 - R3. ThreadBear owns one long-running visible control task whose exact task ID is recorded during setup and excluded from inventory before freshness checks; the task is used for management and notices, never as accumulated classifier history.
 
