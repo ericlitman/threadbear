@@ -198,7 +198,7 @@ func TestInspectAE24ReadOnlyCycleFactsAndPrivacy(t *testing.T) {
 	if inspectResult.State != state.StatusNeedsInput ||
 		inspectResult.Provenance != state.ProvenanceFooter ||
 		inspectResult.Retry == nil ||
-		inspectResult.TokenDisplayPosition != tokens.PositionEnd ||
+		inspectResult.TokenDisplayPosition != tokens.PositionStart ||
 		inspectResult.ManagedTokenPosition != tokens.PositionEnd ||
 		inspectResult.ManagedTokenDisplay != "1.6m" ||
 		!inspectResult.TokenUsageFound {
@@ -211,13 +211,13 @@ func TestInspectAE24ReadOnlyCycleFactsAndPrivacy(t *testing.T) {
 	if err := output.Write(&machine, output.FormatJSON, inspectResult); err != nil {
 		t.Fatal(err)
 	}
-	for _, fact := range []string{"token configured end", "token applied end/1.6m", "token usage found true"} {
+	for _, fact := range []string{"token configured start", "token applied end/1.6m", "token usage found true"} {
 		if !strings.Contains(human.String(), fact) {
 			t.Fatalf("human output missing %q: %q", fact, human.String())
 		}
 	}
 	for _, fact := range []string{
-		`"token_display_position":"end"`,
+		`"token_display_position":"start"`,
 		`"managed_token_position":"end"`,
 		`"managed_token_display":"1.6m"`,
 		`"token_usage_found":true`,
@@ -234,6 +234,52 @@ func TestInspectAE24ReadOnlyCycleFactsAndPrivacy(t *testing.T) {
 	after := snapshotStateDirectory(t, store.Directory())
 	if !reflect.DeepEqual(before, after) || inventory.calls != 1 {
 		t.Fatalf("inspect mutated state or over-read inventory")
+	}
+}
+
+func TestInspectReportsLiveConfiguredTokenDisplayAfterConfigure(t *testing.T) {
+	now := time.Date(2026, 7, 26, 12, 0, 0, 0, time.UTC)
+	store := commandStore(t, now)
+	tokenDisplay := tokens.PositionEnd
+	result, err := ConfigureHandler(store, nil, nil, nil)(context.Background(), Request{
+		Command:   CommandConfigure,
+		Confirm:   true,
+		Configure: ConfigPatch{TokenDisplay: &tokenDisplay},
+	})
+	if err != nil || !result.(output.ActionResult).Changed {
+		t.Fatalf("configure result=%+v err=%v", result, err)
+	}
+	committed, err := store.LoadState()
+	if err != nil {
+		t.Fatal(err)
+	}
+	record := commandRecord("task-a", now)
+	record.TokenDisplayPosition = tokens.PositionStart
+	record.ManagedTokenDisplay = "1.6m"
+	record.ManagedTokenPosition = tokens.PositionStart
+	committed.Tasks[record.TaskID] = record
+	if err := store.SaveState(committed); err != nil {
+		t.Fatal(err)
+	}
+	inventory := &commandInventory{tasks: []codex.Task{{
+		TaskID:   record.TaskID,
+		Revision: record.CapturedRevision,
+		Title:    record.CapturedTitle,
+	}}}
+
+	result, err = InspectHandler(store, inventory, commandClock{now})(context.Background(), Request{
+		Command: CommandInspect,
+		TaskID:  record.TaskID,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	inspect := result.(output.InspectResult)
+	if inspect.TokenDisplayPosition != tokens.PositionEnd ||
+		inspect.ManagedTokenPosition != tokens.PositionStart ||
+		inspect.ManagedTokenDisplay != "1.6m" {
+		t.Fatalf("inspect=%+v", inspect)
 	}
 }
 
@@ -717,7 +763,7 @@ func TestInspectCurrentRevisionInvalidatesPersistedClassification(t *testing.T) 
 		inspect.State != state.StatusUnknown ||
 		inspect.Provenance != state.ProvenanceUnknown ||
 		inspect.ArchiveEligible ||
-		inspect.TokenDisplayPosition != tokens.PositionOff ||
+		inspect.TokenDisplayPosition != tokens.PositionStart ||
 		inspect.ManagedTokenPosition != tokens.PositionOff ||
 		inspect.ManagedTokenDisplay != "" ||
 		inspect.TokenUsageFound {
@@ -751,7 +797,7 @@ func TestInspectCurrentTitleInvalidatesPersistedTokenFacts(t *testing.T) {
 	}
 
 	inspect := result.(output.InspectResult)
-	if inspect.TokenDisplayPosition != tokens.PositionOff ||
+	if inspect.TokenDisplayPosition != tokens.PositionStart ||
 		inspect.ManagedTokenPosition != tokens.PositionOff ||
 		inspect.ManagedTokenDisplay != "" ||
 		inspect.TokenUsageFound {
@@ -764,13 +810,13 @@ func TestInspectCurrentTitleInvalidatesPersistedTokenFacts(t *testing.T) {
 	if err := output.Write(&machine, output.FormatJSON, inspect); err != nil {
 		t.Fatal(err)
 	}
-	for _, fact := range []string{"token configured off", "token applied off/none", "token usage found false"} {
+	for _, fact := range []string{"token configured start", "token applied off/none", "token usage found false"} {
 		if !strings.Contains(human.String(), fact) {
 			t.Fatalf("human output missing %q: %q", fact, human.String())
 		}
 	}
 	for _, fact := range []string{
-		`"token_display_position":"off"`,
+		`"token_display_position":"start"`,
 		`"managed_token_position":"off"`,
 		`"managed_token_display":""`,
 		`"token_usage_found":false`,

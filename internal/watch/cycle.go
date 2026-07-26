@@ -727,10 +727,19 @@ func (r *Runner) prepareOperations(cfg config.Config, records map[string]state.T
 				record.ManagedTokenDisplay = rendered.ManagedTokenDisplay
 				record.ManagedTokenPosition = rendered.ManagedTokenPosition
 				records[taskID] = record
-				if rendered.Title != record.CapturedTitle {
-					key := "title:" + taskID
-					if _, exists := checkpoint.Operations[key]; !exists {
-						checkpoint.Operations[key] = state.CycleOperation{Kind: state.OperationTitle, Stage: state.StagePrepared, TaskID: taskID, ExpectedRevision: record.CapturedRevision, ExpectedTitle: record.CapturedTitle, DesiredTitle: rendered.Title}
+				key := "title:" + taskID
+				operation, exists := checkpoint.Operations[key]
+				expectedRevision := record.CapturedRevision
+				expectedTitle := record.CapturedTitle
+				if exists && operation.Stage == state.StageVerified {
+					expectedRevision = operation.VerifiedRevision
+					expectedTitle = operation.VerifiedTitle
+				}
+				if !exists || operation.Stage != state.StageVerified || rendered.Title != expectedTitle {
+					if rendered.Title == expectedTitle {
+						delete(checkpoint.Operations, key)
+					} else {
+						checkpoint.Operations[key] = state.CycleOperation{Kind: state.OperationTitle, Stage: state.StagePrepared, TaskID: taskID, ExpectedRevision: expectedRevision, ExpectedTitle: expectedTitle, DesiredTitle: rendered.Title}
 					}
 				}
 			}

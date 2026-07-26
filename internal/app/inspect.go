@@ -49,7 +49,7 @@ func InspectHandler(store OperatorStore, inventory OperatorInventory, clock Oper
 		statusValue := state.StatusUnknown
 		provenance := state.ProvenanceUnknown
 		managedAction := ""
-		tokenDisplayPosition := tokens.PositionOff
+		tokenDisplayPosition := cfg.TokenDisplay
 		managedTokenPosition := tokens.PositionOff
 		managedTokenDisplay := ""
 		tokenUsageFound := false
@@ -72,9 +72,6 @@ func InspectHandler(store OperatorStore, inventory OperatorInventory, clock Oper
 			}
 		}
 		if recordMatchesCurrent {
-			if record.TokenDisplayPosition.Valid() {
-				tokenDisplayPosition = record.TokenDisplayPosition
-			}
 			if record.ManagedTokenDisplay != "" && (record.ManagedTokenPosition == tokens.PositionStart || record.ManagedTokenPosition == tokens.PositionEnd) {
 				managedTokenPosition = record.ManagedTokenPosition
 				managedTokenDisplay = record.ManagedTokenDisplay

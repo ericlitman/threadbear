@@ -822,6 +822,122 @@ func TestCrashApplyingJournalRecoversWithoutRepeatingMutation(t *testing.T) {
 	})
 }
 
+func TestRecoveryReconcilesPendingTitleOperationWithLiveTokenDisplay(t *testing.T) {
+	now := time.Date(2026, 7, 26, 12, 0, 0, 0, time.UTC)
+	const rolloutPath = "/synthetic/title.jsonl"
+	for _, test := range []struct {
+		name                string
+		stage               state.OperationStage
+		tokenDisplay        tokens.Position
+		currentRevision     string
+		currentTitle        string
+		expectedTitle       string
+		expectedDisplay     string
+		expectedPosition    tokens.Position
+		expectedTitleWrites int
+		expectedTokenReads  int
+	}{
+		{
+			name:  "prepared start operation moves to end",
+			stage: state.StagePrepared, tokenDisplay: tokens.PositionEnd,
+			expectedTitle:   "➡️ Release service → review rollout · out 1.6m",
+			expectedDisplay: "1.6m", expectedPosition: tokens.PositionEnd,
+			expectedTitleWrites: 1, expectedTokenReads: 1,
+		},
+		{
+			name:  "applying start operation is cancelled when display is off",
+			stage: state.StageApplying, tokenDisplay: tokens.PositionOff,
+			expectedTitle: "➡️ Release service → review rollout",
+		},
+		{
+			name:  "applied start operation is corrected when display is off",
+			stage: state.StageApplying, tokenDisplay: tokens.PositionOff,
+			currentRevision: "2", currentTitle: "➡️ 1.6m Release service → review rollout",
+			expectedTitle:       "➡️ Release service → review rollout",
+			expectedTitleWrites: 1,
+		},
+		{
+			name:  "applied start operation remains idempotent when display is unchanged",
+			stage: state.StageApplying, tokenDisplay: tokens.PositionStart,
+			currentRevision: "2", currentTitle: "➡️ 1.6m Release service → review rollout",
+			expectedTitle:   "➡️ 1.6m Release service → review rollout",
+			expectedDisplay: "1.6m", expectedPosition: tokens.PositionStart,
+			expectedTokenReads: 1,
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			captured := codex.Task{
+				TaskID: "title", Revision: "1", Title: "➡️ Release service → review rollout",
+				Source: "vscode", RolloutPath: rolloutPath,
+			}
+			current := captured
+			if test.currentRevision != "" {
+				current.Revision = test.currentRevision
+			}
+			if test.currentTitle != "" {
+				current.Title = test.currentTitle
+			}
+			committed := state.New()
+			committed.LastUpdateCheck = timePointer(now)
+			previous := record(captured, state.StatusNextSteps, now)
+			previous.DurableSubject = "Release service"
+			previous.ManagedAction = "review rollout"
+			previous.TokenDisplayPosition = tokens.PositionStart
+			committed.Tasks[captured.TaskID] = previous
+			runner, deps := testRunner(t, now, []codex.Task{current}, committed)
+			cfg := config.Default("control")
+			cfg.TokenDisplay = test.tokenDisplay
+			deps.store.configOverride = &cfg
+			deps.tokens.snapshots[rolloutPath] = tokens.Snapshot{
+				RolloutPath: rolloutPath, Offset: 120, Size: 120,
+				OutputTokens: 1_600_123, TotalTokens: 433_000_000, Found: true,
+			}
+
+			cycle := state.NewCycle("cycle-1", committed.Generation, now)
+			cycle.Inventory[captured.TaskID] = state.CapturedTask{
+				TaskID: captured.TaskID, Revision: captured.Revision, Title: captured.Title,
+				RolloutPath: captured.RolloutPath, LastSubstantiveActivity: now,
+			}
+			cycle.Results[captured.TaskID] = state.ClassificationResult{
+				TaskID: captured.TaskID, Revision: captured.Revision, Status: state.StatusNextSteps,
+				Provenance: state.ProvenanceFooter, DurableSubject: "Release service", ManagedAction: "review rollout",
+			}
+			cycle.Operations["title:"+captured.TaskID] = state.CycleOperation{
+				Kind: state.OperationTitle, Stage: test.stage, TaskID: captured.TaskID,
+				ExpectedRevision: captured.Revision, ExpectedTitle: captured.Title,
+				DesiredTitle: "➡️ 1.6m Release service → review rollout",
+			}
+			if err := deps.store.store.SaveCycle(cycle); err != nil {
+				t.Fatal(err)
+			}
+
+			if _, err := runner.Run(context.Background(), false); err != nil {
+				t.Fatal(err)
+			}
+			current, _ = deps.index.task(captured.TaskID)
+			stored, err := deps.store.store.LoadState()
+			if err != nil {
+				t.Fatal(err)
+			}
+			owned := stored.Tasks[captured.TaskID]
+			if current.Title != test.expectedTitle || owned.CapturedTitle != test.expectedTitle {
+				t.Fatalf("current=%q captured=%q", current.Title, owned.CapturedTitle)
+			}
+			if owned.ManagedTokenDisplay != test.expectedDisplay || owned.ManagedTokenPosition != test.expectedPosition || owned.TokenDisplayPosition != test.tokenDisplay {
+				t.Fatalf("ownership=%+v", owned)
+			}
+			if len(deps.client.titles) != test.expectedTitleWrites || len(deps.tokens.calls) != test.expectedTokenReads {
+				t.Fatalf("writes=%v token_reads=%v", deps.client.titles, deps.tokens.calls)
+			}
+			for _, write := range deps.client.titles {
+				if strings.Contains(write, "➡️ 1.6m ") {
+					t.Fatalf("stale start-position title was applied: %v", deps.client.titles)
+				}
+			}
+		})
+	}
+}
+
 func TestCrashAfterStateRenameDoesNotCommitTwice(t *testing.T) {
 	now := time.Date(2026, 7, 24, 12, 0, 0, 0, time.UTC)
 	task := codex.Task{TaskID: "active", Revision: "2", Title: "✅ Active", Source: "vscode"}

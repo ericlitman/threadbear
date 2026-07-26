@@ -113,8 +113,8 @@ func lastUsage(data []byte) (usage, usageStatus) {
 					Type string `json:"type"`
 					Info struct {
 						TotalTokenUsage *struct {
-							OutputTokens uint64 `json:"output_tokens"`
-							TotalTokens  uint64 `json:"total_tokens"`
+							OutputTokens *uint64 `json:"output_tokens"`
+							TotalTokens  uint64  `json:"total_tokens"`
 						} `json:"total_token_usage"`
 					} `json:"info"`
 				} `json:"payload"`
@@ -123,11 +123,11 @@ func lastUsage(data []byte) (usage, usageStatus) {
 				return usage{}, usageInvalid
 			}
 			if event.Type == "event_msg" && event.Payload.Type == "token_count" {
-				if event.Payload.Info.TotalTokenUsage == nil {
+				if event.Payload.Info.TotalTokenUsage == nil || event.Payload.Info.TotalTokenUsage.OutputTokens == nil {
 					return usage{}, usageInvalid
 				}
 				return usage{
-					OutputTokens: event.Payload.Info.TotalTokenUsage.OutputTokens,
+					OutputTokens: *event.Payload.Info.TotalTokenUsage.OutputTokens,
 					TotalTokens:  event.Payload.Info.TotalTokenUsage.TotalTokens,
 				}, usageFound
 			}

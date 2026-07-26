@@ -220,6 +220,22 @@ func TestReadRolloutDoesNotFallBackPastMalformedLatestTokenCount(t *testing.T) {
 	}
 }
 
+func TestReadRolloutRejectsTokenCountWithoutOutputTokens(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "rollout.jsonl")
+	content := []byte("{\"type\":\"event_msg\",\"payload\":{\"type\":\"token_count\",\"info\":{\"total_token_usage\":{\"total_tokens\":340000}}}}\n")
+	if err := os.WriteFile(path, content, 0600); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := ReadRollout(path, Snapshot{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Found || got.OutputTokens != 0 || got.TotalTokens != 0 {
+		t.Fatalf("token event without output_tokens produced usage: %+v", got)
+	}
+}
+
 func TestFormatUsesTwoSignificantFigures(t *testing.T) {
 	tests := map[uint64]string{
 		0:           "0",
