@@ -44,6 +44,17 @@ func TestLiveLunaMediumCorpus(t *testing.T) {
 	}
 	runs := liveEvalInt(t, "THREADBEAR_LIVE_EVAL_RUNS", 5)
 	timeout := liveEvalDuration(t, "THREADBEAR_LIVE_EVAL_TIMEOUT", time.Duration(runs)*15*time.Minute)
+	// Go kills the whole test binary at its -timeout (default 10m), which is
+	// far shorter than a five-run series. Refuse to start rather than be
+	// terminated mid-series with a panic dump instead of a report.
+	if deadline, ok := t.Deadline(); ok {
+		if remaining := time.Until(deadline); remaining < timeout {
+			t.Fatalf(
+				"go test binary timeout %s is shorter than the series budget %s for %d runs; rerun with -timeout %s or higher",
+				remaining.Round(time.Minute), timeout, runs, timeout+5*time.Minute,
+			)
+		}
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 	caps, err := appserver.DiscoverCapabilities(ctx, process)
