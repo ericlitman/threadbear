@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"strings"
 	"time"
+
+	"github.com/ericlitman/threadbear/internal/tokens"
 )
 
 const (
@@ -84,17 +86,26 @@ type Retry struct {
 }
 
 type TaskRecord struct {
-	TaskID                  string     `json:"task_id"`
-	CapturedRevision        string     `json:"captured_revision"`
-	CapturedTitle           string     `json:"captured_title"`
-	Status                  TaskStatus `json:"status"`
-	Provenance              Provenance `json:"provenance"`
-	StateStartedAt          time.Time  `json:"state_started_at"`
-	LastSubstantiveActivity time.Time  `json:"last_substantive_activity"`
-	DurableSubject          string     `json:"durable_subject,omitempty"`
-	ManagedAction           string     `json:"managed_action,omitempty"`
-	LastAppliedTitle        string     `json:"last_applied_title,omitempty"`
-	Retry                   *Retry     `json:"retry,omitempty"`
+	TaskID                  string          `json:"task_id"`
+	CapturedRevision        string          `json:"captured_revision"`
+	CapturedTitle           string          `json:"captured_title"`
+	Status                  TaskStatus      `json:"status"`
+	Provenance              Provenance      `json:"provenance"`
+	StateStartedAt          time.Time       `json:"state_started_at"`
+	LastSubstantiveActivity time.Time       `json:"last_substantive_activity"`
+	DurableSubject          string          `json:"durable_subject,omitempty"`
+	ManagedAction           string          `json:"managed_action,omitempty"`
+	LastAppliedTitle        string          `json:"last_applied_title,omitempty"`
+	ManagedTokenDisplay     string          `json:"managed_token_display,omitempty"`
+	ManagedTokenPosition    tokens.Position `json:"managed_token_position,omitempty"`
+	TokenDisplayPosition    tokens.Position `json:"token_display_position,omitempty"`
+	TokenRolloutPath        string          `json:"token_rollout_path,omitempty"`
+	TokenReadOffset         int64           `json:"token_read_offset,omitempty"`
+	TokenRolloutSize        int64           `json:"token_rollout_size,omitempty"`
+	OutputTokens            uint64          `json:"output_tokens,omitempty"`
+	TotalTokens             uint64          `json:"total_tokens,omitempty"`
+	TokenUsageFound         bool            `json:"token_usage_found,omitempty"`
+	Retry                   *Retry          `json:"retry,omitempty"`
 }
 
 type ArchiveRecord struct {
@@ -165,6 +176,24 @@ func (t TaskRecord) Validate() error {
 	if t.StateStartedAt.IsZero() || t.LastSubstantiveActivity.IsZero() {
 		return errors.New("state and activity timestamps are required")
 	}
+	if (t.ManagedTokenDisplay == "") != (t.ManagedTokenPosition == "") {
+		return errors.New("managed token display and position must be set together")
+	}
+	if t.ManagedTokenDisplay != "" && (t.ManagedTokenPosition != tokens.PositionStart && t.ManagedTokenPosition != tokens.PositionEnd) {
+		return errors.New("managed token position is invalid")
+	}
+	if t.TokenDisplayPosition != "" && !t.TokenDisplayPosition.Valid() {
+		return errors.New("token display position is invalid")
+	}
+	if t.TokenReadOffset < 0 || t.TokenRolloutSize < 0 || t.TokenReadOffset > t.TokenRolloutSize {
+		return errors.New("token rollout cursor is invalid")
+	}
+	if t.TokenRolloutPath == "" && (t.TokenReadOffset != 0 || t.TokenRolloutSize != 0 || t.TokenUsageFound || t.OutputTokens != 0 || t.TotalTokens != 0) {
+		return errors.New("token rollout cache requires a path")
+	}
+	if !t.TokenUsageFound && (t.OutputTokens != 0 || t.TotalTokens != 0) {
+		return errors.New("token totals require a discovered token event")
+	}
 	if t.Retry != nil {
 		if !stableCode(t.Retry.Operation) || !stableCode(t.Retry.ErrorCode) || t.Retry.Attempts == 0 || t.Retry.LastAttemptAt.IsZero() || t.Retry.NextAttemptAt.IsZero() {
 			return errors.New("retry is incomplete")
@@ -180,6 +209,7 @@ type CapturedTask struct {
 	TaskID                  string    `json:"task_id"`
 	Revision                string    `json:"revision"`
 	Title                   string    `json:"title"`
+	RolloutPath             string    `json:"rollout_path,omitempty"`
 	Archived                bool      `json:"archived"`
 	LastSubstantiveActivity time.Time `json:"last_substantive_activity"`
 }

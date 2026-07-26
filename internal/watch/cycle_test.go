@@ -19,6 +19,7 @@ import (
 	"github.com/ericlitman/threadbear/internal/output"
 	"github.com/ericlitman/threadbear/internal/state"
 	"github.com/ericlitman/threadbear/internal/status"
+	"github.com/ericlitman/threadbear/internal/tokens"
 )
 
 type fakeClock struct{ now time.Time }
@@ -182,6 +183,20 @@ func (f *fakeUpdateChecker) Check(context.Context, string) (UpdateStatus, error)
 	return f.result, f.err
 }
 
+type fakeTokenReader struct {
+	calls     []string
+	snapshots map[string]tokens.Snapshot
+	errs      map[string]error
+}
+
+func (f *fakeTokenReader) ReadRollout(path string, _ tokens.Snapshot) (tokens.Snapshot, error) {
+	f.calls = append(f.calls, path)
+	if err := f.errs[path]; err != nil {
+		return tokens.Snapshot{}, err
+	}
+	return f.snapshots[path], nil
+}
+
 type wrappedStore struct {
 	store          *state.Store
 	configOverride *config.Config
@@ -241,6 +256,144 @@ func TestHeartbeatIdleZero(t *testing.T) {
 	}
 	if stdout.Len() != 0 || deps.factory.opens != 0 || deps.classifier.calls != 0 || deps.index.calls != 1 {
 		t.Fatalf("stdout=%q opens=%d classifier=%d inventories=%d", stdout.String(), deps.factory.opens, deps.classifier.calls, deps.index.calls)
+	}
+}
+
+func TestHeartbeatRendersOutputTokensAndLeavesUnchangedTitlesAlone(t *testing.T) {
+	now := time.Date(2026, 7, 26, 12, 0, 0, 0, time.UTC)
+	task := codex.Task{TaskID: "task-a", Revision: "2", Title: "🚨 Release service", Source: "vscode", RolloutPath: "/synthetic/task-a.jsonl"}
+	committed := state.New()
+	committed.LastUpdateCheck = timePointer(now)
+	previous := record(codex.Task{TaskID: task.TaskID, Revision: "1", Title: task.Title}, state.StatusBlocked, now)
+	previous.TokenDisplayPosition = tokens.PositionStart
+	committed.Tasks[task.TaskID] = previous
+	runner, deps := testRunner(t, now, []codex.Task{task}, committed)
+	deps.client.latest[task.TaskID] = appserver.RecentEvidence{
+		ThreadStatus: appserver.ThreadStatus{Type: "idle"},
+		Latest:       &appserver.EvidenceTurn{ID: "turn-a", Status: "failed", Error: &appserver.TurnError{Message: "synthetic failure"}},
+	}
+	deps.tokens.snapshots[task.RolloutPath] = tokens.Snapshot{
+		RolloutPath: task.RolloutPath, Offset: 120, Size: 120, OutputTokens: 1_600_123, TotalTokens: 433_000_000, Found: true,
+	}
+
+	if _, err := runner.Run(context.Background(), false); err != nil {
+		t.Fatal(err)
+	}
+	current, _ := deps.index.task(task.TaskID)
+	if current.Title != "🚨 1.6m Release service" || len(deps.client.titles) != 1 || len(deps.tokens.calls) != 1 {
+		t.Fatalf("title=%q writes=%v token_reads=%v", current.Title, deps.client.titles, deps.tokens.calls)
+	}
+
+	if _, err := runner.Run(context.Background(), false); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := runner.Run(context.Background(), false); err != nil {
+		t.Fatal(err)
+	}
+	if len(deps.client.titles) != 1 || len(deps.tokens.calls) != 1 {
+		t.Fatalf("unchanged heartbeats wrote titles or reread tokens: writes=%v reads=%v", deps.client.titles, deps.tokens.calls)
+	}
+}
+
+func TestHeartbeatRepositionsTokenDisplayWithoutReclassification(t *testing.T) {
+	now := time.Date(2026, 7, 26, 12, 0, 0, 0, time.UTC)
+	task := codex.Task{TaskID: "task-a", Revision: "1", Title: "➡️ 1.6m Release service → review rollout", Source: "vscode", RolloutPath: "/synthetic/task-a.jsonl"}
+	committed := state.New()
+	committed.LastUpdateCheck = timePointer(now)
+	previous := record(task, state.StatusNextSteps, now)
+	previous.DurableSubject = "Release service"
+	previous.ManagedAction = "review rollout"
+	previous.ManagedTokenDisplay = "1.6m"
+	previous.ManagedTokenPosition = tokens.PositionStart
+	previous.TokenDisplayPosition = tokens.PositionStart
+	previous.TokenUsageFound = true
+	previous.OutputTokens = 1_600_123
+	previous.TokenRolloutPath = task.RolloutPath
+	previous.TokenReadOffset = 120
+	previous.TokenRolloutSize = 120
+	committed.Tasks[task.TaskID] = previous
+	runner, deps := testRunner(t, now, []codex.Task{task}, committed)
+	cfg := config.Default("control")
+	cfg.TokenDisplay = tokens.PositionEnd
+	deps.store.configOverride = &cfg
+	deps.tokens.snapshots[task.RolloutPath] = tokens.Snapshot{
+		RolloutPath: task.RolloutPath, Offset: 120, Size: 120, OutputTokens: 1_600_123, TotalTokens: 433_000_000, Found: true,
+	}
+
+	if _, err := runner.Run(context.Background(), false); err != nil {
+		t.Fatal(err)
+	}
+	current, _ := deps.index.task(task.TaskID)
+	if current.Title != "➡️ Release service → review rollout · out 1.6m" || deps.classifier.calls != 0 || len(deps.client.latestReads) != 0 {
+		t.Fatalf("title=%q classifier=%d latest_reads=%v", current.Title, deps.classifier.calls, deps.client.latestReads)
+	}
+}
+
+func TestHeartbeatUnreadableTokenTailRemovesFigureWithoutRetryNoise(t *testing.T) {
+	now := time.Date(2026, 7, 26, 12, 0, 0, 0, time.UTC)
+	task := codex.Task{TaskID: "task-a", Revision: "2", Title: "🚨 1.6m Release service", Source: "vscode", RolloutPath: "/synthetic/unreadable.jsonl"}
+	committed := state.New()
+	committed.LastUpdateCheck = timePointer(now)
+	previous := record(codex.Task{TaskID: task.TaskID, Revision: "1", Title: task.Title}, state.StatusBlocked, now)
+	previous.DurableSubject = "Release service"
+	previous.ManagedTokenDisplay = "1.6m"
+	previous.ManagedTokenPosition = tokens.PositionStart
+	previous.TokenDisplayPosition = tokens.PositionStart
+	committed.Tasks[task.TaskID] = previous
+	runner, deps := testRunner(t, now, []codex.Task{task}, committed)
+	deps.tokens.errs[task.RolloutPath] = errors.New("synthetic unreadable tail")
+	deps.client.latest[task.TaskID] = appserver.RecentEvidence{
+		ThreadStatus: appserver.ThreadStatus{Type: "idle"},
+		Latest:       &appserver.EvidenceTurn{ID: "turn-a", Status: "failed", Error: &appserver.TurnError{Message: "synthetic failure"}},
+	}
+
+	value, err := runner.Run(context.Background(), false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	current, _ := deps.index.task(task.TaskID)
+	if current.Title != "🚨 Release service" || len(value.(output.HeartbeatResult).Retries) != 0 {
+		t.Fatalf("title=%q result=%+v", current.Title, value)
+	}
+}
+
+func TestHeartbeatMissingRolloutPathRemovesFigureWithoutRetryNoise(t *testing.T) {
+	now := time.Date(2026, 7, 26, 12, 0, 0, 0, time.UTC)
+	task := codex.Task{TaskID: "task-a", Revision: "2", Title: "🚨 1.6m Release service", Source: "vscode"}
+	committed := state.New()
+	committed.LastUpdateCheck = timePointer(now)
+	previous := record(codex.Task{TaskID: task.TaskID, Revision: "1", Title: task.Title}, state.StatusBlocked, now)
+	previous.DurableSubject = "Release service"
+	previous.ManagedTokenDisplay = "1.6m"
+	previous.ManagedTokenPosition = tokens.PositionStart
+	previous.TokenRolloutPath = "/synthetic/task-a.jsonl"
+	previous.TokenReadOffset = 120
+	previous.TokenRolloutSize = 120
+	previous.OutputTokens = 1_600_123
+	previous.TotalTokens = 433_000_000
+	previous.TokenUsageFound = true
+	committed.Tasks[task.TaskID] = previous
+	runner, deps := testRunner(t, now, []codex.Task{task}, committed)
+	deps.client.latest[task.TaskID] = appserver.RecentEvidence{
+		ThreadStatus: appserver.ThreadStatus{Type: "idle"},
+		Latest:       &appserver.EvidenceTurn{ID: "turn-a", Status: "failed", Error: &appserver.TurnError{Message: "synthetic failure"}},
+	}
+
+	value, err := runner.Run(context.Background(), false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	current, _ := deps.index.task(task.TaskID)
+	stored, err := deps.store.LoadState()
+	if err != nil {
+		t.Fatal(err)
+	}
+	record := stored.Tasks[task.TaskID]
+	if current.Title != "🚨 Release service" || len(value.(output.HeartbeatResult).Retries) != 0 || len(deps.tokens.calls) != 0 {
+		t.Fatalf("title=%q result=%+v token_reads=%v", current.Title, value, deps.tokens.calls)
+	}
+	if record.ManagedTokenDisplay != "" || record.ManagedTokenPosition != "" || record.TokenRolloutPath != "" || record.TokenReadOffset != 0 || record.TokenRolloutSize != 0 || record.OutputTokens != 0 || record.TotalTokens != 0 || record.TokenUsageFound {
+		t.Fatalf("stale token snapshot retained: %+v", record)
 	}
 }
 
@@ -882,6 +1035,7 @@ type testDeps struct {
 	factory    *fakeFactory
 	classifier *fakeClassifier
 	update     *fakeUpdateChecker
+	tokens     *fakeTokenReader
 }
 
 func testRunner(t *testing.T, now time.Time, tasks []codex.Task, committed state.State) (*Runner, testDeps) {
@@ -900,11 +1054,13 @@ func testRunner(t *testing.T, now time.Time, tasks []codex.Task, committed state
 	factory := &fakeFactory{client: client}
 	classifier := &fakeClassifier{results: make(map[string]status.Classification)}
 	update := &fakeUpdateChecker{result: UpdateStatus{LatestVersion: "1.0.0"}}
+	tokenReader := &fakeTokenReader{snapshots: make(map[string]tokens.Snapshot), errs: make(map[string]error)}
 	wrapped := &wrappedStore{store: store}
 	clock := &fakeClock{now: now}
 	runner, err := New(Dependencies{
 		Store: wrapped, Inventory: index, AppServer: factory, UpdateChecker: update, Clock: clock, InstalledVersion: "1.0.0",
-		NewCycleID: func() string { return "cycle-1" },
+		TokenReader: tokenReader,
+		NewCycleID:  func() string { return "cycle-1" },
 		NewClassifier: func(_ AppServer, cfg config.Config) (Classifier, error) {
 			if cfg.ClassifierContextBudgetBytes != 250000 {
 				t.Fatalf("context budget=%d", cfg.ClassifierContextBudgetBytes)
@@ -915,7 +1071,7 @@ func testRunner(t *testing.T, now time.Time, tasks []codex.Task, committed state
 	if err != nil {
 		t.Fatal(err)
 	}
-	return runner, testDeps{store: wrapped, clock: clock, index: index, client: client, factory: factory, classifier: classifier, update: update}
+	return runner, testDeps{store: wrapped, clock: clock, index: index, client: client, factory: factory, classifier: classifier, update: update, tokens: tokenReader}
 }
 
 func completedEvidence(now time.Time, user, agent string) appserver.RecentEvidence {
@@ -925,7 +1081,7 @@ func completedEvidence(now time.Time, user, agent string) appserver.RecentEviden
 
 func record(task codex.Task, taskStatus state.TaskStatus, activity time.Time) state.TaskRecord {
 	subject := strings.TrimSpace(strings.TrimLeft(task.Title, "✅⏳🚨🙋🤖➡️❔ "))
-	return state.TaskRecord{TaskID: task.TaskID, CapturedRevision: task.Revision, CapturedTitle: task.Title, Status: taskStatus, Provenance: state.ProvenanceFooter, StateStartedAt: activity, LastSubstantiveActivity: activity, DurableSubject: subject, LastAppliedTitle: task.Title}
+	return state.TaskRecord{TaskID: task.TaskID, CapturedRevision: task.Revision, CapturedTitle: task.Title, Status: taskStatus, Provenance: state.ProvenanceFooter, StateStartedAt: activity, LastSubstantiveActivity: activity, DurableSubject: subject, LastAppliedTitle: task.Title, TokenDisplayPosition: tokens.PositionStart}
 }
 
 func timePointer(value time.Time) *time.Time { value = value.UTC(); return &value }

@@ -18,6 +18,7 @@ import (
 	"github.com/ericlitman/threadbear/internal/codex"
 	"github.com/ericlitman/threadbear/internal/config"
 	"github.com/ericlitman/threadbear/internal/state"
+	"github.com/ericlitman/threadbear/internal/tokens"
 )
 
 type Paths struct {
@@ -136,6 +137,7 @@ type PreferencePatch struct {
 	ArchiveEnabled               *bool
 	ArchiveAfterDays             *int
 	RenameEnabled                *bool
+	TokenDisplay                 *tokens.Position
 	AgentsEnabled                *bool
 	ClassifierModel              *string
 	ClassifierEffort             *config.ClassifierEffort
@@ -233,7 +235,7 @@ func (i Installer) Install(ctx context.Context, request InstallRequest) (Install
 		selectedPreferences = &value
 		previewPreferences = value
 	}
-	previewPreferences = applyPreferencePatch(previewPreferences, request.Patch)
+	previewPreferences = request.Patch.Apply(previewPreferences)
 	if request.NonInteractive {
 		if !request.Confirm {
 			return InstallResult{}, Fail("confirmation", errors.New("noninteractive install requires confirm"))
@@ -340,7 +342,7 @@ func (i Installer) Install(ctx context.Context, request InstallRequest) (Install
 	if selectedPreferences != nil {
 		preferences = *selectedPreferences
 	}
-	preferences = applyPreferencePatch(preferences, request.Patch)
+	preferences = request.Patch.Apply(preferences)
 	if err := preferences.Validate(); err != nil {
 		return InstallResult{}, fail("preferences", err)
 	}
@@ -532,34 +534,6 @@ func applyManaged(path string, enabled bool, content []byte) (bool, error) {
 	return !bytes.Equal(before, after), nil
 }
 
-func applyPreferencePatch(value Preferences, patch PreferencePatch) Preferences {
-	if patch.HeartbeatSeconds != nil {
-		value.HeartbeatSeconds = *patch.HeartbeatSeconds
-	}
-	if patch.ArchiveEnabled != nil {
-		value.ArchiveEnabled = *patch.ArchiveEnabled
-	}
-	if patch.ArchiveAfterDays != nil {
-		value.ArchiveAfterDays = *patch.ArchiveAfterDays
-	}
-	if patch.RenameEnabled != nil {
-		value.RenameEnabled = *patch.RenameEnabled
-	}
-	if patch.AgentsEnabled != nil {
-		value.AgentsEnabled = *patch.AgentsEnabled
-	}
-	if patch.ClassifierModel != nil {
-		value.ClassifierModel = *patch.ClassifierModel
-	}
-	if patch.ClassifierEffort != nil {
-		value.ClassifierEffort = *patch.ClassifierEffort
-	}
-	if patch.ClassifierContextBudgetBytes != nil {
-		value.ClassifierContextBudgetBytes = *patch.ClassifierContextBudgetBytes
-	}
-	return value
-}
-
 func (i Installer) resolveCodexExecutableSpec(persisted config.Config, persistedExists bool) (codex.ExecutableSpec, error) {
 	capturedPath := codex.SanitizePath(os.Getenv("PATH"))
 	if persistedExists && persisted.CodexExecutable != "" {
@@ -700,7 +674,7 @@ func installPreview(paths Paths, preferences Preferences, reinstall, migration b
 		skill,
 		"LaunchAgent staged disabled, self-tested, then enabled: " + paths.LaunchAgent,
 		"one persistent Codex control task",
-		fmt.Sprintf("heartbeat=%ds archive=%t/%dd rename=%t agents=%t classifier=%s/%s context=%d bytes", preferences.HeartbeatSeconds, preferences.ArchiveEnabled, preferences.ArchiveAfterDays, preferences.RenameEnabled, preferences.AgentsEnabled, preferences.ClassifierModel, preferences.ClassifierEffort, preferences.ClassifierContextBudgetBytes),
+		fmt.Sprintf("heartbeat=%ds archive=%t/%dd rename=%t token-display=%s agents=%t classifier=%s/%s context=%d bytes", preferences.HeartbeatSeconds, preferences.ArchiveEnabled, preferences.ArchiveAfterDays, preferences.RenameEnabled, preferences.TokenDisplay, preferences.AgentsEnabled, preferences.ClassifierModel, preferences.ClassifierEffort, preferences.ClassifierContextBudgetBytes),
 	}}, nil
 }
 
@@ -924,6 +898,9 @@ func (p PreferencePatch) Apply(value Preferences) Preferences {
 	}
 	if p.RenameEnabled != nil {
 		value.RenameEnabled = *p.RenameEnabled
+	}
+	if p.TokenDisplay != nil {
+		value.TokenDisplay = *p.TokenDisplay
 	}
 	if p.AgentsEnabled != nil {
 		value.AgentsEnabled = *p.AgentsEnabled

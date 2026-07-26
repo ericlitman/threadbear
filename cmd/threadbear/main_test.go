@@ -14,6 +14,7 @@ import (
 	"github.com/ericlitman/threadbear/internal/codex/appserver"
 	"github.com/ericlitman/threadbear/internal/config"
 	"github.com/ericlitman/threadbear/internal/install"
+	"github.com/ericlitman/threadbear/internal/tokens"
 )
 
 func TestParseLifecycleFlags(t *testing.T) {
@@ -38,8 +39,8 @@ func TestParseLifecycleFlags(t *testing.T) {
 }
 
 func TestParseConfigurePreviewAndConfirmation(t *testing.T) {
-	request, err := parseRequest([]string{"configure", "--dry-run", "--agents=false"})
-	if err != nil || !request.DryRun || request.Confirm {
+	request, err := parseRequest([]string{"configure", "--dry-run", "--agents=false", "--token-display=end"})
+	if err != nil || !request.DryRun || request.Confirm || request.Configure.TokenDisplay == nil || *request.Configure.TokenDisplay != tokens.PositionEnd {
 		t.Fatalf("request=%+v err=%v", request, err)
 	}
 	request, err = parseRequest([]string{"configure", "--noninteractive", "--confirm", "--classifier-model", "model", "--classifier-effort", "high", "--classifier-context-budget-bytes", "1234"})
@@ -48,6 +49,9 @@ func TestParseConfigurePreviewAndConfirmation(t *testing.T) {
 	}
 	if _, err := parseRequest([]string{"install", "--version", "v1.2.3"}); err == nil {
 		t.Fatal("accepted a version with leading v")
+	}
+	if _, err := parseRequest([]string{"configure", "--token-display=middle"}); err == nil {
+		t.Fatal("accepted an invalid token display position")
 	}
 }
 

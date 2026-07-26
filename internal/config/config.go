@@ -8,10 +8,13 @@ import (
 	"io"
 	"path/filepath"
 	"strings"
+
+	"github.com/ericlitman/threadbear/internal/tokens"
 )
 
 const (
-	CurrentSchemaVersion                = 1
+	legacySchemaVersion                 = 1
+	CurrentSchemaVersion                = 2
 	ProductName                         = "ThreadBear"
 	ControlTaskTitle                    = "🧵🐻 ThreadBear 🐻🧵"
 	Website                             = "https://threadbear.sh"
@@ -44,6 +47,7 @@ type Config struct {
 	ArchiveEnabled               bool             `json:"archive_enabled"`
 	ArchiveAfterDays             int              `json:"archive_after_days"`
 	RenameEnabled                bool             `json:"rename_enabled"`
+	TokenDisplay                 tokens.Position  `json:"token_display"`
 	AgentsEnabled                bool             `json:"agents_enabled"`
 	ClassifierModel              string           `json:"classifier_model"`
 	ClassifierEffort             ClassifierEffort `json:"classifier_effort"`
@@ -58,6 +62,7 @@ func Default(controlTaskID string) Config {
 		ArchiveEnabled:               true,
 		ArchiveAfterDays:             DefaultArchiveAfterDays,
 		RenameEnabled:                true,
+		TokenDisplay:                 tokens.PositionStart,
 		AgentsEnabled:                true,
 		ClassifierModel:              DefaultClassifierModel,
 		ClassifierEffort:             EffortMedium,
@@ -95,6 +100,9 @@ func (c Config) validate(requireBudget, requirePair bool) error {
 	if c.ArchiveAfterDays <= 0 {
 		return errors.New("archive_after_days must be positive")
 	}
+	if !c.TokenDisplay.Valid() {
+		return fmt.Errorf("token_display %q is unsupported", c.TokenDisplay)
+	}
 	if c.ClassifierModel == "" {
 		return errors.New("classifier_model is required")
 	}
@@ -119,12 +127,12 @@ func Decode(data []byte) (Config, error) {
 	if err := decodeStrict(data, &envelope, false); err != nil {
 		return Config{}, fmt.Errorf("read config schema: %w", err)
 	}
-	if envelope.SchemaVersion == nil || *envelope.SchemaVersion != CurrentSchemaVersion {
-		found := 0
-		if envelope.SchemaVersion != nil {
-			found = *envelope.SchemaVersion
-		}
-		return Config{}, fmt.Errorf("%w: got %d, want %d", ErrUnsupportedSchema, found, CurrentSchemaVersion)
+	if envelope.SchemaVersion == nil {
+		return Config{}, fmt.Errorf("%w: got 0, want %d", ErrUnsupportedSchema, CurrentSchemaVersion)
+	}
+	schemaVersion := *envelope.SchemaVersion
+	if schemaVersion != legacySchemaVersion && schemaVersion != CurrentSchemaVersion {
+		return Config{}, fmt.Errorf("%w: got %d, want %d", ErrUnsupportedSchema, schemaVersion, CurrentSchemaVersion)
 	}
 	var wire struct {
 		SchemaVersion                *int              `json:"schema_version"`
@@ -135,6 +143,7 @@ func Decode(data []byte) (Config, error) {
 		ArchiveEnabled               *bool             `json:"archive_enabled"`
 		ArchiveAfterDays             *int              `json:"archive_after_days"`
 		RenameEnabled                *bool             `json:"rename_enabled"`
+		TokenDisplay                 *tokens.Position  `json:"token_display"`
 		AgentsEnabled                *bool             `json:"agents_enabled"`
 		ClassifierModel              *string           `json:"classifier_model"`
 		ClassifierEffort             *ClassifierEffort `json:"classifier_effort"`
@@ -146,7 +155,13 @@ func Decode(data []byte) (Config, error) {
 	if wire.ControlTaskID == nil || wire.HeartbeatSeconds == nil || wire.ArchiveEnabled == nil || wire.ArchiveAfterDays == nil || wire.RenameEnabled == nil || wire.AgentsEnabled == nil || wire.ClassifierModel == nil || wire.ClassifierEffort == nil {
 		return Config{}, errors.New("config is missing a required field")
 	}
-	spawnPath, err := decodeSpawnPath(wire.CodexSpawnPath)
+	if schemaVersion == legacySchemaVersion && wire.TokenDisplay != nil {
+		return Config{}, errors.New("decode config: token_display is not valid in schema version 1")
+	}
+	if schemaVersion == CurrentSchemaVersion && (wire.TokenDisplay == nil || wire.ClassifierContextBudgetBytes == nil) {
+		return Config{}, errors.New("config is missing a required field")
+	}
+	spawnPath, err := decodeSpawnPath(wire.CodexSpawnPath, schemaVersion == legacySchemaVersion)
 	if err != nil {
 		return Config{}, fmt.Errorf("decode config: %w", err)
 	}
@@ -156,8 +171,12 @@ func Decode(data []byte) (Config, error) {
 	} else if *wire.ClassifierModel == DefaultClassifierModel {
 		budget = DefaultClassifierContextBudgetBytes
 	}
+	tokenDisplay := tokens.PositionOff
+	if schemaVersion == CurrentSchemaVersion {
+		tokenDisplay = *wire.TokenDisplay
+	}
 	c := Config{
-		SchemaVersion:                *wire.SchemaVersion,
+		SchemaVersion:                CurrentSchemaVersion,
 		ControlTaskID:                *wire.ControlTaskID,
 		CodexExecutable:              optionalString(wire.CodexExecutable),
 		CodexSpawnPath:               spawnPath,
@@ -165,24 +184,29 @@ func Decode(data []byte) (Config, error) {
 		ArchiveEnabled:               *wire.ArchiveEnabled,
 		ArchiveAfterDays:             *wire.ArchiveAfterDays,
 		RenameEnabled:                *wire.RenameEnabled,
+		TokenDisplay:                 tokenDisplay,
 		AgentsEnabled:                *wire.AgentsEnabled,
 		ClassifierModel:              *wire.ClassifierModel,
 		ClassifierEffort:             *wire.ClassifierEffort,
 		ClassifierContextBudgetBytes: budget,
 	}
-	if err := c.validate(false, false); err != nil {
+	strict := schemaVersion == CurrentSchemaVersion
+	if err := c.validate(strict, strict); err != nil {
 		return Config{}, err
 	}
 	return c, nil
 }
 
-func decodeSpawnPath(raw json.RawMessage) (string, error) {
+func decodeSpawnPath(raw json.RawMessage, allowLegacyArray bool) (string, error) {
 	if len(raw) == 0 || string(raw) == "null" {
 		return "", nil
 	}
 	var value string
 	if err := json.Unmarshal(raw, &value); err == nil {
 		return value, nil
+	}
+	if !allowLegacyArray {
+		return "", errors.New("codex_spawn_path must be a string")
 	}
 	var legacy []string
 	if err := json.Unmarshal(raw, &legacy); err != nil {

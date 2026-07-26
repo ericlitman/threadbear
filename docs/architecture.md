@@ -7,7 +7,7 @@ ThreadBear is a single pure-Go macOS binary run by a user LaunchAgent. Its desig
 - **Heartbeat runner:** inventories every managed unarchived Codex Desktop task, excluding the control task.
 - **Deterministic resolver:** applies runtime, structured-error, automation, interruption, and valid footer evidence in precedence order.
 - **Ephemeral classifier:** sends only unresolved changed tasks to fresh App Server sessions using the configured model and effort (Luna medium by default). Sessions are non-persisted and never append to the control task.
-- **Mutation layer:** reconciles ThreadBear-owned title prefixes/actions and safe archives only after revalidating captured task revision and title.
+- **Mutation layer:** reconciles ThreadBear-owned title prefixes, output-token figures, and actions, then performs safe archives only after revalidating captured task revision and title.
 - **State store:** atomically records the last completed snapshot, task classifications, archive records, retries, update checks, and delivered notice versions.
 - **Control task:** one persistent task titled `🧵🐻 ThreadBear 🐻🧵` used for actionable notices, not classifier history.
 
@@ -16,7 +16,7 @@ ThreadBear is a single pure-Go macOS binary run by a user LaunchAgent. Its desig
 1. Acquire the shared lifecycle lock.
 2. Read the complete local inventory and compare it with the committed snapshot.
 3. If nothing changed and no update check is due, exit without starting App Server, invoking a classifier, mutating state, or writing output.
-4. Resolve changed tasks from deterministic evidence. Mechanically settled tasks never reach Luna.
+4. Resolve changed tasks from deterministic evidence and read only the new rollout tail needed for the cumulative output-token figure. Mechanically settled tasks never reach Luna.
 5. Pack unresolved latest turns into context-safe ephemeral calls. A previous turn is requested only for tasks that return insufficient evidence; complete messages are not clipped.
 6. Revalidate each task immediately before title or archive mutation. New user activity or a title edit makes the captured precondition stale, so that mutation is skipped and retried later.
 7. Commit successful siblings and the captured snapshot atomically. Failed operations retain conservative state and bounded retry metadata.
@@ -32,7 +32,9 @@ ThreadBear uses seven canonical states. Titles have the shape:
 EMOJI durable subject → concise next action
 ```
 
-The action is omitted when none is warranted. ThreadBear strips existing canonical status prefixes, preserves user-edited subjects, and records its last applied title so it can update its own prefix/action without consuming user ownership. Persistent Codex task state is the verification authority; an already-open sidebar may show cached text until a supported refresh.
+The action is omitted when none is warranted. The optional token display uses cumulative output tokens from the last rollout `token_count` event and renders a two-significant-figure magnitude at the start or labeled end of the managed title. ThreadBear caches the rollout path and last-read offset/size, so an unchanged rollout is not read again.
+
+ThreadBear strips existing canonical status prefixes, preserves user-edited subjects, and records its last applied title plus the exact token segment it owns. It can update or remove its prefix, token figure, and action without consuming user ownership. Persistent Codex task state is the verification authority; an already-open sidebar may show cached text until a supported refresh.
 
 Only `complete` tasks can be auto-archived. Running, blocked, needs-input, automation, next-steps, and unknown tasks remain active regardless of age. A manual unarchive or `~/.local/bin/threadbear restore TASK_ID` starts a new inactivity grace period.
 

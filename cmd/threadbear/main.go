@@ -27,6 +27,7 @@ import (
 	"github.com/ericlitman/threadbear/internal/output"
 	"github.com/ericlitman/threadbear/internal/state"
 	statusresolver "github.com/ericlitman/threadbear/internal/status"
+	"github.com/ericlitman/threadbear/internal/tokens"
 	updatepkg "github.com/ericlitman/threadbear/internal/update"
 	"github.com/ericlitman/threadbear/internal/watch"
 )
@@ -410,6 +411,11 @@ func flagsBeforePositionals(args []string, known ...string) []string {
 func registerConfigureFlags(flags *flag.FlagSet, patch *app.ConfigPatch) {
 	flags.Var(optionalBool{target: &patch.ArchiveEnabled}, "archive", "enable or disable automatic archiving")
 	flags.Var(optionalBool{target: &patch.RenameEnabled}, "rename", "enable or disable managed titles")
+	flags.Func("token-display", "show output tokens in managed titles: off, start, or end", func(value string) error {
+		parsed := tokens.Position(value)
+		patch.TokenDisplay = &parsed
+		return nil
+	})
 	flags.Var(optionalBool{target: &patch.AgentsEnabled}, "agents", "enable or disable managed AGENTS content")
 	flags.Func("heartbeat-seconds", "set the heartbeat interval", func(value string) error {
 		parsed, err := strconv.Atoi(value)

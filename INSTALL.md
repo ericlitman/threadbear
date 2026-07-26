@@ -36,6 +36,7 @@ On first install, ask the prompts in this order. Pressing Return accepts the sho
 | Automatically archive completed inactive tasks | `yes` | `--archive=true` |
 | Archive inactivity interval in days | `14` | `--archive-after-days 14` |
 | Automatically maintain status and next-action titles | `yes` | `--rename=true` |
+| Show output tokens in managed titles | `start` | `--token-display=start` |
 | Install managed AGENTS.md instructions | `yes` | `--agents=true` |
 | Classifier model | `gpt-5.6-luna` | `--classifier-model gpt-5.6-luna` |
 | Classifier effort | `medium` | `--classifier-effort medium` |
@@ -81,6 +82,7 @@ curl -fsSL https://threadbear.sh/install.sh | sh -s -- \
   --archive=true \
   --archive-after-days 14 \
   --rename=true \
+  --token-display=start \
   --agents=true \
   --classifier-model gpt-5.6-luna \
   --classifier-effort medium \
@@ -128,11 +130,14 @@ command -v threadbear
 ```sh
 ~/.local/bin/threadbear configure --heartbeat-seconds 600 --archive-after-days 30
 ~/.local/bin/threadbear configure --archive=false --rename=true --agents=false
+~/.local/bin/threadbear configure --token-display=end
 ~/.local/bin/threadbear configure --classifier-model gpt-5.6-luna --classifier-effort medium --classifier-context-budget-bytes 250000
 ~/.local/bin/threadbear configure --dry-run --heartbeat-seconds 900
 ```
 
 For automation, add `--noninteractive --confirm`. Reconfiguration updates the existing job and managed block; it does not duplicate LaunchAgents, control tasks, state, or AGENTS.md blocks. Use `~/.local/bin/threadbear disable` to stop scheduled heartbeats without uninstalling, and `~/.local/bin/threadbear enable` to load the same job again.
+
+`--token-display=off|start|end` controls the managed output-token figure. New installs default to `start`; configs created before this setting existed decode as `off` until explicitly changed. Start mode is compact (`🚨 1.6m Subject`), while end mode labels the metric (`🚨 Subject · out 1.6m`).
 
 ## ThreadWatch migration
 

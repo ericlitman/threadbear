@@ -8,6 +8,7 @@ import (
 
 	"github.com/ericlitman/threadbear/internal/config"
 	"github.com/ericlitman/threadbear/internal/output"
+	"github.com/ericlitman/threadbear/internal/tokens"
 )
 
 type Command string
@@ -38,6 +39,7 @@ type ConfigPatch struct {
 	ArchiveEnabled               *bool
 	ArchiveAfterDays             *int
 	RenameEnabled                *bool
+	TokenDisplay                 *tokens.Position
 	AgentsEnabled                *bool
 	ClassifierModel              *string
 	ClassifierEffort             *config.ClassifierEffort
@@ -45,7 +47,7 @@ type ConfigPatch struct {
 }
 
 func (p ConfigPatch) Empty() bool {
-	return p.HeartbeatSeconds == nil && p.ArchiveEnabled == nil && p.ArchiveAfterDays == nil && p.RenameEnabled == nil && p.AgentsEnabled == nil && p.ClassifierModel == nil && p.ClassifierEffort == nil && p.ClassifierContextBudgetBytes == nil
+	return p.HeartbeatSeconds == nil && p.ArchiveEnabled == nil && p.ArchiveAfterDays == nil && p.RenameEnabled == nil && p.TokenDisplay == nil && p.AgentsEnabled == nil && p.ClassifierModel == nil && p.ClassifierEffort == nil && p.ClassifierContextBudgetBytes == nil
 }
 
 type Request struct {
@@ -154,6 +156,9 @@ func (r Request) Validate() error {
 	}
 	if value := r.Configure.ArchiveAfterDays; value != nil && *value <= 0 {
 		return fmt.Errorf("%w: archive days must be positive", ErrInvalidRequest)
+	}
+	if value := r.Configure.TokenDisplay; value != nil && !value.Valid() {
+		return fmt.Errorf("%w: token display must be off, start, or end", ErrInvalidRequest)
 	}
 	if value := r.Configure.ClassifierModel; value != nil && (*value == "" || strings.TrimSpace(*value) != *value) {
 		return fmt.Errorf("%w: classifier model is invalid", ErrInvalidRequest)

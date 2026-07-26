@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/ericlitman/threadbear/internal/state"
+	"github.com/ericlitman/threadbear/internal/tokens"
 )
 
 const CurrentResultVersion = 1
@@ -102,6 +103,7 @@ type Preferences struct {
 	ArchiveEnabled               bool   `json:"archive_enabled"`
 	ArchiveAfterDays             int    `json:"archive_after_days"`
 	RenameEnabled                bool   `json:"rename_enabled"`
+	TokenDisplay                 string `json:"token_display"`
 	AgentsEnabled                bool   `json:"agents_enabled"`
 	ClassifierModel              string `json:"classifier_model"`
 	ClassifierEffort             string `json:"classifier_effort"`
@@ -133,32 +135,55 @@ func (r StatusResult) Human() string {
 	if health == "unavailable" {
 		health = "scheduler adapter unavailable (pending install unit)"
 	}
-	return fmt.Sprintf("ThreadBear %s · LaunchAgent %s · heartbeat %s · control task %s · heartbeat interval %ds · archive %t/%dd · rename %t · AGENTS %t · classifier %s/%s/%dB · retries %d · update check %s", r.InstalledVersion, health, formatTime(r.LastCompletedHeartbeat), r.ControlTaskID, r.Preferences.HeartbeatSeconds, r.Preferences.ArchiveEnabled, r.Preferences.ArchiveAfterDays, r.Preferences.RenameEnabled, r.Preferences.AgentsEnabled, r.Preferences.ClassifierModel, r.Preferences.ClassifierEffort, r.Preferences.ClassifierContextBudgetBytes, r.PendingRetries, formatTime(r.LastUpdateCheck))
+	return fmt.Sprintf("ThreadBear %s · LaunchAgent %s · heartbeat %s · control task %s · heartbeat interval %ds · archive %t/%dd · rename %t · token display %s · AGENTS %t · classifier %s/%s/%dB · retries %d · update check %s", r.InstalledVersion, health, formatTime(r.LastCompletedHeartbeat), r.ControlTaskID, r.Preferences.HeartbeatSeconds, r.Preferences.ArchiveEnabled, r.Preferences.ArchiveAfterDays, r.Preferences.RenameEnabled, r.Preferences.TokenDisplay, r.Preferences.AgentsEnabled, r.Preferences.ClassifierModel, r.Preferences.ClassifierEffort, r.Preferences.ClassifierContextBudgetBytes, r.PendingRetries, formatTime(r.LastUpdateCheck))
 }
 
 type InspectResult struct {
-	Version          int              `json:"version"`
-	TaskID           string           `json:"task_id"`
-	CapturedRevision string           `json:"captured_revision"`
-	State            state.TaskStatus `json:"state"`
-	Provenance       state.Provenance `json:"provenance"`
-	ManagedAction    string           `json:"managed_action,omitempty"`
-	Retry            *RetryResult     `json:"retry,omitempty"`
-	ArchiveEligible  bool             `json:"archive_eligible"`
+	Version              int              `json:"version"`
+	TaskID               string           `json:"task_id"`
+	CapturedRevision     string           `json:"captured_revision"`
+	State                state.TaskStatus `json:"state"`
+	Provenance           state.Provenance `json:"provenance"`
+	ManagedAction        string           `json:"managed_action,omitempty"`
+	Retry                *RetryResult     `json:"retry,omitempty"`
+	ArchiveEligible      bool             `json:"archive_eligible"`
+	TokenDisplayPosition tokens.Position  `json:"token_display_position"`
+	ManagedTokenPosition tokens.Position  `json:"managed_token_position"`
+	ManagedTokenDisplay  string           `json:"managed_token_display"`
+	TokenUsageFound      bool             `json:"token_usage_found"`
 }
 
 func (InspectResult) result()     {}
 func (InspectResult) Empty() bool { return false }
 func (r InspectResult) Human() string {
+	r = r.normalized()
 	action := r.ManagedAction
 	if action == "" {
 		action = "none"
+	}
+	display := r.ManagedTokenDisplay
+	if display == "" {
+		display = "none"
 	}
 	retry := "none"
 	if r.Retry != nil {
 		retry = fmt.Sprintf("%s/%s", r.Retry.Operation, r.Retry.ErrorCode)
 	}
-	return fmt.Sprintf("%s %s · revision %s · provenance %s · next: %s · retry %s · archive eligible %t", r.State.Emoji(), r.TaskID, r.CapturedRevision, r.Provenance, action, retry, r.ArchiveEligible)
+	return fmt.Sprintf("%s %s · revision %s · provenance %s · next: %s · token configured %s · token applied %s/%s · token usage found %t · retry %s · archive eligible %t", r.State.Emoji(), r.TaskID, r.CapturedRevision, r.Provenance, action, r.TokenDisplayPosition, r.ManagedTokenPosition, display, r.TokenUsageFound, retry, r.ArchiveEligible)
+}
+
+func (r InspectResult) normalized() InspectResult {
+	if r.Version == 0 {
+		r.Version = CurrentResultVersion
+	}
+	if r.TokenDisplayPosition == "" {
+		r.TokenDisplayPosition = tokens.PositionOff
+	}
+	if r.ManagedTokenPosition == "" || r.ManagedTokenDisplay == "" {
+		r.ManagedTokenPosition = tokens.PositionOff
+		r.ManagedTokenDisplay = ""
+	}
+	return r
 }
 
 type PreviewResult struct {
@@ -407,10 +432,7 @@ func withVersion(value Result) Result {
 		}
 		return result
 	case InspectResult:
-		if result.Version == 0 {
-			result.Version = CurrentResultVersion
-		}
-		return result
+		return result.normalized()
 	case PreviewResult:
 		if result.Version == 0 {
 			result.Version = CurrentResultVersion
@@ -559,6 +581,16 @@ func validateResult(value Result) error {
 		}
 		if !result.State.Valid() || !result.Provenance.Valid() {
 			return errors.New("inspect result has invalid state or provenance")
+		}
+		if result.TokenDisplayPosition != "" && !result.TokenDisplayPosition.Valid() {
+			return errors.New("inspect result has invalid token display position")
+		}
+		if result.ManagedTokenDisplay == "" {
+			if result.ManagedTokenPosition != "" && result.ManagedTokenPosition != tokens.PositionOff {
+				return errors.New("inspect result has a managed token position without a display")
+			}
+		} else if result.ManagedTokenPosition != tokens.PositionStart && result.ManagedTokenPosition != tokens.PositionEnd {
+			return errors.New("inspect result has a display without a managed token position")
 		}
 		if result.Retry != nil {
 			if err := checkID("retry task_id", result.Retry.TaskID); err != nil {

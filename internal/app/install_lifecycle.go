@@ -53,6 +53,7 @@ func InstallHandler(factory InstallFactory) Handler {
 				ArchiveEnabled:               request.Configure.ArchiveEnabled,
 				ArchiveAfterDays:             request.Configure.ArchiveAfterDays,
 				RenameEnabled:                request.Configure.RenameEnabled,
+				TokenDisplay:                 request.Configure.TokenDisplay,
 				AgentsEnabled:                request.Configure.AgentsEnabled,
 				ClassifierModel:              request.Configure.ClassifierModel,
 				ClassifierEffort:             request.Configure.ClassifierEffort,
