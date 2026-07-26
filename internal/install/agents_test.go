@@ -97,7 +97,7 @@ func TestApplyManagedUpgradesBareBearBlockToCurrentMark(t *testing.T) {
 	if bytes.Contains(updated, []byte("`🐻 complete")) {
 		t.Fatal("stale bare-bear example survived the upgrade")
 	}
-	if !bytes.Contains(updated, []byte("🧵🐻 complete · next (none): none")) {
+	if !bytes.Contains(updated, []byte("🧵🐻 complete")) {
 		t.Fatalf("current mark missing after upgrade: %q", updated)
 	}
 	if got := bytes.Count(updated, []byte(ManagedBlockStart)); got != 1 {

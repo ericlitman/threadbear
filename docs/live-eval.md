@@ -44,7 +44,7 @@ The JSON corpus contract is:
         "healthy_idle_automation": false,
         "interrupted": false,
         "footer": {
-          "message": "Finished.\n🧵🐻 complete · next (none): none",
+          "message": "Finished.\n🧵🐻 complete",
           "latest_turn_completed": true,
           "newer_user_message": false,
           "stale": false,
@@ -53,7 +53,7 @@ The JSON corpus contract is:
       },
       "latest": {
         "user": "Finish the task.",
-        "final_agent": "Finished.\n🧵🐻 complete · next (none): none"
+        "final_agent": "Finished.\n🧵🐻 complete"
       },
       "previous": {
         "user": "Earlier request.",

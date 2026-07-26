@@ -17,8 +17,8 @@ func TestDecodeLiveEvalCorpusValidatesContract(t *testing.T) {
 			"id":"case-1",
 			"expected":"complete",
 			"provenance":{"model":"gpt-5.6-sol","effort":"xhigh","source":"vscode","agents_block_version":"v3"},
-			"facts":{"footer":{"message":"Finished.\n🧵🐻 complete · next (none): none","latest_turn_completed":true}},
-			"latest":{"user":"finish it","final_agent":"Finished.\n🧵🐻 complete · next (none): none"}
+			"facts":{"footer":{"message":"Finished.\n🧵🐻 complete","latest_turn_completed":true}},
+			"latest":{"user":"finish it","final_agent":"Finished.\n🧵🐻 complete"}
 		}]
 	}`
 	corpus, err := decodeLiveEvalCorpus([]byte(valid))
@@ -43,7 +43,7 @@ func TestDecodeLiveEvalCorpusValidatesContract(t *testing.T) {
 		{"missing facts", omitLiveEvalField(t, valid, "facts")},
 		{"missing footer", omitLiveEvalField(t, valid, "facts", "footer")},
 		{"missing latest", omitLiveEvalField(t, valid, "latest")},
-		{"split message", strings.Replace(valid, `"final_agent":"Finished.\n🧵🐻 complete · next (none): none"`, `"final_agent":"Different final answer."`, 1)},
+		{"split message", strings.Replace(valid, `"final_agent":"Finished.\n🧵🐻 complete"`, `"final_agent":"Different final answer."`, 1)},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -65,9 +65,9 @@ func TestRunLiveEvalUsesDeterministicCascadeBeforeClassifier(t *testing.T) {
 					Model: "gpt-5.6-sol", Effort: "xhigh", Source: "vscode", AgentsBlockVersion: "v3",
 				},
 				Facts: &liveEvalFacts{Footer: &liveEvalFooterInput{
-					Message: "Finished.\n🧵🐻 complete · next (none): none", LatestTurnCompleted: true,
+					Message: "Finished.\n🧵🐻 complete", LatestTurnCompleted: true,
 				}},
-				Latest: &TurnEvidence{User: "finish", FinalAgent: "Finished.\n🧵🐻 complete · next (none): none"},
+				Latest: &TurnEvidence{User: "finish", FinalAgent: "Finished.\n🧵🐻 complete"},
 			},
 			{
 				ID:       "semantic-next",
@@ -116,9 +116,9 @@ func TestRunLiveEvalRejectsCorpusWithoutClassifierOwnedCases(t *testing.T) {
 				Model: "gpt-5.6-sol", Effort: "xhigh", Source: "vscode", AgentsBlockVersion: "v3",
 			},
 			Facts: &liveEvalFacts{Footer: &liveEvalFooterInput{
-				Message: "Finished.\n🧵🐻 complete · next (none): none", LatestTurnCompleted: true,
+				Message: "Finished.\n🧵🐻 complete", LatestTurnCompleted: true,
 			}},
-			Latest: &TurnEvidence{User: "finish", FinalAgent: "Finished.\n🧵🐻 complete · next (none): none"},
+			Latest: &TurnEvidence{User: "finish", FinalAgent: "Finished.\n🧵🐻 complete"},
 		}},
 	}
 	runner := &fakeEphemeralRunner{run: func(_ int, _ appserver.EphemeralRequest) (appserver.EphemeralResult, error) {

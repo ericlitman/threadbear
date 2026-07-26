@@ -3,16 +3,16 @@
 When managed global guidance is enabled, ThreadBear asks terminal agents to end each response with exactly one compact line. The managed block leads with concrete forms:
 
 ```text
-🧵🐻 complete · next (none): none
-🧵🐻 next steps · next (you): approve the release plan
-🧵🐻 next steps · next (agent): implement the approved plan
-🧵🐻 next steps · next (external): review the security exception
-🧵🐻 needs input · next (you): choose the release region
-🧵🐻 blocked · next (external): restore the signing service
-🧵🐻 automation · next (none): none
+🧵🐻 complete
+🧵🐻 next steps (you): approve the release plan
+🧵🐻 next steps (agent): implement the approved plan
+🧵🐻 next steps (external): review the security exception
+🧵🐻 needs input (you): choose the release region
+🧵🐻 blocked (external): restore the signing service
+🧵🐻 automation
 ```
 
-The grammar is a bear, one lowercase state, the fixed `next` separator, an owner in parentheses, and an action after the colon. The five states are `complete`, `next steps`, `needs input`, `blocked`, and `automation`; the four owners are `you`, `agent`, `external`, and `none`.
+The grammar has two shapes: the mark followed by one lowercase state on its own (`complete` and `automation`, which carry no owner or action), or the mark, the state, an owner in parentheses, and an action after the colon (`next steps`, `needs input`, `blocked`). The five states are `complete`, `next steps`, `needs input`, `blocked`, and `automation`; the four owners are `you`, `agent`, `external`, and `none`.
 
 The governing instruction is:
 
@@ -41,7 +41,7 @@ Malformed, quoted, embedded, stale, contradicted, or incomplete footers are reje
 Example transformation:
 
 ```text
-Footer: 🧵🐻 needs input · next (you): choose the release region
+Footer: 🧵🐻 needs input (you): choose the release region
 Title:  🙋 Release deployment → choose the release region
 ```
 

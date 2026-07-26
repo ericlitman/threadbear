@@ -7,7 +7,7 @@ import (
 )
 
 func TestResolvePrecedence(t *testing.T) {
-	validFooter := FooterInput{Message: "Finished.\n🧵🐻 complete · next (none): none", LatestTurnCompleted: true}
+	validFooter := FooterInput{Message: "Finished.\n🧵🐻 complete", LatestTurnCompleted: true}
 	tests := []struct {
 		name       string
 		facts      Facts
@@ -37,7 +37,7 @@ func TestResolveStructuredEvidenceStillRemovesFooterFromMessage(t *testing.T) {
 	got := Resolve(Facts{
 		StructuredFailure: true,
 		Footer: FooterInput{
-			Message:             "Quoted success is not authoritative.\n🧵🐻 complete · next (none): none",
+			Message:             "Quoted success is not authoritative.\n🧵🐻 complete",
 			LatestTurnCompleted: true,
 		},
 	})
@@ -54,7 +54,7 @@ func TestResolveUnresolvedIsNotPersistedUnknown(t *testing.T) {
 }
 
 func TestResolveAE16WaitingOutranksRecommendation(t *testing.T) {
-	got := Resolve(Facts{WaitingForUser: true, Footer: FooterInput{Message: "Choose before I can finish.\n🧵🐻 next steps · next (agent): create the implementation plan", LatestTurnCompleted: true}})
+	got := Resolve(Facts{WaitingForUser: true, Footer: FooterInput{Message: "Choose before I can finish.\n🧵🐻 next steps (agent): create the implementation plan", LatestTurnCompleted: true}})
 	if got.Status != state.StatusNeedsInput || got.Provenance != state.ProvenanceRuntime {
 		t.Fatalf("Resolve() = %+v", got)
 	}

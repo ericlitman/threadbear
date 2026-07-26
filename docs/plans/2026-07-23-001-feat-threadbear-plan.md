@@ -83,8 +83,8 @@ ThreadBear therefore keeps the visible control task but moves semantic classific
 
 **Compact agent status signal**
 
-- R10. When enabled, a managed global AGENTS.md block asks agents to end a terminal response with exactly one compact human-readable `🧵🐻 STATUS · next (OWNER): ACTION` line, where STATUS is `complete`, `next steps`, `needs input`, `blocked`, or `automation`; OWNER is `you`, `agent`, `external`, or `none`; and completed work with no recommended follow-up uses `🧵🐻 complete · next (none): none`.
-- R11. The managed guidance says, “Report the turn's actual disposition; do not invent or recommend work to populate this line. After finished work, use `complete · next (none): none` unless the substantive response already ends with one clear, concrete, warranted next step; generic offers, speculative possibilities, and mentions of recorded work do not qualify.”
+- R10. When enabled, a managed global AGENTS.md block asks agents to end a terminal response with exactly one compact human-readable status line in one of two shapes: `🧵🐻 STATUS` for terminal states that carry no follow-up, or `🧵🐻 STATUS (OWNER): ACTION` for states that do. STATUS is `complete`, `next steps`, `needs input`, `blocked`, or `automation`; OWNER is `you`, `agent`, `external`, or `none`. `complete` and `automation` take the bare shape; `next steps`, `needs input`, and `blocked` always name an owner and a concrete action.
+- R11. The managed guidance says, “Report the turn's actual disposition; do not invent or recommend work to populate this line. After finished work, use `complete` unless the substantive response already ends with one clear, concrete, warranted next step; generic offers, speculative possibilities, and mentions of recorded work do not qualify.”
 - R12. ThreadBear parses a valid R10 footer from the final non-empty line as the preferred semantic signal without a model call, removes it from generated title text, and falls back to recent-turn classification only when the footer is absent, malformed, stale, or contradicted by structured state.
 
 **Model-assisted classification**
@@ -238,7 +238,7 @@ flowchart TB
 
 - AE7. User-owned next action stays visible
   - **Covers R10, R12, R18-R22.**
-  - **Given:** The final line is `🧵🐻 needs input · next (you): choose the release region`.
+  - **Given:** The final line is `🧵🐻 needs input (you): choose the release region`.
   - **When:** ThreadBear updates the title and later evaluates inactivity.
   - **Then:** The title begins `🙋`, includes the release-region action, omits the status line itself, and cannot be auto-archived.
 
@@ -298,7 +298,7 @@ flowchart TB
 
 - AE17. The task agent declares next steps without another model call
   - **Covers R10-R13, R19-R20.**
-  - **Given:** A completed final response ends with `🧵🐻 next steps · next (agent): create the implementation plan`.
+  - **Given:** A completed final response ends with `🧵🐻 next steps (agent): create the implementation plan`.
   - **When:** The heartbeat processes the changed task.
   - **Then:** ThreadBear deterministically applies `➡️` and the stated action without sending the task to Luna.
 
@@ -306,7 +306,7 @@ flowchart TB
   - **Covers R10-R12, R17.**
   - **Given:** The current request is complete and the agent has no clear warranted recommendation beyond generic possibilities.
   - **When:** The agent writes its final response and footer.
-  - **Then:** It does not add a recommendation for ThreadBear's sake and ends with `🧵🐻 complete · next (none): none`.
+  - **Then:** It does not add a recommendation for ThreadBear's sake and ends with `🧵🐻 complete`.
 
 - AE19. Classifier work never creates sidebar tasks
   - **Covers R3, R13-R15.**
