@@ -136,9 +136,9 @@ func TestPackFindsMinimumBatchCount(t *testing.T) {
 		tasks[index] = TaskEvidence{TaskID: "task-" + string(rune('a'+index)), Revision: "r", Latest: TurnEvidence{FinalAgent: strings.Repeat("x", length)}}
 	}
 	// The budget rides on top of the prompt text, so it moves when the prompt
-	// does: 4800 at the pre-BEAR-31 prompt, +327 for the conditional-caveat rule
+	// does: 4800 at the pre-BEAR-31 prompt, +401 for the conditional-caveat rule
 	// and its two anchored examples.
-	batches, oversized, err := PackTasks(tasks, 5127, false)
+	batches, oversized, err := PackTasks(tasks, 5201, false)
 	if err != nil {
 		t.Fatal(err)
 	}
