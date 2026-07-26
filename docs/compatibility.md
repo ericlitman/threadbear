@@ -14,7 +14,7 @@ v1 binaries are not Developer ID signed or notarized. The supported installer ve
 
 ThreadBear depends on compatibility-detectable local Codex capabilities for complete read-only inventory; persistent title, archive, and unarchive operations; fresh non-persisted classifier sessions with model/effort overrides; and a zero-model notice insertion into the control task.
 
-`~/.local/bin/threadbear self-test` checks the supported platform/architecture, binary, pinned Codex executable, local Codex home, state/config integrity, managed files, and LaunchAgent health. Candidate self-test is read-only and does not mutate titles or archives. If a required surface changes or config/state uses an unsupported schema, ThreadBear fails conservatively instead of guessing.
+`~/.local/bin/threadbear self-test` checks the supported platform/architecture, binary, pinned Codex executable, local Codex home, state/config integrity, managed files, and LaunchAgent health. A failed installed AGENTS.md or skill check identifies whether the surface is stale, unsafe, or inaccessible and gives a condition-specific remedy without exposing its path. The updater candidate self-test is read-only, does not check installed managed files, and does not mutate titles or archives because update refreshes those files only after candidate validation. Install internal staged-candidate verification still checks managed surfaces after install stages them. Symlinks to user-owned regular managed files are followed without replacing the link; malformed, dangling, non-file, and foreign-owned targets fail conservatively. If a required surface changes or config/state uses an unsupported schema, ThreadBear fails instead of guessing.
 
 ## Sidebar expectations
 
@@ -28,7 +28,7 @@ The job receives explicit `HOME`, `CODEX_HOME`, sanitized `PATH`, and `LC_ALL=C`
 
 ## Network behavior
 
-Ordinary inventory and deterministic classification are local. Network/model activity occurs only for configured-classifier calls on unresolved changed tasks, a release metadata check when due, or an explicit install/update. An unchanged heartbeat with no due update check starts no App Server or classifier and writes no output.
+Ordinary inventory and deterministic classification are local. At the start of each non-dry-run heartbeat, under the existing shared lock, ThreadBear compares the enabled AGENTS.md block and always-managed skill with its embedded content and repairs drift before inventory or classification. A clean comparison performs no write, starts no model, and produces no output. If repair fails, unresolved changed tasks receive a stable cycle diagnostic while unchanged handling, update notices, and checkpoint commit continue without a control-task failure post. Network/model activity occurs only for configured-classifier calls on unresolved changed tasks, a release metadata check when due, or an explicit install/update.
 
 ## Troubleshooting order
 
@@ -48,6 +48,8 @@ If scheduling is intentionally paused, run `~/.local/bin/threadbear enable`. Ins
 
 ## Updates, downgrades, and removal
 
-`~/.local/bin/threadbear update` installs only after checksum, version, and candidate self-test validation. `~/.local/bin/threadbear update --version N.N.N` selects an exact release and is also the explicit downgrade mechanism. ThreadBear has no automatic rollback or local release history.
+`~/.local/bin/threadbear update` installs only after checksum, version, updater candidate self-test, and changed managed-mutation prevalidation, and emits the update preview before binary replacement. A successful update refreshes managed AGENTS.md content when enabled and the always-managed skill from candidate-embedded assets, then verifies them. A same-version update reconciles stale surfaces from the current binary embedded assets and is silent when everything is current. Binary and managed-file replacements are individually safe but are not cross-file atomic. If managed refresh fails after replacement, the new binary remains installed, partial managed writes are rolled back best-effort, and ThreadBear returns an explicit error; a subsequent heartbeat from the new binary reconciles residue. No binary rollback file or local release history is retained. Update does not refresh the LaunchAgent plist.
+
+`~/.local/bin/threadbear update --version N.N.N` selects an exact release and is also the explicit downgrade mechanism. A downgrade is installed binary-only with an explicit warning only when the older candidate returns an ErrorResult with `operation=dispatch` and `error_code=unknown_command` for managed-asset export. Malformed JSON, empty assets, generic execution failures, and other candidate errors fail the downgrade. Newer AGENTS.md/skill content may remain until update or configure under a newer binary. ThreadBear has no local release history.
 
 `~/.local/bin/threadbear uninstall` removes managed executable/scheduler/guidance resources after preview and confirmation. Control-task archival and persistent-state deletion are separate choices, both defaulting to retention. Existing task titles and archives are left alone.

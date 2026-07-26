@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"errors"
 
 	"github.com/ericlitman/threadbear/internal/output"
 	updatepkg "github.com/ericlitman/threadbear/internal/update"
@@ -26,8 +27,17 @@ func UpdateHandler(store OperatorStore, updater Updater) Handler {
 		defer lock.Close()
 		result, err := updater.Update(ctx, request.Version)
 		if err != nil {
+			var refreshErr *updatepkg.ManagedRefreshError
+			if errors.As(err, &refreshErr) {
+				return output.ErrorResult{
+					Operation: "update",
+					ErrorCode: "managed_refresh_failed",
+					Step:      "refresh_managed_surfaces",
+					Cause:     "The new binary is installed. Managed surfaces will reconcile on the next heartbeat, or rerun threadbear update or threadbear configure.",
+				}, err
+			}
 			return commandError("update", "update_failed", err)
 		}
-		return output.UpdateResult{Changed: result.Changed, PreviousVersion: result.PreviousVersion, InstalledVersion: result.InstalledVersion}, nil
+		return output.UpdateResult{Changed: result.Changed, PreviousVersion: result.PreviousVersion, InstalledVersion: result.InstalledVersion, Resources: result.Resources, Warnings: result.Warnings}, nil
 	}
 }

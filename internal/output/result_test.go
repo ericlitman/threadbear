@@ -7,6 +7,8 @@ import (
 	"io"
 	"strings"
 	"testing"
+
+	"github.com/ericlitman/threadbear/internal/state"
 )
 
 func TestLifecycleResultHumanJSONParity(t *testing.T) {
@@ -29,6 +31,23 @@ func TestLifecycleResultHumanJSONParity(t *testing.T) {
 	}
 	if decoded.Command != result.Command || !decoded.Changed || decoded.ControlTaskID != result.ControlTaskID || !decoded.Migrated || len(decoded.Resources) != 2 {
 		t.Fatalf("decoded=%+v", decoded)
+	}
+}
+
+func TestHeartbeatManagedMutationHumanJSONParity(t *testing.T) {
+	result := HeartbeatResult{CycleID: "managed-surfaces", ManagedResources: []string{"skill", "agents"}}
+	if result.Empty() {
+		t.Fatal("managed repair was empty")
+	}
+	var human, machine bytes.Buffer
+	if err := Write(&human, FormatHuman, result); err != nil {
+		t.Fatal(err)
+	}
+	if err := Write(&machine, FormatJSON, result); err != nil {
+		t.Fatal(err)
+	}
+	if human.String() != machine.String() || !strings.Contains(machine.String(), `"managed_resources":["agents","skill"]`) {
+		t.Fatalf("human=%q json=%q", human.String(), machine.String())
 	}
 }
 
@@ -128,6 +147,61 @@ func TestUpdateResultHumanJSONParity(t *testing.T) {
 		t.Fatal(err)
 	}
 	if encoded.String() != `{"version":1,"changed":true,"previous_version":"1.1.0","installed_version":"1.2.0"}`+"\n" {
+		t.Fatalf("json=%q", encoded.String())
+	}
+}
+
+func TestSelfTestManagedFailureIncludesActionableRemedy(t *testing.T) {
+	result := SelfTestResult{OK: false, Checks: []CheckResult{{Name: "agents", OK: false, ErrorCode: "managed_surface_stale", Remedy: "run threadbear update or threadbear configure"}}}
+	var human bytes.Buffer
+	if err := Write(&human, FormatHuman, result); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(human.String(), "threadbear update or threadbear configure") {
+		t.Fatalf("human=%q", human.String())
+	}
+	var encoded bytes.Buffer
+	if err := Write(&encoded, FormatJSON, result); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(encoded.String(), `"remedy":"run threadbear update or threadbear configure"`) {
+		t.Fatalf("json=%q", encoded.String())
+	}
+}
+
+func TestOrdinaryHeartbeatJSONRetainsPriorShape(t *testing.T) {
+	result := HeartbeatResult{CycleID: "cycle-1", Changed: []TaskChange{{TaskID: "task-1", State: state.StatusComplete}}}
+	var encoded bytes.Buffer
+	if err := Write(&encoded, FormatJSON, result); err != nil {
+		t.Fatal(err)
+	}
+	want := `{"version":1,"cycle_id":"cycle-1","changed":[{"task_id":"task-1","state":"complete"}],"archived_ids":[],"restored_ids":[],"retries":[]}` + "\n"
+	if encoded.String() != want || strings.Contains(encoded.String(), "managed_resources") {
+		t.Fatalf("json=%q", encoded.String())
+	}
+}
+
+func TestManagedRefreshFailureOutputExplainsInstalledBinaryRecovery(t *testing.T) {
+	result := ErrorResult{
+		Operation: "update",
+		ErrorCode: "managed_refresh_failed",
+		Step:      "refresh_managed_surfaces",
+		Cause:     "The new binary is installed. Managed surfaces will reconcile on the next heartbeat, or rerun threadbear update or threadbear configure.",
+	}
+	var human bytes.Buffer
+	if err := Write(&human, FormatHuman, result); err != nil {
+		t.Fatal(err)
+	}
+	for _, message := range []string{"new binary is installed", "next heartbeat", "threadbear update or threadbear configure"} {
+		if !strings.Contains(human.String(), message) {
+			t.Fatalf("human output missing %q: %q", message, human.String())
+		}
+	}
+	var encoded bytes.Buffer
+	if err := Write(&encoded, FormatJSON, result); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(encoded.String(), `"error_code":"managed_refresh_failed"`) || !strings.Contains(encoded.String(), `"step":"refresh_managed_surfaces"`) {
 		t.Fatalf("json=%q", encoded.String())
 	}
 }

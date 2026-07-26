@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
@@ -40,6 +41,13 @@ func main() {
 }
 
 func run(ctx context.Context, args []string, stdout, stderr io.Writer) int {
+	if len(args) == 3 && args[0] == "managed-assets" && args[1] == "--candidate" && args[2] == "--json" {
+		if err := json.NewEncoder(stdout).Encode(embeddedManagedAssets()); err != nil {
+			fmt.Fprintf(stderr, "ThreadBear couldn't export managed assets: %v\n", err)
+			return 1
+		}
+		return 0
+	}
 	request, err := parseRequest(args)
 	format := output.FormatHuman
 	if request.JSON {
@@ -99,8 +107,9 @@ func newOperatorService(installedVersion string, stdout, stderr io.Writer, forma
 	if err != nil {
 		return nil, func() {}, err
 	}
+	managed := managedAgents{surfaces: install.ManagedSurfaceSet{AgentsPath: paths.Agents, SkillPath: paths.Skill}}
 	runner, err := watch.New(watch.Dependencies{
-		Store: store, Inventory: inventory, AppServer: appServerFactory{runtime: appServers}, Clock: clock,
+		Store: store, Inventory: inventory, AppServer: appServerFactory{runtime: appServers}, Clock: clock, ManagedSurfaces: managed,
 		InstalledVersion: installedVersion, NewCycleID: newCycleID, UpdateChecker: heartbeatUpdateChecker{checker: updatepkg.Checker{}},
 		NewClassifier: func(client watch.AppServer, cfg config.Config) (watch.Classifier, error) {
 			runner, ok := client.(statusresolver.EphemeralRunner)
@@ -161,7 +170,7 @@ func newOperatorService(installedVersion string, stdout, stderr io.Writer, forma
 	}
 	service := app.NewWithOperatorCommands(installedVersion, app.OperatorDependencies{
 		Store: store, Inventory: inventory, Clock: clock, LaunchAgent: launch,
-		ManagedAgents: managedAgents{path: paths.Agents}, Unarchiver: appServerUnarchiver{runtime: appServers}, Heartbeat: runner,
+		ManagedAgents: managed, Unarchiver: appServerUnarchiver{runtime: appServers}, Heartbeat: runner,
 		Preview: func(preview output.PreviewResult) error {
 			if request.NonInteractive {
 				return output.Write(stderr, format, preview)
@@ -177,7 +186,21 @@ func newOperatorService(installedVersion string, stdout, stderr io.Writer, forma
 			return prompter.Confirm(true)
 		},
 		Install: app.InstallHandler(installFactory), SelfTest: app.SelfTestHandler(runtimeSelfTest{paths: paths, launchAgent: launch}),
-		Update:    updatepkg.Replacer{ExecutablePath: paths.Binary, InstalledVersion: installedVersion},
+		Update: updatepkg.Replacer{
+			ExecutablePath: paths.Binary, InstalledVersion: installedVersion, ManagedSurfaces: managed.surfaces,
+			Preview: func(preview updatepkg.ReplacementPreview) error {
+				result := output.PreviewResult{Command: "update", Effects: preview.Resources, Details: preview.Details}
+				if request.NonInteractive {
+					return output.Write(stderr, format, result)
+				}
+				return writeMutationPreview(stderr, format, result)
+			},
+			AgentsEnabled: func() (bool, error) {
+				cfg, err := store.LoadConfig()
+				return cfg.AgentsEnabled, err
+			},
+			CurrentAssets: embeddedManagedAssets(),
+		},
 		Uninstall: app.UninstallHandler(uninstallFactory),
 	})
 	return service, func() { inventory.Close() }, nil
@@ -625,32 +648,67 @@ func writeMutationPreview(fallback io.Writer, format output.Format, preview outp
 	return output.Write(fallback, format, preview)
 }
 
-type managedAgents struct{ path string }
+type managedAgents struct{ surfaces install.ManagedSurfaceSet }
+
+func embeddedManagedAssets() install.ManagedAssets {
+	return install.ManagedAssets{Agents: assets.AgentsManagedContent, Skill: assets.SkillManagedContent}
+}
 
 func (m managedAgents) Apply(enabled bool) (bool, error) {
-	before, beforeErr := os.ReadFile(m.path)
-	if beforeErr != nil && !errors.Is(beforeErr, os.ErrNotExist) {
-		return false, beforeErr
-	}
-	var err error
-	if enabled {
-		err = install.WriteManagedBlock(m.path, []byte(assets.AgentsManagedContent))
-	} else {
-		err = install.DeleteManagedBlock(m.path)
-	}
-	if err != nil {
-		return false, err
-	}
-	after, afterErr := os.ReadFile(m.path)
-	if afterErr != nil && !errors.Is(afterErr, os.ErrNotExist) {
-		return false, afterErr
-	}
-	return string(before) != string(after), nil
+	result, err := m.surfaces.Reconcile(enabled, embeddedManagedAssets())
+	return result.Changed, err
+}
+
+func (m managedAgents) Repair(enabled bool) ([]string, error) {
+	result, err := m.surfaces.Reconcile(enabled, embeddedManagedAssets())
+	return result.Resources, err
 }
 
 func (m managedAgents) Preview(enabled bool) (app.ManagedAgentsPreview, error) {
-	detail, changed, err := install.ManagedMutationPreview(m.path, enabled, []byte(assets.AgentsManagedContent))
-	return app.ManagedAgentsPreview{Detail: detail, Changed: changed}, err
+	mutations, err := m.surfaces.Preview(enabled, embeddedManagedAssets())
+	preview := app.ManagedAgentsPreview{}
+	for _, mutation := range mutations {
+		if mutation.Changed {
+			preview.Changed = true
+			preview.Resources = append(preview.Resources, mutation.Resource)
+			preview.Details = append(preview.Details, mutation.Detail)
+		}
+	}
+	return preview, err
+}
+
+func (m managedAgents) Snapshot() (any, error) {
+	return m.surfaces.Snapshot()
+}
+
+func (m managedAgents) Restore(value any) error {
+	snapshot, ok := value.(install.ManagedSnapshot)
+	if !ok {
+		return errors.New("invalid managed surface snapshot")
+	}
+	return m.surfaces.Restore(snapshot)
+}
+
+func managedSurfaceCheck(name string, err error) output.CheckResult {
+	check := output.CheckResult{Name: name, OK: err == nil}
+	if err == nil {
+		return check
+	}
+	switch {
+	case errors.Is(err, install.ErrMalformedManagedBlock):
+		check.ErrorCode = "managed_surface_malformed"
+		check.Remedy = "replace or move aside the malformed managed file so it has no invalid ThreadBear markers, then rerun update or configure"
+	case errors.Is(err, install.ErrManagedSurfaceStale):
+		check.ErrorCode = "managed_surface_stale"
+		check.Remedy = "run threadbear update or threadbear configure"
+	case errors.Is(err, install.ErrUnsafeManagedPath):
+		check.ErrorCode = "managed_surface_unsafe_path"
+		check.Remedy = "replace the unsafe or symlinked managed path with a regular file, then rerun update or configure"
+	default:
+		check.ErrorCode = "managed_surface_unavailable"
+		check.Remedy = "fix managed file access or permissions, then rerun update or configure"
+	}
+	return check
 }
 
 type runtimeSelfTest struct {
@@ -767,9 +825,9 @@ func (s runtimeSelfTest) Run(ctx context.Context, candidate bool) output.SelfTes
 	}
 	add("codex", err)
 	err = install.VerifyManagedSurface(s.paths.Agents, cfg.AgentsEnabled, []byte(assets.AgentsManagedContent))
-	add("agents", err)
+	checks = append(checks, managedSurfaceCheck("agents", err))
 	err = install.VerifyManagedSurface(s.paths.Skill, true, []byte(assets.SkillManagedContent))
-	add("skill", err)
+	checks = append(checks, managedSurfaceCheck("skill", err))
 	healthy, err := s.launchAgent.Healthy(ctx)
 	if err == nil && !healthy {
 		err = errors.New("LaunchAgent is unhealthy")

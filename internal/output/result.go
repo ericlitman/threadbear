@@ -41,19 +41,20 @@ type RetryResult struct {
 }
 
 type HeartbeatResult struct {
-	Version     int           `json:"version"`
-	CycleID     string        `json:"cycle_id"`
-	Changed     []TaskChange  `json:"changed"`
-	ArchivedIDs []string      `json:"archived_ids"`
-	RestoredIDs []string      `json:"restored_ids"`
-	Retries     []RetryResult `json:"retries"`
-	ErrorCode   string        `json:"error_code,omitempty"`
+	Version          int           `json:"version"`
+	CycleID          string        `json:"cycle_id"`
+	Changed          []TaskChange  `json:"changed"`
+	ArchivedIDs      []string      `json:"archived_ids"`
+	RestoredIDs      []string      `json:"restored_ids"`
+	ManagedResources []string      `json:"managed_resources,omitempty"`
+	Retries          []RetryResult `json:"retries"`
+	ErrorCode        string        `json:"error_code,omitempty"`
 }
 
 func (HeartbeatResult) result() {}
 
 func (r HeartbeatResult) Empty() bool {
-	return len(r.Changed) == 0 && len(r.ArchivedIDs) == 0 && len(r.RestoredIDs) == 0 && len(r.Retries) == 0 && r.ErrorCode == ""
+	return len(r.Changed) == 0 && len(r.ArchivedIDs) == 0 && len(r.RestoredIDs) == 0 && len(r.ManagedResources) == 0 && len(r.Retries) == 0 && r.ErrorCode == ""
 }
 
 func (r HeartbeatResult) Human() string {
@@ -68,6 +69,7 @@ func (r HeartbeatResult) normalized() HeartbeatResult {
 	r.Changed = slices.Clone(r.Changed)
 	r.ArchivedIDs = slices.Clone(r.ArchivedIDs)
 	r.RestoredIDs = slices.Clone(r.RestoredIDs)
+	r.ManagedResources = slices.Clone(r.ManagedResources)
 	r.Retries = slices.Clone(r.Retries)
 	sort.Slice(r.Changed, func(i, j int) bool {
 		if r.Changed[i].TaskID == r.Changed[j].TaskID {
@@ -77,6 +79,7 @@ func (r HeartbeatResult) normalized() HeartbeatResult {
 	})
 	slices.Sort(r.ArchivedIDs)
 	slices.Sort(r.RestoredIDs)
+	slices.Sort(r.ManagedResources)
 	sort.Slice(r.Retries, func(i, j int) bool {
 		if r.Retries[i].TaskID != r.Retries[j].TaskID {
 			return r.Retries[i].TaskID < r.Retries[j].TaskID
@@ -253,6 +256,7 @@ type CheckResult struct {
 	Name      string `json:"name"`
 	OK        bool   `json:"ok"`
 	ErrorCode string `json:"error_code,omitempty"`
+	Remedy    string `json:"remedy,omitempty"`
 }
 
 type SelfTestResult struct {
@@ -273,6 +277,9 @@ func (r SelfTestResult) Human() string {
 		result := "ok"
 		if !check.OK {
 			result = check.ErrorCode
+			if check.Remedy != "" {
+				result += " (" + check.Remedy + ")"
+			}
 		}
 		checks = append(checks, check.Name+"="+result)
 	}
@@ -283,10 +290,12 @@ func (r SelfTestResult) Human() string {
 }
 
 type UpdateResult struct {
-	Version          int    `json:"version"`
-	Changed          bool   `json:"changed"`
-	PreviousVersion  string `json:"previous_version"`
-	InstalledVersion string `json:"installed_version"`
+	Version          int      `json:"version"`
+	Changed          bool     `json:"changed"`
+	PreviousVersion  string   `json:"previous_version"`
+	InstalledVersion string   `json:"installed_version"`
+	Resources        []string `json:"resources,omitempty"`
+	Warnings         []string `json:"warnings,omitempty"`
 }
 
 func (UpdateResult) result()     {}
@@ -295,7 +304,14 @@ func (r UpdateResult) Human() string {
 	if !r.Changed {
 		return fmt.Sprintf("ThreadBear is already at %s", r.InstalledVersion)
 	}
-	return fmt.Sprintf("ThreadBear updated %s → %s", r.PreviousVersion, r.InstalledVersion)
+	message := fmt.Sprintf("ThreadBear updated %s → %s", r.PreviousVersion, r.InstalledVersion)
+	if len(r.Resources) > 0 {
+		message += " · resources " + strings.Join(r.Resources, ",")
+	}
+	if len(r.Warnings) > 0 {
+		message += " · warning " + strings.Join(r.Warnings, " · ")
+	}
+	return message
 }
 
 type VersionResult struct {
@@ -494,6 +510,9 @@ func withVersion(value Result) Result {
 		if result.Version == 0 {
 			result.Version = CurrentResultVersion
 		}
+		result.Resources = slices.Clone(result.Resources)
+		result.Warnings = slices.Clone(result.Warnings)
+		slices.Sort(result.Resources)
 		return result
 	case VersionResult:
 		if result.Version == 0 {
@@ -555,6 +574,11 @@ func validateResult(value Result) error {
 		}
 		for _, taskID := range append(slices.Clone(result.ArchivedIDs), result.RestoredIDs...) {
 			if err := checkID("archive task_id", taskID); err != nil {
+				return err
+			}
+		}
+		for _, resource := range result.ManagedResources {
+			if err := checkID("managed resource", resource); err != nil {
 				return err
 			}
 		}
@@ -650,8 +674,11 @@ func validateResult(value Result) error {
 			if err := checkCode("check name", check.Name, false); err != nil {
 				return err
 			}
-			if check.OK && check.ErrorCode != "" {
-				return errors.New("successful check must not have an error_code")
+			if check.OK && (check.ErrorCode != "" || check.Remedy != "") {
+				return errors.New("successful check must not have an error_code or remedy")
+			}
+			if strings.TrimSpace(check.Remedy) != check.Remedy {
+				return errors.New("check remedy must not have surrounding whitespace")
 			}
 			if err := checkCode("check error_code", check.ErrorCode, check.OK); err != nil {
 				return err
@@ -664,6 +691,11 @@ func validateResult(value Result) error {
 	case UpdateResult:
 		if result.InstalledVersion == "" || result.PreviousVersion == "" {
 			return errors.New("update result is incomplete")
+		}
+		for _, resource := range result.Resources {
+			if err := checkID("resource", resource); err != nil {
+				return err
+			}
 		}
 	case VersionResult:
 		if result.Product == "" || result.InstalledVersion == "" || result.Website == "" {

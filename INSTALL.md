@@ -24,7 +24,7 @@ To install an exact release:
 curl -fsSL https://threadbear.sh/install.sh | sh -s -- --version 1.2.0
 ```
 
-Versions must be exact `N.N.N` values without a leading `v`. A missing checksum, mismatch, wrong embedded version, or failed candidate self-test stops before a working installed binary is replaced.
+Versions must be exact `N.N.N` values without a leading `v`. A missing checksum, mismatch, wrong embedded version, or failed bootstrap candidate self-test stops before a working installed binary is replaced.
 
 ### 2. Collect every preference
 
@@ -114,7 +114,7 @@ Read-only diagnosis is also available:
 ~/.local/bin/threadbear status --json
 ```
 
-These commands do not invoke a model or mutate task titles/archives. A normal unchanged `~/.local/bin/threadbear heartbeat` emits zero bytes when no update notice is due.
+These commands do not invoke a model or mutate task titles/archives. Installed self-test reports condition-specific remedies for stale, unsafe, or inaccessible managed AGENTS.md and skill surfaces. The updater candidate self-test does not inspect installed managed files because update has not refreshed them yet; install internal staged-candidate verification still checks the managed surfaces after staging them. A normal unchanged `~/.local/bin/threadbear heartbeat` compares managed content directly, performs no managed-file write when it is current, and emits zero bytes when no update notice is due.
 
 For optional bare invocations in the current shell, add the standard user-local bin directory and verify it explicitly:
 
@@ -135,7 +135,7 @@ command -v threadbear
 ~/.local/bin/threadbear configure --dry-run --heartbeat-seconds 900
 ```
 
-For automation, add `--noninteractive --confirm`. Reconfiguration updates the existing job and managed block; it does not duplicate LaunchAgents, control tasks, state, or AGENTS.md blocks. Use `~/.local/bin/threadbear disable` to stop scheduled heartbeats without uninstalling, and `~/.local/bin/threadbear enable` to load the same job again.
+For automation, add `--noninteractive --confirm`. Reconfiguration previews and reconciles both the AGENTS.md block and always-managed skill, including a stale skill when preferences are unchanged. It updates the existing job and managed blocks; it does not duplicate LaunchAgents, control tasks, state, or AGENTS.md blocks. Use `~/.local/bin/threadbear disable` to stop scheduled heartbeats without uninstalling, and `~/.local/bin/threadbear enable` to load the same job again.
 
 `--token-display=off|start|end` controls the managed output-token figure. New installs default to `start`; configs created before this setting existed decode as `off` until explicitly changed. Start mode is compact (`🚨 1.6m Subject`), while end mode labels the metric (`🚨 Subject · out 1.6m`).
 
@@ -161,7 +161,9 @@ Select an exact release, including an intentional downgrade:
 ~/.local/bin/threadbear update --version 1.2.0
 ```
 
-The updater downloads to a private temporary path, verifies the published checksum, embedded version, and candidate self-test, then atomically replaces the installed binary. Any pre-replacement failure removes the candidate and leaves the current binary untouched. ThreadBear does not create rollback state or retain a local release history; an explicit older version is the downgrade path and still must pass compatibility checks.
+The updater downloads to a private temporary path, verifies the published checksum, embedded version, and updater candidate self-test, and asks the candidate binary to export its embedded managed AGENTS.md and skill content. It prevalidates changed managed surfaces and emits their preview before replacing the installed binary, then refreshes the enabled AGENTS.md block and always-managed skill with the candidate content and verifies the result. A same-version update also reconciles stale managed surfaces from the current binary embedded assets while remaining a no-op when they are current. Managed files keep all bytes outside the single ThreadBear block. Symlinks to user-owned regular files are followed without replacing the link; malformed, dangling, non-file, or foreign-owned targets are refused. The binary and each managed file use safe individual replacement, but there is no cross-file atomicity. If managed refresh fails after binary replacement, the new binary remains installed, partial managed writes are rolled back best-effort, and the error is reported explicitly. A later heartbeat under the new binary is the convergence backstop that repairs residue. No binary rollback file is created or retained.
+
+The updater deliberately does not rewrite `~/Library/LaunchAgents/org.litman.threadbear.plist`. Scheduler plist changes remain the responsibility of install/configure lifecycle operations. ThreadBear does not retain a release history. An explicit downgrade proceeds binary-only only when the older candidate reports the managed-asset command as `unknown_command`; malformed exports, empty assets, generic execution failures, and all other candidate errors stop the update. The binary-only result warns that AGENTS.md and the skill were not refreshed. Their newer managed content can remain as residue until a BEAR-27-or-newer `threadbear update` or `threadbear configure` reconciles it.
 
 A daily deterministic metadata check is silent when current. For each newer version it places one notice in the control task:
 

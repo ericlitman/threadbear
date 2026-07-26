@@ -1220,3 +1220,100 @@ func TestArchiveRequiresCompleteAndStateAge(t *testing.T) {
 		}
 	}
 }
+
+type fakeManagedSurfaces struct {
+	calls     int
+	enabled   []bool
+	resources []string
+	err       error
+}
+
+func (f *fakeManagedSurfaces) Repair(enabled bool) ([]string, error) {
+	f.calls++
+	f.enabled = append(f.enabled, enabled)
+	if f.err != nil {
+		return nil, f.err
+	}
+	return append([]string(nil), f.resources...), nil
+}
+
+func TestHeartbeatRepairsManagedSurfacesBeforeInventoryAndClassifier(t *testing.T) {
+	now := time.Date(2026, 7, 24, 12, 0, 0, 0, time.UTC)
+	task := codex.Task{TaskID: "semantic", Revision: "2", Title: "Semantic", Source: "vscode"}
+	committed := state.New()
+	committed.LastUpdateCheck = timePointer(now)
+	committed.Tasks[task.TaskID] = record(codex.Task{TaskID: task.TaskID, Revision: "1", Title: task.Title}, state.StatusUnknown, now.Add(-time.Hour))
+	runner, deps := testRunner(t, now, []codex.Task{task}, committed)
+	managed := &fakeManagedSurfaces{}
+	runner.deps.ManagedSurfaces = managed
+	deps.index.hook = func(_ int, _ *fakeIndex) {
+		if managed.calls != 1 {
+			t.Fatalf("inventory ran before managed reconciliation: calls=%d", managed.calls)
+		}
+	}
+	deps.client.latest[task.TaskID] = completedEvidence(now, "done", "no footer")
+	deps.classifier.results[task.TaskID] = status.Classification{TaskID: task.TaskID, Revision: task.Revision, Status: state.StatusComplete, Provenance: state.ProvenanceLuna, DurableSubject: "Semantic"}
+	if _, err := runner.Run(context.Background(), false); err != nil {
+		t.Fatal(err)
+	}
+	if managed.calls != 1 || deps.classifier.calls != 1 {
+		t.Fatalf("managed=%d classifier=%d", managed.calls, deps.classifier.calls)
+	}
+}
+
+func TestHeartbeatCleanIdleManagedComparisonProducesNoOutput(t *testing.T) {
+	now := time.Date(2026, 7, 24, 12, 0, 0, 0, time.UTC)
+	committed := state.New()
+	committed.LastUpdateCheck = timePointer(now)
+	runner, deps := testRunner(t, now, nil, committed)
+	managed := &fakeManagedSurfaces{}
+	runner.deps.ManagedSurfaces = managed
+	value, err := runner.Run(context.Background(), false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !value.(output.HeartbeatResult).Empty() || managed.calls != 1 || deps.index.calls != 1 || deps.factory.opens != 0 {
+		t.Fatalf("result=%+v managed=%d inventories=%d opens=%d", value, managed.calls, deps.index.calls, deps.factory.opens)
+	}
+}
+
+func TestHeartbeatReportsManagedDriftRepair(t *testing.T) {
+	now := time.Date(2026, 7, 24, 12, 0, 0, 0, time.UTC)
+	committed := state.New()
+	committed.LastUpdateCheck = timePointer(now)
+	runner, deps := testRunner(t, now, nil, committed)
+	managed := &fakeManagedSurfaces{resources: []string{"skill", "agents"}}
+	runner.deps.ManagedSurfaces = managed
+	value, err := runner.Run(context.Background(), false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	result := value.(output.HeartbeatResult)
+	if result.Empty() || strings.Join(result.ManagedResources, ",") != "skill,agents" || result.CycleID != "managed-surfaces" || deps.factory.opens != 0 {
+		t.Fatalf("result=%+v opens=%d", result, deps.factory.opens)
+	}
+}
+
+func TestHeartbeatManagedRepairFailureDegradesUnresolvedTasksWithoutAborting(t *testing.T) {
+	now := time.Date(2026, 7, 24, 12, 0, 0, 0, time.UTC)
+	task := codex.Task{TaskID: "semantic", Revision: "2", Title: "Semantic", Source: "vscode"}
+	committed := state.New()
+	committed.LastUpdateCheck = timePointer(now.Add(-25 * time.Hour))
+	committed.Tasks[task.TaskID] = record(codex.Task{TaskID: task.TaskID, Revision: "1", Title: task.Title}, state.StatusUnknown, now.Add(-time.Hour))
+	runner, deps := testRunner(t, now, []codex.Task{task}, committed)
+	runner.deps.ManagedSurfaces = &fakeManagedSurfaces{err: errors.New("synthetic managed failure")}
+	deps.update.result = UpdateStatus{LatestVersion: "1.2.0", Newer: true}
+	deps.client.latest[task.TaskID] = completedEvidence(now, "done", "no footer")
+	value, err := runner.Run(context.Background(), false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	result := value.(output.HeartbeatResult)
+	if deps.classifier.calls != 0 || len(result.Retries) != 1 || result.Retries[0].ErrorCode != "managed_surfaces_unavailable" || len(deps.client.notices) != 1 {
+		t.Fatalf("result=%+v classifier=%d notices=%v", result, deps.classifier.calls, deps.client.notices)
+	}
+	stored, err := deps.store.store.LoadState()
+	if err != nil || stored.Generation != committed.Generation+1 || stored.Tasks[task.TaskID].Status != state.StatusUnknown || len(stored.DeliveredNoticeVersions) != 1 || stored.DeliveredNoticeVersions[0] != "1.2.0" || stored.LastUpdateCheck == nil || !stored.LastUpdateCheck.Equal(now) {
+		t.Fatalf("stored=%+v err=%v", stored, err)
+	}
+}
