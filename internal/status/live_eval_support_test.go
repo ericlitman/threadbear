@@ -84,6 +84,12 @@ type liveEvalError struct {
 	Actual   state.TaskStatus `json:"actual"`
 }
 
+type liveEvalDiagnostic struct {
+	ID      string `json:"id"`
+	Code    string `json:"code"`
+	Message string `json:"message"`
+}
+
 type liveEvalProvenanceScore struct {
 	Total           int `json:"total"`
 	FooterAccepted  int `json:"footer_accepted"`
@@ -98,12 +104,53 @@ type liveEvalReport struct {
 	Correct        int                                     `json:"correct"`
 	Deterministic  int                                     `json:"deterministic"`
 	Classified     int                                     `json:"classified"`
+	Unscored       int                                     `json:"unscored"`
 	FalseComplete  int                                     `json:"false_complete"`
 	FalseNextSteps int                                     `json:"false_next_steps"`
 	ByState        map[state.TaskStatus]liveEvalStateScore `json:"by_state"`
 	ByProvenance   map[string]liveEvalProvenanceScore      `json:"by_provenance"`
 	Errors         []liveEvalError                         `json:"errors"`
+	Diagnostics    []liveEvalDiagnostic                    `json:"diagnostics,omitempty"`
 }
+
+// liveEvalSeries is the k-of-n release gate (Verification Contract amendment,
+// 2026-07-26): the classifier path exposes no sampling controls, so a single
+// run is a coin flip in both directions. The gate therefore fails only on
+// SYSTEMATIC dangerous errors - a case wrong in a dangerous direction in a
+// majority of runs - and reports the rest as flap rate rather than pretending
+// the variance is zero.
+type liveEvalSeries struct {
+	SchemaRevision string               `json:"schema_revision"`
+	Runs           int                  `json:"runs"`
+	Threshold      int                  `json:"threshold"`
+	Caveat         string               `json:"caveat"`
+	RunSummaries   []liveEvalRunSummary `json:"run_summaries"`
+	Systematic     []liveEvalCaseSeries `json:"systematic"`
+	Flapping       []liveEvalCaseSeries `json:"flapping"`
+	Unscoreable    []liveEvalCaseSeries `json:"unscoreable"`
+	Reports        []liveEvalReport     `json:"reports"`
+}
+
+type liveEvalRunSummary struct {
+	Correct        int `json:"correct"`
+	FalseComplete  int `json:"false_complete"`
+	FalseNextSteps int `json:"false_next_steps"`
+	Unscored       int `json:"unscored"`
+}
+
+type liveEvalCaseSeries struct {
+	ID         string             `json:"id"`
+	Expected   state.TaskStatus   `json:"expected"`
+	Dangerous  int                `json:"dangerous_runs"`
+	Diagnosed  int                `json:"diagnosed_runs"`
+	Actuals    []state.TaskStatus `json:"actuals"`
+	Directions []string           `json:"directions"`
+}
+
+// The single-case-per-call caveat is a condition of the BEAR-28 acceptance:
+// production packs batches (KTD3), the eval does not, so a green gate is a
+// floor rather than a production guarantee and must say so in its own output.
+const liveEvalFloorCaveat = "cases are classified one per call; production packs batches (KTD3), so this gate is a floor, not a production guarantee"
 
 func decodeLiveEvalCorpus(data []byte) (liveEvalCorpus, error) {
 	var corpus liveEvalCorpus
@@ -195,6 +242,12 @@ func runLiveEval(ctx context.Context, corpus liveEvalCorpus, classifier *Classif
 	if len(unresolved) == 0 {
 		return liveEvalReport{}, errors.New("corpus contains no classifier-owned cases")
 	}
+	// A diagnostic on one case is data about that case, not grounds to discard
+	// the run: aborting here made an hour of classification unreproducible over
+	// a single previous_evidence_unavailable (BEAR-29). Diagnosed cases are
+	// recorded, excluded from accuracy denominators, and surface in the series
+	// aggregation as unscoreable when they persist.
+	diagnostics := make([]liveEvalDiagnostic, 0)
 	for _, evidence := range unresolved {
 		classifications := classifier.Classify(ctx, []TaskEvidence{evidence})
 		if len(classifications) != 1 {
@@ -202,29 +255,112 @@ func runLiveEval(ctx context.Context, corpus liveEvalCorpus, classifier *Classif
 		}
 		classification := classifications[0]
 		if classification.Diagnostic != nil {
-			return liveEvalReport{}, fmt.Errorf(
-				"classifier case %q failed: %s (%s; offending_item=%q)",
-				classification.TaskID,
-				classification.Diagnostic.Code,
-				classification.Diagnostic.Message,
-				classification.Diagnostic.OffendingItem,
-			)
+			diagnostics = append(diagnostics, liveEvalDiagnostic{
+				ID:      evidence.TaskID,
+				Code:    classification.Diagnostic.Code,
+				Message: classification.Diagnostic.Message,
+			})
+			continue
 		}
 		actual[classification.TaskID] = classification.Status
 	}
+	diagnosed := make(map[string]bool, len(diagnostics))
+	for _, diagnostic := range diagnostics {
+		diagnosed[diagnostic.ID] = true
+	}
 	for _, item := range corpus.Cases {
-		if _, ok := actual[item.ID]; !ok {
+		if _, ok := actual[item.ID]; !ok && !diagnosed[item.ID] {
 			return liveEvalReport{}, fmt.Errorf("case %q produced no classification", item.ID)
 		}
 	}
-	report := scoreLiveEval(corpus.Cases, actual)
+	report := scoreLiveEval(corpus.Cases, actual, diagnosed)
 	report.Deterministic = deterministic
 	report.Classified = len(unresolved)
 	report.ByProvenance = provenance
+	report.Diagnostics = diagnostics
 	return report, nil
 }
 
-func scoreLiveEval(cases []liveEvalCase, actual map[string]state.TaskStatus) liveEvalReport {
+// runLiveEvalSeries runs the corpus n times and aggregates per-case outcomes.
+// Threshold is a strict majority of runs.
+func runLiveEvalSeries(ctx context.Context, corpus liveEvalCorpus, classifier *Classifier, runs int) (liveEvalSeries, error) {
+	if runs < 1 {
+		return liveEvalSeries{}, errors.New("series needs at least one run")
+	}
+	reports := make([]liveEvalReport, 0, runs)
+	for run := 0; run < runs; run++ {
+		report, err := runLiveEval(ctx, corpus, classifier)
+		if err != nil {
+			return liveEvalSeries{}, fmt.Errorf("run %d: %w", run+1, err)
+		}
+		reports = append(reports, report)
+	}
+	return aggregateLiveEvalSeries(corpus.Cases, reports), nil
+}
+
+func aggregateLiveEvalSeries(cases []liveEvalCase, reports []liveEvalReport) liveEvalSeries {
+	series := liveEvalSeries{
+		SchemaRevision: liveEvalSchemaRevision,
+		Runs:           len(reports),
+		Threshold:      len(reports)/2 + 1,
+		Caveat:         liveEvalFloorCaveat,
+		Reports:        reports,
+	}
+	expected := make(map[string]state.TaskStatus, len(cases))
+	for _, item := range cases {
+		expected[item.ID] = item.Expected
+	}
+	wrong := make(map[string][]state.TaskStatus)
+	diagnosedRuns := make(map[string]int)
+	for _, report := range reports {
+		series.RunSummaries = append(series.RunSummaries, liveEvalRunSummary{
+			Correct:        report.Correct,
+			FalseComplete:  report.FalseComplete,
+			FalseNextSteps: report.FalseNextSteps,
+			Unscored:       report.Unscored,
+		})
+		for _, failure := range report.Errors {
+			wrong[failure.ID] = append(wrong[failure.ID], failure.Actual)
+		}
+		for _, diagnostic := range report.Diagnostics {
+			diagnosedRuns[diagnostic.ID]++
+		}
+	}
+	for id, actuals := range wrong {
+		entry := liveEvalCaseSeries{ID: id, Expected: expected[id], Actuals: actuals}
+		directions := make(map[string]bool)
+		for _, actual := range actuals {
+			if actual == state.StatusComplete && expected[id] != state.StatusComplete {
+				entry.Dangerous++
+				directions["false_complete"] = true
+			}
+			if actual == state.StatusNextSteps && expected[id] != state.StatusNextSteps {
+				entry.Dangerous++
+				directions["false_next_steps"] = true
+			}
+		}
+		for direction := range directions {
+			entry.Directions = append(entry.Directions, direction)
+		}
+		sort.Strings(entry.Directions)
+		if entry.Dangerous >= series.Threshold {
+			series.Systematic = append(series.Systematic, entry)
+		} else if entry.Dangerous > 0 {
+			series.Flapping = append(series.Flapping, entry)
+		}
+	}
+	for id, count := range diagnosedRuns {
+		if count >= series.Threshold {
+			series.Unscoreable = append(series.Unscoreable, liveEvalCaseSeries{ID: id, Expected: expected[id], Diagnosed: count})
+		}
+	}
+	sort.Slice(series.Systematic, func(left, right int) bool { return series.Systematic[left].ID < series.Systematic[right].ID })
+	sort.Slice(series.Flapping, func(left, right int) bool { return series.Flapping[left].ID < series.Flapping[right].ID })
+	sort.Slice(series.Unscoreable, func(left, right int) bool { return series.Unscoreable[left].ID < series.Unscoreable[right].ID })
+	return series
+}
+
+func scoreLiveEval(cases []liveEvalCase, actual map[string]state.TaskStatus, diagnosed map[string]bool) liveEvalReport {
 	report := liveEvalReport{
 		SchemaRevision: liveEvalSchemaRevision,
 		Total:          len(cases),
@@ -232,6 +368,12 @@ func scoreLiveEval(cases []liveEvalCase, actual map[string]state.TaskStatus) liv
 		ByProvenance:   make(map[string]liveEvalProvenanceScore),
 	}
 	for _, item := range cases {
+		// A diagnosed case was never classified; scoring it as wrong would
+		// punish harness conditions, and scoring it as right would hide them.
+		if diagnosed[item.ID] {
+			report.Unscored++
+			continue
+		}
 		got := actual[item.ID]
 		score := report.ByState[item.Expected]
 		score.Total++
