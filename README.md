@@ -17,7 +17,7 @@ ThreadBear does not edit `.codex-global-state.json`, click through Codex Desktop
 
 ## Install
 
-ThreadBear v1 supports macOS 12 or newer on Apple silicon and Intel Macs. Release binaries are pure Go, require no end-user runtime, and are not Developer ID signed or notarized.
+ThreadBear v1 supports macOS 12 or newer on Apple silicon and Intel Macs. Release binaries are pure Go and require no end-user runtime.
 
 ```sh
 curl -fsSL https://threadbear.sh/install.sh | sh
