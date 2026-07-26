@@ -14,8 +14,13 @@ paths:
 THREADBEAR_LIVE_EVAL=1 \
 THREADBEAR_LIVE_AUTH_FILE=/absolute/path/to/auth.json \
 THREADBEAR_LIVE_EVAL_CORPUS=/absolute/path/to/live-eval-corpus.json \
-go test -tags=integration ./internal/status -run TestLiveLunaMediumCorpus -v -count=1
+go test -tags=integration ./internal/status -run TestLiveLunaMediumCorpus -v -count=1 -timeout 90m
 ```
+
+The gate is a five-run series (`THREADBEAR_LIVE_EVAL_RUNS`, default 5), so the
+`-timeout` flag matters: Go kills the test binary at 10 minutes by default,
+long before a full series finishes. The test refuses to start when the binary
+deadline is shorter than the series budget, naming the flag to raise.
 
 The default classifier is `gpt-5.6-luna` at `medium` effort. Operators may set
 `THREADBEAR_LIVE_MODEL`, `THREADBEAR_LIVE_EFFORT`,
