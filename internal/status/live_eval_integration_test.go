@@ -106,8 +106,8 @@ func TestLiveLunaMediumCorpus(t *testing.T) {
 		)
 	}
 	// The gate fails only on SYSTEMATIC dangerous errors: a case wrong in a
-	// dangerous direction, or unscoreable, in a majority of runs. Sub-majority
-	// misses are sampling noise on a path that exposes no seed control; they
+	// dangerous direction, or unscoreable, in at least the threshold share of
+	// runs. Sub-threshold misses are sampling noise on a path that exposes no seed control; they
 	// are reported above, not gated on (Verification Contract, 2026-07-26).
 	if len(series.Systematic) > 0 || len(series.Unscoreable) > 0 {
 		t.Fatalf(
