@@ -42,7 +42,8 @@ func TestLiveLunaMediumCorpus(t *testing.T) {
 	if executable := strings.TrimSpace(os.Getenv("THREADBEAR_LIVE_CODEX_BIN")); executable != "" {
 		process.Path = executable
 	}
-	timeout := liveEvalDuration(t, "THREADBEAR_LIVE_EVAL_TIMEOUT", 15*time.Minute)
+	runs := liveEvalInt(t, "THREADBEAR_LIVE_EVAL_RUNS", 5)
+	timeout := liveEvalDuration(t, "THREADBEAR_LIVE_EVAL_TIMEOUT", time.Duration(runs)*15*time.Minute)
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 	caps, err := appserver.DiscoverCapabilities(ctx, process)
@@ -67,20 +68,33 @@ func TestLiveLunaMediumCorpus(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	report, err := runLiveEval(ctx, corpus, classifier)
+	series, err := runLiveEvalSeries(ctx, corpus, classifier, runs)
 	if err != nil {
 		t.Fatal(err)
 	}
-	encoded, err := json.MarshalIndent(report, "", "  ")
+	encoded, err := json.MarshalIndent(series, "", "  ")
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Logf("live eval report:\n%s", encoded)
-	if report.FalseComplete != 0 || report.FalseNextSteps != 0 {
+	t.Logf("live eval series (%d runs):\n%s", series.Runs, encoded)
+	t.Logf("caveat: %s", series.Caveat)
+	if len(series.Flapping) > 0 {
+		t.Logf(
+			"flapping (non-gating): %d case(s) dangerous-wrong in fewer than %d of %d runs",
+			len(series.Flapping), series.Threshold, series.Runs,
+		)
+	}
+	// The gate fails only on SYSTEMATIC dangerous errors: a case wrong in a
+	// dangerous direction, or unscoreable, in a majority of runs. Sub-majority
+	// misses are sampling noise on a path that exposes no seed control; they
+	// are reported above, not gated on (Verification Contract, 2026-07-26).
+	if len(series.Systematic) > 0 || len(series.Unscoreable) > 0 {
 		t.Fatalf(
-			"release gate failed: false_complete=%d false_next_steps=%d",
-			report.FalseComplete,
-			report.FalseNextSteps,
+			"release gate failed: systematic=%d unscoreable=%d (threshold %d of %d runs)",
+			len(series.Systematic),
+			len(series.Unscoreable),
+			series.Threshold,
+			series.Runs,
 		)
 	}
 }

@@ -142,7 +142,7 @@ func TestScoreLiveEvalCountsReleaseBlockingFalsePositives(t *testing.T) {
 		"b": state.StatusNextSteps,
 		"c": state.StatusNextSteps,
 	}
-	report := scoreLiveEval(cases, actual)
+	report := scoreLiveEval(cases, actual, nil)
 	if report.FalseComplete != 1 || report.FalseNextSteps != 1 || report.Correct != 1 {
 		t.Fatalf("report=%+v", report)
 	}
@@ -168,4 +168,64 @@ func omitLiveEvalField(t *testing.T, data string, path ...string) string {
 		t.Fatal(err)
 	}
 	return string(encoded)
+}
+
+func TestAggregateLiveEvalSeriesSeparatesSystematicFromFlap(t *testing.T) {
+	cases := []liveEvalCase{
+		{ID: "stable", Expected: state.StatusComplete},
+		{ID: "flappy", Expected: state.StatusComplete},
+		{ID: "safe-miss", Expected: state.StatusRunning},
+	}
+	reports := []liveEvalReport{
+		{Errors: []liveEvalError{
+			{ID: "stable", Expected: state.StatusComplete, Actual: state.StatusNextSteps},
+			{ID: "flappy", Expected: state.StatusComplete, Actual: state.StatusNextSteps},
+			{ID: "safe-miss", Expected: state.StatusRunning, Actual: state.StatusUnknown},
+		}},
+		{Errors: []liveEvalError{
+			{ID: "stable", Expected: state.StatusComplete, Actual: state.StatusNextSteps},
+		}},
+		{Errors: []liveEvalError{
+			{ID: "stable", Expected: state.StatusComplete, Actual: state.StatusComplete + "x"},
+		}},
+	}
+	series := aggregateLiveEvalSeries(cases, reports)
+	if series.Runs != 3 || series.Threshold != 2 {
+		t.Fatalf("series=%+v", series)
+	}
+	if len(series.Systematic) != 1 || series.Systematic[0].ID != "stable" || series.Systematic[0].Dangerous != 2 {
+		t.Fatalf("systematic=%+v", series.Systematic)
+	}
+	if len(series.Flapping) != 1 || series.Flapping[0].ID != "flappy" {
+		t.Fatalf("flapping=%+v", series.Flapping)
+	}
+	if series.Caveat == "" {
+		t.Fatal("series must carry the single-case floor caveat")
+	}
+}
+
+func TestAggregateLiveEvalSeriesFlagsPersistentDiagnostics(t *testing.T) {
+	cases := []liveEvalCase{{ID: "ghost", Expected: state.StatusComplete}}
+	diagnostic := liveEvalDiagnostic{ID: "ghost", Code: "previous_evidence_unavailable", Message: "x"}
+	reports := []liveEvalReport{
+		{Diagnostics: []liveEvalDiagnostic{diagnostic}},
+		{Diagnostics: []liveEvalDiagnostic{diagnostic}},
+		{},
+	}
+	series := aggregateLiveEvalSeries(cases, reports)
+	if len(series.Unscoreable) != 1 || series.Unscoreable[0].ID != "ghost" || series.Unscoreable[0].Diagnosed != 2 {
+		t.Fatalf("unscoreable=%+v", series.Unscoreable)
+	}
+}
+
+func TestScoreLiveEvalExcludesDiagnosedCases(t *testing.T) {
+	cases := []liveEvalCase{
+		{ID: "a", Expected: state.StatusComplete},
+		{ID: "b", Expected: state.StatusComplete},
+	}
+	actual := map[string]state.TaskStatus{"a": state.StatusComplete}
+	report := scoreLiveEval(cases, actual, map[string]bool{"b": true})
+	if report.Correct != 1 || report.Unscored != 1 || len(report.Errors) != 0 {
+		t.Fatalf("report=%+v", report)
+	}
 }
