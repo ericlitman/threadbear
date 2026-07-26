@@ -17,6 +17,11 @@ type Footer struct {
 	Action string
 }
 
+// FooterRejection labels why ParseFooter declined a footer. Production acts
+// on Accepted alone — every rejected footer falls through to stronger
+// evidence or classification the same way (R12) — so the reason exists to
+// keep the decision tree observable: tests pin each branch and the order
+// its gates fire in.
 type FooterRejection string
 
 const (
@@ -44,7 +49,6 @@ type FooterInput struct {
 type FooterResult struct {
 	Footer            Footer
 	ClassifierMessage string
-	TitleMessage      string
 	Accepted          bool
 	Rejection         FooterRejection
 }
@@ -63,6 +67,5 @@ type Resolution struct {
 	Provenance        state.Provenance
 	ManagedAction     string
 	ClassifierMessage string
-	TitleMessage      string
 	Resolved          bool
 }
