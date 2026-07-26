@@ -27,7 +27,16 @@ validate_version() {
 
 requested_version=$selected_version
 load_manifest() {
-	manifest=$(curl -fsSL "$manifest_url")
+	if ! manifest=$(curl -fsSL "$manifest_url" 2>/dev/null); then
+		if [ -n "$requested_version" ]; then
+			echo "threadbear: version $requested_version is not published." >&2
+			echo "threadbear: published versions are listed at https://github.com/ericlitman/threadbear/releases" >&2
+		else
+			echo "threadbear: no published release yet, so there is nothing to install." >&2
+			echo "threadbear: follow https://github.com/ericlitman/threadbear for release status." >&2
+		fi
+		exit 1
+	fi
 	manifest_version=$(printf '%s\n' "$manifest" | sed -n 's/.*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | sed -n '1p')
 	if [ -z "$manifest_version" ]; then
 		echo "threadbear: release manifest has no version" >&2
