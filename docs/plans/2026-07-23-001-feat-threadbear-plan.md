@@ -17,7 +17,7 @@ execution: code
 - **Authority hierarchy:** The Product Contract owns behavior and scope. The Planning Contract owns implementation choices. A current generated Codex App Server schema and a read-only compatibility check outrank prototype assumptions about local storage.
 - **Execution profile:** Greenfield Go implementation in a new public repository, delivered as independently verifiable implementation units. The private prototype and evaluation corpus are evidence, not code to publish wholesale.
 - **Stop conditions:** Stop before task mutation if the Codex inventory schema or required App Server methods cannot be feature-detected. Stop release if ephemeral classifier sessions persist visibly or a zero-model control-task notice cannot be proven through a supported surface.
-- **Tail ownership:** The final implementation unit owns public documentation, release artifacts, `threadbear.dev`, migration verification, and the proof that the installed LaunchAgent is the only active ThreadBear/ThreadWatch scheduler.
+- **Tail ownership:** The final implementation unit owns public documentation, release artifacts, `threadbear.sh`, migration verification, and the proof that the installed LaunchAgent is the only active ThreadBear/ThreadWatch scheduler.
 
 ---
 
@@ -62,13 +62,13 @@ ThreadBear therefore keeps the visible control task but moves semantic classific
 - A2. **ThreadBear runtime:** performs deterministic inventory, freshness, state, mutation, update-check, and persistence work from the LaunchAgent.
 - A3. **ThreadBear classifier:** runs Luna medium in fresh non-persisted sessions only when semantic judgment is required.
 - A4. **Codex Desktop:** owns the task index, task content, automation registry, persistent task titles, archives, and the sidebar rendering cache.
-- A5. **Release host:** serves the installer, release metadata, checksums, and versioned macOS binaries from `threadbear.dev` and the public GitHub repository.
+- A5. **Release host:** serves the installer, release metadata, checksums, and versioned macOS binaries from `threadbear.sh` and the public GitHub repository.
 
 ### Requirements
 
 **Product identity and ownership**
 
-- R1. The public product is named ThreadBear, uses the control-task title `🧵🐻 ThreadBear 🐻🧵`, is documented at `threadbear.dev`, and lives in a public `ericlitman/threadbear` GitHub repository.
+- R1. The public product is named ThreadBear, uses the control-task title `🧵🐻 ThreadBear 🐻🧵`, is documented at `threadbear.sh`, and lives in a public `ericlitman/threadbear` GitHub repository. `threadbare.sh` is a second registered domain that redirects to `threadbear.sh`; it is a deliberate play on the word rather than a typo guard, and it is never the canonical origin published in documentation, installer commands, or release metadata.
 - R2. The repository is MIT-licensed, the default language is playful and bear-themed without obscuring operational meaning, v1 supports macOS only, and v1 release binaries ship without Developer ID signing or notarization.
 - R3. ThreadBear owns one long-running visible control task whose exact task ID is recorded during setup and excluded from inventory before freshness checks; the task is used for management and notices, never as accumulated classifier history.
 
@@ -106,7 +106,7 @@ ThreadBear therefore keeps the visible control task but moves semantic classific
 
 **Guided installation and configuration**
 
-- R24. The supported entry point is `curl -fsSL https://threadbear.dev/install.sh | sh`, and the installer reads interactive answers from `/dev/tty` so piped script input cannot consume the prompts.
+- R24. The supported entry point is `curl -fsSL https://threadbear.sh/install.sh | sh`, and the installer reads interactive answers from `/dev/tty` so piped script input cannot consume the prompts.
 - R25. Before mutation, the installer explains the product, the deterministic-first token model, the installed paths, the LaunchAgent, the persistent control task, and every selected preference, then asks for one final confirmation.
 - R26. On first install the installer asks for heartbeat interval, automatic archiving and inactivity interval, automatic next-action renaming, and managed AGENTS.md instructions; defaults are five minutes, archiving on after 14 days, renaming on, and AGENTS.md instructions on.
 - R27. Installation requires no `sudo`, installs the binary at `~/.local/bin/threadbear`, persists state under `~/.local/share/threadbear`, and registers the LaunchAgent as `org.litman.threadbear`.
@@ -374,7 +374,7 @@ flowchart TB
 - Codex Desktop must expose the current `threads` index shape for a read-only idle scan and the required persistent title, archive, unarchive, ephemeral-thread, and turn methods through a compatibility-detectable App Server surface.
 - Immediate repaint of an already-open sidebar is not a v1 guarantee; persistent task state is authoritative and the UI may converge on later task activity or app refresh.
 - A supported zero-model App Server operation must prove that it can place a concise user-visible update notice into the control task; release stops if that proof fails.
-- Installation and updates require HTTPS access to `threadbear.dev` or GitHub, while ordinary heartbeats remain local except for due release-metadata checks and Luna calls on semantically unresolved changes.
+- Installation and updates require HTTPS access to `threadbear.sh` or GitHub, while ordinary heartbeats remain local except for due release-metadata checks and Luna calls on semantically unresolved changes.
 - The public release process can publish matching checksums and two macOS binaries from the same versioned source.
 - The development and release environment may use Go tooling, but the installed product cannot require it.
 
@@ -465,7 +465,7 @@ internal/install/               onboarding, AGENTS block, migration, uninstall
 internal/update/                release resolution and staged binary replacement
 assets/                        embedded AGENTS block, plist template, skill assets
 testdata/                      synthetic SQLite, JSON-RPC, rollout, and status fixtures
-site/                          static threadbear.dev source and installer copy
+site/                          static threadbear.sh source and installer copy
 .github/workflows/             CI, release, and static-site publication
 install.sh                     curl-pipe bootstrap
 INSTALL.md                     agent-oriented guided installation contract
@@ -682,7 +682,7 @@ cmp install.sh site/install.sh
 - GitHub Actions builds both Darwin binaries from the tagged commit with `CGO_ENABLED=0`, publishes matching SHA-256 files, and updates the latest stable manifest only after CI passes.
 - The installer and updater verify the checksum before executing the candidate and leave the current binary untouched on every pre-replacement failure.
 - The public tree contains no raw private task corpus, rollout path, message text, credential, inherited environment dump, or generated local state database.
-- `threadbear.dev` serves the verified installer, current docs, and release manifest over HTTPS before the release is announced.
+- `threadbear.sh` serves the verified installer, current docs, and release manifest over HTTPS before the release is announced.
 
 ### Behavioral Acceptance Gate
 
@@ -701,6 +701,6 @@ ThreadBear v1 is done only when:
 - Every title/archive mutation uses a current precondition, every ThreadBear archive is inspectable and restorable, and unfinished states are never auto-archived.
 - Install, configure, migration, update, disable/enable, restore, and uninstall serialize through one lock and remain idempotent without dual schedulers or duplicate managed blocks.
 - The exact installed paths, defaults, permissions, data retention, unsigned distribution, update behavior, and LaunchAgent timing are documented and match runtime behavior.
-- The public GitHub repository is MIT-licensed, contains only safe synthetic fixtures, publishes verified cgo-free binaries and checksums, and serves the guided installer at `threadbear.dev`.
+- The public GitHub repository is MIT-licensed, contains only safe synthetic fixtures, publishes verified cgo-free binaries and checksums, and serves the guided installer at `threadbear.sh`.
 - BEAR-1 links the final repository, release, verification evidence, and documented scope boundaries.
 - No abandoned experiment, stray ThreadWatch branding outside the tested legacy migration adapter and migration documentation, temporary compatibility shim without a test, private corpus artifact, dead code, or unused release path remains in the shipped tree.

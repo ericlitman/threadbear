@@ -14,7 +14,7 @@ const (
 	CurrentSchemaVersion                = 1
 	ProductName                         = "ThreadBear"
 	ControlTaskTitle                    = "🧵🐻 ThreadBear 🐻🧵"
-	Website                             = "https://threadbear.dev"
+	Website                             = "https://threadbear.sh"
 	BinaryPath                          = "~/.local/bin/threadbear"
 	StateDirectory                      = "~/.local/share/threadbear"
 	LaunchAgentLabel                    = "org.litman.threadbear"
