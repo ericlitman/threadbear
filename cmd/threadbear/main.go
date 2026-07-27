@@ -129,6 +129,7 @@ func newOperatorService(installedVersion string, stdout, stderr io.Writer, forma
 			Binary:                     install.FileBinaryInstaller{Source: executable},
 			SelfTester:                 install.CoreSelfTester{Probe: install.RuntimeProbe{}, Store: diskStore},
 			ResolveCodexExecutableSpec: resolveCodexExecutableSpec,
+			InstalledVersion:           installedVersion,
 		}
 		if !interactive {
 			installer.Previewer = func(preview install.Preview) error {
@@ -537,6 +538,14 @@ func (a appServerControlTasks) EnsureControlTask(ctx context.Context, taskID str
 	}
 	ensuredID, changed, ensureErr := ensureControlTask(ctx, client, taskID)
 	return ensuredID, changed, errors.Join(ensureErr, client.Close())
+}
+
+func (a appServerControlTasks) PostWelcome(ctx context.Context, taskID, text string) error {
+	client, err := a.open(ctx)
+	if err != nil {
+		return err
+	}
+	return errors.Join(client.InsertNotice(ctx, taskID, text), client.Close())
 }
 
 func (a appServerControlTasks) ArchiveControlTask(ctx context.Context, taskID string) (bool, error) {

@@ -118,6 +118,9 @@ type Scheduler interface {
 type ControlTasks interface {
 	EnsureControlTask(context.Context, string) (string, bool, error)
 	ArchiveControlTask(context.Context, string) (bool, error)
+	// PostWelcome inserts the post-install welcome notice into the control
+	// task. It uses the notice mechanism, which never starts a turn.
+	PostWelcome(ctx context.Context, taskID, text string) error
 }
 
 type BinaryInstaller interface {
@@ -160,6 +163,7 @@ type InstallResult struct {
 	Preview     Preview
 	Changed     bool
 	Resources   []string
+	Warnings    []string
 }
 
 type InstallFailure struct {
@@ -183,6 +187,7 @@ type Installer struct {
 	Store                      Store
 	Scheduler                  Scheduler
 	ControlTasks               ControlTasks
+	InstalledVersion           string
 	Binary                     BinaryInstaller
 	SelfTester                 SelfTester
 	Legacy                     LegacyLoader
@@ -243,6 +248,9 @@ func (i Installer) Install(ctx context.Context, request InstallRequest) (Install
 	} else {
 		if i.Prompter == nil {
 			return InstallResult{}, Fail("preferences", errors.New("interactive install requires a prompter"))
+		}
+		if shower, ok := i.Prompter.(interface{ ShowBanner(string) }); ok {
+			shower.ShowBanner(WelcomeBanner())
 		}
 		collected, collectErr := i.Prompter.Collect(previewPreferences)
 		if collectErr != nil {
@@ -399,7 +407,56 @@ func (i Installer) Install(ctx context.Context, request InstallRequest) (Install
 		return InstallResult{}, fail("release_lock", err)
 	}
 	lockHeld = false
-	return InstallResult{Config: nextConfig, State: currentState, Paths: i.Paths, Migrated: migrated, Reinstalled: configExists, Preview: preview, Changed: len(resources) > 0, Resources: resources}, nil
+	warnings := make([]string, 0, 1)
+	if err := i.ControlTasks.PostWelcome(ctx, controlTaskID, welcomeNotice(i.InstalledVersion, preferences)); err != nil {
+		warnings = append(warnings, fmt.Sprintf("welcome notice not posted: %v", err))
+	}
+	return InstallResult{Config: nextConfig, State: currentState, Paths: i.Paths, Migrated: migrated, Reinstalled: configExists, Preview: preview, Changed: len(resources) > 0, Resources: resources, Warnings: warnings}, nil
+}
+
+func welcomeNotice(version string, preferences Preferences) string {
+	if version == "" {
+		version = "v1"
+	}
+	archive := "no"
+	if preferences.ArchiveEnabled {
+		archive = fmt.Sprintf("yes, after %d quiet days", preferences.ArchiveAfterDays)
+	}
+	rename := "no"
+	if preferences.RenameEnabled {
+		rename = "yes"
+	}
+	agents := "off"
+	if preferences.AgentsEnabled {
+		agents = "on"
+	}
+	return fmt.Sprintf(`🧵🐻 Hi! ThreadBear %s is installed and watching over this Codex.
+
+Here is how I am set up:
+- heartbeat: every %d seconds
+- archive finished threads: %s
+- keep titles updated: %s
+- token figures in titles: %s
+- managed AGENTS.md footer: %s
+- classifier: %s at %s effort, %d byte budget
+
+Want anything different? Just tell me here in this chat, in plain words:
+"set my heartbeat to 10 minutes", "stop archiving", "turn off token counts".
+The installed ThreadBear skill shows me the matching threadbear configure
+command and I will run it for you. You can also run threadbear configure
+in a terminal any time.
+
+Happy wrangling. Go do great things!`,
+		version,
+		preferences.HeartbeatSeconds,
+		archive,
+		rename,
+		string(preferences.TokenDisplay),
+		agents,
+		preferences.ClassifierModel,
+		string(preferences.ClassifierEffort),
+		preferences.ClassifierContextBudgetBytes,
+	)
 }
 
 func (i Installer) stageCandidate(ctx context.Context, candidateConfig config.Config, candidateState state.State) ([]string, error) {

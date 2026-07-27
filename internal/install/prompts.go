@@ -95,36 +95,54 @@ func (p *TTYPrompter) Close() error {
 	return p.closer.Close()
 }
 
+// ShowBanner prints the welcome art and intro before the first question.
+func (p *TTYPrompter) ShowBanner(banner string) {
+	fmt.Fprint(p.writer, banner)
+}
+
+func (p *TTYPrompter) describe(text string) {
+	fmt.Fprintf(p.writer, "\n%s\n", text)
+}
+
 func (p *TTYPrompter) Collect(value Preferences) (Preferences, error) {
 	var err error
+	p.describe("How often ThreadBear wakes up to look at your threads, in seconds. Five minutes is a solid default.")
 	if value.HeartbeatSeconds, err = p.askInt("Heartbeat interval in seconds", value.HeartbeatSeconds); err != nil {
 		return Preferences{}, err
 	}
+	p.describe("When a thread is finished and has sat quiet for a while, ThreadBear can tuck it into the archive for you.")
 	if value.ArchiveEnabled, err = p.askBool("Automatically archive completed inactive tasks", value.ArchiveEnabled); err != nil {
 		return Preferences{}, err
 	}
+	p.describe("How many quiet days a finished thread stays in the sidebar before it is archived.")
 	if value.ArchiveAfterDays, err = p.askInt("Archive inactivity interval in days", value.ArchiveAfterDays); err != nil {
 		return Preferences{}, err
 	}
+	p.describe("Keep each thread's title fresh: a status emoji up front and the next action when there is one. Names you set yourself are never overwritten.")
 	if value.RenameEnabled, err = p.askBool("Automatically maintain status and next-action titles", value.RenameEnabled); err != nil {
 		return Preferences{}, err
 	}
+	p.describe("Show how many output tokens each thread has used, right in its title. Choose off, start, or end of the title.")
 	tokenDisplay, err := p.askString("Show output tokens in managed titles (off, start, end)", string(value.TokenDisplay))
 	if err != nil {
 		return Preferences{}, err
 	}
 	value.TokenDisplay = tokens.Position(tokenDisplay)
+	p.describe("Add a small managed block to your global AGENTS.md asking agents to end each reply with a one line status footer. Most threads then classify instantly, with zero tokens.")
 	if value.AgentsEnabled, err = p.askBool("Install managed AGENTS.md instructions", value.AgentsEnabled); err != nil {
 		return Preferences{}, err
 	}
+	p.describe("The model ThreadBear consults when a thread's status is not obvious from local evidence alone.")
 	if value.ClassifierModel, err = p.askString("Classifier model", value.ClassifierModel); err != nil {
 		return Preferences{}, err
 	}
+	p.describe("How hard that model thinks per question. Medium is the tested default.")
 	effort, err := p.askString("Classifier effort (low, medium, high, xhigh)", string(value.ClassifierEffort))
 	if err != nil {
 		return Preferences{}, err
 	}
 	value.ClassifierEffort = config.ClassifierEffort(effort)
+	p.describe("The most bytes of thread text sent in one classifier call. The default suits almost everyone.")
 	if value.ClassifierContextBudgetBytes, err = p.askInt("Classifier context budget in bytes", value.ClassifierContextBudgetBytes); err != nil {
 		return Preferences{}, err
 	}

@@ -68,7 +68,7 @@ func InstallHandler(factory InstallFactory) Handler {
 		return output.LifecycleResult{
 			Command: "install", Changed: result.Changed,
 			Resources:     result.Resources,
-			ControlTaskID: result.Config.ControlTaskID, Migrated: result.Migrated, Reinstalled: result.Reinstalled,
+			ControlTaskID: result.Config.ControlTaskID, Migrated: result.Migrated, Reinstalled: result.Reinstalled, Warnings: result.Warnings,
 		}, nil
 	}
 }

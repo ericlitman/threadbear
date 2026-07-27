@@ -66,7 +66,7 @@ A successful first install creates or adopts exactly these managed resources:
 - `~/.local/share/threadbear/logs/heartbeat.stdout.log` and `heartbeat.stderr.log` — LaunchAgent output paths;
 - `${CODEX_HOME:-~/.codex}/AGENTS.md` — one identifiable mode-`0600` managed file when enabled, preserving all bytes outside that block;
 - `${CODEX_HOME:-~/.codex}/skills/threadbear/SKILL.md` — one mode-`0600` managed ThreadBear skill block;
-- one persistent Codex control task titled `🧵🐻 ThreadBear 🐻🧵`.
+- one persistent Codex control task titled `🧵🐻 ThreadBear 🐻🧵`, opened with a welcome notice that lists the chosen settings and explains how to change them from that chat.
 
 The LaunchAgent uses `StartInterval`, `ProcessType=Background`, and `KeepAlive=false`. The interval is approximate: macOS does not replay launches missed during sleep or while a previous heartbeat is still running.
 

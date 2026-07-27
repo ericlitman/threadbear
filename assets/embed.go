@@ -10,3 +10,6 @@ var AgentsManagedContent string
 
 //go:embed skill/SKILL.md
 var SkillManagedContent string
+
+//go:embed both5_safe.ans
+var WelcomeArt string
