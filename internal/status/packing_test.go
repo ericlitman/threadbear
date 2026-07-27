@@ -228,3 +228,29 @@ func TestPackNeverExceedsGreedyGroupCount(t *testing.T) {
 		t.Fatalf("batches = %d, greedy = %d; result must never exceed greedy", len(batches), len(greedy))
 	}
 }
+
+func TestPackCapsTasksPerBatch(t *testing.T) {
+	// A 71-task live batch produced UUID transcription errors; the cap bounds
+	// how many IDs one response must echo, whatever the byte budget allows.
+	tasks := make([]TaskEvidence, 50)
+	for index := range tasks {
+		tasks[index] = TaskEvidence{TaskID: "cap-" + twoDigits(index), Revision: "r", Latest: TurnEvidence{FinalAgent: "short"}}
+	}
+	batches, oversized, err := PackTasks(tasks, 1<<20, false)
+	if err != nil || len(oversized) != 0 {
+		t.Fatalf("oversized=%d err=%v", len(oversized), err)
+	}
+	if len(batches) < 3 {
+		t.Fatalf("expected at least 3 capped batches, got %d", len(batches))
+	}
+	seen := 0
+	for _, batch := range batches {
+		if len(batch.Tasks) > maxBatchTasks {
+			t.Fatalf("batch has %d tasks, cap is %d", len(batch.Tasks), maxBatchTasks)
+		}
+		seen += len(batch.Tasks)
+	}
+	if seen != len(tasks) {
+		t.Fatalf("packed %d of %d tasks", seen, len(tasks))
+	}
+}
