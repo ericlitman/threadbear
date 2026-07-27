@@ -142,14 +142,10 @@ func (s ManagedSurfaceSet) plan(agentsEnabled bool, assets ManagedAssets) ([]man
 }
 
 func planManagedFile(resource, path string, enabled bool, content []byte) (managedPlan, error) {
-	resolved, err := resolveManagedPath(path)
-	if err != nil {
-		return managedPlan{}, err
-	}
 	if err := ValidateManagedFile(path); err != nil {
 		return managedPlan{}, err
 	}
-	before, err := snapshotManagedFile(resolved)
+	before, err := snapshotManagedFile(path)
 	if err != nil {
 		return managedPlan{}, err
 	}
