@@ -14,6 +14,7 @@ import (
 	"github.com/ericlitman/threadbear/internal/codex/appserver"
 	"github.com/ericlitman/threadbear/internal/config"
 	"github.com/ericlitman/threadbear/internal/install"
+	"github.com/ericlitman/threadbear/internal/state"
 	"github.com/ericlitman/threadbear/internal/tokens"
 )
 
@@ -260,6 +261,86 @@ func TestHeartbeatRuntimeUsesInstalledPinnedCodexExecutable(t *testing.T) {
 	}
 	if !found {
 		t.Fatalf("process env=%v want stored PATH=%q", process.Env, storedPath)
+	}
+}
+
+func TestCandidateInstalledStateMatrix(t *testing.T) {
+	originalResolver := resolveCodexExecutableSpec
+	resolveCodexExecutableSpec = func(string, string) (codex.ExecutableSpec, error) {
+		return codex.ExecutableSpec{}, errors.New("synthetic Codex failure")
+	}
+	t.Cleanup(func() { resolveCodexExecutableSpec = originalResolver })
+
+	tests := []struct {
+		name  string
+		setup func(*testing.T, install.Paths)
+		ok    bool
+	}{
+		{name: "absent", ok: true},
+		{name: "lock only", setup: func(t *testing.T, paths install.Paths) {
+			lock, err := state.NewStore(paths.StateDirectory).AcquireLock()
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := lock.Close(); err != nil {
+				t.Fatal(err)
+			}
+		}, ok: true},
+		{name: "partial config without state", setup: func(t *testing.T, paths install.Paths) {
+			if err := install.NewDiskStore(paths).SaveConfig(config.Default("control")); err != nil {
+				t.Fatal(err)
+			}
+		}},
+		{name: "partial state without config", setup: func(t *testing.T, paths install.Paths) {
+			if err := install.NewDiskStore(paths).SaveState(state.New()); err != nil {
+				t.Fatal(err)
+			}
+		}},
+		{name: "malformed config", setup: func(t *testing.T, paths install.Paths) {
+			store := install.NewDiskStore(paths)
+			if err := store.SaveState(state.New()); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(paths.Config, []byte("{\n"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+		}},
+		{name: "valid install", setup: func(t *testing.T, paths install.Paths) {
+			store := install.NewDiskStore(paths)
+			if err := store.SaveConfig(config.Default("control")); err != nil {
+				t.Fatal(err)
+			}
+			if err := store.SaveState(state.New()); err != nil {
+				t.Fatal(err)
+			}
+		}, ok: true},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			home := filepath.Join(t.TempDir(), "missing-home")
+			paths := install.PathsForHomes(home, filepath.Join(home, "codex"))
+			if test.setup != nil {
+				test.setup(t, paths)
+			}
+			err := validateInstalledState(paths)
+			if (err == nil) != test.ok {
+				t.Fatalf("validateInstalledState() error=%v want ok=%t", err, test.ok)
+			}
+			result := (runtimeSelfTest{paths: paths}).Run(context.Background(), true)
+			found := false
+			for _, check := range result.Checks {
+				if check.Name != "installed_state" {
+					continue
+				}
+				found = true
+				if check.OK != test.ok {
+					t.Fatalf("installed_state=%+v want ok=%t", check, test.ok)
+				}
+			}
+			if !found {
+				t.Fatal("candidate self-test omitted installed_state")
+			}
+		})
 	}
 }
 
