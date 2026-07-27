@@ -48,16 +48,41 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 		}
 		return 0
 	}
+	if help, code, ok := requestedHelp(args); ok {
+		if _, err := io.WriteString(stdout, help); err != nil {
+			fmt.Fprintf(stderr, "ThreadBear couldn't write help: %v\n", err)
+			return 1
+		}
+		return code
+	}
 	request, err := parseRequest(args)
 	format := output.FormatHuman
 	if request.JSON {
 		format = output.FormatJSON
 	}
 	if err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			spec, ok := commandSpecFor(request.Command)
+			if !ok {
+				return 2
+			}
+			if _, writeErr := io.WriteString(stdout, renderCommandHelp(spec)); writeErr != nil {
+				fmt.Fprintf(stderr, "ThreadBear couldn't write help: %v\n", writeErr)
+				return 1
+			}
+			return 0
+		}
 		result := output.ErrorResult{Operation: "parse", ErrorCode: "invalid_arguments"}
 		if errors.Is(err, app.ErrUnknownCommand) {
 			result.Operation = "dispatch"
 			result.ErrorCode = "unknown_command"
+			if format == output.FormatHuman {
+				if _, writeErr := io.WriteString(stdout, unknownCommandMessage(request.Command)); writeErr != nil {
+					fmt.Fprintf(stderr, "ThreadBear couldn't write its result: %v\n", writeErr)
+					return 1
+				}
+				return 2
+			}
 		}
 		if writeErr := output.Write(stdout, format, result); writeErr != nil {
 			fmt.Fprintf(stderr, "ThreadBear couldn't write its result: %v\n", writeErr)
@@ -347,39 +372,17 @@ func openAppServerPinned(ctx context.Context, spec codex.ExecutableSpec, codexHo
 
 func parseRequest(args []string) (app.Request, error) {
 	if len(args) == 0 {
-		return app.Request{}, fmt.Errorf("choose a command: install, heartbeat, status, inspect, configure, enable, disable, restore, self-test, update, uninstall, or version")
+		return app.Request{}, fmt.Errorf("choose a command")
 	}
 	request := app.Request{Command: app.Command(args[0]), JSON: containsFlag(args[1:], "--json")}
-	if !request.Command.Valid() {
+	spec, ok := commandSpecFor(request.Command)
+	if !ok {
 		return request, fmt.Errorf("%w: %q", app.ErrUnknownCommand, request.Command)
 	}
-	flags := flag.NewFlagSet(args[0], flag.ContinueOnError)
-	flags.SetOutput(io.Discard)
-	flags.BoolVar(&request.JSON, "json", request.JSON, "write stable JSON output")
-	switch request.Command {
-	case app.CommandHeartbeat:
-		flags.BoolVar(&request.DryRun, "dry-run", false, "inventory and analyze without models or mutations")
-	case app.CommandInstall:
-		registerConfigureFlags(flags, &request.Configure)
-		registerLifecycleFlags(flags, &request)
-		flags.StringVar(&request.Version, "version", "", "verified bootstrap version")
-	case app.CommandConfigure:
-		registerConfigureFlags(flags, &request.Configure)
-		registerNonInteractiveFlags(flags, &request)
-		flags.BoolVar(&request.DryRun, "dry-run", false, "preview configuration effects")
-		flags.BoolVar(&request.Confirm, "confirm", false, "confirm the previewed changes")
-	case app.CommandSelfTest:
-		flags.BoolVar(&request.Candidate, "candidate", false, "validate this candidate before installation")
-	case app.CommandUpdate:
-		flags.StringVar(&request.Version, "version", "", "exact release version without a leading v")
-	case app.CommandUninstall:
-		registerLifecycleFlags(flags, &request)
-		flags.BoolVar(&request.ArchiveControlTask, "archive-control-task", false, "archive the control task")
-		flags.BoolVar(&request.DeleteState, "delete-state", false, "delete persistent state")
-	}
+	flags := newCommandFlagSet(spec, &request)
 	commandArgs := args[1:]
 	if request.Command == app.CommandInspect || request.Command == app.CommandRestore {
-		commandArgs = flagsBeforePositionals(commandArgs, "--json")
+		commandArgs = flagsBeforePositionals(commandArgs, "--json", "-h", "--help")
 	}
 	if err := flags.Parse(commandArgs); err != nil {
 		return request, err
@@ -438,13 +441,13 @@ func registerConfigureFlags(flags *flag.FlagSet, patch *app.ConfigPatch) {
 	flags.Var(optionalBool{target: &patch.ArchiveEnabled}, "archive", "enable or disable automatic archiving")
 	flags.Var(optionalBool{target: &patch.RenameEnabled}, "rename", "enable or disable managed titles")
 	flags.Var(optionalBool{target: &patch.AutoUpdateEnabled}, "auto-update", "enable or disable automatic ThreadBear updates")
-	flags.Func("token-display", "show output tokens in managed titles: off, start, or end", func(value string) error {
+	flags.Func("token-display", "show output tokens in managed titles: `off|start|end`", func(value string) error {
 		parsed := tokens.Position(value)
 		patch.TokenDisplay = &parsed
 		return nil
 	})
 	flags.Var(optionalBool{target: &patch.AgentsEnabled}, "agents", "enable or disable managed AGENTS content")
-	flags.Func("heartbeat-seconds", "set the heartbeat interval", func(value string) error {
+	flags.Func("heartbeat-seconds", "set the heartbeat interval in positive `SECONDS`", func(value string) error {
 		parsed, err := strconv.Atoi(value)
 		if err != nil {
 			return err
@@ -452,7 +455,7 @@ func registerConfigureFlags(flags *flag.FlagSet, patch *app.ConfigPatch) {
 		patch.HeartbeatSeconds = &parsed
 		return nil
 	})
-	flags.Func("archive-after-days", "set complete-task archive age", func(value string) error {
+	flags.Func("archive-after-days", "set complete-task archive age in positive `DAYS`", func(value string) error {
 		parsed, err := strconv.Atoi(value)
 		if err != nil {
 			return err
@@ -460,16 +463,16 @@ func registerConfigureFlags(flags *flag.FlagSet, patch *app.ConfigPatch) {
 		patch.ArchiveAfterDays = &parsed
 		return nil
 	})
-	flags.Func("classifier-model", "set classifier model", func(value string) error {
+	flags.Func("classifier-model", "set non-empty classifier `MODEL` without surrounding whitespace", func(value string) error {
 		patch.ClassifierModel = &value
 		return nil
 	})
-	flags.Func("classifier-effort", "set classifier reasoning effort", func(value string) error {
+	flags.Func("classifier-effort", "set classifier reasoning effort: `low|medium|high|xhigh`", func(value string) error {
 		parsed := config.ClassifierEffort(value)
 		patch.ClassifierEffort = &parsed
 		return nil
 	})
-	flags.Func("classifier-context-budget-bytes", "set classifier context budget", func(value string) error {
+	flags.Func("classifier-context-budget-bytes", "set classifier context budget in positive `BYTES`", func(value string) error {
 		parsed, err := strconv.Atoi(value)
 		if err != nil {
 			return err
