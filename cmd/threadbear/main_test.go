@@ -1,8 +1,11 @@
 package main
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -364,6 +367,9 @@ func TestCandidateSelfTestRejectsUnsupportedInstalledState(t *testing.T) {
 	result := (runtimeSelfTest{paths: paths}).Run(context.Background(), true)
 	found := false
 	for _, check := range result.Checks {
+		if check.Name == "agents" || check.Name == "skill" {
+			t.Fatalf("candidate self-test unexpectedly checked managed surface %q", check.Name)
+		}
 		if check.Name == "installed_state" {
 			found = true
 			if check.OK {
@@ -390,26 +396,181 @@ func TestParseUpdateExactVersion(t *testing.T) {
 	}
 }
 
-func TestManagedSurfaceReconcilerWritesRunningAssets(t *testing.T) {
-	dir := t.TempDir()
-	agentsPath := filepath.Join(dir, "AGENTS.md")
-	skillPath := filepath.Join(dir, "SKILL.md")
-	reconciler := managedSurfaceReconciler{agentsPath: agentsPath, skillPath: skillPath}
-	if err := reconciler.Reconcile(false); err != nil {
+func TestRunExportsCandidateManagedAssetsOnlyWithCandidatePattern(t *testing.T) {
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	if code := run(context.Background(), []string{"managed-assets", "--candidate", "--json"}, &stdout, &stderr); code != 0 {
+		t.Fatalf("code=%d stderr=%q", code, stderr.String())
+	}
+	var exported install.ManagedAssets
+	if err := json.Unmarshal(stdout.Bytes(), &exported); err != nil {
 		t.Fatal(err)
 	}
-	skill, err := os.ReadFile(skillPath)
-	if err != nil || !strings.Contains(string(skill), assets.SkillManagedContent) {
-		t.Fatalf("skill=%q err=%v", skill, err)
+	if exported.Agents != assets.AgentsManagedContent || exported.Skill != assets.SkillManagedContent {
+		t.Fatalf("exported=%+v", exported)
 	}
-	if _, err := os.Stat(agentsPath); !errors.Is(err, os.ErrNotExist) {
-		t.Fatalf("disabled AGENTS path exists: %v", err)
+	stdout.Reset()
+	if code := run(context.Background(), []string{"managed-assets", "--json"}, &stdout, &stderr); code == 0 {
+		t.Fatal("managed assets exported without candidate pattern")
 	}
-	if err := reconciler.Reconcile(true); err != nil {
+}
+
+type healthyLaunchAgent struct{}
+
+func (healthyLaunchAgent) Healthy(context.Context) (bool, error)      { return true, nil }
+func (healthyLaunchAgent) Apply(context.Context, config.Config) error { return nil }
+func (healthyLaunchAgent) Enable(context.Context) (bool, error)       { return false, nil }
+func (healthyLaunchAgent) Disable(context.Context) (bool, error)      { return false, nil }
+
+func TestInstalledSelfTestManagedDiagnosticsAreActionable(t *testing.T) {
+	home := t.TempDir()
+	paths := install.PathsForHomes(home, filepath.Join(home, "codex"))
+	if err := os.MkdirAll(paths.CodexHome, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	agents, err := os.ReadFile(agentsPath)
-	if err != nil || !strings.Contains(string(agents), assets.AgentsManagedContent) {
-		t.Fatalf("agents=%q err=%v", agents, err)
+	if err := os.MkdirAll(filepath.Dir(paths.Binary), 0o700); err != nil {
+		t.Fatal(err)
 	}
+	if err := os.WriteFile(paths.Binary, []byte("binary"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	store := install.NewDiskStore(paths)
+	cfg := config.Default("control")
+	cfg.CodexExecutable = "/bin/sh"
+	cfg.CodexSpawnPath = "/usr/bin:/bin"
+	if err := store.SaveConfig(cfg); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.SaveState(state.New()); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(paths.Agents, []byte("stale"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	result := (runtimeSelfTest{paths: paths, launchAgent: healthyLaunchAgent{}}).Run(context.Background(), false)
+	managedChecks := 0
+	for _, check := range result.Checks {
+		if check.Name != "agents" && check.Name != "skill" {
+			continue
+		}
+		managedChecks++
+		if check.OK || check.ErrorCode != "managed_surface_stale" || check.Remedy != "run threadbear update or threadbear configure" {
+			t.Fatalf("check=%+v", check)
+		}
+	}
+	if managedChecks != 2 {
+		t.Fatalf("checks=%+v", result.Checks)
+	}
+}
+
+func TestInstalledSelfTestManagedSymlinkReportsStaleDiagnostic(t *testing.T) {
+	home := t.TempDir()
+	paths := install.PathsForHomes(home, filepath.Join(home, "codex"))
+	if err := os.MkdirAll(paths.CodexHome, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Dir(paths.Binary), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(paths.Binary, []byte("binary"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	store := install.NewDiskStore(paths)
+	cfg := config.Default("control")
+	cfg.CodexExecutable = "/bin/sh"
+	cfg.CodexSpawnPath = "/usr/bin:/bin"
+	if err := store.SaveConfig(cfg); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.SaveState(state.New()); err != nil {
+		t.Fatal(err)
+	}
+	target := filepath.Join(home, "unsafe-agents-target")
+	if err := os.WriteFile(target, []byte("sensitive target"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(target, paths.Agents); err != nil {
+		t.Fatal(err)
+	}
+	if err := install.WriteManagedBlock(paths.Skill, []byte(assets.SkillManagedContent)); err != nil {
+		t.Fatal(err)
+	}
+	result := (runtimeSelfTest{paths: paths, launchAgent: healthyLaunchAgent{}}).Run(context.Background(), false)
+	for _, check := range result.Checks {
+		if check.Name == "agents" {
+			if check.OK || check.ErrorCode != "managed_surface_stale" || check.Remedy != "run threadbear update or threadbear configure" {
+				t.Fatalf("check=%+v", check)
+			}
+			data, err := json.Marshal(check)
+			if err != nil || bytes.Contains(data, []byte(target)) {
+				t.Fatalf("diagnostic exposed path: %s err=%v", data, err)
+			}
+			return
+		}
+	}
+	t.Fatalf("checks=%+v", result.Checks)
+}
+
+func TestManagedSurfaceCheckRemediesAreConditionSpecific(t *testing.T) {
+	tests := []struct {
+		name   string
+		err    error
+		code   string
+		remedy string
+	}{
+		{name: "malformed", err: fmt.Errorf("private path: %w", install.ErrMalformedManagedBlock), code: "managed_surface_malformed", remedy: "replace or move aside the malformed managed file so it has no invalid ThreadBear markers, then rerun update or configure"},
+		{name: "stale", err: install.ErrManagedSurfaceStale, code: "managed_surface_stale", remedy: "run threadbear update or threadbear configure"},
+		{name: "unsafe", err: install.ErrUnsafeManagedPath, code: "managed_surface_unsafe_path", remedy: "replace the unsafe or symlinked managed path with a regular file, then rerun update or configure"},
+		{name: "unavailable", err: errors.New("secret/path: permission denied"), code: "managed_surface_unavailable", remedy: "fix managed file access or permissions, then rerun update or configure"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			check := managedSurfaceCheck("agents", test.err)
+			if check.ErrorCode != test.code || check.Remedy != test.remedy || strings.Contains(check.Remedy, "secret/path") {
+				t.Fatalf("check=%+v", check)
+			}
+		})
+	}
+}
+
+func TestInstalledSelfTestMalformedManagedSurfaceHasStablePathSafeDiagnostic(t *testing.T) {
+	home := t.TempDir()
+	paths := install.PathsForHomes(home, filepath.Join(home, "codex"))
+	if err := os.MkdirAll(paths.CodexHome, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Dir(paths.Binary), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(paths.Binary, []byte("binary"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	store := install.NewDiskStore(paths)
+	cfg := config.Default("control")
+	cfg.CodexExecutable = "/bin/sh"
+	cfg.CodexSpawnPath = "/usr/bin:/bin"
+	if err := store.SaveConfig(cfg); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.SaveState(state.New()); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(paths.Agents, []byte(install.ManagedBlockStart+"\nbroken\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := install.WriteManagedBlock(paths.Skill, []byte(assets.SkillManagedContent)); err != nil {
+		t.Fatal(err)
+	}
+	result := (runtimeSelfTest{paths: paths, launchAgent: healthyLaunchAgent{}}).Run(context.Background(), false)
+	for _, check := range result.Checks {
+		if check.Name != "agents" {
+			continue
+		}
+		wantRemedy := "replace or move aside the malformed managed file so it has no invalid ThreadBear markers, then rerun update or configure"
+		if check.OK || check.ErrorCode != "managed_surface_malformed" || check.Remedy != wantRemedy || strings.Contains(check.Remedy, paths.Agents) || strings.Contains(check.Remedy, "permission") {
+			t.Fatalf("check=%+v", check)
+		}
+		return
+	}
+	t.Fatalf("checks=%+v", result.Checks)
 }

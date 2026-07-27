@@ -837,10 +837,10 @@ func (s CoreSelfTester) Test(ctx context.Context, input SelfTestInput) error {
 		return fmt.Errorf("state validation: %w", err)
 	}
 	if err := VerifyManagedSurface(input.Paths.Agents, input.Config.AgentsEnabled, []byte(assets.AgentsManagedContent)); err != nil {
-		return fmt.Errorf("AGENTS surface validation: %w", err)
+		return fmt.Errorf("AGENTS surface validation: %w; run threadbear update or threadbear configure", err)
 	}
 	if err := VerifyManagedSurface(input.Paths.Skill, true, []byte(assets.SkillManagedContent)); err != nil {
-		return fmt.Errorf("skill surface validation: %w", err)
+		return fmt.Errorf("skill surface validation: %w; run threadbear update or threadbear configure", err)
 	}
 	if s.Store != nil && !input.Candidate {
 		persistedConfig, err := s.Store.LoadConfig()
@@ -909,8 +909,11 @@ func VerifyManagedSurface(path string, enabled bool, content []byte) error {
 		return err
 	}
 	data, err := os.ReadFile(path)
-	if errors.Is(err, fs.ErrNotExist) && !enabled {
-		return nil
+	if errors.Is(err, fs.ErrNotExist) {
+		if !enabled {
+			return nil
+		}
+		return fmt.Errorf("%w: expected managed file is missing", ErrManagedSurfaceStale)
 	}
 	if err != nil {
 		return err
@@ -922,10 +925,10 @@ func VerifyManagedSurface(path string, enabled bool, content []byte) error {
 	expected := ManagedBlock(content)
 	found := bytes.Contains(data, expected)
 	if enabled && !found {
-		return errors.New("expected managed block is missing or stale")
+		return fmt.Errorf("%w: expected managed block is missing or stale", ErrManagedSurfaceStale)
 	}
 	if !enabled && bytes.Contains(data, []byte(ManagedBlockStart)) {
-		return errors.New("disabled managed block remains")
+		return fmt.Errorf("%w: disabled managed block remains", ErrManagedSurfaceStale)
 	}
 	return nil
 }

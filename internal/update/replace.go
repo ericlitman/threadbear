@@ -13,15 +13,38 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+
+	"github.com/ericlitman/threadbear/internal/install"
 )
+
+type ManagedRefreshError struct {
+	Err error
+}
+
+func (e *ManagedRefreshError) Error() string {
+	return fmt.Sprintf("new binary installed but managed surface refresh failed: %v", e.Err)
+}
+
+func (e *ManagedRefreshError) Unwrap() error {
+	return e.Err
+}
 
 type Result struct {
 	PreviousVersion  string
 	InstalledVersion string
 	Changed          bool
+	Resources        []string
+	Warnings         []string
 }
 
 type CommandRunner func(context.Context, string, ...string) ([]byte, error)
+
+type ReplacementPreview struct {
+	Resources []string
+	Details   []string
+}
+
+type PreviewCallback func(ReplacementPreview) error
 
 type Replacer struct {
 	Client           *http.Client
@@ -33,6 +56,10 @@ type Replacer struct {
 	GOARCH           string
 	RunCommand       CommandRunner
 	Rename           func(string, string) error
+	Preview          PreviewCallback
+	ManagedSurfaces  install.ManagedSurfaceSet
+	AgentsEnabled    func() (bool, error)
+	CurrentAssets    install.ManagedAssets
 }
 
 func (r Replacer) Update(ctx context.Context, requestedVersion string) (Result, error) {
@@ -47,10 +74,10 @@ func (r Replacer) Update(ctx context.Context, requestedVersion string) (Result, 
 			return Result{}, compareErr
 		}
 		if !newer {
-			return Result{PreviousVersion: r.InstalledVersion, InstalledVersion: r.InstalledVersion}, nil
+			return r.reconcileCurrentSurfaces()
 		}
 	} else if release.Version == r.InstalledVersion {
-		return Result{PreviousVersion: r.InstalledVersion, InstalledVersion: r.InstalledVersion}, nil
+		return r.reconcileCurrentSurfaces()
 	}
 	target, err := filepath.Abs(r.ExecutablePath)
 	if err != nil {
@@ -114,6 +141,46 @@ func (r Replacer) Update(ctx context.Context, requestedVersion string) (Result, 
 	if !selfTest.OK {
 		return Result{}, fmt.Errorf("candidate self-test failed")
 	}
+	preview := ReplacementPreview{Resources: []string{"binary"}, Details: []string{"binary: replace installed executable"}}
+	result := Result{PreviousVersion: r.InstalledVersion, InstalledVersion: release.Version}
+	var managedAssets install.ManagedAssets
+	var agentsEnabled bool
+	managedEnabled := r.managesSurfaces()
+	if managedEnabled {
+		agentsEnabled, err = r.AgentsEnabled()
+		if err != nil {
+			return Result{}, fmt.Errorf("read managed surface preference: %w", err)
+		}
+		export, exportErr := run(ctx, candidatePath, "managed-assets", "--candidate", "--json")
+		if exportErr != nil {
+			downgrade, compareErr := newerVersion(r.InstalledVersion, release.Version)
+			if compareErr != nil {
+				return Result{}, compareErr
+			}
+			if !downgrade || !candidateReportedUnknownCommand(export) {
+				return Result{}, fmt.Errorf("export candidate managed assets: %w", exportErr)
+			}
+			managedEnabled = false
+			result.Warnings = append(result.Warnings, "AGENTS.md and the threadbear skill were not refreshed because the downgrade candidate reported that managed asset export is an unknown command")
+		} else {
+			if err := json.Unmarshal(export, &managedAssets); err != nil {
+				return Result{}, fmt.Errorf("decode candidate managed assets: %w", err)
+			}
+			if err := validateManagedAssets(managedAssets); err != nil {
+				return Result{}, err
+			}
+			mutations, previewErr := r.ManagedSurfaces.Preview(agentsEnabled, managedAssets)
+			if previewErr != nil {
+				return Result{}, fmt.Errorf("preview managed surface refresh: %w", previewErr)
+			}
+			appendChangedMutations(&preview, mutations)
+		}
+	}
+	if r.Preview != nil {
+		if err := r.Preview(ReplacementPreview{Resources: append([]string(nil), preview.Resources...), Details: append([]string(nil), preview.Details...)}); err != nil {
+			return Result{}, fmt.Errorf("emit update preview: %w", err)
+		}
+	}
 	rename := r.Rename
 	if rename == nil {
 		rename = os.Rename
@@ -121,7 +188,82 @@ func (r Replacer) Update(ctx context.Context, requestedVersion string) (Result, 
 	if err := rename(candidatePath, target); err != nil {
 		return Result{}, fmt.Errorf("replace installed binary: %w", err)
 	}
-	return Result{PreviousVersion: r.InstalledVersion, InstalledVersion: release.Version, Changed: true}, nil
+	result.Changed = true
+	result.Resources = append(result.Resources, "binary")
+	if managedEnabled {
+		managedResult, applyErr := r.ManagedSurfaces.Reconcile(agentsEnabled, managedAssets)
+		if applyErr != nil {
+			return Result{}, &ManagedRefreshError{Err: applyErr}
+		}
+		result.Resources = append(result.Resources, managedResult.Resources...)
+	}
+	return result, nil
+}
+
+func (r Replacer) reconcileCurrentSurfaces() (Result, error) {
+	result := Result{PreviousVersion: r.InstalledVersion, InstalledVersion: r.InstalledVersion}
+	if !r.managesSurfaces() {
+		return result, nil
+	}
+	if err := validateManagedAssets(r.CurrentAssets); err != nil {
+		return Result{}, err
+	}
+	agentsEnabled, err := r.AgentsEnabled()
+	if err != nil {
+		return Result{}, fmt.Errorf("read managed surface preference: %w", err)
+	}
+	mutations, err := r.ManagedSurfaces.Preview(agentsEnabled, r.CurrentAssets)
+	if err != nil {
+		return Result{}, fmt.Errorf("preview managed surface refresh: %w", err)
+	}
+	preview := ReplacementPreview{}
+	appendChangedMutations(&preview, mutations)
+	if len(preview.Resources) == 0 {
+		if _, err := r.ManagedSurfaces.Reconcile(agentsEnabled, r.CurrentAssets); err != nil {
+			return Result{}, fmt.Errorf("verify managed surfaces: %w", err)
+		}
+		return result, nil
+	}
+	if r.Preview != nil {
+		if err := r.Preview(preview); err != nil {
+			return Result{}, fmt.Errorf("emit update preview: %w", err)
+		}
+	}
+	managedResult, err := r.ManagedSurfaces.Reconcile(agentsEnabled, r.CurrentAssets)
+	if err != nil {
+		return Result{}, fmt.Errorf("reconcile current managed surfaces: %w", err)
+	}
+	result.Changed = managedResult.Changed
+	result.Resources = append(result.Resources, managedResult.Resources...)
+	return result, nil
+}
+
+func (r Replacer) managesSurfaces() bool {
+	return r.AgentsEnabled != nil && r.ManagedSurfaces.AgentsPath != "" && r.ManagedSurfaces.SkillPath != ""
+}
+
+func appendChangedMutations(preview *ReplacementPreview, mutations []install.ManagedMutation) {
+	for _, mutation := range mutations {
+		if mutation.Changed {
+			preview.Resources = append(preview.Resources, mutation.Resource)
+			preview.Details = append(preview.Details, mutation.Detail)
+		}
+	}
+}
+
+func validateManagedAssets(assets install.ManagedAssets) error {
+	if assets.Agents == "" || assets.Skill == "" {
+		return fmt.Errorf("candidate managed asset export is incomplete")
+	}
+	return nil
+}
+
+func candidateReportedUnknownCommand(data []byte) bool {
+	var result struct {
+		Operation string `json:"operation"`
+		ErrorCode string `json:"error_code"`
+	}
+	return json.Unmarshal(data, &result) == nil && result.Operation == "dispatch" && result.ErrorCode == "unknown_command"
 }
 
 func downloadTo(ctx context.Context, client *http.Client, url string, writer io.Writer) error {

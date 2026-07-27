@@ -19,6 +19,7 @@ const (
 var (
 	ErrMalformedManagedBlock = errors.New("malformed ThreadBear managed block")
 	ErrUnsafeManagedPath     = errors.New("unsafe managed path")
+	ErrManagedSurfaceStale   = errors.New("managed surface is stale")
 )
 
 func ManagedBlock(content []byte) []byte {

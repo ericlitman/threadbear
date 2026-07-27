@@ -14,9 +14,16 @@ type ManagedAgents interface {
 	Preview(bool) (ManagedAgentsPreview, error)
 }
 
+type ManagedAgentsSnapshotter interface {
+	Snapshot() (any, error)
+	Restore(any) error
+}
+
 type ManagedAgentsPreview struct {
-	Detail  string
-	Changed bool
+	Detail    string
+	Details   []string
+	Resources []string
+	Changed   bool
 }
 
 func ConfigureHandler(store OperatorStore, launchAgent LaunchAgent, previewer func(output.PreviewResult) error, confirmer func() (bool, error), managedAgents ...ManagedAgents) Handler {
@@ -61,8 +68,16 @@ func ConfigureHandler(store OperatorStore, launchAgent LaunchAgent, previewer fu
 			resources = append(resources, "config")
 		}
 		if agentsPreview.Changed {
-			resources = append(resources, "agents")
-			preview = append(preview, agentsPreview.Detail)
+			managedResources := agentsPreview.Resources
+			if len(managedResources) == 0 {
+				managedResources = []string{"agents"}
+			}
+			resources = append(resources, managedResources...)
+			if len(agentsPreview.Details) > 0 {
+				preview = append(preview, agentsPreview.Details...)
+			} else if agentsPreview.Detail != "" {
+				preview = append(preview, agentsPreview.Detail)
+			}
 		}
 		if next.HeartbeatSeconds != current.HeartbeatSeconds {
 			preview = append(preview, fmt.Sprintf("LaunchAgent interval: %ds -> %ds", current.HeartbeatSeconds, next.HeartbeatSeconds))
@@ -91,6 +106,15 @@ func ConfigureHandler(store OperatorStore, launchAgent LaunchAgent, previewer fu
 				return commandError("configure", "cancelled", ErrInvalidRequest)
 			}
 		}
+		var managedSnapshot any
+		if agentsPreview.Changed {
+			if snapshotter, ok := managedAgents[0].(ManagedAgentsSnapshotter); ok {
+				managedSnapshot, err = snapshotter.Snapshot()
+				if err != nil {
+					return commandError("configure", "managed_snapshot_failed", err)
+				}
+			}
+		}
 		schedulerChanged := next.HeartbeatSeconds != current.HeartbeatSeconds
 		if schedulerChanged {
 			if launchAgent == nil {
@@ -105,28 +129,47 @@ func ConfigureHandler(store OperatorStore, launchAgent LaunchAgent, previewer fu
 			resources = append(resources, config.LaunchAgentLabel)
 		}
 		if agentsPreview.Changed {
-			if _, err := managedAgents[0].Apply(next.AgentsEnabled); err != nil {
-				if schedulerChanged {
-					_ = launchAgent.Apply(ctx, current)
+			if _, applyErr := managedAgents[0].Apply(next.AgentsEnabled); applyErr != nil {
+				var managedRollbackErr error
+				if snapshotter, ok := managedAgents[0].(ManagedAgentsSnapshotter); ok && managedSnapshot != nil {
+					managedRollbackErr = snapshotter.Restore(managedSnapshot)
 				}
-				return commandError("configure", "agents_apply_failed", err)
+				var launchRollbackErr error
+				if schedulerChanged {
+					launchRollbackErr = launchAgent.Apply(ctx, current)
+				}
+				rollbackErr := errors.Join(applyErr, managedRollbackErr, launchRollbackErr)
+				if launchRollbackErr != nil {
+					return commandError("configure", "launch_agent_rollback_failed", rollbackErr)
+				}
+				if managedRollbackErr != nil {
+					return commandError("configure", "managed_rollback_failed", rollbackErr)
+				}
+				return commandError("configure", "agents_apply_failed", rollbackErr)
 			}
 		}
 		if configChanged {
 			err = store.SaveConfig(next)
 		}
 		if err != nil {
+			var managedRollbackErr error
 			if agentsPreview.Changed {
-				_, _ = managedAgents[0].Apply(current.AgentsEnabled)
-			}
-			if schedulerChanged {
-				if rollbackErr := launchAgent.Apply(ctx, current); rollbackErr != nil {
-					code := "launch_agent_rollback_failed"
-					if errors.Is(rollbackErr, ErrLaunchAgentUnavailable) {
-						code = "launch_agent_unavailable"
-					}
-					return commandError("configure", code, errors.Join(err, rollbackErr))
+				if snapshotter, ok := managedAgents[0].(ManagedAgentsSnapshotter); ok && managedSnapshot != nil {
+					managedRollbackErr = snapshotter.Restore(managedSnapshot)
+				} else {
+					_, managedRollbackErr = managedAgents[0].Apply(current.AgentsEnabled)
 				}
+			}
+			var launchRollbackErr error
+			if schedulerChanged {
+				launchRollbackErr = launchAgent.Apply(ctx, current)
+			}
+			rollbackErr := errors.Join(err, managedRollbackErr, launchRollbackErr)
+			if launchRollbackErr != nil {
+				return commandError("configure", "launch_agent_rollback_failed", rollbackErr)
+			}
+			if managedRollbackErr != nil {
+				return commandError("configure", "managed_rollback_failed", rollbackErr)
 			}
 			return commandError("configure", "config_write_failed", err)
 		}

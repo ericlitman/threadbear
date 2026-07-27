@@ -69,8 +69,8 @@ type Updater interface {
 	Update(context.Context, string) (updatepkg.Result, error)
 }
 
-type ManagedSurfaceReconciler interface {
-	Reconcile(bool) error
+type ManagedSurfaces interface {
+	Repair(bool) ([]string, error)
 }
 
 type TokenReader interface {
@@ -94,7 +94,7 @@ type Dependencies struct {
 	NewClassifier      ClassifierFactory
 	UpdateChecker      UpdateChecker
 	Updater            Updater
-	ManagedSurfaces    ManagedSurfaceReconciler
+	ManagedSurfaces    ManagedSurfaces
 	ReleaseNotes       func() []string
 	UpdateApplyTimeout time.Duration
 	TokenReader        TokenReader
@@ -142,6 +142,11 @@ func (r *Runner) Run(ctx context.Context, dryRun bool) (output.Result, error) {
 	adoptionDue := committed.LastAnnouncedVersion == "" && r.deps.InstalledVersion != ""
 	announcementDue := committed.LastAnnouncedVersion != "" && r.deps.InstalledVersion != "" && committed.LastAnnouncedVersion != r.deps.InstalledVersion
 	reconcileDue := r.deps.InstalledVersion != "" && committed.LastReconciledVersion != r.deps.InstalledVersion
+	var managedResources []string
+	var managedSurfacesErr error
+	if !dryRun && r.deps.ManagedSurfaces != nil {
+		managedResources, managedSurfacesErr = r.deps.ManagedSurfaces.Repair(cfg.AgentsEnabled)
+	}
 	inventory, err := r.deps.Inventory.Inventory(ctx, cfg.ControlTaskID)
 	if err != nil {
 		return output.HeartbeatResult{CycleID: "inventory", ErrorCode: "inventory_failed"}, err
@@ -166,16 +171,23 @@ func (r *Runner) Run(ctx context.Context, dryRun bool) (output.Result, error) {
 		committed.LastAnnouncedVersion = r.deps.InstalledVersion
 		administrativeChanged = true
 	}
-	if reconcileDue {
-		if r.deps.ManagedSurfaces == nil {
+	if r.deps.ManagedSurfaces == nil {
+		if reconcileDue {
 			committed.LastReconcileFailure = failure("managed_reconciler_unavailable", now)
-		} else if reconcileErr := r.deps.ManagedSurfaces.Reconcile(cfg.AgentsEnabled); reconcileErr != nil {
-			committed.LastReconcileFailure = failure("managed_reconcile_failed", now)
-		} else {
-			committed.LastReconciledVersion = r.deps.InstalledVersion
-			committed.LastReconcileFailure = nil
+			administrativeChanged = true
 		}
+	} else if managedSurfacesErr != nil {
+		committed.LastReconcileFailure = failure("managed_reconcile_failed", now)
 		administrativeChanged = true
+	} else {
+		if reconcileDue {
+			committed.LastReconciledVersion = r.deps.InstalledVersion
+			administrativeChanged = true
+		}
+		if committed.LastReconcileFailure != nil {
+			committed.LastReconcileFailure = nil
+			administrativeChanged = true
+		}
 	}
 	if administrativeChanged {
 		if err := r.deps.Store.SaveState(committed); err != nil {
@@ -218,7 +230,7 @@ func (r *Runner) Run(ctx context.Context, dryRun bool) (output.Result, error) {
 								if err := r.deps.Store.SaveState(committed); err != nil {
 									return output.HeartbeatResult{CycleID: "update", ErrorCode: "state_write_failed"}, err
 								}
-								return output.HeartbeatResult{}, nil
+								return output.HeartbeatResult{CycleID: cycleIDForManaged(managedResources, managedSurfacesErr), ManagedResources: managedResources, ErrorCode: managedErrorCode(managedSurfacesErr)}, nil
 							}
 						}
 					} else if !contains(committed.DeliveredNoticeVersions, checked.LatestVersion) {
@@ -239,7 +251,7 @@ func (r *Runner) Run(ctx context.Context, dryRun bool) (output.Result, error) {
 				return output.HeartbeatResult{CycleID: "state", ErrorCode: "state_write_failed"}, err
 			}
 		}
-		return output.HeartbeatResult{}, nil
+		return output.HeartbeatResult{CycleID: cycleIDForManaged(managedResources, managedSurfacesErr), ManagedResources: managedResources, ErrorCode: managedErrorCode(managedSurfacesErr)}, nil
 	}
 
 	if !checkpointExists {
@@ -279,7 +291,7 @@ func (r *Runner) Run(ctx context.Context, dryRun bool) (output.Result, error) {
 		}
 	}
 
-	result := output.HeartbeatResult{CycleID: checkpoint.CycleID}
+	result := output.HeartbeatResult{CycleID: checkpoint.CycleID, ManagedResources: managedResources, ErrorCode: managedErrorCode(managedSurfacesErr)}
 	needClient := len(comparison.Changed) > 0 || pendingUpdate.Newer || len(checkpoint.Operations) > 0
 	var client AppServer
 	closeClient := func() {}
@@ -343,7 +355,12 @@ func (r *Runner) Run(ctx context.Context, dryRun bool) (output.Result, error) {
 	}
 
 	if len(unresolved) > 0 {
-		if cfg.ClassifierContextBudgetBytes <= 0 {
+		if managedSurfacesErr != nil {
+			for _, task := range unresolved {
+				checkpoint.Results[task.TaskID] = state.ClassificationResult{TaskID: task.TaskID, Revision: task.Revision, Status: state.StatusUnknown, Provenance: state.ProvenanceUnknown}
+				r.setDiagnostic(&checkpoint, task.TaskID, "managed_surfaces", "managed_surfaces_unavailable")
+			}
+		} else if cfg.ClassifierContextBudgetBytes <= 0 {
 			for _, task := range unresolved {
 				checkpoint.Results[task.TaskID] = state.ClassificationResult{TaskID: task.TaskID, Revision: task.Revision, Status: state.StatusUnknown, Provenance: state.ProvenanceUnknown}
 				r.setDiagnostic(&checkpoint, task.TaskID, "classifier", "invalid_context_budget")
@@ -578,6 +595,20 @@ func unknownResult(task codex.Task, provenance state.Provenance) state.Classific
 
 func (r *Runner) setDiagnostic(checkpoint *state.CycleCheckpoint, taskID, operation, code string) {
 	checkpoint.Diagnostics[taskID] = state.CycleDiagnostic{TaskID: taskID, Operation: operation, ErrorCode: stableCode(code)}
+}
+
+func managedErrorCode(err error) string {
+	if err != nil {
+		return "managed_surfaces_unavailable"
+	}
+	return ""
+}
+
+func cycleIDForManaged(resources []string, err error) string {
+	if len(resources) > 0 || err != nil {
+		return "managed-surfaces"
+	}
+	return ""
 }
 
 func failure(code string, at time.Time) *state.Failure {
