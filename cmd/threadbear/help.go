@@ -100,7 +100,7 @@ var commandSpecs = []commandSpec{
 		registerFlags: func(flags *flag.FlagSet, request *app.Request) {
 			registerLifecycleFlags(flags, request)
 			flags.BoolVar(&request.ArchiveControlTask, "archive-control-task", false, "archive the control task")
-			flags.BoolVar(&request.DeleteState, "delete-state", false, "delete persistent state")
+			flags.Bool("delete-state", false, "deprecated no-op; persistent state is always deleted")
 		},
 	},
 	{

@@ -40,7 +40,7 @@ For exact-version, noninteractive, migration, Gatekeeper, update/downgrade, and 
 | `~/.local/bin/threadbear enable` / `~/.local/bin/threadbear disable` | Enable or disable the user LaunchAgent | yes |
 | `~/.local/bin/threadbear restore TASK_ID` | Restore a task archived by ThreadBear and restart its inactivity grace period | yes |
 | `~/.local/bin/threadbear update [--version N.N.N]` | Stage, verify, and explicitly install a release | yes |
-| `~/.local/bin/threadbear uninstall` | Preview removal and choose control-task/state retention | yes |
+| `~/.local/bin/threadbear uninstall` | Preview removal, choose control-task archival, and delete state | yes |
 | `~/.local/bin/threadbear version` | Show installed version and website | yes |
 | `~/.local/bin/threadbear heartbeat` | Run the normal classification and lifecycle cycle | only if semantic fallback is needed |
 

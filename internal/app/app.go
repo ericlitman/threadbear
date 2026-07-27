@@ -80,7 +80,6 @@ type Request struct {
 	NonInteractive     bool
 	Candidate          bool
 	ArchiveControlTask bool
-	DeleteState        bool
 	Version            string
 	TaskID             string
 	Configure          ConfigPatch
@@ -164,7 +163,7 @@ func (r Request) Validate() error {
 	if r.Candidate && r.Command != CommandSelfTest {
 		return fmt.Errorf("%w: --candidate is self-test-only", ErrInvalidRequest)
 	}
-	if (r.ArchiveControlTask || r.DeleteState) && r.Command != CommandUninstall {
+	if r.ArchiveControlTask && r.Command != CommandUninstall {
 		return fmt.Errorf("%w: uninstall choices are uninstall-only", ErrInvalidRequest)
 	}
 	if r.Version != "" && r.Command != CommandInstall && r.Command != CommandUpdate {

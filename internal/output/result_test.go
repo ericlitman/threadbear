@@ -34,6 +34,31 @@ func TestLifecycleResultHumanJSONParity(t *testing.T) {
 	}
 }
 
+func TestUninstallLifecycleResultHasFriendlyHumanAndStableJSON(t *testing.T) {
+	result := LifecycleResult{Command: "uninstall", Changed: true, Resources: []string{"binary"}, DeletedState: true}
+	var human, machine bytes.Buffer
+	if err := Write(&human, FormatHuman, result); err != nil {
+		t.Fatal(err)
+	}
+	if err := Write(&machine, FormatJSON, result); err != nil {
+		t.Fatal(err)
+	}
+	if human.String() != "ThreadBear is uninstalled. Take care out there.\n" {
+		t.Fatalf("human=%q", human.String())
+	}
+	var unchanged bytes.Buffer
+	if err := Write(&unchanged, FormatHuman, LifecycleResult{Command: "uninstall"}); err != nil {
+		t.Fatal(err)
+	}
+	if unchanged.String() != human.String() {
+		t.Fatalf("unchanged human=%q", unchanged.String())
+	}
+	want := `{"version":1,"command":"uninstall","changed":true,"resources":["binary"],"control_task_id":"","migrated":false,"reinstalled":false,"archived_control_task":false,"deleted_state":true,"preview":[]}` + "\n"
+	if machine.String() != want {
+		t.Fatalf("json=%q", machine.String())
+	}
+}
+
 func TestHeartbeatManagedMutationHumanJSONParity(t *testing.T) {
 	result := HeartbeatResult{CycleID: "managed-surfaces", ManagedResources: []string{"skill", "agents"}}
 	if result.Empty() {

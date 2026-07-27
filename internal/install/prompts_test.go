@@ -40,3 +40,15 @@ func TestTTYPrompterDefaultsCustomAndSingleConfirmation(t *testing.T) {
 		t.Fatalf("custom=%+v", custom)
 	}
 }
+
+func TestTTYPrompterShowsPlainMessage(t *testing.T) {
+	var output bytes.Buffer
+	prompt := NewTTYPrompter(strings.NewReader(""), &output)
+	message := "Thanks for using ThreadBear. I'd love any feedback on why this wasn't for you. Drop me an email at eric@litman.org if you're open to sharing. Now, on to the uninstall!"
+	if err := prompt.ShowMessage(message); err != nil {
+		t.Fatal(err)
+	}
+	if output.String() != message+"\n\n" {
+		t.Fatalf("output=%q", output.String())
+	}
+}

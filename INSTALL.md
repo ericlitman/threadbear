@@ -55,7 +55,7 @@ The confirmation prompt is exactly:
 Apply exactly this preview? (yes/no) [yes]:
 ```
 
-Answer `yes` only when every line matches the user's intent. `no` cancels before the confirmed mutation phase. Install and `configure` default to `yes`, because the operator has just answered every question and a bare Return that silently discards the whole session is the worse failure. `uninstall` keeps the default at `no`.
+Answer `yes` only when every line matches the user's intent. `no` cancels before the confirmed mutation phase. Install, `configure`, and `uninstall` default to `yes`, because the operator has just reviewed the exact effects and a bare Return that silently discards the whole session is the worse failure.
 
 ### 4. Expected final effects
 
@@ -199,12 +199,12 @@ Do not disable Gatekeeper globally.
 ~/.local/bin/threadbear uninstall
 ```
 
-ThreadBear separately asks whether to archive the control task (default `no`) and delete persistent state (default `no`), then previews the full removal and asks once for confirmation. It removes the loaded LaunchAgent/plist, binary, managed AGENTS.md block, managed skill block, and update-notice integration. Existing user text outside managed blocks is preserved, as are task titles and archives.
+ThreadBear opens with a thank-you and feedback invitation, asks whether to archive the control task (default `yes`), then previews the full removal and asks once for confirmation (default `yes`). Persistent state is always deleted along with the loaded LaunchAgent/plist, binary, managed AGENTS.md block, managed skill block, and update-notice integration. Existing user text outside managed blocks is preserved, as are task titles and archives.
 
 Noninteractive example:
 
 ```sh
-~/.local/bin/threadbear uninstall --noninteractive --confirm --archive-control-task --delete-state
+~/.local/bin/threadbear uninstall --noninteractive --confirm --archive-control-task
 ```
 
-Omit `--archive-control-task` to leave the control task unarchived. Omit `--delete-state` to retain `~/.local/share/threadbear` for diagnosis or later reinstall.
+Omit `--archive-control-task` to leave the control task unarchived. The former `--delete-state` flag remains accepted as a deprecated no-op for one release; persistent state is deleted regardless.

@@ -6,6 +6,10 @@
 
 - Added friendly top-level and per-command CLI help generated from the parser's command and flag registrations.
 
+### Changed
+
+- Made uninstall thank the operator, default confirmations to yes, always delete persistent state, and finish with a friendly success message.
+
 ## v1.1.0 - 2026-07-27
 
 ### Fixed

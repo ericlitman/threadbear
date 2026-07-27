@@ -71,9 +71,8 @@ type Prompter interface {
 	Collect(Preferences) (Preferences, error)
 	ShowPreview(Preview) error
 	// Confirm asks the operator to apply the preview. defaultYes selects the
-	// answer a bare Return gives: applying is the default for install and
-	// configure, where the operator just answered every question and a
-	// silent no-op is the worst outcome; removal keeps the default at no.
+	// answer a bare Return gives; lifecycle flows default to applying the
+	// preview after the operator has reviewed its exact effects.
 	Confirm(defaultYes bool) (bool, error)
 }
 
@@ -105,6 +104,11 @@ func (p *TTYPrompter) Close() error {
 // ShowBanner prints the welcome art and intro before the first question.
 func (p *TTYPrompter) ShowBanner(banner string) {
 	fmt.Fprint(p.writer, banner)
+}
+
+func (p *TTYPrompter) ShowMessage(message string) error {
+	_, err := fmt.Fprintf(p.writer, "%s\n\n", message)
+	return err
 }
 
 func (p *TTYPrompter) describe(text string) {

@@ -251,6 +251,9 @@ type LifecycleResult struct {
 func (LifecycleResult) result()     {}
 func (LifecycleResult) Empty() bool { return false }
 func (r LifecycleResult) Human() string {
+	if r.Command == "uninstall" {
+		return "ThreadBear is uninstalled. Take care out there."
+	}
 	resources := "none"
 	if len(r.Resources) > 0 {
 		resources = strings.Join(r.Resources, ",")
