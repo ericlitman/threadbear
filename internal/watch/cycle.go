@@ -78,6 +78,10 @@ type Clock interface {
 	Now() time.Time
 }
 
+type ManagedSurfaces interface {
+	Repair(bool) ([]string, error)
+}
+
 type Dependencies struct {
 	Store            Store
 	Inventory        InventoryReader
@@ -86,6 +90,7 @@ type Dependencies struct {
 	UpdateChecker    UpdateChecker
 	TokenReader      TokenReader
 	Clock            Clock
+	ManagedSurfaces  ManagedSurfaces
 	InstalledVersion string
 	NewCycleID       func() string
 }
@@ -120,6 +125,11 @@ func (r *Runner) Run(ctx context.Context, dryRun bool) (output.Result, error) {
 		return output.HeartbeatResult{CycleID: "state", ErrorCode: "state_read_failed"}, err
 	}
 	now := r.deps.Clock.Now().UTC()
+	var managedResources []string
+	var managedSurfacesErr error
+	if !dryRun && r.deps.ManagedSurfaces != nil {
+		managedResources, managedSurfacesErr = r.deps.ManagedSurfaces.Repair(cfg.AgentsEnabled)
+	}
 	inventory, err := r.deps.Inventory.Inventory(ctx, cfg.ControlTaskID)
 	if err != nil {
 		return output.HeartbeatResult{CycleID: "inventory", ErrorCode: "inventory_failed"}, err
@@ -139,7 +149,17 @@ func (r *Runner) Run(ctx context.Context, dryRun bool) (output.Result, error) {
 		return dryRunResult(comparison, updateDue), nil
 	}
 	if comparison.Unchanged() && !updateDue && !checkpointExists {
-		return output.HeartbeatResult{}, nil
+		result := output.HeartbeatResult{ManagedResources: managedResources}
+		if managedSurfacesErr != nil {
+			result.CycleID = "managed-surfaces"
+			result.ErrorCode = "managed_surfaces_unavailable"
+			return result, nil
+		}
+		if len(managedResources) > 0 {
+			result.CycleID = "managed-surfaces"
+			return result, nil
+		}
+		return result, nil
 	}
 
 	if !checkpointExists {
@@ -171,7 +191,10 @@ func (r *Runner) Run(ctx context.Context, dryRun bool) (output.Result, error) {
 		}
 	}
 
-	result := output.HeartbeatResult{CycleID: checkpoint.CycleID}
+	result := output.HeartbeatResult{CycleID: checkpoint.CycleID, ManagedResources: managedResources}
+	if managedSurfacesErr != nil {
+		result.ErrorCode = "managed_surfaces_unavailable"
+	}
 	pendingUpdate := UpdateStatus{}
 	if updateDue {
 		committed.LastUpdateCheck = &now
@@ -247,7 +270,12 @@ func (r *Runner) Run(ctx context.Context, dryRun bool) (output.Result, error) {
 	}
 
 	if len(unresolved) > 0 {
-		if cfg.ClassifierContextBudgetBytes <= 0 {
+		if managedSurfacesErr != nil {
+			for _, task := range unresolved {
+				checkpoint.Results[task.TaskID] = state.ClassificationResult{TaskID: task.TaskID, Revision: task.Revision, Status: state.StatusUnknown, Provenance: state.ProvenanceUnknown}
+				r.setDiagnostic(&checkpoint, task.TaskID, "managed_surfaces", "managed_surfaces_unavailable")
+			}
+		} else if cfg.ClassifierContextBudgetBytes <= 0 {
 			for _, task := range unresolved {
 				checkpoint.Results[task.TaskID] = state.ClassificationResult{TaskID: task.TaskID, Revision: task.Revision, Status: state.StatusUnknown, Provenance: state.ProvenanceUnknown}
 				r.setDiagnostic(&checkpoint, task.TaskID, "classifier", "invalid_context_budget")

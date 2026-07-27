@@ -767,6 +767,15 @@ func TestCoreSelfTestRequiresSupportedHealthyPrivateSurfacesWithoutStateMutation
 	if store.saveConfig != 0 || store.saveState != 0 {
 		t.Fatalf("self-test mutated store: %+v", store)
 	}
+	if err := os.WriteFile(paths.Agents, []byte("stale"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := tester.Test(context.Background(), SelfTestInput{Paths: paths, Config: cfg, State: committed, Candidate: true}); err == nil || !strings.Contains(err.Error(), "AGENTS surface validation") {
+		t.Fatalf("candidate install self-test skipped staged managed surface: %v", err)
+	}
+	if err := WriteManagedBlock(paths.Agents, []byte(assets.AgentsManagedContent)); err != nil {
+		t.Fatal(err)
+	}
 	if err := os.Chmod(paths.StateDirectory, 0o755); err != nil {
 		t.Fatal(err)
 	}
