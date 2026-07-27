@@ -579,7 +579,18 @@ func ensureControlTask(ctx context.Context, client controlTaskClient, taskID str
 	} else {
 		thread, err = client.ReadThread(ctx, taskID)
 		if err != nil {
-			return taskID, false, err
+			// An adopted control task can be gone: migrated from ThreadWatch
+			// after the thread was deleted, or a Codex home that no longer
+			// holds it. Losing the old thread is not a reason to refuse the
+			// install - and refusing here is especially costly, because by
+			// this point the legacy scheduler has already been stopped. Start
+			// a fresh control task and carry on.
+			thread, err = client.StartPersistentThread(ctx)
+			if err != nil {
+				return taskID, false, err
+			}
+			taskID = thread.ID
+			changed = true
 		}
 	}
 	name := thread.Name
