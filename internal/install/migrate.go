@@ -12,7 +12,17 @@ import (
 	"github.com/ericlitman/threadbear/internal/state"
 )
 
-const ThreadWatchSchemaVersion = 1
+// ThreadWatch's state schema has advanced past the version ThreadBear was
+// built against while keeping the same field shape. Every field this decoder
+// needs is still present and still means the same thing at schemaVersion 4,
+// so pinning to a single version rejected real installs for no reason. The
+// decoder disallows unknown fields and validates every value it uses, so the
+// structural check is the real guard; the range exists to refuse a future
+// version that might repurpose a field without saying so.
+const (
+	ThreadWatchSchemaVersion    = 1
+	ThreadWatchMaxSchemaVersion = 4
+)
 
 var ErrInvalidThreadWatchState = errors.New("invalid ThreadWatch state")
 
@@ -48,12 +58,15 @@ func DecodeThreadWatch(data []byte) (Migration, error) {
 		}
 		return Migration{}, fmt.Errorf("%w: %v", ErrInvalidThreadWatchState, err)
 	}
-	if legacy.SchemaVersion == nil || *legacy.SchemaVersion != ThreadWatchSchemaVersion {
+	if legacy.SchemaVersion == nil || *legacy.SchemaVersion < ThreadWatchSchemaVersion || *legacy.SchemaVersion > ThreadWatchMaxSchemaVersion {
 		found := 0
 		if legacy.SchemaVersion != nil {
 			found = *legacy.SchemaVersion
 		}
-		return Migration{}, fmt.Errorf("%w: schemaVersion %d is unsupported", ErrInvalidThreadWatchState, found)
+		return Migration{}, fmt.Errorf(
+			"%w: schemaVersion %d is unsupported, expected %d through %d",
+			ErrInvalidThreadWatchState, found, ThreadWatchSchemaVersion, ThreadWatchMaxSchemaVersion,
+		)
 	}
 	if legacy.ControllerThreadID == nil || !canonical(*legacy.ControllerThreadID) {
 		return Migration{}, fmt.Errorf("%w: controllerThreadId is required", ErrInvalidThreadWatchState)
