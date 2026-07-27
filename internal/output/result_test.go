@@ -46,6 +46,13 @@ func TestUninstallLifecycleResultHasFriendlyHumanAndStableJSON(t *testing.T) {
 	if human.String() != "ThreadBear is uninstalled. Take care out there.\n" {
 		t.Fatalf("human=%q", human.String())
 	}
+	var unchanged bytes.Buffer
+	if err := Write(&unchanged, FormatHuman, LifecycleResult{Command: "uninstall"}); err != nil {
+		t.Fatal(err)
+	}
+	if unchanged.String() != human.String() {
+		t.Fatalf("unchanged human=%q", unchanged.String())
+	}
 	want := `{"version":1,"command":"uninstall","changed":true,"resources":["binary"],"control_task_id":"","migrated":false,"reinstalled":false,"archived_control_task":false,"deleted_state":true,"preview":[]}` + "\n"
 	if machine.String() != want {
 		t.Fatalf("json=%q", machine.String())

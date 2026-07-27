@@ -105,7 +105,7 @@ func (u Uninstaller) Uninstall(ctx context.Context, request UninstallRequest) (U
 	if err != nil {
 		return UninstallResult{}, fmt.Errorf("inspect scheduler: %w", err)
 	}
-	if !archiveControlTask && !hadLaunchAgent && !schedulerLoaded && !hadBinary && !hadAgents && !hadSkill && !hadState {
+	if !hadLaunchAgent && !schedulerLoaded && !hadBinary && !hadAgents && !hadSkill && !hadState {
 		return UninstallResult{Preview: preview, Changed: false, Resources: []string{}}, nil
 	}
 	lock, err := u.Store.AcquireLock()
@@ -127,7 +127,7 @@ func (u Uninstaller) Uninstall(ctx context.Context, request UninstallRequest) (U
 	if err != nil {
 		return UninstallResult{}, fmt.Errorf("recheck scheduler under lock: %w", err)
 	}
-	if !archiveControlTask && !hadLaunchAgent && !schedulerLoaded && !hadBinary && !hadAgents && !hadSkill && !hadState {
+	if !hadLaunchAgent && !schedulerLoaded && !hadBinary && !hadAgents && !hadSkill && !hadState {
 		if err := lock.Close(); err != nil {
 			return UninstallResult{}, fmt.Errorf("release uninstall lock: %w", err)
 		}

@@ -12,6 +12,16 @@ import (
 	"github.com/ericlitman/threadbear/internal/state"
 )
 
+type countingStore struct {
+	Store
+	locks int
+}
+
+func (s *countingStore) AcquireLock() (Lock, error) {
+	s.locks++
+	return s.Store.AcquireLock()
+}
+
 func installedFixture(t *testing.T) (Paths, *fakeStore, *fakeScheduler, *fakeTasks) {
 	t.Helper()
 	paths := PathsForHome(t.TempDir())
@@ -115,6 +125,34 @@ func TestUninstallRerunReportsUnchanged(t *testing.T) {
 	}
 	if second.Changed || len(second.Resources) != 0 {
 		t.Fatalf("second=%+v", second)
+	}
+}
+
+func TestInteractiveUninstallDefaultArchiveRerunReportsUnchanged(t *testing.T) {
+	paths, _, scheduler, tasks := installedFixture(t)
+	diskStore := NewDiskStore(paths)
+	if err := diskStore.SaveConfig(config.Default("control-1")); err != nil {
+		t.Fatal(err)
+	}
+	store := &countingStore{Store: diskStore}
+	u := Uninstaller{Paths: paths, Store: store, Scheduler: scheduler, ControlTasks: tasks}
+	firstPrompt := &fakePrompter{confirmed: true, choices: []bool{true}}
+	u.Prompter = firstPrompt
+	first, err := u.Uninstall(context.Background(), UninstallRequest{})
+	if err != nil || !first.Changed {
+		t.Fatalf("first=%+v err=%v", first, err)
+	}
+	secondPrompt := &fakePrompter{confirmed: true, choices: []bool{true}}
+	u.Prompter = secondPrompt
+	second, err := u.Uninstall(context.Background(), UninstallRequest{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if second.Changed || len(second.Resources) != 0 || len(tasks.archived) != 1 || store.locks != 1 {
+		t.Fatalf("second=%+v archived=%v locks=%d", second, tasks.archived, store.locks)
+	}
+	if _, err := os.Stat(paths.StateDirectory); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("state recreated: %v", err)
 	}
 }
 
@@ -223,7 +261,7 @@ func TestUninstallRechecksArtifactsUnderLock(t *testing.T) {
 	}
 	store := &fakeStore{onAcquire: func() { _ = os.Remove(paths.Binary) }}
 	scheduler := &fakeScheduler{}
-	result, err := (Uninstaller{Paths: paths, Store: store, Scheduler: scheduler, ControlTasks: &fakeTasks{}}).Uninstall(context.Background(), UninstallRequest{NonInteractive: true, Confirm: true})
+	result, err := (Uninstaller{Paths: paths, Store: store, Scheduler: scheduler, ControlTasks: &fakeTasks{}}).Uninstall(context.Background(), UninstallRequest{NonInteractive: true, Confirm: true, ArchiveControlTask: true})
 	if err != nil {
 		t.Fatal(err)
 	}
