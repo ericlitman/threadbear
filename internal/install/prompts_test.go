@@ -23,7 +23,7 @@ func TestTTYPrompterDefaultsCustomAndSingleConfirmation(t *testing.T) {
 	if err := prompt.ShowPreview(Preview{Operation: "install", Lines: []string{"all effects"}}); err != nil {
 		t.Fatal(err)
 	}
-	confirmed, err := prompt.Confirm()
+	confirmed, err := prompt.Confirm(true)
 	if err != nil || !confirmed {
 		t.Fatalf("confirmed=%t error=%v", confirmed, err)
 	}

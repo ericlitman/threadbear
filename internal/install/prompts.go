@@ -67,7 +67,11 @@ type Preview struct {
 type Prompter interface {
 	Collect(Preferences) (Preferences, error)
 	ShowPreview(Preview) error
-	Confirm() (bool, error)
+	// Confirm asks the operator to apply the preview. defaultYes selects the
+	// answer a bare Return gives: applying is the default for install and
+	// configure, where the operator just answered every question and a
+	// silent no-op is the worst outcome; removal keeps the default at no.
+	Confirm(defaultYes bool) (bool, error)
 }
 
 type TTYPrompter struct {
@@ -168,8 +172,12 @@ func (p *TTYPrompter) Choose(label string, current bool) (bool, error) {
 	return p.askBool(label, current)
 }
 
-func (p *TTYPrompter) Confirm() (bool, error) {
-	answer, err := p.askString("Apply exactly this preview? (yes/no)", "no")
+func (p *TTYPrompter) Confirm(defaultYes bool) (bool, error) {
+	fallback := "no"
+	if defaultYes {
+		fallback = "yes"
+	}
+	answer, err := p.askString("Apply exactly this preview? (yes/no)", fallback)
 	if err != nil {
 		return false, err
 	}

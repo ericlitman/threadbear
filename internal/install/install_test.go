@@ -204,12 +204,13 @@ func (s *fakeSelfTest) Test(_ context.Context, input SelfTestInput) error {
 }
 
 type fakePrompter struct {
-	collected Preferences
-	collect   bool
-	previews  int
-	confirms  int
-	confirmed bool
-	choices   []bool
+	collected      Preferences
+	collect        bool
+	previews       int
+	confirms       int
+	confirmed      bool
+	choices        []bool
+	confirmDefault bool
 }
 
 func (p *fakePrompter) Collect(v Preferences) (Preferences, error) {
@@ -220,7 +221,11 @@ func (p *fakePrompter) Collect(v Preferences) (Preferences, error) {
 	return v, nil
 }
 func (p *fakePrompter) ShowPreview(Preview) error { p.previews++; return nil }
-func (p *fakePrompter) Confirm() (bool, error)    { p.confirms++; return p.confirmed, nil }
+func (p *fakePrompter) Confirm(defaultYes bool) (bool, error) {
+	p.confirms++
+	p.confirmDefault = defaultYes
+	return p.confirmed, nil
+}
 func (p *fakePrompter) Choose(string, bool) (bool, error) {
 	v := p.choices[0]
 	p.choices = p.choices[1:]

@@ -10,7 +10,7 @@ import (
 
 type ChoicePrompter interface {
 	ShowPreview(Preview) error
-	Confirm() (bool, error)
+	Confirm(defaultYes bool) (bool, error)
 	Choose(string, bool) (bool, error)
 }
 
@@ -88,7 +88,7 @@ func (u Uninstaller) Uninstall(ctx context.Context, request UninstallRequest) (U
 		}
 	}
 	if !request.NonInteractive {
-		confirmed, err := u.Prompter.Confirm()
+		confirmed, err := u.Prompter.Confirm(false)
 		if err != nil {
 			return UninstallResult{}, err
 		}

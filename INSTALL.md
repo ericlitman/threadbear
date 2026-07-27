@@ -51,10 +51,10 @@ Before mutation, ThreadBear prints the deterministic-first classifier rule; bina
 The confirmation prompt is exactly:
 
 ```text
-Apply exactly this preview? (yes/no) [no]:
+Apply exactly this preview? (yes/no) [yes]:
 ```
 
-Answer `yes` only when every line matches the user's intent. `no` cancels before the confirmed mutation phase.
+Answer `yes` only when every line matches the user's intent. `no` cancels before the confirmed mutation phase. Install and `configure` default to `yes`, because the operator has just answered every question and a bare Return that silently discards the whole session is the worse failure. `uninstall` keeps the default at `no`.
 
 ### 4. Expected final effects
 

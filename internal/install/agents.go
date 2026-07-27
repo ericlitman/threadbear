@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"syscall"
 )
 
 const (
@@ -103,10 +104,11 @@ func ValidateManagedFile(path string) error {
 	if !filepath.IsAbs(path) {
 		return fmt.Errorf("%w: path must be absolute", ErrUnsafeManagedPath)
 	}
-	if err := rejectSymlinkComponents(path); err != nil {
+	resolved, err := resolveManagedPath(path)
+	if err != nil {
 		return err
 	}
-	data, err := os.ReadFile(path)
+	data, err := os.ReadFile(resolved)
 	if errors.Is(err, fs.ErrNotExist) {
 		return nil
 	}
@@ -131,10 +133,12 @@ func mutateManagedFile(path string, mutate func([]byte) ([]byte, error)) error {
 	if !filepath.IsAbs(path) {
 		return fmt.Errorf("%w: path must be absolute", ErrUnsafeManagedPath)
 	}
-	if err := rejectSymlinkComponents(path); err != nil {
+	path, err := resolveManagedPath(path)
+	if err != nil {
 		return err
 	}
-	original, err := os.ReadFile(path)
+	original, readErr := os.ReadFile(path)
+	err = readErr
 	if err != nil && !errors.Is(err, fs.ErrNotExist) {
 		return err
 	}
@@ -157,6 +161,63 @@ func mutateManagedFile(path string, mutate func([]byte) ([]byte, error)) error {
 	return writeAtomic(path, updated, 0o600)
 }
 
+// resolveManagedPath returns the file ThreadBear should actually read and
+// write. A managed file reached through a symlink is ordinary: people keep
+// AGENTS.md in a dotfiles repo and link it into ~/.codex. Refusing those
+// setups blocked installation outright, so instead the link is followed and
+// the real file is edited, which leaves the symlink itself untouched.
+//
+// A symlink inside the user's own home is not a privilege boundary - anyone
+// who can create it can already write as that user - so the property worth
+// enforcing is not "no symlinks" but "the file we are about to rewrite
+// belongs to the person running the installer". The resolved target must
+// therefore be a regular file owned by the invoking user.
+func resolveManagedPath(path string) (string, error) {
+	if !filepath.IsAbs(path) {
+		return "", fmt.Errorf("%w: path must be absolute", ErrUnsafeManagedPath)
+	}
+	clean := filepath.Clean(path)
+	directory, err := filepath.EvalSymlinks(filepath.Dir(clean))
+	if errors.Is(err, fs.ErrNotExist) {
+		// The parent does not exist yet; install creates it and there is
+		// nothing to resolve or verify.
+		return clean, nil
+	}
+	if err != nil {
+		return "", err
+	}
+	resolved := filepath.Join(directory, filepath.Base(clean))
+	info, err := os.Lstat(resolved)
+	if errors.Is(err, fs.ErrNotExist) {
+		return resolved, nil
+	}
+	if err != nil {
+		return "", err
+	}
+	if info.Mode()&os.ModeSymlink != 0 {
+		target, err := filepath.EvalSymlinks(resolved)
+		if err != nil {
+			return "", fmt.Errorf("%w: %s is a symlink that does not resolve: %w", ErrUnsafeManagedPath, resolved, err)
+		}
+		resolved = target
+		if info, err = os.Lstat(resolved); err != nil {
+			return "", err
+		}
+	}
+	if !info.Mode().IsRegular() {
+		return "", fmt.Errorf("%w: %s is not a regular file", ErrUnsafeManagedPath, resolved)
+	}
+	if err := requireOwnedByCaller(resolved, info); err != nil {
+		return "", err
+	}
+	return resolved, nil
+}
+
+// rejectSymlinkComponents guards paths ThreadBear owns outright - the binary,
+// the state directory, the LaunchAgent plist. Those are ThreadBear's own
+// files in known locations, so a symlink on the way to one is unexpected and
+// refusing is correct. Managed content files use resolveManagedPath instead,
+// because a user's AGENTS.md legitimately lives elsewhere.
 func rejectSymlinkComponents(path string) error {
 	clean := filepath.Clean(path)
 	for current := clean; current != string(filepath.Separator); current = filepath.Dir(current) {
@@ -174,6 +235,17 @@ func rejectSymlinkComponents(path string) error {
 			}
 			return fmt.Errorf("%w: %s is a symlink", ErrUnsafeManagedPath, current)
 		}
+	}
+	return nil
+}
+
+func requireOwnedByCaller(path string, info fs.FileInfo) error {
+	status, ok := info.Sys().(*syscall.Stat_t)
+	if !ok {
+		return nil
+	}
+	if int(status.Uid) != os.Getuid() {
+		return fmt.Errorf("%w: %s is owned by uid %d, not by you", ErrUnsafeManagedPath, path, status.Uid)
 	}
 	return nil
 }
