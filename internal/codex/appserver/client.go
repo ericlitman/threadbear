@@ -464,6 +464,17 @@ func (c *Client) InsertNotice(ctx context.Context, threadID, text string) error 
 	if strings.TrimSpace(text) == "" {
 		return errors.New("notice text is required")
 	}
+	// inject_items only addresses threads the App Server currently has loaded:
+	// a persisted but cold thread answers "thread not found" even though
+	// thread/read resolves it fine. Every notice ThreadBear posts targets the
+	// long-lived control task, which is cold in exactly the case that matters
+	// - a fresh process posting an update notice or a welcome. Resume first.
+	// Resuming an already-loaded thread is a no-op.
+	if c.capabilities.HasMethod("thread/resume") {
+		if err := c.call(ctx, "thread/resume", map[string]any{"threadId": threadID}, nil); err != nil {
+			return err
+		}
+	}
 	item := map[string]any{"type": "message", "role": "assistant", "content": []map[string]any{{"type": "output_text", "text": text}}}
 	return c.call(ctx, "thread/inject_items", map[string]any{"threadId": threadID, "items": []any{item}}, nil)
 }
