@@ -34,8 +34,12 @@ func TestParseLifecycleFlags(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !request.NonInteractive || !request.Confirm || !request.ArchiveControlTask || !request.DeleteState {
+	if !request.NonInteractive || !request.Confirm || !request.ArchiveControlTask {
 		t.Fatalf("request=%+v", request)
+	}
+	withoutDeprecatedFlag, err := parseRequest([]string{"uninstall", "--non-interactive", "--confirm", "--archive-control-task"})
+	if err != nil || request != withoutDeprecatedFlag {
+		t.Fatalf("deprecated --delete-state changed request: with=%+v without=%+v err=%v", request, withoutDeprecatedFlag, err)
 	}
 	request, err = parseRequest([]string{"self-test", "--candidate", "--json"})
 	if err != nil || !request.Candidate || !request.JSON {

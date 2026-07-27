@@ -89,7 +89,7 @@ func UninstallHandler(factory UninstallFactory) Handler {
 		defer closeUninstaller()
 		result, err := uninstaller.Uninstall(ctx, install.UninstallRequest{
 			NonInteractive: request.NonInteractive, Confirm: request.Confirm,
-			ArchiveControlTask: request.ArchiveControlTask, DeleteState: request.DeleteState,
+			ArchiveControlTask: request.ArchiveControlTask,
 		})
 		if err != nil {
 			code := "uninstall_failed"

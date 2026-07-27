@@ -210,6 +210,9 @@ type fakePrompter struct {
 	confirms       int
 	confirmed      bool
 	choices        []bool
+	choiceDefaults []bool
+	messages       []string
+	events         []string
 	confirmDefault bool
 }
 
@@ -220,13 +223,25 @@ func (p *fakePrompter) Collect(v Preferences) (Preferences, error) {
 	}
 	return v, nil
 }
-func (p *fakePrompter) ShowPreview(Preview) error { p.previews++; return nil }
+func (p *fakePrompter) ShowMessage(message string) error {
+	p.messages = append(p.messages, message)
+	p.events = append(p.events, "message")
+	return nil
+}
+func (p *fakePrompter) ShowPreview(Preview) error {
+	p.previews++
+	p.events = append(p.events, "preview")
+	return nil
+}
 func (p *fakePrompter) Confirm(defaultYes bool) (bool, error) {
 	p.confirms++
 	p.confirmDefault = defaultYes
+	p.events = append(p.events, "confirm")
 	return p.confirmed, nil
 }
-func (p *fakePrompter) Choose(string, bool) (bool, error) {
+func (p *fakePrompter) Choose(label string, defaultYes bool) (bool, error) {
+	p.choiceDefaults = append(p.choiceDefaults, defaultYes)
+	p.events = append(p.events, "choose:"+label)
 	v := p.choices[0]
 	p.choices = p.choices[1:]
 	return v, nil

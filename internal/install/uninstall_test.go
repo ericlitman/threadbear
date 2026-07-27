@@ -37,24 +37,34 @@ func installedFixture(t *testing.T) (Paths, *fakeStore, *fakeScheduler, *fakeTas
 	return paths, store, scheduler, tasks
 }
 
-func TestUninstallDefaultsRetainStateAndTask(t *testing.T) {
+func TestInteractiveUninstallDefaultsArchiveTaskAndDeleteState(t *testing.T) {
 	paths, store, scheduler, tasks := installedFixture(t)
-	prompt := &fakePrompter{confirmed: true, choices: []bool{false, false}}
+	prompt := &fakePrompter{confirmed: true, choices: []bool{true}}
 	result, err := (Uninstaller{Paths: paths, Store: store, Scheduler: scheduler, ControlTasks: tasks, Prompter: prompt}).Uninstall(context.Background(), UninstallRequest{})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.ArchivedControlTask || result.DeletedState || len(tasks.archived) != 0 {
+	if !result.ArchivedControlTask || !result.DeletedState || len(tasks.archived) != 1 {
 		t.Fatalf("result=%+v archived=%v", result, tasks.archived)
 	}
-	if _, err := os.Stat(paths.StateDirectory); err != nil {
-		t.Fatalf("state not retained: %v", err)
+	if _, err := os.Stat(paths.StateDirectory); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("state remains: %v", err)
 	}
-	if _, err := os.Stat(paths.Binary); !errors.Is(err, os.ErrNotExist) {
-		t.Fatalf("binary remains: %v", err)
+	if len(prompt.messages) != 1 || prompt.messages[0] != "Thanks for using ThreadBear. I'd love any feedback on why this wasn't for you. Drop me an email at eric@litman.org if you're open to sharing. Now, on to the uninstall!" {
+		t.Fatalf("messages=%q", prompt.messages)
+	}
+	if !reflect.DeepEqual(prompt.choiceDefaults, []bool{true}) || !prompt.confirmDefault {
+		t.Fatalf("choice defaults=%v confirm default=%t", prompt.choiceDefaults, prompt.confirmDefault)
+	}
+	wantEvents := []string{"message", "choose:Archive the ThreadBear control task", "preview", "confirm"}
+	if !reflect.DeepEqual(prompt.events, wantEvents) {
+		t.Fatalf("events=%v want=%v", prompt.events, wantEvents)
 	}
 	if prompt.previews != 1 || prompt.confirms != 1 {
 		t.Fatalf("prompt=%+v", prompt)
+	}
+	if got := result.Preview.Lines[len(result.Preview.Lines)-1]; got != "persistent state "+paths.StateDirectory+": delete=true" {
+		t.Fatalf("state preview=%q", got)
 	}
 }
 
@@ -64,7 +74,7 @@ func TestUninstallChoicesAndNoninteractiveConfirmation(t *testing.T) {
 	if _, err := u.Uninstall(context.Background(), UninstallRequest{NonInteractive: true}); err == nil {
 		t.Fatal("missing confirmation accepted")
 	}
-	result, err := u.Uninstall(context.Background(), UninstallRequest{NonInteractive: true, Confirm: true, ArchiveControlTask: true, DeleteState: true})
+	result, err := u.Uninstall(context.Background(), UninstallRequest{NonInteractive: true, Confirm: true, ArchiveControlTask: true})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -78,7 +88,7 @@ func TestUninstallChoicesAndNoninteractiveConfirmation(t *testing.T) {
 
 func TestUninstallCancellationMutatesNothing(t *testing.T) {
 	paths, store, scheduler, tasks := installedFixture(t)
-	prompt := &fakePrompter{confirmed: false, choices: []bool{false, false}}
+	prompt := &fakePrompter{confirmed: false, choices: []bool{false}}
 	_, err := (Uninstaller{Paths: paths, Store: store, Scheduler: scheduler, ControlTasks: tasks, Prompter: prompt}).Uninstall(context.Background(), UninstallRequest{})
 	if !errors.Is(err, ErrCancelled) {
 		t.Fatalf("error=%v", err)
@@ -108,10 +118,10 @@ func TestUninstallRerunReportsUnchanged(t *testing.T) {
 	}
 }
 
-func TestDeleteStateUninstallRerunDoesNotRecreateState(t *testing.T) {
+func TestUninstallRerunDoesNotRecreateState(t *testing.T) {
 	paths, store, scheduler, tasks := installedFixture(t)
 	u := Uninstaller{Paths: paths, Store: store, Scheduler: scheduler, ControlTasks: tasks}
-	request := UninstallRequest{NonInteractive: true, Confirm: true, DeleteState: true}
+	request := UninstallRequest{NonInteractive: true, Confirm: true}
 	if _, err := u.Uninstall(context.Background(), request); err != nil {
 		t.Fatal(err)
 	}
@@ -147,7 +157,7 @@ func TestNoninteractiveUninstallPreviewsExactlyOnceBeforeMutation(t *testing.T) 
 
 func TestInteractiveUninstallShowsPreviewExactlyOnce(t *testing.T) {
 	paths, store, scheduler, tasks := installedFixture(t)
-	prompt := &fakePrompter{confirmed: true, choices: []bool{false, false}}
+	prompt := &fakePrompter{confirmed: true, choices: []bool{false}}
 	extra := 0
 	u := Uninstaller{Paths: paths, Store: store, Scheduler: scheduler, ControlTasks: tasks, Prompter: prompt, Previewer: func(Preview) error { extra++; return nil }}
 	if _, err := u.Uninstall(context.Background(), UninstallRequest{}); err != nil {
@@ -180,7 +190,7 @@ func TestUninstallReleasesLockBeforeDeletingState(t *testing.T) {
 		stateExistedAtUnlock = err == nil
 	}
 	u := Uninstaller{Paths: paths, Store: store, Scheduler: scheduler, ControlTasks: tasks}
-	if _, err := u.Uninstall(context.Background(), UninstallRequest{NonInteractive: true, Confirm: true, DeleteState: true}); err != nil {
+	if _, err := u.Uninstall(context.Background(), UninstallRequest{NonInteractive: true, Confirm: true}); err != nil {
 		t.Fatal(err)
 	}
 	if !stateExistedAtUnlock {

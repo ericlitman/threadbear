@@ -9,6 +9,7 @@ import (
 )
 
 type ChoicePrompter interface {
+	ShowMessage(string) error
 	ShowPreview(Preview) error
 	Confirm(defaultYes bool) (bool, error)
 	Choose(string, bool) (bool, error)
@@ -18,7 +19,6 @@ type UninstallRequest struct {
 	NonInteractive     bool
 	Confirm            bool
 	ArchiveControlTask bool
-	DeleteState        bool
 }
 
 type UninstallResult struct {
@@ -43,7 +43,6 @@ func (u Uninstaller) Uninstall(ctx context.Context, request UninstallRequest) (U
 		return UninstallResult{}, errors.New("uninstaller dependencies are required")
 	}
 	archiveControlTask := request.ArchiveControlTask
-	deleteState := request.DeleteState
 	if request.NonInteractive {
 		if !request.Confirm {
 			return UninstallResult{}, errors.New("noninteractive uninstall requires confirm")
@@ -52,12 +51,11 @@ func (u Uninstaller) Uninstall(ctx context.Context, request UninstallRequest) (U
 		if u.Prompter == nil {
 			return UninstallResult{}, errors.New("interactive uninstall requires a prompter")
 		}
-		var err error
-		archiveControlTask, err = u.Prompter.Choose("Archive the ThreadBear control task", false)
-		if err != nil {
+		if err := u.Prompter.ShowMessage("Thanks for using ThreadBear. I'd love any feedback on why this wasn't for you. Drop me an email at eric@litman.org if you're open to sharing. Now, on to the uninstall!"); err != nil {
 			return UninstallResult{}, err
 		}
-		deleteState, err = u.Prompter.Choose("Delete persistent ThreadBear state", false)
+		var err error
+		archiveControlTask, err = u.Prompter.Choose("Archive the ThreadBear control task", true)
 		if err != nil {
 			return UninstallResult{}, err
 		}
@@ -76,7 +74,7 @@ func (u Uninstaller) Uninstall(ctx context.Context, request UninstallRequest) (U
 		agentsPreview,
 		skillPreview,
 		fmt.Sprintf("archive control task: %t", archiveControlTask),
-		fmt.Sprintf("persistent state %s: delete=%t", u.Paths.StateDirectory, deleteState),
+		fmt.Sprintf("persistent state %s: delete=true", u.Paths.StateDirectory),
 	}}
 	if u.Prompter != nil {
 		if err := u.Prompter.ShowPreview(preview); err != nil {
@@ -88,7 +86,7 @@ func (u Uninstaller) Uninstall(ctx context.Context, request UninstallRequest) (U
 		}
 	}
 	if !request.NonInteractive {
-		confirmed, err := u.Prompter.Confirm(false)
+		confirmed, err := u.Prompter.Confirm(true)
 		if err != nil {
 			return UninstallResult{}, err
 		}
@@ -107,7 +105,7 @@ func (u Uninstaller) Uninstall(ctx context.Context, request UninstallRequest) (U
 	if err != nil {
 		return UninstallResult{}, fmt.Errorf("inspect scheduler: %w", err)
 	}
-	if !archiveControlTask && !hadLaunchAgent && !schedulerLoaded && !hadBinary && !hadAgents && !hadSkill && (!deleteState || !hadState) {
+	if !archiveControlTask && !hadLaunchAgent && !schedulerLoaded && !hadBinary && !hadAgents && !hadSkill && !hadState {
 		return UninstallResult{Preview: preview, Changed: false, Resources: []string{}}, nil
 	}
 	lock, err := u.Store.AcquireLock()
@@ -129,7 +127,7 @@ func (u Uninstaller) Uninstall(ctx context.Context, request UninstallRequest) (U
 	if err != nil {
 		return UninstallResult{}, fmt.Errorf("recheck scheduler under lock: %w", err)
 	}
-	if !archiveControlTask && !hadLaunchAgent && !schedulerLoaded && !hadBinary && !hadAgents && !hadSkill && (!deleteState || !hadState) {
+	if !archiveControlTask && !hadLaunchAgent && !schedulerLoaded && !hadBinary && !hadAgents && !hadSkill && !hadState {
 		if err := lock.Close(); err != nil {
 			return UninstallResult{}, fmt.Errorf("release uninstall lock: %w", err)
 		}
@@ -192,18 +190,16 @@ func (u Uninstaller) Uninstall(ctx context.Context, request UninstallRequest) (U
 		return UninstallResult{}, fmt.Errorf("release uninstall lock: %w", err)
 	}
 	lockHeld = false
-	if deleteState {
-		if err := rejectSymlinkComponents(u.Paths.StateDirectory); err != nil {
-			return UninstallResult{}, err
-		}
-		if err := os.RemoveAll(u.Paths.StateDirectory); err != nil {
-			return UninstallResult{}, fmt.Errorf("delete state: %w", err)
-		}
-		if hadState {
-			resources = append(resources, "state")
-		}
+	if err := rejectSymlinkComponents(u.Paths.StateDirectory); err != nil {
+		return UninstallResult{}, err
 	}
-	return UninstallResult{ArchivedControlTask: archivedControlTask, DeletedState: deleteState && hadState, Preview: preview, Changed: len(resources) > 0, Resources: resources}, nil
+	if err := os.RemoveAll(u.Paths.StateDirectory); err != nil {
+		return UninstallResult{}, fmt.Errorf("delete state: %w", err)
+	}
+	if hadState {
+		resources = append(resources, "state")
+	}
+	return UninstallResult{ArchivedControlTask: archivedControlTask, DeletedState: hadState, Preview: preview, Changed: len(resources) > 0, Resources: resources}, nil
 }
 
 func managedFileHasBlock(path string) bool {

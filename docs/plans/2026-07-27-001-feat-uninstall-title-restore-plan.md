@@ -2,10 +2,12 @@
 
 2026-07-27. Scope: give `threadbear uninstall` an opt-in pass that removes ThreadBear's status emoji from **active (unarchived)** task titles before removal. Amends R39/U8, which said uninstall leaves titles untouched; untouched stays the default, so the amendment is opt-in only.
 
+2026-07-27 amendment (BEAR-62): uninstall now always deletes persistent state and no longer asks a state-retention question. The restore-titles question below is therefore the second interactive question, after control-task archival, and title restoration still runs before state deletion.
+
 ## Behavior
 
-- **Interactive:** a third retention question, after control-task and state: `Remove ThreadBear status emoji from active task titles` (default `no`).
-- **Noninteractive:** new uninstall-only flag `--restore-titles`, validated alongside `--archive-control-task` and `--delete-state`.
+- **Interactive:** a second question, after control-task archival: `Remove ThreadBear status emoji from active task titles` (default `no`).
+- **Noninteractive:** new uninstall-only flag `--restore-titles`, validated alongside `--archive-control-task`; the retained `--delete-state` flag is a deprecated no-op.
 - **Preview:** one new line, `restore active task titles: %t`, and `titles` added to the previewed effects list.
 - **Ordering:** the title pass runs first, inside the existing lifecycle-locked section, before the scheduler or any file is removed. The shared lock already serializes against heartbeats, so nothing re-prepends mid-pass.
 - **Failure policy:** because the pass runs first, a wholesale failure — config unreadable, App Server won't start, inventory unreadable — aborts the uninstall with nothing removed, and re-running is idempotent since already-restored titles no-op. An individual `SetTitle` failure is counted and reported but does not block removal: the leftover is one title, fixable with a hand rename, not worth trapping the user in a retry loop.
@@ -24,13 +26,13 @@ The pass reads the inventory once, computes every restoration, and writes — no
 
 Known tradeoff: a hand-typed canonical prefix is indistinguishable from ours when state does not match. The status convention reserves those seven prefixes for ThreadBear, and the pass is opt-in, so stripping them is acceptable.
 
-Why active-only: archived tasks are historical record; rewriting them churns revisions on hidden items for no operational benefit, and the request is scoped to active tasks. State is not rewritten after restoration — it is either deleted moments later or left as diagnostic history; on a later reinstall a stale `LastAppliedTitle` simply fails the exact-match test and reconciliation falls back to prefix stripping, which is correct.
+Why active-only: archived tasks are historical record; rewriting them churns revisions on hidden items for no operational benefit, and the request is scoped to active tasks. State is not rewritten after restoration because it is deleted moments later.
 
 ## Implementation
 
 - `internal/title/title.go` — add `Restore(record state.TaskRecord, current string) (string, bool)` implementing the rule above; reuses `stripStatusPrefixes`, `stripOwnedToken`, and the `ownedSubject` derivation. Zero-value record means "no state entry" (and makes `stripOwnedToken` a no-op).
-- `internal/install/uninstall.go` — `UninstallRequest.RestoreTitles`; a `TitleRestorer` dependency (`RestoreActiveTitles(ctx, controlTaskID string) (restored, failed int, err error)`) mirroring the `ControlTasks` seam so `install` stays free of codex imports; the third `Choose`; the preview line; hoist the existing `LoadConfig` so the control-task ID serves both the archive choice and the pass; run the pass first under the lock and abort only on its error; extend both no-op early-return guards so `--restore-titles` still runs when nothing else is left to remove.
-- `internal/app/app.go`, `internal/app/install_lifecycle.go` — `Request.RestoreTitles`, uninstall-only validation, mapping into `install.UninstallRequest`, the counts on the lifecycle result.
+- `internal/install/uninstall.go` — `UninstallRequest.RestoreTitles`; a `TitleRestorer` dependency (`RestoreActiveTitles(ctx, controlTaskID string) (restored, failed int, err error)`) mirroring the `ControlTasks` seam so `install` stays free of codex imports; the second `Choose`; the preview line; hoist the existing `LoadConfig` so the control-task ID serves both the archive choice and the pass; run the pass first under the lock and abort only on its error; extend both no-op early-return guards so `--restore-titles` still runs when nothing else is left to remove.
+- `internal/app/app.go`, `internal/app/install_lifecycle.go` — `Request.RestoreTitles`, uninstall-only validation, mapping into `install.UninstallRequest`, and the counts on the lifecycle result.
 - `cmd/threadbear/main.go` — register `--restore-titles`; a ~20-line `restoreActiveTitles` loop beside `ensureControlTask`/`archiveControlTask` (load state, read inventory once, per-row `title.Restore`, `SetTitle`, count restored/failed) behind a small client interface like `controlTaskClient`; an adapter (state store + `lazyInventory` + `appServers.open`) wired into `uninstallFactory`; add `titles` to the noninteractive preview effects.
 
 ## Tests
@@ -42,7 +44,7 @@ Why active-only: archived tasks are historical record; rewriting them churns rev
 ## Docs
 
 - `README.md` command table: uninstall row mentions title retention choice.
-- `INSTALL.md` uninstall section: the third question, `--restore-titles` in the noninteractive example, and that omitting it leaves titles alone.
+- `INSTALL.md` uninstall section: the second question, `--restore-titles` in the noninteractive example, and that omitting it leaves titles alone.
 - `docs/compatibility.md`: "Existing task titles and archives are left alone" becomes "left alone by default; `--restore-titles` removes ThreadBear status emoji from active tasks, and archived tasks are never rewritten."
 
 ## Out of scope

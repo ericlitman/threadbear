@@ -156,7 +156,7 @@ Flags:
   -h, --help              show this help and let the bear rest
   --archive-control-task  archive the control task (default: false)
   --confirm               assert confirmation for noninteractive use (default: false)
-  --delete-state          delete persistent state (default: false)
+  --delete-state          deprecated no-op; persistent state is always deleted (default: false)
   --json                  write stable JSON command results; help stays human-readable (default: false)
   --non-interactive       do not prompt (default: false)
   --noninteractive        do not prompt (default: false)
