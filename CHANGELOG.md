@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Fixed
+
+- Refined thread classification of closing messages that describe a problem or prediction without a stated follow-up: the over-broad rule forcing them to complete is removed, matching the relabeled evidence corpus.
+
 ### Added
 
 - Added opt-out automatic updates on a 30-minute check cadence, with verified self-replacement and one changelog-backed control-thread announcement after each version change.
