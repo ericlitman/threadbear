@@ -8,13 +8,15 @@ import (
 	"io"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/ericlitman/threadbear/internal/tokens"
 )
 
 const (
 	legacySchemaVersion                 = 1
-	CurrentSchemaVersion                = 2
+	tokenDisplaySchemaVersion           = 2
+	CurrentSchemaVersion                = 3
 	ProductName                         = "ThreadBear"
 	ControlTaskTitle                    = "🧵🐻 ThreadBear 🐻🧵"
 	Website                             = "https://threadbear.sh"
@@ -25,6 +27,8 @@ const (
 	DefaultArchiveAfterDays             = 14
 	DefaultClassifierModel              = "gpt-5.6-luna"
 	DefaultClassifierContextBudgetBytes = 250000
+	AutoUpdateCheckInterval             = 30 * time.Minute
+	NotifyOnlyUpdateCheckInterval       = 24 * time.Hour
 )
 
 type ClassifierEffort string
@@ -47,6 +51,7 @@ type Config struct {
 	ArchiveEnabled               bool             `json:"archive_enabled"`
 	ArchiveAfterDays             int              `json:"archive_after_days"`
 	RenameEnabled                bool             `json:"rename_enabled"`
+	AutoUpdateEnabled            bool             `json:"auto_update_enabled"`
 	TokenDisplay                 tokens.Position  `json:"token_display"`
 	AgentsEnabled                bool             `json:"agents_enabled"`
 	ClassifierModel              string           `json:"classifier_model"`
@@ -62,6 +67,7 @@ func Default(controlTaskID string) Config {
 		ArchiveEnabled:               true,
 		ArchiveAfterDays:             DefaultArchiveAfterDays,
 		RenameEnabled:                true,
+		AutoUpdateEnabled:            true,
 		TokenDisplay:                 tokens.PositionStart,
 		AgentsEnabled:                true,
 		ClassifierModel:              DefaultClassifierModel,
@@ -71,6 +77,13 @@ func Default(controlTaskID string) Config {
 }
 
 func (c Config) Validate() error { return c.validate(true, true) }
+
+func UpdateCheckInterval(autoUpdateEnabled bool) time.Duration {
+	if autoUpdateEnabled {
+		return AutoUpdateCheckInterval
+	}
+	return NotifyOnlyUpdateCheckInterval
+}
 
 func (c Config) validate(requireBudget, requirePair bool) error {
 	if c.SchemaVersion != CurrentSchemaVersion {
@@ -131,7 +144,7 @@ func Decode(data []byte) (Config, error) {
 		return Config{}, fmt.Errorf("%w: got 0, want %d", ErrUnsupportedSchema, CurrentSchemaVersion)
 	}
 	schemaVersion := *envelope.SchemaVersion
-	if schemaVersion != legacySchemaVersion && schemaVersion != CurrentSchemaVersion {
+	if schemaVersion < legacySchemaVersion || schemaVersion > CurrentSchemaVersion {
 		return Config{}, fmt.Errorf("%w: got %d, want %d", ErrUnsupportedSchema, schemaVersion, CurrentSchemaVersion)
 	}
 	var wire struct {
@@ -143,6 +156,7 @@ func Decode(data []byte) (Config, error) {
 		ArchiveEnabled               *bool             `json:"archive_enabled"`
 		ArchiveAfterDays             *int              `json:"archive_after_days"`
 		RenameEnabled                *bool             `json:"rename_enabled"`
+		AutoUpdateEnabled            *bool             `json:"auto_update_enabled"`
 		TokenDisplay                 *tokens.Position  `json:"token_display"`
 		AgentsEnabled                *bool             `json:"agents_enabled"`
 		ClassifierModel              *string           `json:"classifier_model"`
@@ -158,7 +172,10 @@ func Decode(data []byte) (Config, error) {
 	if schemaVersion == legacySchemaVersion && wire.TokenDisplay != nil {
 		return Config{}, errors.New("decode config: token_display is not valid in schema version 1")
 	}
-	if schemaVersion == CurrentSchemaVersion && (wire.TokenDisplay == nil || wire.ClassifierContextBudgetBytes == nil) {
+	if schemaVersion >= tokenDisplaySchemaVersion && (wire.TokenDisplay == nil || wire.ClassifierContextBudgetBytes == nil) {
+		return Config{}, errors.New("config is missing a required field")
+	}
+	if schemaVersion == CurrentSchemaVersion && wire.AutoUpdateEnabled == nil {
 		return Config{}, errors.New("config is missing a required field")
 	}
 	spawnPath, err := decodeSpawnPath(wire.CodexSpawnPath, schemaVersion == legacySchemaVersion)
@@ -172,8 +189,12 @@ func Decode(data []byte) (Config, error) {
 		budget = DefaultClassifierContextBudgetBytes
 	}
 	tokenDisplay := tokens.PositionOff
-	if schemaVersion == CurrentSchemaVersion {
+	if schemaVersion >= tokenDisplaySchemaVersion {
 		tokenDisplay = *wire.TokenDisplay
+	}
+	autoUpdateEnabled := true
+	if schemaVersion == CurrentSchemaVersion {
+		autoUpdateEnabled = *wire.AutoUpdateEnabled
 	}
 	c := Config{
 		SchemaVersion:                CurrentSchemaVersion,
@@ -184,13 +205,14 @@ func Decode(data []byte) (Config, error) {
 		ArchiveEnabled:               *wire.ArchiveEnabled,
 		ArchiveAfterDays:             *wire.ArchiveAfterDays,
 		RenameEnabled:                *wire.RenameEnabled,
+		AutoUpdateEnabled:            autoUpdateEnabled,
 		TokenDisplay:                 tokenDisplay,
 		AgentsEnabled:                *wire.AgentsEnabled,
 		ClassifierModel:              *wire.ClassifierModel,
 		ClassifierEffort:             *wire.ClassifierEffort,
 		ClassifierContextBudgetBytes: budget,
 	}
-	strict := schemaVersion == CurrentSchemaVersion
+	strict := schemaVersion >= tokenDisplaySchemaVersion
 	if err := c.validate(strict, strict); err != nil {
 		return Config{}, err
 	}

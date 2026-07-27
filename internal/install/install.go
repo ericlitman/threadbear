@@ -140,6 +140,7 @@ type PreferencePatch struct {
 	ArchiveEnabled               *bool
 	ArchiveAfterDays             *int
 	RenameEnabled                *bool
+	AutoUpdateEnabled            *bool
 	TokenDisplay                 *tokens.Position
 	AgentsEnabled                *bool
 	ClassifierModel              *string
@@ -433,6 +434,10 @@ func welcomeNotice(version string, preferences Preferences) string {
 	if preferences.RenameEnabled {
 		rename = "yes"
 	}
+	autoUpdate := "off"
+	if preferences.AutoUpdateEnabled {
+		autoUpdate = "on"
+	}
 	agents := "off"
 	if preferences.AgentsEnabled {
 		agents = "on"
@@ -441,6 +446,7 @@ func welcomeNotice(version string, preferences Preferences) string {
 
 Here is how I am set up:
 - heartbeat: every %d seconds
+- automatic ThreadBear updates: %s
 - archive finished threads: %s
 - keep titles updated: %s
 - token figures in titles: %s
@@ -456,6 +462,7 @@ in a terminal any time.
 Happy wrangling. Go do great things!`,
 		version,
 		preferences.HeartbeatSeconds,
+		autoUpdate,
 		archive,
 		rename,
 		string(preferences.TokenDisplay),
@@ -738,7 +745,7 @@ func installPreview(paths Paths, preferences Preferences, reinstall, migration b
 		skill,
 		"LaunchAgent staged disabled, self-tested, then enabled: " + paths.LaunchAgent,
 		"one persistent Codex control task",
-		fmt.Sprintf("heartbeat=%ds archive=%t/%dd rename=%t token-display=%s agents=%t classifier=%s/%s context=%d bytes", preferences.HeartbeatSeconds, preferences.ArchiveEnabled, preferences.ArchiveAfterDays, preferences.RenameEnabled, preferences.TokenDisplay, preferences.AgentsEnabled, preferences.ClassifierModel, preferences.ClassifierEffort, preferences.ClassifierContextBudgetBytes),
+		fmt.Sprintf("heartbeat=%ds auto-update=%t archive=%t/%dd rename=%t token-display=%s agents=%t classifier=%s/%s context=%d bytes", preferences.HeartbeatSeconds, preferences.AutoUpdateEnabled, preferences.ArchiveEnabled, preferences.ArchiveAfterDays, preferences.RenameEnabled, preferences.TokenDisplay, preferences.AgentsEnabled, preferences.ClassifierModel, preferences.ClassifierEffort, preferences.ClassifierContextBudgetBytes),
 	}}, nil
 }
 
@@ -965,6 +972,9 @@ func (p PreferencePatch) Apply(value Preferences) Preferences {
 	}
 	if p.RenameEnabled != nil {
 		value.RenameEnabled = *p.RenameEnabled
+	}
+	if p.AutoUpdateEnabled != nil {
+		value.AutoUpdateEnabled = *p.AutoUpdateEnabled
 	}
 	if p.TokenDisplay != nil {
 		value.TokenDisplay = *p.TokenDisplay

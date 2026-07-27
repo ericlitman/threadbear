@@ -20,6 +20,7 @@ import (
 	"github.com/ericlitman/threadbear/internal/state"
 	"github.com/ericlitman/threadbear/internal/status"
 	"github.com/ericlitman/threadbear/internal/tokens"
+	updatepkg "github.com/ericlitman/threadbear/internal/update"
 )
 
 type fakeClock struct{ now time.Time }
@@ -181,6 +182,42 @@ type fakeUpdateChecker struct {
 func (f *fakeUpdateChecker) Check(context.Context, string) (UpdateStatus, error) {
 	f.calls++
 	return f.result, f.err
+}
+
+type fakeUpdater struct {
+	calls   int
+	targets []string
+	result  updatepkg.Result
+	err     error
+	block   bool
+}
+
+func (f *fakeUpdater) Update(ctx context.Context, target string) (updatepkg.Result, error) {
+	f.calls++
+	f.targets = append(f.targets, target)
+	if f.block {
+		<-ctx.Done()
+		return updatepkg.Result{}, ctx.Err()
+	}
+	return f.result, f.err
+}
+
+type fakeManagedSurfaces struct {
+	calls     int
+	agents    []bool
+	enabled   []bool
+	resources []string
+	err       error
+}
+
+func (f *fakeManagedSurfaces) Repair(agentsEnabled bool) ([]string, error) {
+	f.calls++
+	f.agents = append(f.agents, agentsEnabled)
+	f.enabled = append(f.enabled, agentsEnabled)
+	if f.err != nil {
+		return nil, f.err
+	}
+	return append([]string(nil), f.resources...), nil
 }
 
 type fakeTokenReader struct {
@@ -806,6 +843,9 @@ func TestCrashApplyingJournalRecoversWithoutRepeatingMutation(t *testing.T) {
 		committed := state.New()
 		committed.LastUpdateCheck = timePointer(now.Add(-25 * time.Hour))
 		runner, deps := testRunner(t, now, nil, committed)
+		cfg := config.Default("control")
+		cfg.AutoUpdateEnabled = false
+		deps.store.configOverride = &cfg
 		cycle := state.NewCycle("cycle-1", committed.Generation, now)
 		cycle.Operations["notice:1.2.0"] = state.CycleOperation{Kind: state.OperationNotice, Stage: state.StageApplying, NoticeVersion: "1.2.0"}
 		if err := deps.store.store.SaveCycle(cycle); err != nil {
@@ -1053,6 +1093,9 @@ func TestHeartbeatUpdateNoticeDeliveredOnce(t *testing.T) {
 	committed := state.New()
 	committed.LastUpdateCheck = timePointer(now.Add(-25 * time.Hour))
 	runner, deps := testRunner(t, now, nil, committed)
+	cfg := config.Default("control")
+	cfg.AutoUpdateEnabled = false
+	deps.store.configOverride = &cfg
 	deps.update.result = UpdateStatus{LatestVersion: "1.2.0", Newer: true}
 	value, err := runner.Run(context.Background(), false)
 	if err != nil {
@@ -1079,6 +1122,9 @@ func TestCrashAmbiguousMutationKeepsApplyingJournal(t *testing.T) {
 		committed := state.New()
 		committed.LastUpdateCheck = timePointer(now.Add(-25 * time.Hour))
 		runner, deps := testRunner(t, now, nil, committed)
+		cfg := config.Default("control")
+		cfg.AutoUpdateEnabled = false
+		deps.store.configOverride = &cfg
 		deps.update.result = UpdateStatus{LatestVersion: "1.2.0", Newer: true}
 		deps.client.failNotice = true
 		if _, err := runner.Run(context.Background(), false); err == nil {
@@ -1143,6 +1189,256 @@ func TestHeartbeatUpdateDueCurrentOpensNoAppServer(t *testing.T) {
 	}
 }
 
+func TestIdleHeartbeatWithoutDueWorkDoesNotWriteState(t *testing.T) {
+	now := time.Date(2026, 7, 24, 12, 0, 0, 0, time.UTC)
+	committed := state.New()
+	committed.LastUpdateCheck = timePointer(now)
+	runner, deps := testRunner(t, now, nil, committed)
+	before, err := deps.store.store.LoadState()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := runner.Run(context.Background(), false); err != nil {
+		t.Fatal(err)
+	}
+	after, err := deps.store.store.LoadState()
+	if err != nil || !reflect.DeepEqual(after, before) || deps.update.calls != 0 || deps.managed.calls != 1 {
+		t.Fatalf("before=%+v after=%+v checks=%d reconciles=%d err=%v", before, after, deps.update.calls, deps.managed.calls, err)
+	}
+}
+
+func TestAutoUpdateAppliesCheckedVersionWithoutReadyNotice(t *testing.T) {
+	now := time.Date(2026, 7, 24, 12, 0, 0, 0, time.UTC)
+	committed := state.New()
+	committed.LastUpdateCheck = timePointer(now.Add(-31 * time.Minute))
+	runner, deps := testRunner(t, now, nil, committed)
+	deps.update.result = UpdateStatus{LatestVersion: "1.2.0", Newer: true}
+	deps.updater.result = updatepkg.Result{PreviousVersion: "1.0.0", InstalledVersion: "1.2.0", Changed: true}
+	value, err := runner.Run(context.Background(), false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !value.(output.HeartbeatResult).Empty() || deps.updater.calls != 1 || !reflect.DeepEqual(deps.updater.targets, []string{"1.2.0"}) || len(deps.client.notices) != 0 || deps.factory.opens != 0 {
+		t.Fatalf("result=%+v updater=%d targets=%v notices=%v opens=%d", value, deps.updater.calls, deps.updater.targets, deps.client.notices, deps.factory.opens)
+	}
+	stored, err := deps.store.store.LoadState()
+	if err != nil || stored.LastUpdateCheck == nil || !stored.LastUpdateCheck.Equal(now) || stored.LastUpdateFailure != nil {
+		t.Fatalf("state=%+v err=%v", stored, err)
+	}
+}
+
+func TestUpdateFailuresPersistAndClearWithoutNotices(t *testing.T) {
+	now := time.Date(2026, 7, 24, 12, 0, 0, 0, time.UTC)
+	tests := []struct {
+		name string
+		code string
+		set  func(*Runner, testDeps)
+	}{
+		{name: "check", code: "update_check_failed", set: func(_ *Runner, deps testDeps) { deps.update.err = errors.New("offline") }},
+		{name: "apply", code: "update_apply_failed", set: func(_ *Runner, deps testDeps) {
+			deps.update.result = UpdateStatus{LatestVersion: "1.2.0", Newer: true}
+			deps.updater.err = errors.New("checksum")
+		}},
+		{name: "unavailable", code: "update_updater_unavailable", set: func(runner *Runner, deps testDeps) {
+			deps.update.result = UpdateStatus{LatestVersion: "1.2.0", Newer: true}
+			runner.deps.Updater = nil
+		}},
+		{name: "timeout", code: "update_apply_timeout", set: func(runner *Runner, deps testDeps) {
+			deps.update.result = UpdateStatus{LatestVersion: "1.2.0", Newer: true}
+			deps.updater.block = true
+			runner.deps.UpdateApplyTimeout = 10 * time.Millisecond
+		}},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			committed := state.New()
+			committed.LastUpdateCheck = timePointer(now.Add(-31 * time.Minute))
+			runner, deps := testRunner(t, now, nil, committed)
+			test.set(runner, deps)
+			value, err := runner.Run(context.Background(), false)
+			if err != nil || !value.(output.HeartbeatResult).Empty() || len(deps.client.notices) != 0 {
+				t.Fatalf("result=%+v err=%v notices=%v", value, err, deps.client.notices)
+			}
+			stored, err := deps.store.store.LoadState()
+			if err != nil || stored.LastUpdateFailure == nil || stored.LastUpdateFailure.Code != test.code || stored.LastUpdateCheck == nil || !stored.LastUpdateCheck.Equal(now) {
+				t.Fatalf("state=%+v err=%v", stored, err)
+			}
+			deps.clock.now = now.Add(31 * time.Minute)
+			deps.update.err = nil
+			deps.update.result = UpdateStatus{LatestVersion: "1.0.0"}
+			deps.updater.block = false
+			runner.deps.Updater = deps.updater
+			if _, err := runner.Run(context.Background(), false); err != nil {
+				t.Fatal(err)
+			}
+			stored, _ = deps.store.store.LoadState()
+			if stored.LastUpdateFailure != nil {
+				t.Fatalf("failure not cleared: %+v", stored.LastUpdateFailure)
+			}
+		})
+	}
+}
+
+func TestVersionAdoptionReconcileAndAnnouncement(t *testing.T) {
+	now := time.Date(2026, 7, 24, 12, 0, 0, 0, time.UTC)
+	t.Run("fresh adoption", func(t *testing.T) {
+		runner, deps := testRunner(t, now, nil, state.New())
+		stored, _ := deps.store.store.LoadState()
+		stored.LastAnnouncedVersion = ""
+		stored.LastReconciledVersion = ""
+		stored.LastUpdateCheck = timePointer(now)
+		if err := deps.store.store.SaveState(stored); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := runner.Run(context.Background(), false); err != nil {
+			t.Fatal(err)
+		}
+		stored, _ = deps.store.store.LoadState()
+		if stored.LastAnnouncedVersion != "1.0.0" || stored.LastReconciledVersion != "1.0.0" || len(deps.client.notices) != 0 || deps.managed.calls != 1 {
+			t.Fatalf("state=%+v notices=%v reconciles=%d", stored, deps.client.notices, deps.managed.calls)
+		}
+	})
+
+	t.Run("drift announcement", func(t *testing.T) {
+		runner, deps := testRunner(t, now, nil, state.New())
+		stored, _ := deps.store.store.LoadState()
+		stored.LastAnnouncedVersion = "1.1.0"
+		stored.LastReconciledVersion = "1.1.0"
+		stored.LastUpdateCheck = timePointer(now)
+		if err := deps.store.store.SaveState(stored); err != nil {
+			t.Fatal(err)
+		}
+		runner.deps.InstalledVersion = "1.2.0"
+		runner.deps.ReleaseNotes = func() []string { return []string{"Safer updates", "Fresher skill text", "Quieter checks"} }
+		if _, err := runner.Run(context.Background(), false); err != nil {
+			t.Fatal(err)
+		}
+		want := "🧵🐻 I gave myself a quick brush-up: v1.1.0 → v1.2.0!\n- Safer updates\n- Fresher skill text\n- Quieter checks\nPrefer to update by hand? threadbear configure --auto-update=false"
+		stored, _ = deps.store.store.LoadState()
+		if stored.LastAnnouncedVersion != "1.2.0" || stored.LastReconciledVersion != "1.2.0" || !reflect.DeepEqual(deps.client.notices, []string{want}) || deps.managed.calls != 1 || strings.Contains(want, "is ready") {
+			t.Fatalf("state=%+v notices=%q reconciles=%d", stored, deps.client.notices, deps.managed.calls)
+		}
+		if _, err := runner.Run(context.Background(), false); err != nil {
+			t.Fatal(err)
+		}
+		if len(deps.client.notices) != 1 || deps.managed.calls != 2 {
+			t.Fatalf("duplicate notices=%v reconciles=%d", deps.client.notices, deps.managed.calls)
+		}
+	})
+}
+
+func TestAnnouncementRecoveryAndReconcileRetry(t *testing.T) {
+	now := time.Date(2026, 7, 24, 12, 0, 0, 0, time.UTC)
+	t.Run("ambiguous delivery", func(t *testing.T) {
+		runner, deps := testRunner(t, now, nil, state.New())
+		stored, _ := deps.store.store.LoadState()
+		stored.LastAnnouncedVersion = "1.1.0"
+		stored.LastReconciledVersion = "1.1.0"
+		stored.LastUpdateCheck = timePointer(now)
+		if err := deps.store.store.SaveState(stored); err != nil {
+			t.Fatal(err)
+		}
+		runner.deps.InstalledVersion = "1.2.0"
+		runner.deps.ReleaseNotes = func() []string { return []string{"Bullet one"} }
+		deps.client.failNotice = true
+		if _, err := runner.Run(context.Background(), false); err == nil {
+			t.Fatal("announcement insertion did not report ambiguity")
+		}
+		cycle, err := deps.store.store.LoadCycle()
+		operation := cycle.Operations["announcement:1.2.0"]
+		if err != nil || operation.Stage != state.StageApplying || operation.PreviousVersion != "1.1.0" {
+			t.Fatalf("cycle=%+v operation=%+v err=%v", cycle, operation, err)
+		}
+		deps.client.failNotice = false
+		if _, err := runner.Run(context.Background(), false); err != nil {
+			t.Fatal(err)
+		}
+		stored, _ = deps.store.store.LoadState()
+		if stored.LastAnnouncedVersion != "1.2.0" || len(deps.client.notices) != 1 {
+			t.Fatalf("state=%+v notices=%v", stored, deps.client.notices)
+		}
+	})
+
+	t.Run("reconcile failure does not block", func(t *testing.T) {
+		runner, deps := testRunner(t, now, nil, state.New())
+		stored, _ := deps.store.store.LoadState()
+		stored.LastAnnouncedVersion = "1.1.0"
+		stored.LastReconciledVersion = "1.1.0"
+		stored.LastUpdateCheck = timePointer(now)
+		if err := deps.store.store.SaveState(stored); err != nil {
+			t.Fatal(err)
+		}
+		runner.deps.InstalledVersion = "1.2.0"
+		deps.managed.err = errors.New("read only")
+		if _, err := runner.Run(context.Background(), false); err != nil {
+			t.Fatal(err)
+		}
+		stored, _ = deps.store.store.LoadState()
+		if stored.LastAnnouncedVersion != "1.2.0" || stored.LastReconciledVersion != "1.1.0" || stored.LastReconcileFailure == nil || len(deps.client.notices) != 1 {
+			t.Fatalf("state=%+v notices=%v", stored, deps.client.notices)
+		}
+		deps.managed.err = nil
+		if _, err := runner.Run(context.Background(), false); err != nil {
+			t.Fatal(err)
+		}
+		stored, _ = deps.store.store.LoadState()
+		if stored.LastReconciledVersion != "1.2.0" || stored.LastReconcileFailure != nil || deps.managed.calls != 2 || len(deps.client.notices) != 1 {
+			t.Fatalf("state=%+v reconciles=%d notices=%v", stored, deps.managed.calls, deps.client.notices)
+		}
+	})
+}
+
+func TestAnnouncementVerifiedBeforeStateCrashDoesNotDuplicate(t *testing.T) {
+	now := time.Date(2026, 7, 24, 12, 0, 0, 0, time.UTC)
+	runner, deps := testRunner(t, now, nil, state.New())
+	stored, _ := deps.store.store.LoadState()
+	stored.LastAnnouncedVersion = "1.1.0"
+	stored.LastReconciledVersion = "1.2.0"
+	stored.LastUpdateCheck = timePointer(now)
+	if err := deps.store.store.SaveState(stored); err != nil {
+		t.Fatal(err)
+	}
+	runner.deps.InstalledVersion = "1.2.0"
+	runner.deps.ReleaseNotes = func() []string { return []string{"Crash-safe bullet"} }
+	deps.store.failSaveState = true
+	if _, err := runner.Run(context.Background(), false); err == nil {
+		t.Fatal("final state write did not fail")
+	}
+	cycle, err := deps.store.store.LoadCycle()
+	if err != nil || cycle.Operations["announcement:1.2.0"].Stage != state.StageVerified || len(deps.client.notices) != 1 {
+		t.Fatalf("cycle=%+v notices=%v err=%v", cycle, deps.client.notices, err)
+	}
+	deps.store.failSaveState = false
+	if _, err := runner.Run(context.Background(), false); err != nil {
+		t.Fatal(err)
+	}
+	stored, _ = deps.store.store.LoadState()
+	if stored.LastAnnouncedVersion != "1.2.0" || len(deps.client.notices) != 1 {
+		t.Fatalf("state=%+v notices=%v", stored, deps.client.notices)
+	}
+}
+
+func TestReconcileRespectsDisabledAgents(t *testing.T) {
+	now := time.Date(2026, 7, 24, 12, 0, 0, 0, time.UTC)
+	runner, deps := testRunner(t, now, nil, state.New())
+	stored, _ := deps.store.store.LoadState()
+	stored.LastAnnouncedVersion = "1.0.0"
+	stored.LastReconciledVersion = "0.9.0"
+	stored.LastUpdateCheck = timePointer(now)
+	if err := deps.store.store.SaveState(stored); err != nil {
+		t.Fatal(err)
+	}
+	cfg := config.Default("control")
+	cfg.AgentsEnabled = false
+	deps.store.configOverride = &cfg
+	if _, err := runner.Run(context.Background(), false); err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(deps.managed.agents, []bool{false}) {
+		t.Fatalf("agents=%v", deps.managed.agents)
+	}
+}
+
 type testDeps struct {
 	store      *wrappedStore
 	clock      *fakeClock
@@ -1151,6 +1447,8 @@ type testDeps struct {
 	factory    *fakeFactory
 	classifier *fakeClassifier
 	update     *fakeUpdateChecker
+	updater    *fakeUpdater
+	managed    *fakeManagedSurfaces
 	tokens     *fakeTokenReader
 }
 
@@ -1162,6 +1460,12 @@ func testRunner(t *testing.T, now time.Time, tasks []codex.Task, committed state
 	if err := store.SaveConfig(cfg); err != nil {
 		t.Fatal(err)
 	}
+	if committed.LastAnnouncedVersion == "" {
+		committed.LastAnnouncedVersion = "1.0.0"
+	}
+	if committed.LastReconciledVersion == "" {
+		committed.LastReconciledVersion = "1.0.0"
+	}
 	if err := store.SaveState(committed); err != nil {
 		t.Fatal(err)
 	}
@@ -1170,11 +1474,13 @@ func testRunner(t *testing.T, now time.Time, tasks []codex.Task, committed state
 	factory := &fakeFactory{client: client}
 	classifier := &fakeClassifier{results: make(map[string]status.Classification)}
 	update := &fakeUpdateChecker{result: UpdateStatus{LatestVersion: "1.0.0"}}
+	updater := &fakeUpdater{}
+	managed := &fakeManagedSurfaces{}
 	tokenReader := &fakeTokenReader{snapshots: make(map[string]tokens.Snapshot), errs: make(map[string]error)}
 	wrapped := &wrappedStore{store: store}
 	clock := &fakeClock{now: now}
 	runner, err := New(Dependencies{
-		Store: wrapped, Inventory: index, AppServer: factory, UpdateChecker: update, Clock: clock, InstalledVersion: "1.0.0",
+		Store: wrapped, Inventory: index, AppServer: factory, UpdateChecker: update, Updater: updater, ManagedSurfaces: managed, Clock: clock, InstalledVersion: "1.0.0",
 		TokenReader: tokenReader,
 		NewCycleID:  func() string { return "cycle-1" },
 		NewClassifier: func(_ AppServer, cfg config.Config) (Classifier, error) {
@@ -1187,7 +1493,7 @@ func testRunner(t *testing.T, now time.Time, tasks []codex.Task, committed state
 	if err != nil {
 		t.Fatal(err)
 	}
-	return runner, testDeps{store: wrapped, clock: clock, index: index, client: client, factory: factory, classifier: classifier, update: update, tokens: tokenReader}
+	return runner, testDeps{store: wrapped, clock: clock, index: index, client: client, factory: factory, classifier: classifier, update: update, updater: updater, managed: managed, tokens: tokenReader}
 }
 
 func completedEvidence(now time.Time, user, agent string) appserver.RecentEvidence {
@@ -1219,22 +1525,6 @@ func TestArchiveRequiresCompleteAndStateAge(t *testing.T) {
 			t.Fatalf("%s became archive eligible", taskStatus)
 		}
 	}
-}
-
-type fakeManagedSurfaces struct {
-	calls     int
-	enabled   []bool
-	resources []string
-	err       error
-}
-
-func (f *fakeManagedSurfaces) Repair(enabled bool) ([]string, error) {
-	f.calls++
-	f.enabled = append(f.enabled, enabled)
-	if f.err != nil {
-		return nil, f.err
-	}
-	return append([]string(nil), f.resources...), nil
 }
 
 func TestHeartbeatRepairsManagedSurfacesBeforeInventoryAndClassifier(t *testing.T) {
@@ -1315,6 +1605,9 @@ func TestHeartbeatManagedRepairFailureStillDeliversUpdateNotice(t *testing.T) {
 	committed := state.New()
 	committed.LastUpdateCheck = timePointer(now.Add(-25 * time.Hour))
 	runner, deps := testRunner(t, now, nil, committed)
+	cfg := config.Default("control")
+	cfg.AutoUpdateEnabled = false
+	deps.store.configOverride = &cfg
 	runner.deps.ManagedSurfaces = &fakeManagedSurfaces{err: errors.New("synthetic managed failure")}
 	deps.update.result = UpdateStatus{LatestVersion: "1.2.0", Newer: true}
 	value, err := runner.Run(context.Background(), false)
@@ -1338,6 +1631,9 @@ func TestHeartbeatManagedRepairFailureDegradesUnresolvedTasksWithoutAborting(t *
 	committed.LastUpdateCheck = timePointer(now.Add(-25 * time.Hour))
 	committed.Tasks[task.TaskID] = record(codex.Task{TaskID: task.TaskID, Revision: "1", Title: task.Title}, state.StatusUnknown, now.Add(-time.Hour))
 	runner, deps := testRunner(t, now, []codex.Task{task}, committed)
+	cfg := config.Default("control")
+	cfg.AutoUpdateEnabled = false
+	deps.store.configOverride = &cfg
 	runner.deps.ManagedSurfaces = &fakeManagedSurfaces{err: errors.New("synthetic managed failure")}
 	deps.update.result = UpdateStatus{LatestVersion: "1.2.0", Newer: true}
 	deps.client.latest[task.TaskID] = completedEvidence(now, "done", "no footer")

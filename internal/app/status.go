@@ -63,7 +63,7 @@ type OperatorDependencies struct {
 
 func NewWithOperatorCommands(version string, deps OperatorDependencies) *Service {
 	service := New(version)
-	service.handlers[CommandHeartbeat] = OperatorHeartbeatHandler(deps.Store, deps.Inventory, deps.Clock, deps.Heartbeat)
+	service.handlers[CommandHeartbeat] = OperatorHeartbeatHandler(version, deps.Store, deps.Inventory, deps.Clock, deps.Heartbeat)
 	service.handlers[CommandStatus] = StatusHandler(version, deps.Store, deps.LaunchAgent)
 	service.handlers[CommandInspect] = InspectHandler(deps.Store, deps.Inventory, deps.Clock)
 	service.handlers[CommandConfigure] = ConfigureHandler(deps.Store, deps.LaunchAgent, deps.Preview, deps.Confirm, deps.ManagedAgents)
@@ -142,25 +142,28 @@ func StatusHandler(version string, store OperatorStore, launchAgent LaunchAgent)
 				ArchiveEnabled:               cfg.ArchiveEnabled,
 				ArchiveAfterDays:             cfg.ArchiveAfterDays,
 				RenameEnabled:                cfg.RenameEnabled,
+				AutoUpdateEnabled:            cfg.AutoUpdateEnabled,
 				TokenDisplay:                 string(cfg.TokenDisplay),
 				AgentsEnabled:                cfg.AgentsEnabled,
 				ClassifierModel:              cfg.ClassifierModel,
 				ClassifierEffort:             string(cfg.ClassifierEffort),
 				ClassifierContextBudgetBytes: cfg.ClassifierContextBudgetBytes,
 			},
-			PendingRetries:  len(pendingTaskIDs),
-			LastUpdateCheck: committed.LastUpdateCheck,
+			PendingRetries:       len(pendingTaskIDs),
+			LastUpdateCheck:      committed.LastUpdateCheck,
+			LastUpdateFailure:    committed.LastUpdateFailure,
+			LastReconcileFailure: committed.LastReconcileFailure,
 		}, nil
 	}
 }
 
-func OperatorHeartbeatHandler(store OperatorStore, inventory OperatorInventory, clock OperatorClock, runner HeartbeatRunner) Handler {
+func OperatorHeartbeatHandler(installedVersion string, store OperatorStore, inventory OperatorInventory, clock OperatorClock, runner HeartbeatRunner) Handler {
 	return func(ctx context.Context, request Request) (output.Result, error) {
 		if request.Command != CommandHeartbeat {
 			return commandError("heartbeat", "invalid_request", ErrInvalidRequest)
 		}
 		if request.DryRun {
-			return heartbeatDryRun(ctx, store, inventory, clock)
+			return heartbeatDryRun(ctx, installedVersion, store, inventory, clock)
 		}
 		if runner == nil {
 			return commandError("heartbeat", "not_implemented", ErrUnavailable)
@@ -169,7 +172,7 @@ func OperatorHeartbeatHandler(store OperatorStore, inventory OperatorInventory, 
 	}
 }
 
-func heartbeatDryRun(ctx context.Context, store OperatorStore, inventory OperatorInventory, clock OperatorClock) (output.Result, error) {
+func heartbeatDryRun(ctx context.Context, installedVersion string, store OperatorStore, inventory OperatorInventory, clock OperatorClock) (output.Result, error) {
 	if store == nil || inventory == nil || clock == nil {
 		return commandError("heartbeat", "dependency_unavailable", ErrUnavailable)
 	}
@@ -209,8 +212,14 @@ func heartbeatDryRun(ctx context.Context, store OperatorStore, inventory Operato
 	for _, taskID := range archiveIDs {
 		effects = append(effects, "archive."+taskID)
 	}
-	if committed.LastUpdateCheck == nil || !now.Before(committed.LastUpdateCheck.Add(24*time.Hour)) {
+	if committed.LastUpdateCheck == nil || !now.Before(committed.LastUpdateCheck.Add(config.UpdateCheckInterval(cfg.AutoUpdateEnabled))) {
 		effects = append(effects, "update_check")
+	}
+	if installedVersion != "" && committed.LastReconciledVersion != installedVersion {
+		effects = append(effects, "managed_surface_reconcile")
+	}
+	if installedVersion != "" && committed.LastAnnouncedVersion != "" && committed.LastAnnouncedVersion != installedVersion {
+		effects = append(effects, "update_announcement")
 	}
 	sort.Strings(effects)
 	return output.PreviewResult{Command: "heartbeat", Effects: effects}, nil

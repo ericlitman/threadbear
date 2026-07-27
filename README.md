@@ -11,7 +11,7 @@ An unchanged heartbeat reads the complete local inventory, sees that nothing mov
 - Optionally places a compact cumulative output-token figure at the start or end of managed titles.
 - Preserves a durable task subject and adds a concise next action when warranted.
 - Automatically archives only completed, inactive tasks; unfinished work remains visible.
-- Checks release metadata once per day and posts one control-task notice per newer version. Updates still require user action.
+- With auto-update enabled by default, checks for a newer release at most every 30 minutes, installs it through the verified replacement path, and posts one control-task announcement with up to three changelog bullets. Opting out restores the once-daily notice-only behavior.
 - Offers read-only status, inspection, dry-run, and self-test commands that do not invoke a model.
 
 ThreadBear does not edit `.codex-global-state.json`, click through Codex Desktop, invalidate private sidebar caches, organize Desktop projects, or promise an immediate repaint in an already-open sidebar. Persisted task state is authoritative; the supported UI may converge on a later task activity or refresh.
@@ -24,7 +24,7 @@ ThreadBear v1 supports macOS 12 or newer on Apple silicon and Intel Macs. Releas
 curl -fsSL https://threadbear.sh/install.sh | sh
 ```
 
-The guided installer reads answers from `/dev/tty`, previews every effect, and asks once before mutation. It requires no `sudo` and defaults to a five-minute heartbeat, automatic archiving after 14 inactive days, managed title updates, and managed global AGENTS instructions.
+The guided installer reads answers from `/dev/tty`, previews every effect, and asks once before mutation. It requires no `sudo` and defaults to a five-minute heartbeat, verified automatic updates, automatic archiving after 14 inactive days, managed title updates, and managed global AGENTS instructions.
 
 For exact-version, noninteractive, migration, Gatekeeper, update/downgrade, and uninstall details, read [INSTALL.md](INSTALL.md).
 
@@ -51,7 +51,7 @@ All commands accept `--json` for stable machine-readable output where applicable
 ThreadBear pays attention before it pays for inference:
 
 1. Read every managed unarchived task from local Codex surfaces.
-2. Exit silently if the inventory is unchanged and no update check is due.
+2. Exit silently if the inventory is unchanged and no update check or version-change follow-up is due.
 3. Resolve changed tasks mechanically from stronger structured evidence and valid status footers.
 4. Send only unresolved changed tasks to fresh, non-persisted classifier sessions in context-safe batches.
 5. Revalidate each task before changing its title or archive state so newer user activity wins.

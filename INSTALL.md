@@ -33,6 +33,7 @@ On first install, ask the prompts in this order. Pressing Return accepts the sho
 | Prompt | Default | Noninteractive flag |
 |---|---:|---|
 | Heartbeat interval in seconds | `300` | `--heartbeat-seconds 300` |
+| Automatically update ThreadBear | `yes` | `--auto-update=true` |
 | Automatically archive completed inactive tasks | `yes` | `--archive=true` |
 | Archive inactivity interval in days | `14` | `--archive-after-days 14` |
 | Automatically maintain status and next-action titles | `yes` | `--rename=true` |
@@ -42,7 +43,7 @@ On first install, ask the prompts in this order. Pressing Return accepts the sho
 | Classifier effort | `medium` | `--classifier-effort medium` |
 | Classifier context budget in bytes | `250000` | `--classifier-context-budget-bytes 250000` |
 
-Boolean install/configure flags use `=` forms. Use `--archive=false`, `--rename=false`, or `--agents=false`; do not pass a separate `false` argument.
+Boolean install/configure flags use `=` forms. Use `--auto-update=false`, `--archive=false`, `--rename=false`, or `--agents=false`; do not pass a separate `false` argument.
 
 ### 3. Review the single final preview
 
@@ -79,6 +80,7 @@ curl -fsSL https://threadbear.sh/install.sh | sh -s -- \
   --noninteractive \
   --confirm \
   --heartbeat-seconds 300 \
+  --auto-update=true \
   --archive=true \
   --archive-after-days 14 \
   --rename=true \
@@ -114,7 +116,7 @@ Read-only diagnosis is also available:
 ~/.local/bin/threadbear status --json
 ```
 
-These commands do not invoke a model or mutate task titles/archives. Installed self-test reports condition-specific remedies for stale, unsafe, or inaccessible managed AGENTS.md and skill surfaces. The updater candidate self-test does not inspect installed managed files because update has not refreshed them yet; install internal staged-candidate verification still checks the managed surfaces after staging them. A normal unchanged `~/.local/bin/threadbear heartbeat` compares managed content directly, performs no managed-file write when it is current, and emits zero bytes when no update notice is due.
+These commands do not invoke a model or mutate task titles/archives. Installed self-test reports condition-specific remedies for stale, unsafe, or inaccessible managed AGENTS.md and skill surfaces. The updater candidate self-test does not inspect installed managed files because update has not refreshed them yet; install internal staged-candidate verification still checks the managed surfaces after staging them. A normal unchanged `~/.local/bin/threadbear heartbeat` compares managed content directly, performs no managed-file write when it is current, and emits zero bytes when no task work, update check, or version-change announcement is due.
 
 For optional bare invocations in the current shell, add the standard user-local bin directory and verify it explicitly:
 
@@ -129,7 +131,7 @@ command -v threadbear
 
 ```sh
 ~/.local/bin/threadbear configure --heartbeat-seconds 600 --archive-after-days 30
-~/.local/bin/threadbear configure --archive=false --rename=true --agents=false
+~/.local/bin/threadbear configure --auto-update=false --archive=false --rename=true --agents=false
 ~/.local/bin/threadbear configure --token-display=end
 ~/.local/bin/threadbear configure --classifier-model gpt-5.6-luna --classifier-effort medium --classifier-context-budget-bytes 250000
 ~/.local/bin/threadbear configure --dry-run --heartbeat-seconds 900
@@ -147,7 +149,7 @@ Before ThreadBear activates, it stops and verifies the legacy job. Active resour
 
 Rerunning the installer is an idempotent reinstall: it adopts the existing ThreadBear control task and updates managed resources rather than creating duplicates.
 
-## Update or downgrade explicitly
+## Automatic updates and explicit update or downgrade
 
 Install the latest newer release:
 
@@ -165,7 +167,13 @@ Manual and automatic updates use the same updater pipeline. It downloads to a pr
 
 The updater deliberately does not rewrite `~/Library/LaunchAgents/org.litman.threadbear.plist`. Scheduler plist changes remain the responsibility of install/configure lifecycle operations. ThreadBear does not retain a release history. An explicit downgrade proceeds binary-only only when the older candidate reports the managed-asset command as `unknown_command`; malformed exports, empty assets, generic execution failures, and all other candidate errors stop the update. The binary-only result warns that AGENTS.md and the skill were not refreshed. Their newer managed content can remain as residue until a BEAR-27-or-newer `threadbear update` or `threadbear configure` reconciles it.
 
-With auto-update enabled, the heartbeat checks for a newer release no more than once every 30 minutes and applies it through the same verified binary-and-managed-surface pipeline. The next heartbeat announces the completed version change once in the control task with up to three embedded changelog bullets and an opt-out hint. Manual and installer-driven updates use that same once-per-version announcement mechanism.
+Auto-update is enabled by default. The heartbeat checks for a newer release no more than once every 30 minutes and applies it through the same verified replacement path. A failed check or pre-replacement apply leaves the current binary untouched, posts nothing to the control task, and is reported by `threadbear status`. The next heartbeat announces a completed automatic, manual, or installer-driven version change once in the control task with up to three embedded changelog bullets and an opt-out hint.
+
+Disable automatic installation with:
+
+```sh
+~/.local/bin/threadbear configure --auto-update=false
+```
 
 With auto-update disabled, the deterministic metadata check runs no more than once every 24 hours and remains silent when current. For each newer version it places one fixed notice in the control task:
 
@@ -173,7 +181,7 @@ With auto-update disabled, the deterministic metadata check runs no more than on
 🧵🐻 ThreadBear VERSION is ready. Run threadbear update, or tell me “update ThreadBear.”
 ```
 
-If `~/.local/bin` is not on `PATH`, run `~/.local/bin/threadbear update` instead of the bare command shown in the notice. From the control task, Codex uses its normal command approval panel for a manual update; choose one-time or Always approval there. ThreadBear does not request full-access defaults or bypass task permissions.
+If `~/.local/bin` is not on `PATH`, run `~/.local/bin/threadbear update` instead of the bare command shown in the notice. Re-enable automatic updates with `~/.local/bin/threadbear configure --auto-update=true`. From the control task, Codex uses its normal command approval panel for a manual update; choose one-time or Always approval there. ThreadBear does not request full-access defaults, bypass task permissions, retain local release history, or create automatic rollback state.
 
 ## Unsigned binary and Gatekeeper
 

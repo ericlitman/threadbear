@@ -106,6 +106,7 @@ type Preferences struct {
 	ArchiveEnabled               bool   `json:"archive_enabled"`
 	ArchiveAfterDays             int    `json:"archive_after_days"`
 	RenameEnabled                bool   `json:"rename_enabled"`
+	AutoUpdateEnabled            bool   `json:"auto_update_enabled"`
 	TokenDisplay                 string `json:"token_display"`
 	AgentsEnabled                bool   `json:"agents_enabled"`
 	ClassifierModel              string `json:"classifier_model"`
@@ -114,15 +115,17 @@ type Preferences struct {
 }
 
 type StatusResult struct {
-	Version                int         `json:"version"`
-	InstalledVersion       string      `json:"installed_version"`
-	LaunchAgentHealthy     bool        `json:"launch_agent_healthy"`
-	LaunchAgentStatus      string      `json:"launch_agent_status"`
-	LastCompletedHeartbeat *time.Time  `json:"last_completed_heartbeat,omitempty"`
-	ControlTaskID          string      `json:"control_task_id"`
-	Preferences            Preferences `json:"preferences"`
-	PendingRetries         int         `json:"pending_retries"`
-	LastUpdateCheck        *time.Time  `json:"last_update_check,omitempty"`
+	Version                int            `json:"version"`
+	InstalledVersion       string         `json:"installed_version"`
+	LaunchAgentHealthy     bool           `json:"launch_agent_healthy"`
+	LaunchAgentStatus      string         `json:"launch_agent_status"`
+	LastCompletedHeartbeat *time.Time     `json:"last_completed_heartbeat,omitempty"`
+	ControlTaskID          string         `json:"control_task_id"`
+	Preferences            Preferences    `json:"preferences"`
+	PendingRetries         int            `json:"pending_retries"`
+	LastUpdateCheck        *time.Time     `json:"last_update_check,omitempty"`
+	LastUpdateFailure      *state.Failure `json:"last_update_failure,omitempty"`
+	LastReconcileFailure   *state.Failure `json:"last_reconcile_failure,omitempty"`
 }
 
 func (StatusResult) result()     {}
@@ -138,7 +141,14 @@ func (r StatusResult) Human() string {
 	if health == "unavailable" {
 		health = "scheduler adapter unavailable (pending install unit)"
 	}
-	return fmt.Sprintf("ThreadBear %s · LaunchAgent %s · heartbeat %s · control task %s · heartbeat interval %ds · archive %t/%dd · rename %t · token display %s · AGENTS %t · classifier %s/%s/%dB · retries %d · update check %s", r.InstalledVersion, health, formatTime(r.LastCompletedHeartbeat), r.ControlTaskID, r.Preferences.HeartbeatSeconds, r.Preferences.ArchiveEnabled, r.Preferences.ArchiveAfterDays, r.Preferences.RenameEnabled, r.Preferences.TokenDisplay, r.Preferences.AgentsEnabled, r.Preferences.ClassifierModel, r.Preferences.ClassifierEffort, r.Preferences.ClassifierContextBudgetBytes, r.PendingRetries, formatTime(r.LastUpdateCheck))
+	return fmt.Sprintf("ThreadBear %s · LaunchAgent %s · heartbeat %s · control task %s · heartbeat interval %ds · archive %t/%dd · rename %t · auto-update %t · token display %s · AGENTS %t · classifier %s/%s/%dB · retries %d · update check %s · update failure %s · reconcile failure %s", r.InstalledVersion, health, formatTime(r.LastCompletedHeartbeat), r.ControlTaskID, r.Preferences.HeartbeatSeconds, r.Preferences.ArchiveEnabled, r.Preferences.ArchiveAfterDays, r.Preferences.RenameEnabled, r.Preferences.AutoUpdateEnabled, r.Preferences.TokenDisplay, r.Preferences.AgentsEnabled, r.Preferences.ClassifierModel, r.Preferences.ClassifierEffort, r.Preferences.ClassifierContextBudgetBytes, r.PendingRetries, formatTime(r.LastUpdateCheck), formatFailure(r.LastUpdateFailure), formatFailure(r.LastReconcileFailure))
+}
+
+func formatFailure(failure *state.Failure) string {
+	if failure == nil {
+		return "none"
+	}
+	return fmt.Sprintf("%s@%s", failure.Code, failure.Timestamp.UTC().Format(time.RFC3339))
 }
 
 type InspectResult struct {
@@ -559,6 +569,18 @@ func validateResult(value Result) error {
 		}
 		return nil
 	}
+	checkFailure := func(field string, failure *state.Failure) error {
+		if failure == nil {
+			return nil
+		}
+		if err := checkCode(field+" code", failure.Code, false); err != nil {
+			return err
+		}
+		if failure.Timestamp.IsZero() {
+			return fmt.Errorf("%s timestamp is required", field)
+		}
+		return nil
+	}
 	switch result := value.(type) {
 	case HeartbeatResult:
 		if !result.Empty() && result.CycleID == "" {
@@ -602,6 +624,12 @@ func validateResult(value Result) error {
 		}
 		if result.InstalledVersion == "" || result.ControlTaskID == "" || result.Preferences.HeartbeatSeconds <= 0 || result.Preferences.ArchiveAfterDays <= 0 || result.Preferences.ClassifierModel == "" || result.Preferences.ClassifierEffort == "" || result.Preferences.ClassifierContextBudgetBytes <= 0 || result.PendingRetries < 0 {
 			return errors.New("status result is incomplete")
+		}
+		if err := checkFailure("last_update_failure", result.LastUpdateFailure); err != nil {
+			return err
+		}
+		if err := checkFailure("last_reconcile_failure", result.LastReconcileFailure); err != nil {
+			return err
 		}
 		return checkID("control_task_id", result.ControlTaskID)
 	case InspectResult:

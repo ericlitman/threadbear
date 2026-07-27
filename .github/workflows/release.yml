@@ -34,6 +34,29 @@ jobs:
           fi
           echo "VERSION=$version" >> "$GITHUB_ENV"
           echo "publish=$publish" >> "$GITHUB_OUTPUT"
+      - name: Extract changelog section
+        if: steps.release_tag.outputs.publish == 'true'
+        run: |
+          heading="## v$VERSION"
+          section_count=$(
+            awk -v heading="$heading" '
+              $0 == heading || index($0, heading " - ") == 1 { count++ }
+              END { print count + 0 }
+            ' CHANGELOG.md
+          )
+          if [ "$section_count" -ne 1 ]; then
+            echo "CHANGELOG.md must contain exactly one section for v$VERSION" >&2
+            exit 1
+          fi
+          awk -v heading="$heading" '
+            $0 == heading || index($0, heading " - ") == 1 {
+              in_section = 1
+              print
+              next
+            }
+            in_section && /^## / { exit }
+            in_section { print }
+          ' CHANGELOG.md > release-notes.md
       - run: go test ./...
       - run: go vet ./...
       - run: sh -n install.sh
@@ -52,6 +75,16 @@ jobs:
             -e 's#{{xml .StderrPath}}#/tmp/threadbear.stderr.log#g' \
             assets/org.litman.threadbear.plist.tmpl > /tmp/org.litman.threadbear.plist
           plutil -lint /tmp/org.litman.threadbear.plist
+      - name: Prepare embedded release notes
+        if: steps.release_tag.outputs.publish == 'true'
+        run: |
+          awk '
+            /^[-*] / {
+              print
+              count++
+              if (count == 3) { exit }
+            }
+          ' release-notes.md > internal/update/notes.txt
       - name: Build Darwin release binaries
         run: |
           mkdir -p dist
@@ -86,6 +119,12 @@ jobs:
           name: release-assets
           path: dist/
           if-no-files-found: error
+      - uses: actions/upload-artifact@v4
+        if: steps.release_tag.outputs.publish == 'true'
+        with:
+          name: release-notes
+          path: release-notes.md
+          if-no-files-found: error
 
   publish:
     needs: ci
@@ -96,7 +135,11 @@ jobs:
         with:
           name: release-assets
           path: dist
+      - uses: actions/download-artifact@v4
+        with:
+          name: release-notes
+          path: release-notes
       - name: Publish GitHub release after CI succeeds
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release create "$GITHUB_REF_NAME" dist/* --repo "$GITHUB_REPOSITORY" --verify-tag --generate-notes
+        run: gh release create "$GITHUB_REF_NAME" dist/* --repo "$GITHUB_REPOSITORY" --verify-tag --notes-file release-notes/release-notes.md

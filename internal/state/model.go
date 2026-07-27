@@ -108,6 +108,11 @@ type TaskRecord struct {
 	Retry                   *Retry          `json:"retry,omitempty"`
 }
 
+type Failure struct {
+	Code      string    `json:"code"`
+	Timestamp time.Time `json:"timestamp"`
+}
+
 type ArchiveRecord struct {
 	TaskID           string    `json:"task_id"`
 	ArchivedAt       time.Time `json:"archived_at"`
@@ -120,6 +125,10 @@ type State struct {
 	Generation              uint64                   `json:"generation"`
 	LastCompletedHeartbeat  *time.Time               `json:"last_completed_heartbeat,omitempty"`
 	LastUpdateCheck         *time.Time               `json:"last_update_check,omitempty"`
+	LastAnnouncedVersion    string                   `json:"last_announced_version,omitempty"`
+	LastReconciledVersion   string                   `json:"last_reconciled_version,omitempty"`
+	LastUpdateFailure       *Failure                 `json:"last_update_failure,omitempty"`
+	LastReconcileFailure    *Failure                 `json:"last_reconcile_failure,omitempty"`
 	Tasks                   map[string]TaskRecord    `json:"tasks"`
 	Archives                map[string]ArchiveRecord `json:"archives"`
 	DeliveredNoticeVersions []string                 `json:"delivered_notice_versions"`
@@ -140,6 +149,17 @@ func (s State) Validate() error {
 	}
 	if s.Tasks == nil || s.Archives == nil || s.DeliveredNoticeVersions == nil {
 		return errors.New("state collections must not be null")
+	}
+	if s.LastAnnouncedVersion != "" && strings.TrimSpace(s.LastAnnouncedVersion) != s.LastAnnouncedVersion {
+		return errors.New("last_announced_version must not contain surrounding whitespace")
+	}
+	if s.LastReconciledVersion != "" && strings.TrimSpace(s.LastReconciledVersion) != s.LastReconciledVersion {
+		return errors.New("last_reconciled_version must not contain surrounding whitespace")
+	}
+	for name, failure := range map[string]*Failure{"last_update_failure": s.LastUpdateFailure, "last_reconcile_failure": s.LastReconcileFailure} {
+		if failure != nil && (!stableCode(failure.Code) || failure.Timestamp.IsZero()) {
+			return fmt.Errorf("%s is incomplete", name)
+		}
 	}
 	for key, task := range s.Tasks {
 		if !canonicalIdentifier(key) || task.TaskID != key {
@@ -234,13 +254,14 @@ type OperationKind string
 type OperationStage string
 
 const (
-	OperationTitle   OperationKind  = "title"
-	OperationArchive OperationKind  = "archive"
-	OperationNotice  OperationKind  = "notice"
-	StagePrepared    OperationStage = "prepared"
-	StageApplying    OperationStage = "applying"
-	StageApplied     OperationStage = "applied"
-	StageVerified    OperationStage = "verified"
+	OperationTitle        OperationKind  = "title"
+	OperationArchive      OperationKind  = "archive"
+	OperationNotice       OperationKind  = "notice"
+	OperationAnnouncement OperationKind  = "announcement"
+	StagePrepared         OperationStage = "prepared"
+	StageApplying         OperationStage = "applying"
+	StageApplied          OperationStage = "applied"
+	StageVerified         OperationStage = "verified"
 )
 
 type CycleOperation struct {
@@ -248,6 +269,7 @@ type CycleOperation struct {
 	Stage            OperationStage `json:"stage"`
 	TaskID           string         `json:"task_id,omitempty"`
 	NoticeVersion    string         `json:"notice_version,omitempty"`
+	PreviousVersion  string         `json:"previous_version,omitempty"`
 	ExpectedRevision string         `json:"expected_revision,omitempty"`
 	ExpectedTitle    string         `json:"expected_title,omitempty"`
 	DesiredTitle     string         `json:"desired_title,omitempty"`
@@ -325,15 +347,17 @@ func (o CycleOperation) Valid() bool {
 	}
 	switch o.Kind {
 	case OperationTitle:
-		valid := canonicalIdentifier(o.TaskID) && canonicalIdentifier(o.ExpectedRevision) && o.DesiredTitle != "" && o.NoticeVersion == ""
+		valid := canonicalIdentifier(o.TaskID) && canonicalIdentifier(o.ExpectedRevision) && o.DesiredTitle != "" && o.NoticeVersion == "" && o.PreviousVersion == ""
 		if o.Stage == StageVerified {
 			valid = valid && canonicalIdentifier(o.VerifiedRevision) && o.VerifiedTitle != ""
 		}
 		return valid
 	case OperationArchive:
-		return canonicalIdentifier(o.TaskID) && canonicalIdentifier(o.ExpectedRevision) && o.NoticeVersion == ""
+		return canonicalIdentifier(o.TaskID) && canonicalIdentifier(o.ExpectedRevision) && o.NoticeVersion == "" && o.PreviousVersion == ""
 	case OperationNotice:
-		return o.TaskID == "" && canonicalIdentifier(o.NoticeVersion)
+		return o.TaskID == "" && canonicalIdentifier(o.NoticeVersion) && o.PreviousVersion == ""
+	case OperationAnnouncement:
+		return o.TaskID == "" && canonicalIdentifier(o.NoticeVersion) && canonicalIdentifier(o.PreviousVersion) && o.NoticeVersion != o.PreviousVersion
 	default:
 		return false
 	}

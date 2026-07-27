@@ -494,3 +494,36 @@ func privateTempDir(t *testing.T) string {
 	}
 	return dir
 }
+
+func TestUpdateStateAndAnnouncementValidation(t *testing.T) {
+	now := time.Date(2026, 7, 24, 12, 0, 0, 0, time.UTC)
+	value := New()
+	value.LastAnnouncedVersion = "1.1.0"
+	value.LastReconciledVersion = "1.2.0"
+	value.LastUpdateFailure = &Failure{Code: "update_apply_failed", Timestamp: now}
+	value.LastReconcileFailure = &Failure{Code: "managed_reconcile_failed", Timestamp: now}
+	if err := value.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	value.LastUpdateFailure.Code = "bad code"
+	if err := value.Validate(); err == nil {
+		t.Fatal("State.Validate() accepted an invalid update failure")
+	}
+	value.LastUpdateFailure = nil
+	value.LastAnnouncedVersion = " 1.1.0"
+	if err := value.Validate(); err == nil {
+		t.Fatal("State.Validate() accepted a padded announced version")
+	}
+
+	cycle := NewCycle("cycle-1", 0, now)
+	cycle.Operations["announcement:1.2.0"] = CycleOperation{Kind: OperationAnnouncement, Stage: StagePrepared, PreviousVersion: "1.1.0", NoticeVersion: "1.2.0"}
+	if err := cycle.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	operation := cycle.Operations["announcement:1.2.0"]
+	operation.PreviousVersion = ""
+	cycle.Operations["announcement:1.2.0"] = operation
+	if err := cycle.Validate(); err == nil {
+		t.Fatal("CycleCheckpoint.Validate() accepted an incomplete announcement")
+	}
+}

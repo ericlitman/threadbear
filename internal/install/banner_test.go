@@ -33,6 +33,7 @@ func TestWelcomeNoticeCarriesSettingsAndChatInstructions(t *testing.T) {
 	for _, want := range []string{
 		"ThreadBear 1.2.3",
 		"every 300 seconds",
+		"automatic ThreadBear updates: on",
 		"after 14 quiet days",
 		"gpt-5.6-luna",
 		"tell me here in this chat",

@@ -95,6 +95,11 @@ func newOperatorService(installedVersion string, stdout, stderr io.Writer, forma
 		return nil, func() {}, err
 	}
 	paths := install.PathsForHomes(home, codexHome)
+	executable, err := os.Executable()
+	if err != nil {
+		return nil, func() {}, err
+	}
+	autoUpdater := updatepkg.Replacer{ExecutablePath: paths.Binary, InstalledVersion: installedVersion}
 	store := state.NewStore(paths.StateDirectory)
 	inventory := &lazyInventory{codexHome: codexHome}
 	appServers := appServerRuntime{store: store, home: home, codexHome: codexHome}
@@ -111,6 +116,7 @@ func newOperatorService(installedVersion string, stdout, stderr io.Writer, forma
 	runner, err := watch.New(watch.Dependencies{
 		Store: store, Inventory: inventory, AppServer: appServerFactory{runtime: appServers}, Clock: clock, ManagedSurfaces: managed,
 		InstalledVersion: installedVersion, NewCycleID: newCycleID, UpdateChecker: heartbeatUpdateChecker{checker: updatepkg.Checker{}},
+		Updater: autoUpdater, ReleaseNotes: updatepkg.ReleaseNotes,
 		NewClassifier: func(client watch.AppServer, cfg config.Config) (watch.Classifier, error) {
 			runner, ok := client.(statusresolver.EphemeralRunner)
 			if !ok {
@@ -119,10 +125,6 @@ func newOperatorService(installedVersion string, stdout, stderr io.Writer, forma
 			return statusresolver.NewClassifier(runner, statusresolver.ClassifierConfig{Model: cfg.ClassifierModel, Effort: string(cfg.ClassifierEffort), ContextBudgetBytes: cfg.ClassifierContextBudgetBytes})
 		},
 	})
-	if err != nil {
-		return nil, func() {}, err
-	}
-	executable, err := os.Executable()
 	if err != nil {
 		return nil, func() {}, err
 	}
@@ -435,6 +437,7 @@ func flagsBeforePositionals(args []string, known ...string) []string {
 func registerConfigureFlags(flags *flag.FlagSet, patch *app.ConfigPatch) {
 	flags.Var(optionalBool{target: &patch.ArchiveEnabled}, "archive", "enable or disable automatic archiving")
 	flags.Var(optionalBool{target: &patch.RenameEnabled}, "rename", "enable or disable managed titles")
+	flags.Var(optionalBool{target: &patch.AutoUpdateEnabled}, "auto-update", "enable or disable automatic ThreadBear updates")
 	flags.Func("token-display", "show output tokens in managed titles: off, start, or end", func(value string) error {
 		parsed := tokens.Position(value)
 		patch.TokenDisplay = &parsed

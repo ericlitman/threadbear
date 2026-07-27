@@ -23,11 +23,11 @@ import (
 )
 
 func TestParseLifecycleFlags(t *testing.T) {
-	request, err := parseRequest([]string{"install", "--noninteractive", "--confirm", "--version", "1.2.3", "--heartbeat-seconds", "45", "--agents=false"})
+	request, err := parseRequest([]string{"install", "--noninteractive", "--confirm", "--version", "1.2.3", "--heartbeat-seconds", "45", "--auto-update=false", "--agents=false"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if request.Command != app.CommandInstall || !request.NonInteractive || !request.Confirm || request.Version != "1.2.3" || request.Configure.HeartbeatSeconds == nil || *request.Configure.HeartbeatSeconds != 45 || request.Configure.AgentsEnabled == nil || *request.Configure.AgentsEnabled {
+	if request.Command != app.CommandInstall || !request.NonInteractive || !request.Confirm || request.Version != "1.2.3" || request.Configure.HeartbeatSeconds == nil || *request.Configure.HeartbeatSeconds != 45 || request.Configure.AutoUpdateEnabled == nil || *request.Configure.AutoUpdateEnabled || request.Configure.AgentsEnabled == nil || *request.Configure.AgentsEnabled {
 		t.Fatalf("request=%+v", request)
 	}
 	request, err = parseRequest([]string{"uninstall", "--non-interactive", "--confirm", "--archive-control-task", "--delete-state"})
@@ -44,8 +44,8 @@ func TestParseLifecycleFlags(t *testing.T) {
 }
 
 func TestParseConfigurePreviewAndConfirmation(t *testing.T) {
-	request, err := parseRequest([]string{"configure", "--dry-run", "--agents=false", "--token-display=end"})
-	if err != nil || !request.DryRun || request.Confirm || request.Configure.TokenDisplay == nil || *request.Configure.TokenDisplay != tokens.PositionEnd {
+	request, err := parseRequest([]string{"configure", "--dry-run", "--auto-update=false", "--agents=false", "--token-display=end"})
+	if err != nil || !request.DryRun || request.Confirm || request.Configure.AutoUpdateEnabled == nil || *request.Configure.AutoUpdateEnabled || request.Configure.TokenDisplay == nil || *request.Configure.TokenDisplay != tokens.PositionEnd {
 		t.Fatalf("request=%+v err=%v", request, err)
 	}
 	request, err = parseRequest([]string{"configure", "--noninteractive", "--confirm", "--classifier-model", "model", "--classifier-effort", "high", "--classifier-context-budget-bytes", "1234"})

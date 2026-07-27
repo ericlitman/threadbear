@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ericlitman/threadbear/internal/config"
 	"github.com/ericlitman/threadbear/internal/output"
 )
 
@@ -272,5 +273,14 @@ func TestConfigureConfigSaveReportsManagedRollbackFailure(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "config save failed") || !strings.Contains(err.Error(), "managed rollback failed") {
 		t.Fatalf("joined err=%v", err)
+	}
+}
+
+func TestApplyConfigPatchAutoUpdate(t *testing.T) {
+	value := config.Default("control")
+	disabled := false
+	got := applyConfigPatch(value, ConfigPatch{AutoUpdateEnabled: &disabled})
+	if got.AutoUpdateEnabled || value.AutoUpdateEnabled == got.AutoUpdateEnabled {
+		t.Fatalf("before=%+v after=%+v", value, got)
 	}
 }

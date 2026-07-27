@@ -15,12 +15,12 @@ ThreadBear is a single pure-Go macOS binary run by a user LaunchAgent. Its desig
 
 1. Acquire the shared lifecycle lock.
 2. Read the complete local inventory and compare it with the committed snapshot.
-3. If nothing changed and no update check is due, exit without starting App Server, invoking a classifier, mutating state, or writing output.
+3. If nothing changed and no update check or version-drift work is due, exit without starting App Server, invoking a classifier, mutating state, or writing output.
 4. Resolve changed tasks from deterministic evidence and read only the new rollout tail needed for the cumulative output-token figure. Mechanically settled tasks never reach Luna.
 5. Pack unresolved latest turns into context-safe ephemeral calls. A previous turn is requested only for tasks that return insufficient evidence; complete messages are not clipped.
 6. Revalidate each task immediately before title or archive mutation. New user activity or a title edit makes the captured precondition stale, so that mutation is skipped and retried later.
 7. Commit successful siblings and the captured snapshot atomically. Failed operations retain conservative state and bounded retry metadata.
-8. When due, compare release metadata. Current versions are silent; each newer version receives one control-task notice.
+8. When due, compare release metadata. With auto-update enabled, install a newer release through the verified replacement path; with it disabled, retain the once-daily notice-only behavior. After any version change, the new binary reconciles managed guidance and stages one changelog-backed control-task announcement.
 
 Classifier cost depends on unresolved changed work, not total task count or control-task history.
 
@@ -60,6 +60,6 @@ ThreadBear never logs message bodies, classifier payloads, inherited environment
 
 ## Safety boundaries
 
-ThreadBear does not edit `.codex-global-state.json` or private sidebar caches; click through Codex Desktop or organize projects/folders/pins; create visible classifier tasks; auto-update or bypass Codex approval; keep automatic rollback data; or auto-archive unfinished work.
+ThreadBear does not edit `.codex-global-state.json` or private sidebar caches; click through Codex Desktop or organize projects/folders/pins; create visible classifier tasks; bypass Codex approval or weaken verified update gates; keep automatic rollback data; or auto-archive unfinished work.
 
 Release binaries target `darwin/arm64` and `darwin/amd64` with `CGO_ENABLED=0` and need no Go, cgo, Python, Node.js, or other end-user runtime.

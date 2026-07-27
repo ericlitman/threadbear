@@ -66,10 +66,15 @@ func TestLiveNoticeDoesNotStartTurn(t *testing.T) {
 	}
 	drainNotifications(client.Notifications())
 	before := liveThreadIDs(t, home)
-	notice := "🧵🐻 ThreadBear 99.0.0-live-proof is ready. Run threadbear update, or tell me “update ThreadBear.”"
-	if err := client.InsertNotice(ctx, started.Thread.ID, notice); err != nil {
-		client.Close()
-		t.Fatal(err)
+	notices := []string{
+		"🧵🐻 ThreadBear 99.0.0-live-proof is ready. Run threadbear update, or tell me “update ThreadBear.”",
+		"🧵🐻 I gave myself a quick brush-up: v99.0.0 → v99.0.1!\n- First live release note\n- Second live release note\nPrefer to update by hand? threadbear configure --auto-update=false",
+	}
+	for _, notice := range notices {
+		if err := client.InsertNotice(ctx, started.Thread.ID, notice); err != nil {
+			client.Close()
+			t.Fatal(err)
+		}
 	}
 	timer := time.NewTimer(500 * time.Millisecond)
 	defer timer.Stop()
@@ -94,8 +99,10 @@ func TestLiveNoticeDoesNotStartTurn(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if count := strings.Count(string(data), notice); count != 1 {
-		t.Fatalf("notice count=%d", count)
+	for _, notice := range notices {
+		if count := strings.Count(string(data), notice); count != 1 {
+			t.Fatalf("notice count=%d text=%q", count, notice)
+		}
 	}
 }
 func liveHarness(t *testing.T, requireAuth bool) (ProcessSpec, Capabilities, string) {

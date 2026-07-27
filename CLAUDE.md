@@ -8,3 +8,4 @@ ThreadBear is a playful, token-conscious Codex task manager for macOS: a standal
 - Private eval corpus: `ericlitman/threadbear-eval` (real user messages — must never enter this public tree).
 - Voice: playful, bear-themed, never at the expense of operational clarity.
 - The ThreadWatch Python prototype (`~/.local/bin/threadwatch`, LaunchAgent `org.litman.threadwatch`) is evidence, not code to port wholesale; it stays running until U8 migration replaces it.
+- Changelog: every PR with user-visible changes must append a concise entry under `CHANGELOG.md`'s `Unreleased` section. Release preparation renames that section to `vN.N.N - YYYY-MM-DD` and adds a fresh `Unreleased` section; the release workflow rejects stable tags without the matching version section.
