@@ -125,6 +125,8 @@ func TestStatusHumanJSONParityAndPendingDiagnostics(t *testing.T) {
 	}
 	committed.LastCompletedHeartbeat = &now
 	committed.LastUpdateCheck = &now
+	committed.LastUpdateFailure = &state.Failure{Code: "update_apply_failed", Timestamp: now}
+	committed.LastReconcileFailure = &state.Failure{Code: "managed_reconcile_failed", Timestamp: now}
 	record := commandRecord("task-a", now)
 	record.Retry = &state.Retry{Operation: "title", ErrorCode: "write_failed", Attempts: 1, LastAttemptAt: now, NextAttemptAt: now.Add(time.Minute)}
 	committed.Tasks[record.TaskID] = record
@@ -144,7 +146,7 @@ func TestStatusHumanJSONParityAndPendingDiagnostics(t *testing.T) {
 		t.Fatal(err)
 	}
 	statusResult := result.(output.StatusResult)
-	if statusResult.PendingRetries != 2 || statusResult.Preferences.ClassifierContextBudgetBytes != config.DefaultClassifierContextBudgetBytes || launch.healthCalls != 1 {
+	if statusResult.PendingRetries != 2 || !statusResult.Preferences.AutoUpdateEnabled || statusResult.Preferences.ClassifierContextBudgetBytes != config.DefaultClassifierContextBudgetBytes || launch.healthCalls != 1 {
 		t.Fatalf("status=%+v launch=%+v", statusResult, launch)
 	}
 	var human, machine bytes.Buffer
@@ -154,10 +156,13 @@ func TestStatusHumanJSONParityAndPendingDiagnostics(t *testing.T) {
 	if err := output.Write(&machine, output.FormatJSON, statusResult); err != nil {
 		t.Fatal(err)
 	}
-	for _, fact := range []string{"1.2.3", "control-task", "2", "250000"} {
+	for _, fact := range []string{"1.2.3", "control-task", "2", "250000", "update_apply_failed", "managed_reconcile_failed"} {
 		if !strings.Contains(human.String(), fact) || !strings.Contains(machine.String(), fact) {
 			t.Fatalf("missing %q human=%q json=%q", fact, human.String(), machine.String())
 		}
+	}
+	if !strings.Contains(human.String(), "auto-update true") || !strings.Contains(machine.String(), "\"auto_update_enabled\":true") {
+		t.Fatalf("auto-update missing human=%q json=%q", human.String(), machine.String())
 	}
 }
 
@@ -457,7 +462,7 @@ func TestDryRunReadsRealStoreWithoutMutationOrHeartbeatRunner(t *testing.T) {
 		t.Fatalf("runner=%+v inventory=%d", runner, inventory.calls)
 	}
 	preview := result.(output.PreviewResult)
-	want := []string{"archive.task-c", "classify.task-a", "remove.task-removed", "update_check"}
+	want := []string{"archive.task-c", "classify.task-a", "managed_surface_reconcile", "remove.task-removed", "update_check"}
 	if preview.Command != "heartbeat" || !reflect.DeepEqual(preview.Effects, want) {
 		t.Fatalf("preview=%+v want=%v", preview, want)
 	}
@@ -976,12 +981,12 @@ func TestDryRunDoesNotPreviewArchiveForChangedUnresolvedTask(t *testing.T) {
 		t.Fatal(err)
 	}
 	inventory := &commandInventory{tasks: []codex.Task{{TaskID: "task-a", Revision: "rev-2", Title: "Now running"}}}
-	result, err := heartbeatDryRun(context.Background(), store, inventory, commandClock{now})
+	result, err := heartbeatDryRun(context.Background(), "test", store, inventory, commandClock{now})
 	if err != nil {
 		t.Fatal(err)
 	}
 	preview := result.(output.PreviewResult)
-	if !reflect.DeepEqual(preview.Effects, []string{"classify.task-a"}) {
+	if !reflect.DeepEqual(preview.Effects, []string{"classify.task-a", "managed_surface_reconcile"}) {
 		t.Fatalf("preview=%+v", preview)
 	}
 }
@@ -1012,7 +1017,7 @@ func TestDryRunPreviewsTokenDisplayRepositionWithoutMutation(t *testing.T) {
 	inventory := &commandInventory{tasks: []codex.Task{{TaskID: record.TaskID, Revision: record.CapturedRevision, Title: record.CapturedTitle}}}
 	before := snapshotStateDirectory(t, store.Directory())
 
-	result, err := heartbeatDryRun(context.Background(), store, inventory, commandClock{now})
+	result, err := heartbeatDryRun(context.Background(), "test", store, inventory, commandClock{now})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1022,7 +1027,7 @@ func TestDryRunPreviewsTokenDisplayRepositionWithoutMutation(t *testing.T) {
 		t.Fatalf("dry run mutated state directory\nbefore=%+v\nafter=%+v", before, after)
 	}
 	preview := result.(output.PreviewResult)
-	if !reflect.DeepEqual(preview.Effects, []string{"classify.task-a"}) {
+	if !reflect.DeepEqual(preview.Effects, []string{"classify.task-a", "managed_surface_reconcile"}) {
 		t.Fatalf("preview=%+v", preview)
 	}
 }
@@ -1043,4 +1048,51 @@ func commandStore(t *testing.T, now time.Time) *state.Store {
 
 func commandRecord(taskID string, now time.Time) state.TaskRecord {
 	return state.TaskRecord{TaskID: taskID, CapturedRevision: "rev-1", CapturedTitle: "Task", Status: state.StatusComplete, Provenance: state.ProvenanceRuntime, StateStartedAt: now.Add(-20 * 24 * time.Hour), LastSubstantiveActivity: now.Add(-20 * 24 * time.Hour), TokenDisplayPosition: tokens.PositionStart}
+}
+
+func TestHeartbeatDryRunUsesAutoUpdateModeInterval(t *testing.T) {
+	now := time.Date(2026, 7, 24, 12, 0, 0, 0, time.UTC)
+	tests := []struct {
+		name       string
+		enabled    bool
+		lastCheck  time.Time
+		wantUpdate bool
+	}{
+		{name: "enabled due", enabled: true, lastCheck: now.Add(-30 * time.Minute), wantUpdate: true},
+		{name: "enabled not due", enabled: true, lastCheck: now.Add(-29 * time.Minute)},
+		{name: "disabled due", enabled: false, lastCheck: now.Add(-24 * time.Hour), wantUpdate: true},
+		{name: "disabled not due", enabled: false, lastCheck: now.Add(-23 * time.Hour)},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			store := commandStore(t, now)
+			cfg, err := store.LoadConfig()
+			if err != nil {
+				t.Fatal(err)
+			}
+			cfg.AutoUpdateEnabled = test.enabled
+			if err := store.SaveConfig(cfg); err != nil {
+				t.Fatal(err)
+			}
+			committed, err := store.LoadState()
+			if err != nil {
+				t.Fatal(err)
+			}
+			committed.LastUpdateCheck = &test.lastCheck
+			if err := store.SaveState(committed); err != nil {
+				t.Fatal(err)
+			}
+			result, err := heartbeatDryRun(context.Background(), "test", store, &commandInventory{}, commandClock{now})
+			if err != nil {
+				t.Fatal(err)
+			}
+			got := false
+			for _, effect := range result.(output.PreviewResult).Effects {
+				got = got || effect == "update_check"
+			}
+			if got != test.wantUpdate {
+				t.Fatalf("effects=%v wantUpdate=%t", result.(output.PreviewResult).Effects, test.wantUpdate)
+			}
+		})
+	}
 }

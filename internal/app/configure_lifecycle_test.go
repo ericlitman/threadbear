@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ericlitman/threadbear/internal/config"
 	"github.com/ericlitman/threadbear/internal/output"
 )
 
@@ -125,5 +126,14 @@ func TestConfigureRefreshesStaleManagedAgentsWhenConfigIsUnchanged(t *testing.T)
 	action = result.(output.ActionResult)
 	if err != nil || action.Changed || managed.calls != 1 {
 		t.Fatalf("idempotent result=%+v err=%v managed=%+v", result, err, managed)
+	}
+}
+
+func TestApplyConfigPatchAutoUpdate(t *testing.T) {
+	value := config.Default("control")
+	disabled := false
+	got := applyConfigPatch(value, ConfigPatch{AutoUpdateEnabled: &disabled})
+	if got.AutoUpdateEnabled || value.AutoUpdateEnabled == got.AutoUpdateEnabled {
+		t.Fatalf("before=%+v after=%+v", value, got)
 	}
 }

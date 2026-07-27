@@ -147,6 +147,9 @@ func applyConfigPatch(value config.Config, patch ConfigPatch) config.Config {
 	if patch.RenameEnabled != nil {
 		value.RenameEnabled = *patch.RenameEnabled
 	}
+	if patch.AutoUpdateEnabled != nil {
+		value.AutoUpdateEnabled = *patch.AutoUpdateEnabled
+	}
 	if patch.TokenDisplay != nil {
 		value.TokenDisplay = *patch.TokenDisplay
 	}

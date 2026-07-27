@@ -39,6 +39,7 @@ type ConfigPatch struct {
 	ArchiveEnabled               *bool
 	ArchiveAfterDays             *int
 	RenameEnabled                *bool
+	AutoUpdateEnabled            *bool
 	TokenDisplay                 *tokens.Position
 	AgentsEnabled                *bool
 	ClassifierModel              *string
@@ -47,7 +48,7 @@ type ConfigPatch struct {
 }
 
 func (p ConfigPatch) Empty() bool {
-	return p.HeartbeatSeconds == nil && p.ArchiveEnabled == nil && p.ArchiveAfterDays == nil && p.RenameEnabled == nil && p.TokenDisplay == nil && p.AgentsEnabled == nil && p.ClassifierModel == nil && p.ClassifierEffort == nil && p.ClassifierContextBudgetBytes == nil
+	return p.HeartbeatSeconds == nil && p.ArchiveEnabled == nil && p.ArchiveAfterDays == nil && p.RenameEnabled == nil && p.AutoUpdateEnabled == nil && p.TokenDisplay == nil && p.AgentsEnabled == nil && p.ClassifierModel == nil && p.ClassifierEffort == nil && p.ClassifierContextBudgetBytes == nil
 }
 
 type Request struct {

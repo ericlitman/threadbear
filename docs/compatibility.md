@@ -28,7 +28,7 @@ The job receives explicit `HOME`, `CODEX_HOME`, sanitized `PATH`, and `LC_ALL=C`
 
 ## Network behavior
 
-Ordinary inventory and deterministic classification are local. Network/model activity occurs only for configured-classifier calls on unresolved changed tasks, a release metadata check when due, or an explicit install/update. An unchanged heartbeat with no due update check starts no App Server or classifier and writes no output.
+Ordinary inventory and deterministic classification are local. Network/model activity occurs only for configured-classifier calls on unresolved changed tasks, a due release check or verified auto-update, or an explicit install/update. An unchanged heartbeat with no due update or version-change work starts no App Server or classifier and writes no output.
 
 ## Troubleshooting order
 
@@ -42,12 +42,12 @@ Use read-only commands first:
 ~/.local/bin/threadbear inspect TASK_ID
 ```
 
-`~/.local/bin/threadbear status` reports installed version, LaunchAgent health, last completed heartbeat, control-task identity, preferences, pending retries, and last update check without invoking a model. `~/.local/bin/threadbear inspect TASK_ID` reports the task's configured and applied token-display positions, managed figure, and token-usage availability without exposing rollout paths or task prose.
+`~/.local/bin/threadbear status` reports installed version, LaunchAgent health, last completed heartbeat, control-task identity, preferences including auto-update, pending retries, the last update check, and the most recent update or managed-surface failure without invoking a model. `~/.local/bin/threadbear inspect TASK_ID` reports the task's configured and applied token-display positions, managed figure, and token-usage availability without exposing rollout paths or task prose.
 
 If scheduling is intentionally paused, run `~/.local/bin/threadbear enable`. Inspect the job with `launchctl print "gui/$(id -u)/org.litman.threadbear"`. For a legacy migration failure after ThreadWatch was stopped, follow the exact recovery command printed by the installer; do not run both automation jobs concurrently.
 
 ## Updates, downgrades, and removal
 
-`~/.local/bin/threadbear update` installs only after checksum, version, and candidate self-test validation. `~/.local/bin/threadbear update --version N.N.N` selects an exact release and is also the explicit downgrade mechanism. ThreadBear has no automatic rollback or local release history.
+Auto-update is enabled by default and checks at most every 30 minutes; disabling it restores the once-daily notice-only behavior. Automatic and explicit updates use the same checksum, embedded-version, candidate self-test, and atomic-replacement gates. `~/.local/bin/threadbear update --version N.N.N` selects an exact compatible release and is the explicit downgrade mechanism. ThreadBear has no automatic rollback or local release history.
 
 `~/.local/bin/threadbear uninstall` removes managed executable/scheduler/guidance resources after preview and confirmation. Control-task archival and persistent-state deletion are separate choices, both defaulting to retention. Existing task titles and archives are left alone.

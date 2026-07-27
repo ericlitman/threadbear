@@ -17,9 +17,10 @@ import (
 	"github.com/ericlitman/threadbear/internal/status"
 	"github.com/ericlitman/threadbear/internal/title"
 	"github.com/ericlitman/threadbear/internal/tokens"
+	updatepkg "github.com/ericlitman/threadbear/internal/update"
 )
 
-const updateInterval = 24 * time.Hour
+const updateApplyTimeout = 3 * time.Minute
 
 type Store interface {
 	LoadConfig() (config.Config, error)
@@ -64,6 +65,14 @@ type UpdateChecker interface {
 	Check(context.Context, string) (UpdateStatus, error)
 }
 
+type Updater interface {
+	Update(context.Context, string) (updatepkg.Result, error)
+}
+
+type ManagedSurfaceReconciler interface {
+	Reconcile(bool) error
+}
+
 type TokenReader interface {
 	ReadRollout(string, tokens.Snapshot) (tokens.Snapshot, error)
 }
@@ -79,15 +88,19 @@ type Clock interface {
 }
 
 type Dependencies struct {
-	Store            Store
-	Inventory        InventoryReader
-	AppServer        AppServerFactory
-	NewClassifier    ClassifierFactory
-	UpdateChecker    UpdateChecker
-	TokenReader      TokenReader
-	Clock            Clock
-	InstalledVersion string
-	NewCycleID       func() string
+	Store              Store
+	Inventory          InventoryReader
+	AppServer          AppServerFactory
+	NewClassifier      ClassifierFactory
+	UpdateChecker      UpdateChecker
+	Updater            Updater
+	ManagedSurfaces    ManagedSurfaceReconciler
+	ReleaseNotes       func() []string
+	UpdateApplyTimeout time.Duration
+	TokenReader        TokenReader
+	Clock              Clock
+	InstalledVersion   string
+	NewCycleID         func() string
 }
 
 type Runner struct {
@@ -100,6 +113,12 @@ func New(deps Dependencies) (*Runner, error) {
 	}
 	if deps.TokenReader == nil {
 		deps.TokenReader = filesystemTokenReader{}
+	}
+	if deps.ReleaseNotes == nil {
+		deps.ReleaseNotes = func() []string { return nil }
+	}
+	if deps.UpdateApplyTimeout <= 0 {
+		deps.UpdateApplyTimeout = updateApplyTimeout
 	}
 	return &Runner{deps: deps}, nil
 }
@@ -120,6 +139,9 @@ func (r *Runner) Run(ctx context.Context, dryRun bool) (output.Result, error) {
 		return output.HeartbeatResult{CycleID: "state", ErrorCode: "state_read_failed"}, err
 	}
 	now := r.deps.Clock.Now().UTC()
+	adoptionDue := committed.LastAnnouncedVersion == "" && r.deps.InstalledVersion != ""
+	announcementDue := committed.LastAnnouncedVersion != "" && r.deps.InstalledVersion != "" && committed.LastAnnouncedVersion != r.deps.InstalledVersion
+	reconcileDue := r.deps.InstalledVersion != "" && committed.LastReconciledVersion != r.deps.InstalledVersion
 	inventory, err := r.deps.Inventory.Inventory(ctx, cfg.ControlTaskID)
 	if err != nil {
 		return output.HeartbeatResult{CycleID: "inventory", ErrorCode: "inventory_failed"}, err
@@ -129,16 +151,94 @@ func (r *Runner) Run(ctx context.Context, dryRun bool) (output.Result, error) {
 	archiveDue := archiveDueTasks(inventory, committed, cfg, now)
 	comparison.Changed = mergeChanged(comparison.Changed, archiveDue)
 	comparison.Changed = mergeChanged(comparison.Changed, tokenDisplayDueTasks(inventory, committed, cfg))
-	updateDue := committed.LastUpdateCheck == nil || !now.Before(committed.LastUpdateCheck.Add(updateInterval))
+	updateDue := committed.LastUpdateCheck == nil || !now.Before(committed.LastUpdateCheck.Add(config.UpdateCheckInterval(cfg.AutoUpdateEnabled)))
 
 	checkpoint, checkpointExists, err := r.loadCheckpoint(committed)
 	if err != nil {
 		return output.HeartbeatResult{CycleID: "cycle", ErrorCode: "cycle_read_failed"}, err
 	}
 	if dryRun {
-		return dryRunResult(comparison, updateDue), nil
+		return dryRunResult(comparison, updateDue, reconcileDue, announcementDue), nil
 	}
-	if comparison.Unchanged() && !updateDue && !checkpointExists {
+
+	administrativeChanged := false
+	if adoptionDue {
+		committed.LastAnnouncedVersion = r.deps.InstalledVersion
+		administrativeChanged = true
+	}
+	if reconcileDue {
+		if r.deps.ManagedSurfaces == nil {
+			committed.LastReconcileFailure = failure("managed_reconciler_unavailable", now)
+		} else if reconcileErr := r.deps.ManagedSurfaces.Reconcile(cfg.AgentsEnabled); reconcileErr != nil {
+			committed.LastReconcileFailure = failure("managed_reconcile_failed", now)
+		} else {
+			committed.LastReconciledVersion = r.deps.InstalledVersion
+			committed.LastReconcileFailure = nil
+		}
+		administrativeChanged = true
+	}
+	if administrativeChanged {
+		if err := r.deps.Store.SaveState(committed); err != nil {
+			return output.HeartbeatResult{CycleID: "state", ErrorCode: "state_write_failed"}, err
+		}
+	}
+
+	pendingUpdate := UpdateStatus{}
+	updateChecked := false
+	if updateDue && !checkpointExists && !announcementDue {
+		updateChecked = true
+		committed.LastUpdateCheck = &now
+		if err := r.deps.Store.SaveState(committed); err != nil {
+			return output.HeartbeatResult{CycleID: "update", ErrorCode: "state_write_failed"}, err
+		}
+		if r.deps.UpdateChecker == nil {
+			committed.LastUpdateFailure = failure("update_checker_unavailable", now)
+		} else {
+			checked, checkErr := r.deps.UpdateChecker.Check(ctx, r.deps.InstalledVersion)
+			if checkErr != nil {
+				committed.LastUpdateFailure = failure("update_check_failed", now)
+			} else {
+				committed.LastUpdateFailure = nil
+				if checked.Newer && checked.LatestVersion != "" {
+					if cfg.AutoUpdateEnabled {
+						if r.deps.Updater == nil {
+							committed.LastUpdateFailure = failure("update_updater_unavailable", now)
+						} else {
+							applyCtx, cancel := context.WithTimeout(ctx, r.deps.UpdateApplyTimeout)
+							applied, applyErr := r.deps.Updater.Update(applyCtx, checked.LatestVersion)
+							cancel()
+							if errors.Is(applyErr, context.DeadlineExceeded) || errors.Is(applyCtx.Err(), context.DeadlineExceeded) {
+								committed.LastUpdateFailure = failure("update_apply_timeout", now)
+							} else if applyErr != nil {
+								committed.LastUpdateFailure = failure("update_apply_failed", now)
+							} else if !applied.Changed || applied.PreviousVersion != r.deps.InstalledVersion || applied.InstalledVersion != checked.LatestVersion {
+								committed.LastUpdateFailure = failure("update_not_applied", now)
+							} else {
+								committed.LastCompletedHeartbeat = &now
+								if err := r.deps.Store.SaveState(committed); err != nil {
+									return output.HeartbeatResult{CycleID: "update", ErrorCode: "state_write_failed"}, err
+								}
+								return output.HeartbeatResult{}, nil
+							}
+						}
+					} else if !contains(committed.DeliveredNoticeVersions, checked.LatestVersion) {
+						pendingUpdate = checked
+					}
+				}
+			}
+		}
+		if err := r.deps.Store.SaveState(committed); err != nil {
+			return output.HeartbeatResult{CycleID: "update", ErrorCode: "state_write_failed"}, err
+		}
+	}
+
+	if comparison.Unchanged() && !announcementDue && !pendingUpdate.Newer && !checkpointExists {
+		if administrativeChanged || updateChecked {
+			committed.LastCompletedHeartbeat = &now
+			if err := r.deps.Store.SaveState(committed); err != nil {
+				return output.HeartbeatResult{CycleID: "state", ErrorCode: "state_write_failed"}, err
+			}
+		}
 		return output.HeartbeatResult{}, nil
 	}
 
@@ -171,19 +271,15 @@ func (r *Runner) Run(ctx context.Context, dryRun bool) (output.Result, error) {
 		}
 	}
 
-	result := output.HeartbeatResult{CycleID: checkpoint.CycleID}
-	pendingUpdate := UpdateStatus{}
-	if updateDue {
-		committed.LastUpdateCheck = &now
-		if r.deps.UpdateChecker == nil {
-			result.ErrorCode = "update_checker_unavailable"
-		} else {
-			checked, checkErr := r.deps.UpdateChecker.Check(ctx, r.deps.InstalledVersion)
-			if checkErr == nil && checked.Newer && checked.LatestVersion != "" && !contains(committed.DeliveredNoticeVersions, checked.LatestVersion) && !checkpointHasNotice(checkpoint, checked.LatestVersion) {
-				pendingUpdate = checked
-			}
+	if announcementDue && !checkpointHasAnnouncement(checkpoint, r.deps.InstalledVersion) {
+		key := "announcement:" + r.deps.InstalledVersion
+		checkpoint.Operations[key] = state.CycleOperation{Kind: state.OperationAnnouncement, Stage: state.StagePrepared, PreviousVersion: committed.LastAnnouncedVersion, NoticeVersion: r.deps.InstalledVersion}
+		if err := r.deps.Store.SaveCycle(checkpoint); err != nil {
+			return output.HeartbeatResult{CycleID: checkpoint.CycleID, ErrorCode: "cycle_write_failed"}, err
 		}
 	}
+
+	result := output.HeartbeatResult{CycleID: checkpoint.CycleID}
 	needClient := len(comparison.Changed) > 0 || pendingUpdate.Newer || len(checkpoint.Operations) > 0
 	var client AppServer
 	closeClient := func() {}
@@ -445,8 +541,8 @@ func clearTokenSnapshot(record *state.TaskRecord) {
 	record.TokenUsageFound = false
 }
 
-func dryRunResult(comparison codex.Comparison, updateDue bool) output.Result {
-	effects := make([]string, 0, len(comparison.Changed)+len(comparison.RemovedIDs)+1)
+func dryRunResult(comparison codex.Comparison, updateDue, reconcileDue, announcementDue bool) output.Result {
+	effects := make([]string, 0, len(comparison.Changed)+len(comparison.RemovedIDs)+3)
 	for _, task := range comparison.Changed {
 		effects = append(effects, "classify."+task.TaskID)
 	}
@@ -455,6 +551,12 @@ func dryRunResult(comparison codex.Comparison, updateDue bool) output.Result {
 	}
 	if updateDue {
 		effects = append(effects, "update_check")
+	}
+	if reconcileDue {
+		effects = append(effects, "managed_surface_reconcile")
+	}
+	if announcementDue {
+		effects = append(effects, "update_announcement")
 	}
 	return output.PreviewResult{Command: "heartbeat", Effects: effects}
 }
@@ -478,6 +580,10 @@ func (r *Runner) setDiagnostic(checkpoint *state.CycleCheckpoint, taskID, operat
 	checkpoint.Diagnostics[taskID] = state.CycleDiagnostic{TaskID: taskID, Operation: operation, ErrorCode: stableCode(code)}
 }
 
+func failure(code string, at time.Time) *state.Failure {
+	return &state.Failure{Code: code, Timestamp: at}
+}
+
 func stableCode(value string) string {
 	value = strings.TrimSpace(value)
 	if value == "" {
@@ -499,7 +605,7 @@ func (r *Runner) deliverUpdate(ctx context.Context, cfg config.Config, update Up
 func (r *Runner) recoverNotices(ctx context.Context, cfg config.Config, checkpoint *state.CycleCheckpoint, client AppServer, result *output.HeartbeatResult) error {
 	keys := make([]string, 0)
 	for key, operation := range checkpoint.Operations {
-		if operation.Kind == state.OperationNotice && operation.Stage != state.StageVerified {
+		if (operation.Kind == state.OperationNotice || operation.Kind == state.OperationAnnouncement) && operation.Stage != state.StageVerified {
 			keys = append(keys, key)
 		}
 	}
@@ -518,7 +624,7 @@ func (r *Runner) settleNotice(ctx context.Context, cfg config.Config, key string
 		return errors.New("App Server is unavailable")
 	}
 	op := checkpoint.Operations[key]
-	text := noticeText(op.NoticeVersion)
+	text := r.operationText(op)
 	delivered, err := noticeDelivered(ctx, client, cfg.ControlTaskID, text)
 	if err != nil {
 		result.ErrorCode = "update_notice_verify_failed"
@@ -560,8 +666,28 @@ func (r *Runner) settleNotice(ctx context.Context, cfg config.Config, key string
 	return nil
 }
 
+func (r *Runner) operationText(operation state.CycleOperation) string {
+	if operation.Kind == state.OperationAnnouncement {
+		return announcementText(operation.PreviousVersion, operation.NoticeVersion, r.deps.ReleaseNotes())
+	}
+	return noticeText(operation.NoticeVersion)
+}
+
 func noticeText(version string) string {
 	return fmt.Sprintf("🧵🐻 ThreadBear %s is ready. Run threadbear update, or tell me “update ThreadBear.”", version)
+}
+
+func announcementText(previousVersion, currentVersion string, notes []string) string {
+	var text strings.Builder
+	fmt.Fprintf(&text, "🧵🐻 I gave myself a quick brush-up: v%s → v%s!", previousVersion, currentVersion)
+	for index, note := range notes {
+		if index == 3 {
+			break
+		}
+		fmt.Fprintf(&text, "\n- %s", note)
+	}
+	text.WriteString("\nPrefer to update by hand? threadbear configure --auto-update=false")
+	return text.String()
 }
 
 func noticeDelivered(ctx context.Context, client AppServer, controlTaskID, text string) (bool, error) {
@@ -578,9 +704,9 @@ func contains(values []string, target string) bool {
 	return false
 }
 
-func checkpointHasNotice(checkpoint state.CycleCheckpoint, version string) bool {
+func checkpointHasAnnouncement(checkpoint state.CycleCheckpoint, version string) bool {
 	for _, operation := range checkpoint.Operations {
-		if operation.Kind == state.OperationNotice && operation.NoticeVersion == version {
+		if operation.Kind == state.OperationAnnouncement && operation.NoticeVersion == version {
 			return true
 		}
 	}
@@ -768,7 +894,7 @@ func (r *Runner) applyOperations(ctx context.Context, cfg config.Config, client 
 	})
 	for _, key := range keys {
 		op := checkpoint.Operations[key]
-		if op.Kind == state.OperationNotice || op.Stage == state.StageVerified {
+		if op.Kind == state.OperationNotice || op.Kind == state.OperationAnnouncement || op.Stage == state.StageVerified {
 			continue
 		}
 		if client == nil {
@@ -936,6 +1062,8 @@ func (r *Runner) commitState(cfg config.Config, committed state.State, checkpoin
 			if !contains(next.DeliveredNoticeVersions, operation.NoticeVersion) {
 				next.DeliveredNoticeVersions = append(next.DeliveredNoticeVersions, operation.NoticeVersion)
 			}
+		case state.OperationAnnouncement:
+			next.LastAnnouncedVersion = operation.NoticeVersion
 		}
 	}
 	for taskID, diagnostic := range checkpoint.Diagnostics {

@@ -33,6 +33,7 @@ On first install, ask the prompts in this order. Pressing Return accepts the sho
 | Prompt | Default | Noninteractive flag |
 |---|---:|---|
 | Heartbeat interval in seconds | `300` | `--heartbeat-seconds 300` |
+| Automatically update ThreadBear | `yes` | `--auto-update=true` |
 | Automatically archive completed inactive tasks | `yes` | `--archive=true` |
 | Archive inactivity interval in days | `14` | `--archive-after-days 14` |
 | Automatically maintain status and next-action titles | `yes` | `--rename=true` |
@@ -42,7 +43,7 @@ On first install, ask the prompts in this order. Pressing Return accepts the sho
 | Classifier effort | `medium` | `--classifier-effort medium` |
 | Classifier context budget in bytes | `250000` | `--classifier-context-budget-bytes 250000` |
 
-Boolean install/configure flags use `=` forms. Use `--archive=false`, `--rename=false`, or `--agents=false`; do not pass a separate `false` argument.
+Boolean install/configure flags use `=` forms. Use `--auto-update=false`, `--archive=false`, `--rename=false`, or `--agents=false`; do not pass a separate `false` argument.
 
 ### 3. Review the single final preview
 
@@ -79,6 +80,7 @@ curl -fsSL https://threadbear.sh/install.sh | sh -s -- \
   --noninteractive \
   --confirm \
   --heartbeat-seconds 300 \
+  --auto-update=true \
   --archive=true \
   --archive-after-days 14 \
   --rename=true \
@@ -114,7 +116,7 @@ Read-only diagnosis is also available:
 ~/.local/bin/threadbear status --json
 ```
 
-These commands do not invoke a model or mutate task titles/archives. A normal unchanged `~/.local/bin/threadbear heartbeat` emits zero bytes when no update notice is due.
+These commands do not invoke a model or mutate task titles/archives. A normal unchanged `~/.local/bin/threadbear heartbeat` emits zero bytes when no task work, update check, or version-change announcement is due.
 
 For optional bare invocations in the current shell, add the standard user-local bin directory and verify it explicitly:
 
@@ -129,7 +131,7 @@ command -v threadbear
 
 ```sh
 ~/.local/bin/threadbear configure --heartbeat-seconds 600 --archive-after-days 30
-~/.local/bin/threadbear configure --archive=false --rename=true --agents=false
+~/.local/bin/threadbear configure --auto-update=false --archive=false --rename=true --agents=false
 ~/.local/bin/threadbear configure --token-display=end
 ~/.local/bin/threadbear configure --classifier-model gpt-5.6-luna --classifier-effort medium --classifier-context-budget-bytes 250000
 ~/.local/bin/threadbear configure --dry-run --heartbeat-seconds 900
@@ -147,7 +149,7 @@ Before ThreadBear activates, it stops and verifies the legacy job. Active resour
 
 Rerunning the installer is an idempotent reinstall: it adopts the existing ThreadBear control task and updates managed resources rather than creating duplicates.
 
-## Update or downgrade explicitly
+## Automatic updates and explicit update or downgrade
 
 Install the latest newer release:
 
@@ -163,15 +165,23 @@ Select an exact release, including an intentional downgrade:
 
 The updater downloads to a private temporary path, verifies the published checksum, embedded version, and candidate self-test, then atomically replaces the installed binary. Any pre-replacement failure removes the candidate and leaves the current binary untouched. ThreadBear does not create rollback state or retain a local release history; an explicit older version is the downgrade path and still must pass compatibility checks.
 
-A daily deterministic metadata check is silent when current. For each newer version it places one notice in the control task:
+Auto-update is enabled by default. While enabled, the heartbeat checks for a newer release at most every 30 minutes and installs it through the same checksum, embedded-version, candidate self-test, and atomic-replacement gates used by `threadbear update`. A failed check or replacement leaves the current binary untouched, posts nothing to the control task, and is reported by `threadbear status`.
+
+After an automatic, manual, or installer-driven update, the next heartbeat posts exactly one control-task announcement naming the previous and new versions, including up to three changelog bullets when available and a reminder that auto-update can be disabled.
+
+Disable automatic installation with:
+
+```sh
+~/.local/bin/threadbear configure --auto-update=false
+```
+
+When disabled, ThreadBear checks once per day and posts the existing notice without replacing the binary:
 
 ```text
 🧵🐻 ThreadBear VERSION is ready. Run threadbear update, or tell me “update ThreadBear.”
 ```
 
-The notice wording is fixed. If `~/.local/bin` is not on `PATH`, run `~/.local/bin/threadbear update` instead of the bare command shown in the notice.
-
-No binary changes until the user invokes an update. From the control task, Codex uses its normal command approval panel; choose one-time or Always approval there. ThreadBear does not request full-access defaults or bypass task permissions.
+If `~/.local/bin` is not on `PATH`, use the fully qualified command. Re-enable automatic updates with `~/.local/bin/threadbear configure --auto-update=true`. ThreadBear does not request full-access defaults, weaken candidate verification, retain local release history, or create automatic rollback state.
 
 ## Unsigned binary and Gatekeeper
 

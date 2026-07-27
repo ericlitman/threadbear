@@ -21,8 +21,8 @@ import (
 
 func TestDefault(t *testing.T) {
 	got := config.Default("control-123")
-	if config.CurrentSchemaVersion != 2 {
-		t.Fatalf("CurrentSchemaVersion = %d, want 2", config.CurrentSchemaVersion)
+	if config.CurrentSchemaVersion != 3 {
+		t.Fatalf("CurrentSchemaVersion = %d, want 3", config.CurrentSchemaVersion)
 	}
 	want := config.Config{
 		SchemaVersion:                config.CurrentSchemaVersion,
@@ -31,6 +31,7 @@ func TestDefault(t *testing.T) {
 		ArchiveEnabled:               true,
 		ArchiveAfterDays:             14,
 		RenameEnabled:                true,
+		AutoUpdateEnabled:            true,
 		TokenDisplay:                 tokens.PositionStart,
 		AgentsEnabled:                true,
 		ClassifierModel:              "gpt-5.6-luna",
@@ -53,7 +54,7 @@ func TestConfigValidation(t *testing.T) {
 		target error
 	}{
 		{"old schema", func(c *config.Config) { c.SchemaVersion = 1 }, config.ErrUnsupportedSchema},
-		{"new schema", func(c *config.Config) { c.SchemaVersion = 3 }, config.ErrUnsupportedSchema},
+		{"new schema", func(c *config.Config) { c.SchemaVersion = 4 }, config.ErrUnsupportedSchema},
 		{"missing control task", func(c *config.Config) { c.ControlTaskID = "" }, nil},
 		{"padded control task", func(c *config.Config) { c.ControlTaskID = " control-123 " }, nil},
 		{"zero heartbeat", func(c *config.Config) { c.HeartbeatSeconds = 0 }, nil},
@@ -78,11 +79,12 @@ func TestConfigValidation(t *testing.T) {
 	}
 }
 
-func TestDecodeSchemaV2RoundTrip(t *testing.T) {
+func TestDecodeSchemaV3RoundTrip(t *testing.T) {
 	valid := config.Default("control-123")
 	valid.ArchiveEnabled = false
 	valid.RenameEnabled = false
 	valid.AgentsEnabled = false
+	valid.AutoUpdateEnabled = false
 	data, err := json.Marshal(valid)
 	if err != nil {
 		t.Fatal(err)
@@ -112,11 +114,18 @@ func TestDecodeSchemaV2RoundTrip(t *testing.T) {
 	}
 	fields["token_display"] = string(tokens.PositionStart)
 	delete(fields, "classifier_context_budget_bytes")
+	delete(fields, "auto_update_enabled")
 	missingBudget, _ := json.Marshal(fields)
 	if _, err := config.Decode(missingBudget); err == nil {
 		t.Fatal("Decode() accepted a schema v2 config without classifier_context_budget_bytes")
 	}
 	fields["classifier_context_budget_bytes"] = 250000
+	delete(fields, "auto_update_enabled")
+	missingAutoUpdate, _ := json.Marshal(fields)
+	if _, err := config.Decode(missingAutoUpdate); err == nil {
+		t.Fatal("Decode() accepted a schema v3 config without auto_update_enabled")
+	}
+	fields["auto_update_enabled"] = false
 	fields["unexpected"] = true
 	unknown, _ := json.Marshal(fields)
 	if _, err := config.Decode(unknown); err == nil {
@@ -124,6 +133,31 @@ func TestDecodeSchemaV2RoundTrip(t *testing.T) {
 	}
 	if _, err := config.Decode(append(data, []byte(` {}`)...)); err == nil {
 		t.Fatal("Decode() accepted multiple JSON values")
+	}
+}
+
+func TestDecodeMigratesSchemaV2WithAutoUpdateEnabled(t *testing.T) {
+	value := config.Default("control-123")
+	data, err := json.Marshal(value)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var fields map[string]any
+	if err := json.Unmarshal(data, &fields); err != nil {
+		t.Fatal(err)
+	}
+	fields["schema_version"] = 2
+	delete(fields, "auto_update_enabled")
+	data, err = json.Marshal(fields)
+	if err != nil {
+		t.Fatal(err)
+	}
+	decoded, err := config.Decode(data)
+	if err != nil {
+		t.Fatalf("Decode() error = %v", err)
+	}
+	if decoded.SchemaVersion != config.CurrentSchemaVersion || !decoded.AutoUpdateEnabled {
+		t.Fatalf("Decode() = %#v", decoded)
 	}
 }
 
@@ -140,6 +174,7 @@ func TestDecodeMigratesSchemaV1(t *testing.T) {
 	fields["schema_version"] = 1
 	delete(fields, "token_display")
 	delete(fields, "classifier_context_budget_bytes")
+	delete(fields, "auto_update_enabled")
 	data, err = json.Marshal(fields)
 	if err != nil {
 		t.Fatal(err)
@@ -196,7 +231,7 @@ func TestDecodeUnavailableContextBudgetForCustomModel(t *testing.T) {
 }
 
 func TestDecodeRejectsUnsupportedSchema(t *testing.T) {
-	for _, schema := range []int{0, 3} {
+	for _, schema := range []int{0, 4} {
 		data := []byte(`{"schema_version":` + string(rune('0'+schema)) + `}`)
 		_, err := config.Decode(data)
 		if !errors.Is(err, config.ErrUnsupportedSchema) {

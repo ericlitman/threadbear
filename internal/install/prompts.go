@@ -20,6 +20,7 @@ type Preferences struct {
 	ArchiveEnabled               bool
 	ArchiveAfterDays             int
 	RenameEnabled                bool
+	AutoUpdateEnabled            bool
 	TokenDisplay                 tokens.Position
 	AgentsEnabled                bool
 	ClassifierModel              string
@@ -36,8 +37,9 @@ func preferencesFromConfig(value config.Config) Preferences {
 	return Preferences{
 		HeartbeatSeconds: value.HeartbeatSeconds, ArchiveEnabled: value.ArchiveEnabled,
 		ArchiveAfterDays: value.ArchiveAfterDays, RenameEnabled: value.RenameEnabled,
-		TokenDisplay:  value.TokenDisplay,
-		AgentsEnabled: value.AgentsEnabled, ClassifierModel: value.ClassifierModel,
+		AutoUpdateEnabled: value.AutoUpdateEnabled,
+		TokenDisplay:      value.TokenDisplay,
+		AgentsEnabled:     value.AgentsEnabled, ClassifierModel: value.ClassifierModel,
 		ClassifierEffort:             value.ClassifierEffort,
 		ClassifierContextBudgetBytes: value.ClassifierContextBudgetBytes,
 	}
@@ -48,8 +50,9 @@ func (p Preferences) config(controlTaskID, codexExecutable, codexSpawnPath strin
 		SchemaVersion: config.CurrentSchemaVersion, ControlTaskID: controlTaskID, CodexExecutable: codexExecutable, CodexSpawnPath: codexSpawnPath,
 		HeartbeatSeconds: p.HeartbeatSeconds, ArchiveEnabled: p.ArchiveEnabled,
 		ArchiveAfterDays: p.ArchiveAfterDays, RenameEnabled: p.RenameEnabled,
-		TokenDisplay:  p.TokenDisplay,
-		AgentsEnabled: p.AgentsEnabled, ClassifierModel: p.ClassifierModel,
+		AutoUpdateEnabled: p.AutoUpdateEnabled,
+		TokenDisplay:      p.TokenDisplay,
+		AgentsEnabled:     p.AgentsEnabled, ClassifierModel: p.ClassifierModel,
 		ClassifierEffort:             p.ClassifierEffort,
 		ClassifierContextBudgetBytes: p.ClassifierContextBudgetBytes,
 	}
@@ -112,6 +115,10 @@ func (p *TTYPrompter) Collect(value Preferences) (Preferences, error) {
 	var err error
 	p.describe("How often ThreadBear wakes up to look at your threads, in seconds. Five minutes is a solid default.")
 	if value.HeartbeatSeconds, err = p.askInt("Heartbeat interval in seconds", value.HeartbeatSeconds); err != nil {
+		return Preferences{}, err
+	}
+	p.describe("ThreadBear can keep itself current through the same verified update path used by the manual update command.")
+	if value.AutoUpdateEnabled, err = p.askBool("Automatically update ThreadBear", value.AutoUpdateEnabled); err != nil {
 		return Preferences{}, err
 	}
 	p.describe("When a thread is finished and has sat quiet for a while, ThreadBear can tuck it into the archive for you.")
