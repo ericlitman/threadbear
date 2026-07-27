@@ -174,7 +174,7 @@ func newOperatorService(installedVersion string, stdout, stderr io.Writer, forma
 				return false, err
 			}
 			defer prompter.Close()
-			return prompter.Confirm()
+			return prompter.Confirm(true)
 		},
 		Install: app.InstallHandler(installFactory), SelfTest: app.SelfTestHandler(runtimeSelfTest{paths: paths, launchAgent: launch}),
 		Update:    updatepkg.Replacer{ExecutablePath: paths.Binary, InstalledVersion: installedVersion},

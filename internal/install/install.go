@@ -276,7 +276,7 @@ func (i Installer) Install(ctx context.Context, request InstallRequest) (Install
 		}
 	}
 	if !request.NonInteractive {
-		confirmed, confirmErr := i.Prompter.Confirm()
+		confirmed, confirmErr := i.Prompter.Confirm(true)
 		if confirmErr != nil {
 			return InstallResult{}, Fail("confirmation", confirmErr)
 		}

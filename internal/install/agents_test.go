@@ -176,23 +176,79 @@ func TestManagedFilesRejectSymlinksAndWriteAtomically(t *testing.T) {
 	if !bytes.Equal(first, second) {
 		t.Fatal("idempotent write changed bytes")
 	}
+	// A managed file reached through a symlink is followed: people keep
+	// AGENTS.md in a dotfiles repo and link it into ~/.codex. The block lands
+	// in the real file, the user's content survives, and the link itself is
+	// still a link afterwards.
 	target := filepath.Join(home, "target")
-	if err := os.WriteFile(target, []byte("safe"), 0o600); err != nil {
+	if err := os.WriteFile(target, []byte("user content\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	link := filepath.Join(home, "link")
 	if err := os.Symlink(target, link); err != nil {
 		t.Fatal(err)
 	}
-	if err := WriteManagedBlock(link, []byte("bad")); !errors.Is(err, ErrUnsafeManagedPath) {
-		t.Fatalf("error=%v", err)
+	if err := WriteManagedBlock(link, []byte("managed")); err != nil {
+		t.Fatalf("write through symlink: %v", err)
 	}
 	got, err := os.ReadFile(target)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if string(got) != "safe" {
+	if !bytes.Contains(got, []byte("user content")) || !bytes.Contains(got, []byte("managed")) {
 		t.Fatalf("target=%q", got)
+	}
+	linkInfo, err := os.Lstat(link)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if linkInfo.Mode()&os.ModeSymlink == 0 {
+		t.Fatal("symlink was replaced by a regular file")
+	}
+	if err := ValidateManagedFile(link); err != nil {
+		t.Fatalf("validate through symlink: %v", err)
+	}
+	// A symlink pointing at something that is not a regular file is still refused.
+	directoryLink := filepath.Join(home, "dirlink")
+	if err := os.Symlink(home, directoryLink); err != nil {
+		t.Fatal(err)
+	}
+	if err := WriteManagedBlock(directoryLink, []byte("bad")); !errors.Is(err, ErrUnsafeManagedPath) {
+		t.Fatalf("directory symlink error=%v", err)
+	}
+	// A dangling symlink is refused rather than silently creating a file.
+	danglingLink := filepath.Join(home, "danglink")
+	if err := os.Symlink(filepath.Join(home, "missing-target"), danglingLink); err != nil {
+		t.Fatal(err)
+	}
+	if err := WriteManagedBlock(danglingLink, []byte("bad")); !errors.Is(err, ErrUnsafeManagedPath) {
+		t.Fatalf("dangling symlink error=%v", err)
+	}
+}
+
+func TestConfirmDefaultsToYesForApplyAndNoForRemoval(t *testing.T) {
+	for _, test := range []struct {
+		name       string
+		defaultYes bool
+		want       string
+	}{
+		{name: "apply", defaultYes: true, want: "[yes]"},
+		{name: "removal", defaultYes: false, want: "[no]"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			output := &strings.Builder{}
+			prompter := NewTTYPrompter(strings.NewReader("\n"), output)
+			confirmed, err := prompter.Confirm(test.defaultYes)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if confirmed != test.defaultYes {
+				t.Fatalf("bare Return gave confirmed=%t, want %t", confirmed, test.defaultYes)
+			}
+			if !strings.Contains(output.String(), test.want) {
+				t.Fatalf("prompt %q missing %s", output.String(), test.want)
+			}
+		})
 	}
 }
 
