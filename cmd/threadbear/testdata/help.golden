@@ -1,0 +1,171 @@
+ThreadBear keeps Codex tasks tidy without wasting model tokens.
+
+Usage:
+  threadbear <command> [flags]
+  threadbear help [command]
+
+Commands:
+  install    Install ThreadBear and set up its managed runtime.
+  heartbeat  Classify changed tasks and apply lifecycle work.
+  status     Show ThreadBear health, preferences, and recent activity.
+  inspect    Explain ThreadBear's saved state for one task.
+  configure  Preview or change ThreadBear preferences.
+  enable     Enable the ThreadBear LaunchAgent.
+  disable    Disable the ThreadBear LaunchAgent.
+  restore    Restore one task archived by ThreadBear.
+  self-test  Check that ThreadBear's runtime surfaces are ready.
+  update     Install the latest or an exact verified release.
+  uninstall  Preview and remove ThreadBear's managed runtime.
+  version    Show the installed ThreadBear version and website.
+
+Run `threadbear help <command>` for command details.
+
+ThreadBear install — Install ThreadBear and set up its managed runtime.
+
+Usage:
+  threadbear install [flags]
+
+Flags:
+  -h, --help                                 show this help and let the bear rest
+  --agents[=true|false]                      enable or disable managed AGENTS content (default: unchanged)
+  --archive[=true|false]                     enable or disable automatic archiving (default: unchanged)
+  --archive-after-days DAYS                  set complete-task archive age in positive DAYS (default: "")
+  --auto-update[=true|false]                 enable or disable automatic ThreadBear updates (default: unchanged)
+  --classifier-context-budget-bytes BYTES    set classifier context budget in positive BYTES (default: "")
+  --classifier-effort low|medium|high|xhigh  set classifier reasoning effort: low|medium|high|xhigh (default: "")
+  --classifier-model MODEL                   set non-empty classifier MODEL without surrounding whitespace (default: "")
+  --confirm                                  assert confirmation for noninteractive use (default: false)
+  --heartbeat-seconds SECONDS                set the heartbeat interval in positive SECONDS (default: "")
+  --json                                     write stable JSON command results; help stays human-readable (default: false)
+  --non-interactive                          do not prompt (default: false)
+  --noninteractive                           do not prompt (default: false)
+  --rename[=true|false]                      enable or disable managed titles (default: unchanged)
+  --token-display off|start|end              show output tokens in managed titles: off|start|end (default: "")
+  --version N.N.N                            install exact release N.N.N without a leading v instead of the latest (default: "")
+
+ThreadBear heartbeat — Classify changed tasks and apply lifecycle work.
+
+Usage:
+  threadbear heartbeat [flags]
+
+Flags:
+  -h, --help  show this help and let the bear rest
+  --dry-run   inventory and analyze without models or mutations (default: false)
+  --json      write stable JSON command results; help stays human-readable (default: false)
+
+ThreadBear status — Show ThreadBear health, preferences, and recent activity.
+
+Usage:
+  threadbear status [flags]
+
+Flags:
+  -h, --help  show this help and let the bear rest
+  --json      write stable JSON command results; help stays human-readable (default: false)
+
+ThreadBear inspect — Explain ThreadBear's saved state for one task.
+
+Usage:
+  threadbear inspect [flags] TASK_ID
+
+Arguments:
+  TASK_ID  Codex task ID to inspect
+
+Flags:
+  -h, --help  show this help and let the bear rest
+  --json      write stable JSON command results; help stays human-readable (default: false)
+
+ThreadBear configure — Preview or change ThreadBear preferences.
+
+Usage:
+  threadbear configure [flags]
+
+Flags:
+  -h, --help                                 show this help and let the bear rest
+  --agents[=true|false]                      enable or disable managed AGENTS content (default: unchanged)
+  --archive[=true|false]                     enable or disable automatic archiving (default: unchanged)
+  --archive-after-days DAYS                  set complete-task archive age in positive DAYS (default: "")
+  --auto-update[=true|false]                 enable or disable automatic ThreadBear updates (default: unchanged)
+  --classifier-context-budget-bytes BYTES    set classifier context budget in positive BYTES (default: "")
+  --classifier-effort low|medium|high|xhigh  set classifier reasoning effort: low|medium|high|xhigh (default: "")
+  --classifier-model MODEL                   set non-empty classifier MODEL without surrounding whitespace (default: "")
+  --confirm                                  confirm the previewed changes (default: false)
+  --dry-run                                  preview configuration effects (default: false)
+  --heartbeat-seconds SECONDS                set the heartbeat interval in positive SECONDS (default: "")
+  --json                                     write stable JSON command results; help stays human-readable (default: false)
+  --non-interactive                          do not prompt (default: false)
+  --noninteractive                           do not prompt (default: false)
+  --rename[=true|false]                      enable or disable managed titles (default: unchanged)
+  --token-display off|start|end              show output tokens in managed titles: off|start|end (default: "")
+
+ThreadBear enable — Enable the ThreadBear LaunchAgent.
+
+Usage:
+  threadbear enable [flags]
+
+Flags:
+  -h, --help  show this help and let the bear rest
+  --json      write stable JSON command results; help stays human-readable (default: false)
+
+ThreadBear disable — Disable the ThreadBear LaunchAgent.
+
+Usage:
+  threadbear disable [flags]
+
+Flags:
+  -h, --help  show this help and let the bear rest
+  --json      write stable JSON command results; help stays human-readable (default: false)
+
+ThreadBear restore — Restore one task archived by ThreadBear.
+
+Usage:
+  threadbear restore [flags] TASK_ID
+
+Arguments:
+  TASK_ID  Codex task ID to restore
+
+Flags:
+  -h, --help  show this help and let the bear rest
+  --json      write stable JSON command results; help stays human-readable (default: false)
+
+ThreadBear self-test — Check that ThreadBear's runtime surfaces are ready.
+
+Usage:
+  threadbear self-test [flags]
+
+Flags:
+  -h, --help   show this help and let the bear rest
+  --candidate  validate this candidate before installation (default: false)
+  --json       write stable JSON command results; help stays human-readable (default: false)
+
+ThreadBear update — Install the latest or an exact verified release.
+
+Usage:
+  threadbear update [flags]
+
+Flags:
+  -h, --help       show this help and let the bear rest
+  --json           write stable JSON command results; help stays human-readable (default: false)
+  --version N.N.N  install exact release N.N.N without a leading v instead of the latest (default: "")
+
+ThreadBear uninstall — Preview and remove ThreadBear's managed runtime.
+
+Usage:
+  threadbear uninstall [flags]
+
+Flags:
+  -h, --help              show this help and let the bear rest
+  --archive-control-task  archive the control task (default: false)
+  --confirm               assert confirmation for noninteractive use (default: false)
+  --delete-state          delete persistent state (default: false)
+  --json                  write stable JSON command results; help stays human-readable (default: false)
+  --non-interactive       do not prompt (default: false)
+  --noninteractive        do not prompt (default: false)
+
+ThreadBear version — Show the installed ThreadBear version and website.
+
+Usage:
+  threadbear version [flags]
+
+Flags:
+  -h, --help  show this help and let the bear rest
+  --json      write stable JSON command results; help stays human-readable (default: false)

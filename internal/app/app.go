@@ -28,6 +28,27 @@ const (
 	CommandVersion   Command = "version"
 )
 
+var allCommands = [...]Command{
+	CommandInstall,
+	CommandHeartbeat,
+	CommandStatus,
+	CommandInspect,
+	CommandConfigure,
+	CommandEnable,
+	CommandDisable,
+	CommandRestore,
+	CommandSelfTest,
+	CommandUpdate,
+	CommandUninstall,
+	CommandVersion,
+}
+
+func AllCommands() []Command {
+	commands := make([]Command, len(allCommands))
+	copy(commands, allCommands[:])
+	return commands
+}
+
 var (
 	ErrUnknownCommand = errors.New("unknown command")
 	ErrInvalidRequest = errors.New("invalid command request")
@@ -196,12 +217,12 @@ func exactVersion(value string) bool {
 }
 
 func (c Command) Valid() bool {
-	switch c {
-	case CommandInstall, CommandHeartbeat, CommandStatus, CommandInspect, CommandConfigure, CommandEnable, CommandDisable, CommandRestore, CommandSelfTest, CommandUpdate, CommandUninstall, CommandVersion:
-		return true
-	default:
-		return false
+	for _, command := range allCommands {
+		if c == command {
+			return true
+		}
 	}
+	return false
 }
 
 func operationName(command Command) string {
