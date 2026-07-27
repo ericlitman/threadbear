@@ -408,8 +408,15 @@ func (i Installer) Install(ctx context.Context, request InstallRequest) (Install
 	}
 	lockHeld = false
 	warnings := make([]string, 0, 1)
-	if err := i.ControlTasks.PostWelcome(ctx, controlTaskID, welcomeNotice(i.InstalledVersion, preferences)); err != nil {
-		warnings = append(warnings, fmt.Sprintf("welcome notice not posted: %v", err))
+	// Welcome once. A reinstall over an existing config is not a first
+	// meeting, and appending the same greeting to the control thread on every
+	// run would turn ThreadBear's own thread into the noise it exists to
+	// prevent. A newly created control task earns one regardless, since that
+	// thread has never been greeted.
+	if !configExists || controlTaskChanged {
+		if err := i.ControlTasks.PostWelcome(ctx, controlTaskID, welcomeNotice(i.InstalledVersion, preferences)); err != nil {
+			warnings = append(warnings, fmt.Sprintf("welcome notice not posted: %v", err))
+		}
 	}
 	return InstallResult{Config: nextConfig, State: currentState, Paths: i.Paths, Migrated: migrated, Reinstalled: configExists, Preview: preview, Changed: len(resources) > 0, Resources: resources, Warnings: warnings}, nil
 }
