@@ -178,7 +178,58 @@ func TestClassifierOnePreviousExpansionMaximum(t *testing.T) {
 	}
 }
 
-func TestClassifierStrictResponseValidation(t *testing.T) {
+func TestClassifierSalvagesValidRowsAndDiagnosesTheRest(t *testing.T) {
+	tasks := []TaskEvidence{
+		{TaskID: "task-a", Revision: "rev-a", Latest: TurnEvidence{User: "a", FinalAgent: "a"}},
+		{TaskID: "task-b", Revision: "rev-b", Latest: TurnEvidence{User: "b", FinalAgent: "b"}},
+	}
+	goodB := classifierWireItem{TaskID: "task-b", TaskRevision: "rev-b", State: state.StatusComplete, DurableSubject: "B"}
+	tests := []struct {
+		name  string
+		text  string
+		codeA string
+	}{
+		// task-a's row is defective in each variant; task-b's row is valid and
+		// must survive - that is the salvage contract this replaces the old
+		// all-or-nothing validation with.
+		{name: "missing", text: responseText([]classifierWireItem{goodB}), codeA: "missing_from_response"},
+		{name: "chimera id", text: responseText([]classifierWireItem{{TaskID: "task-a-mangled", TaskRevision: "rev-a", State: state.StatusComplete, DurableSubject: "A"}, goodB}), codeA: "missing_from_response"},
+		{name: "revision", text: responseText([]classifierWireItem{{TaskID: "task-a", TaskRevision: "wrong", State: state.StatusComplete, DurableSubject: "A"}, goodB}), codeA: "response_revision_mismatch"},
+		{name: "eighth state", text: `{"schema_revision":"threadbear.status.v1","results":[{"task_id":"task-a","task_revision":"rev-a","state":"previous","durable_subject":"","managed_action":"","request_previous":false},{"task_id":"task-b","task_revision":"rev-b","state":"complete","durable_subject":"B","managed_action":"","request_previous":false}]}`, codeA: "invalid_response_fields"},
+		{name: "field combination", text: responseText([]classifierWireItem{{TaskID: "task-a", TaskRevision: "rev-a", State: state.StatusComplete, DurableSubject: "A", ManagedAction: "do more"}, goodB}), codeA: "invalid_response_fields"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			runner := &fakeEphemeralRunner{run: func(_ int, _ appserver.EphemeralRequest) (appserver.EphemeralResult, error) {
+				return successfulEphemeral(test.text), nil
+			}}
+			results := newTestClassifier(t, runner, 1<<20, "model", "medium").Classify(context.Background(), tasks)
+			if results[0].Status != state.StatusUnknown || results[0].Diagnostic == nil || results[0].Diagnostic.Code != test.codeA {
+				t.Fatalf("task-a result=%+v", results[0])
+			}
+			if results[1].Status != state.StatusComplete || results[1].Diagnostic != nil {
+				t.Fatalf("task-b was not salvaged: %+v", results[1])
+			}
+		})
+	}
+}
+
+func TestClassifierDuplicateRowsFirstValidWins(t *testing.T) {
+	tasks := []TaskEvidence{{TaskID: "task-a", Revision: "rev-a", Latest: TurnEvidence{User: "a", FinalAgent: "a"}}}
+	text := responseText([]classifierWireItem{
+		{TaskID: "task-a", TaskRevision: "rev-a", State: state.StatusComplete, DurableSubject: "First"},
+		{TaskID: "task-a", TaskRevision: "rev-a", State: state.StatusBlocked, DurableSubject: "Second", ManagedAction: "act"},
+	})
+	runner := &fakeEphemeralRunner{run: func(_ int, _ appserver.EphemeralRequest) (appserver.EphemeralResult, error) {
+		return successfulEphemeral(text), nil
+	}}
+	result := newTestClassifier(t, runner, 1<<20, "model", "medium").Classify(context.Background(), tasks)[0]
+	if result.Status != state.StatusComplete || result.DurableSubject != "First" || result.Diagnostic != nil {
+		t.Fatalf("result=%+v", result)
+	}
+}
+
+func TestClassifierBatchFatalResponsesStillRejectEverything(t *testing.T) {
 	tasks := []TaskEvidence{
 		{TaskID: "task-a", Revision: "rev-a", Latest: TurnEvidence{User: "a", FinalAgent: "a"}},
 		{TaskID: "task-b", Revision: "rev-b", Latest: TurnEvidence{User: "b", FinalAgent: "b"}},
@@ -188,12 +239,6 @@ func TestClassifierStrictResponseValidation(t *testing.T) {
 		text string
 		code string
 	}{
-		{name: "missing", text: responseText([]classifierWireItem{{TaskID: "task-a", TaskRevision: "rev-a", State: state.StatusComplete, DurableSubject: "A"}}), code: "response_id_mismatch"},
-		{name: "duplicate", text: responseText([]classifierWireItem{{TaskID: "task-a", TaskRevision: "rev-a", State: state.StatusComplete, DurableSubject: "A"}, {TaskID: "task-a", TaskRevision: "rev-a", State: state.StatusComplete, DurableSubject: "A"}}), code: "response_id_mismatch"},
-		{name: "unexpected", text: responseText([]classifierWireItem{{TaskID: "task-a", TaskRevision: "rev-a", State: state.StatusComplete, DurableSubject: "A"}, {TaskID: "task-x", TaskRevision: "rev-x", State: state.StatusComplete, DurableSubject: "X"}}), code: "response_id_mismatch"},
-		{name: "revision", text: responseText([]classifierWireItem{{TaskID: "task-a", TaskRevision: "wrong", State: state.StatusComplete, DurableSubject: "A"}, {TaskID: "task-b", TaskRevision: "rev-b", State: state.StatusComplete, DurableSubject: "B"}}), code: "response_revision_mismatch"},
-		{name: "eighth state", text: `{"schema_revision":"threadbear.status.v1","results":[{"task_id":"task-a","task_revision":"rev-a","state":"previous","durable_subject":"","managed_action":"","request_previous":false},{"task_id":"task-b","task_revision":"rev-b","state":"complete","durable_subject":"B","managed_action":"","request_previous":false}]}`, code: "invalid_response_fields"},
-		{name: "field combination", text: responseText([]classifierWireItem{{TaskID: "task-a", TaskRevision: "rev-a", State: state.StatusComplete, DurableSubject: "A", ManagedAction: "do more"}, {TaskID: "task-b", TaskRevision: "rev-b", State: state.StatusComplete, DurableSubject: "B"}}), code: "invalid_response_fields"},
 		{name: "schema revision", text: `{"schema_revision":"wrong","results":[]}`, code: "schema_revision_mismatch"},
 		{name: "unknown field", text: `{"schema_revision":"threadbear.status.v1","results":[],"payload":"secret"}`, code: "malformed_classifier_response"},
 		{name: "missing required field", text: `{"schema_revision":"threadbear.status.v1","results":[{"task_id":"task-a","task_revision":"rev-a","state":"complete","durable_subject":"A","managed_action":""},{"task_id":"task-b","task_revision":"rev-b","state":"complete","durable_subject":"B","managed_action":"","request_previous":false}]}`, code: "malformed_classifier_response"},

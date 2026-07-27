@@ -154,7 +154,7 @@ func (c *Classifier) classify(ctx context.Context, tasks []TaskEvidence, load Pr
 	requested := make([]TaskEvidence, 0)
 	requestedMetadata := make(map[string]ClassificationMetadata)
 	for _, batch := range first {
-		outcomes, diagnostic := c.runBatch(ctx, batch)
+		outcomes, rowDiagnostics, diagnostic := c.runBatch(ctx, batch)
 		if diagnostic != nil {
 			for _, task := range batch.Tasks {
 				byID[task.TaskID] = unknownClassification(task, diagnostic.Code, diagnostic.Message, diagnostic.Metadata, diagnostic.OffendingItem)
@@ -162,7 +162,15 @@ func (c *Classifier) classify(ctx context.Context, tasks []TaskEvidence, load Pr
 			continue
 		}
 		for _, task := range batch.Tasks {
-			outcome := outcomes[task.TaskID]
+			outcome, classified := outcomes[task.TaskID]
+			if !classified {
+				rowDiagnostic := rowDiagnostics[task.TaskID]
+				if rowDiagnostic == nil {
+					rowDiagnostic = &batchDiagnostic{Code: "missing_from_response", Message: "classifier response contained no valid row for this task"}
+				}
+				byID[task.TaskID] = unknownClassification(task, rowDiagnostic.Code, rowDiagnostic.Message, rowDiagnostic.Metadata, rowDiagnostic.OffendingItem)
+				continue
+			}
 			if outcome.item.RequestPrevious {
 				requested = append(requested, task)
 				requestedMetadata[task.TaskID] = outcome.metadata
@@ -226,7 +234,7 @@ func (c *Classifier) classify(ctx context.Context, tasks []TaskEvidence, load Pr
 				byID[item.Task.TaskID] = unknownClassification(item.Task, "task_exceeds_context_budget", "complete expanded task evidence exceeds the advertised context budget", requestedMetadata[item.Task.TaskID], "")
 			}
 			for _, batch := range second {
-				outcomes, diagnostic := c.runBatch(ctx, batch)
+				outcomes, rowDiagnostics, diagnostic := c.runBatch(ctx, batch)
 				if diagnostic != nil {
 					for _, task := range batch.Tasks {
 						metadata := mergeMetadata(requestedMetadata[task.TaskID], diagnostic.Metadata)
@@ -235,7 +243,16 @@ func (c *Classifier) classify(ctx context.Context, tasks []TaskEvidence, load Pr
 					continue
 				}
 				for _, task := range batch.Tasks {
-					outcome := outcomes[task.TaskID]
+					outcome, classified := outcomes[task.TaskID]
+					if !classified {
+						rowDiagnostic := rowDiagnostics[task.TaskID]
+						if rowDiagnostic == nil {
+							rowDiagnostic = &batchDiagnostic{Code: "missing_from_response", Message: "classifier response contained no valid row for this task"}
+						}
+						metadata := mergeMetadata(requestedMetadata[task.TaskID], rowDiagnostic.Metadata)
+						byID[task.TaskID] = unknownClassification(task, rowDiagnostic.Code, rowDiagnostic.Message, metadata, rowDiagnostic.OffendingItem)
+						continue
+					}
 					outcome.metadata = mergeMetadata(requestedMetadata[task.TaskID], outcome.metadata)
 					if outcome.item.RequestPrevious {
 						byID[task.TaskID] = unknownClassification(task, "previous_expansion_exhausted", "classifier requested previous-turn evidence after the single allowed expansion", outcome.metadata, "")
@@ -255,7 +272,7 @@ func (c *Classifier) classify(ctx context.Context, tasks []TaskEvidence, load Pr
 	return results
 }
 
-func (c *Classifier) runBatch(ctx context.Context, batch PackedBatch) (map[string]passOutcome, *batchDiagnostic) {
+func (c *Classifier) runBatch(ctx context.Context, batch PackedBatch) (map[string]passOutcome, map[string]*batchDiagnostic, *batchDiagnostic) {
 	result, err := c.runner.RunEphemeral(ctx, appserver.EphemeralRequest{
 		Model:        c.config.Model,
 		Effort:       c.config.Effort,
@@ -267,33 +284,37 @@ func (c *Classifier) runBatch(ctx context.Context, batch PackedBatch) (map[strin
 		if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) {
 			code = "ephemeral_call_timeout"
 		}
-		return nil, &batchDiagnostic{Code: code, Message: "ephemeral classifier call failed"}
+		return nil, nil, &batchDiagnostic{Code: code, Message: "ephemeral classifier call failed"}
 	}
 	metadata := ClassificationMetadata{UnprovenToolSources: normalizedSources(result.ToolRestriction.UnprovenToolSources)}
 	if result.Turn.Status != "completed" {
 		if _, diagnostic := finalAssistantText(result.Turn.Items); diagnostic != nil && diagnostic.OffendingItem != "" {
 			diagnostic.Metadata = metadata
-			return nil, diagnostic
+			return nil, nil, diagnostic
 		}
-		return nil, &batchDiagnostic{Code: "classifier_turn_incomplete", Message: "ephemeral classifier turn did not complete", Metadata: metadata}
+		return nil, nil, &batchDiagnostic{Code: "classifier_turn_incomplete", Message: "ephemeral classifier turn did not complete", Metadata: metadata}
 	}
 	text, itemDiagnostic := finalAssistantText(result.Turn.Items)
 	if itemDiagnostic != nil {
 		itemDiagnostic.Metadata = metadata
-		return nil, itemDiagnostic
+		return nil, nil, itemDiagnostic
 	}
 	if !validToolRestrictions(result.ToolRestriction) {
-		return nil, &batchDiagnostic{Code: "tool_controls_unconfirmed", Message: "ephemeral classifier controls were not fully confirmed", Metadata: metadata}
+		return nil, nil, &batchDiagnostic{Code: "tool_controls_unconfirmed", Message: "ephemeral classifier controls were not fully confirmed", Metadata: metadata}
 	}
 	response, decodeErr := decodeClassifierResponse(text)
 	if decodeErr != nil {
-		return nil, &batchDiagnostic{Code: "malformed_classifier_response", Message: "classifier response did not match the strict schema", Metadata: metadata}
+		return nil, nil, &batchDiagnostic{Code: "malformed_classifier_response", Message: "classifier response did not match the strict schema", Metadata: metadata}
 	}
-	outcomes, validationErr := validateClassifierResponse(response, batch.Tasks, metadata)
+	outcomes, rowFailures, validationErr := validateClassifierResponse(response, batch.Tasks, metadata)
 	if validationErr != nil {
-		return nil, &batchDiagnostic{Code: validationErr.code, Message: validationErr.message, Metadata: metadata}
+		return nil, nil, &batchDiagnostic{Code: validationErr.code, Message: validationErr.message, Metadata: metadata}
 	}
-	return outcomes, nil
+	rowDiagnostics := make(map[string]*batchDiagnostic, len(rowFailures))
+	for taskID, failure := range rowFailures {
+		rowDiagnostics[taskID] = &batchDiagnostic{Code: failure.code, Message: failure.message, Metadata: metadata}
+	}
+	return outcomes, rowDiagnostics, nil
 }
 
 type batchDiagnostic struct {
@@ -388,35 +409,62 @@ func decodeClassifierResponse(text string) (classifierResponse, error) {
 	return response, nil
 }
 
-func validateClassifierResponse(response classifierResponse, tasks []TaskEvidence, metadata ClassificationMetadata) (map[string]passOutcome, *responseValidationError) {
+// validateClassifierResponse salvages every individually valid row instead of
+// rejecting the whole batch on the first defect. The all-or-nothing rule met
+// reality on 2026-07-26: a 71-task batch came back with one chimera ID (the
+// prefix of one requested UUID fused onto the suffix of its neighbour) and one
+// ID missing its final character - two bad rows - and validation discarded all
+// 71 results, every heartbeat, forever. A model transcribing dozens of 36-char
+// random strings will occasionally miscopy one; the response rows that do
+// match are still exact matches and lose nothing by the neighbours' failure.
+//
+// Rows that match no requested ID are unattributable and dropped; requested
+// tasks with no surviving row are reported per task so only they retry. A
+// schema-revision mismatch still rejects the batch outright - that is not a
+// row defect, the whole response answered a different contract.
+func validateClassifierResponse(response classifierResponse, tasks []TaskEvidence, metadata ClassificationMetadata) (map[string]passOutcome, map[string]*responseValidationError, *responseValidationError) {
 	if response.SchemaRevision != SchemaRevision {
-		return nil, &responseValidationError{code: "schema_revision_mismatch", message: "classifier response schema revision did not match the request"}
+		return nil, nil, &responseValidationError{code: "schema_revision_mismatch", message: "classifier response schema revision did not match the request"}
 	}
 	expected := make(map[string]TaskEvidence, len(tasks))
 	for _, task := range tasks {
 		expected[task.TaskID] = task
 	}
-	if len(response.Results) != len(expected) {
-		return nil, &responseValidationError{code: "response_id_mismatch", message: "classifier response did not contain exactly the requested task IDs"}
-	}
 	outcomes := make(map[string]passOutcome, len(response.Results))
+	rowFailures := make(map[string]*responseValidationError)
 	for _, item := range response.Results {
 		task, ok := expected[item.TaskID]
 		if !ok {
-			return nil, &responseValidationError{code: "response_id_mismatch", message: "classifier response contained an unexpected task ID"}
+			// Unattributable: no requested task carries this ID, so there is
+			// no task to attach a result or a diagnostic to. The real task the
+			// model mangled surfaces below as missing.
+			continue
 		}
 		if _, duplicate := outcomes[item.TaskID]; duplicate {
-			return nil, &responseValidationError{code: "response_id_mismatch", message: "classifier response contained a duplicate task ID"}
+			// First valid occurrence wins; later duplicates are ignored.
+			continue
 		}
 		if item.TaskRevision != task.Revision {
-			return nil, &responseValidationError{code: "response_revision_mismatch", message: "classifier response revision did not match captured evidence"}
+			rowFailures[item.TaskID] = &responseValidationError{code: "response_revision_mismatch", message: "classifier response revision did not match captured evidence"}
+			continue
 		}
 		if err := validateWireItem(item); err != nil {
-			return nil, &responseValidationError{code: "invalid_response_fields", message: "classifier response contained an invalid state or field combination"}
+			rowFailures[item.TaskID] = &responseValidationError{code: "invalid_response_fields", message: "classifier response contained an invalid state or field combination"}
+			continue
 		}
+		delete(rowFailures, item.TaskID)
 		outcomes[item.TaskID] = passOutcome{item: item, metadata: metadata}
 	}
-	return outcomes, nil
+	for _, task := range tasks {
+		if _, ok := outcomes[task.TaskID]; ok {
+			continue
+		}
+		if _, diagnosed := rowFailures[task.TaskID]; diagnosed {
+			continue
+		}
+		rowFailures[task.TaskID] = &responseValidationError{code: "missing_from_response", message: "classifier response contained no valid row for this task"}
+	}
+	return outcomes, rowFailures, nil
 }
 
 func validateWireItem(item classifierWireItem) error {

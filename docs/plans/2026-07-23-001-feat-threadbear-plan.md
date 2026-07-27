@@ -89,7 +89,7 @@ ThreadBear therefore keeps the visible control task but moves semantic classific
 
 **Model-assisted classification**
 
-- R13. Only changed tasks that remain unresolved after R6 and R12 are sent to Luna medium in fresh ephemeral sessions with tools and environments disabled; ThreadBear uses the fewest batches that fit the model's advertised context and serialized payload rather than a fixed task-count cap.
+- R13. Only changed tasks that remain unresolved after R6 and R12 are sent to Luna medium in fresh ephemeral sessions with tools and environments disabled; ThreadBear uses the fewest batches that fit the model's advertised context and serialized payload, with each batch carrying at most twenty tasks. (Amended 2026-07-27, from live failure evidence: the original text rejected a task-count cap, assuming byte fit was the only constraint. A real 71-task batch showed the second constraint — every response row must echo a 36-character task ID verbatim, and the model miscopied two of 71, one a chimera of two adjacent IDs and one missing its final character. The strict validator then discarded all 71 results on every heartbeat. The cap bounds the transcription surface per call; row-level salvage in the validator accepts each individually valid row and retries only defective ones, so a single miscopied ID can no longer discard a batch. A schema-revision mismatch still rejects the whole response.)
 - R14. The first classification input contains the complete latest user message and complete latest final agent message, with no fixed character clipping and no tool output, hidden reasoning, or older history; a single turn that cannot fit safely becomes `unknown` with diagnostic retry state instead of being clipped or omitted.
 - R15. The classifier may request the immediately previous turn only when the latest turn is insufficient, and ThreadBear performs that second read only for the task IDs that requested it in another fresh ephemeral session.
 - R16. The classifier returns one `blocked`, `needs_input`, `running`, `automation`, `next_steps`, `complete`, or `unknown` state plus any needed concise subject and next action for every requested task in the same call, then leaves all title, archive, inventory, and state mutations to the deterministic runtime.
@@ -318,7 +318,7 @@ flowchart TB
   - **Covers R4, R13-R16.**
   - **Given:** The complete serialized latest turns for unresolved tasks cannot fit in one advertised Luna context but each individual task can fit.
   - **When:** ThreadBear prepares classification.
-  - **Then:** It uses the fewest context-safe calls needed, includes every task exactly once, and clips or omits nothing.
+  - **Then:** It uses the fewest context-safe calls needed subject to the twenty-task batch cap (R13), includes every task exactly once, and clips or omits nothing.
 
 - AE21. Activity during classification blocks a stale mutation
   - **Covers R8-R9, R19-R22.**
