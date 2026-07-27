@@ -228,6 +228,7 @@ type LifecycleResult struct {
 	Resources           []string `json:"resources"`
 	ControlTaskID       string   `json:"control_task_id"`
 	Migrated            bool     `json:"migrated"`
+	Warnings            []string `json:"warnings,omitempty"`
 	Reinstalled         bool     `json:"reinstalled"`
 	ArchivedControlTask bool     `json:"archived_control_task"`
 	DeletedState        bool     `json:"deleted_state"`
@@ -241,7 +242,11 @@ func (r LifecycleResult) Human() string {
 	if len(r.Resources) > 0 {
 		resources = strings.Join(r.Resources, ",")
 	}
-	return fmt.Sprintf("ThreadBear %s changed=%t · resources %s · control task %s · migrated=%t · reinstalled=%t · archived control task=%t · deleted state=%t", r.Command, r.Changed, resources, r.ControlTaskID, r.Migrated, r.Reinstalled, r.ArchivedControlTask, r.DeletedState)
+	line := fmt.Sprintf("ThreadBear %s changed=%t · resources %s · control task %s · migrated=%t · reinstalled=%t · archived control task=%t · deleted state=%t", r.Command, r.Changed, resources, r.ControlTaskID, r.Migrated, r.Reinstalled, r.ArchivedControlTask, r.DeletedState)
+	for _, warning := range r.Warnings {
+		line += " · warning: " + warning
+	}
+	return line
 }
 
 type CheckResult struct {

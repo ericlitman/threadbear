@@ -145,6 +145,16 @@ type fakeTasks struct {
 	archivedIDs     map[string]bool
 	ensureChanged   bool
 	failAfterCreate error
+	welcomes        []string
+	welcomeErr      error
+}
+
+func (t *fakeTasks) PostWelcome(_ context.Context, taskID, text string) error {
+	if t.welcomeErr != nil {
+		return t.welcomeErr
+	}
+	t.welcomes = append(t.welcomes, taskID+"\n"+text)
+	return nil
 }
 
 func (t *fakeTasks) EnsureControlTask(_ context.Context, id string) (string, bool, error) {
