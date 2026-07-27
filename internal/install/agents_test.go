@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/ericlitman/threadbear/assets"
@@ -192,5 +193,12 @@ func TestManagedFilesRejectSymlinksAndWriteAtomically(t *testing.T) {
 	}
 	if string(got) != "safe" {
 		t.Fatalf("target=%q", got)
+	}
+}
+
+func TestWelcomeNoticeMentionsVersion(t *testing.T) {
+	notice := welcomeNotice("1.0.1", DefaultPreferences())
+	if !strings.Contains(notice, "ThreadBear 1.0.1") {
+		t.Fatalf("notice=%q", notice)
 	}
 }
