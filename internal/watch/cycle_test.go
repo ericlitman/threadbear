@@ -1277,6 +1277,22 @@ func TestHeartbeatCleanIdleManagedComparisonProducesNoOutput(t *testing.T) {
 	}
 }
 
+func TestHeartbeatIdleManagedRepairFailureIsVisible(t *testing.T) {
+	now := time.Date(2026, 7, 24, 12, 0, 0, 0, time.UTC)
+	committed := state.New()
+	committed.LastUpdateCheck = timePointer(now)
+	runner, deps := testRunner(t, now, nil, committed)
+	runner.deps.ManagedSurfaces = &fakeManagedSurfaces{err: errors.New("synthetic managed failure")}
+	value, err := runner.Run(context.Background(), false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	result := value.(output.HeartbeatResult)
+	if result.Empty() || result.CycleID != "managed-surfaces" || result.ErrorCode != "managed_surfaces_unavailable" || deps.factory.opens != 0 {
+		t.Fatalf("result=%+v opens=%d", result, deps.factory.opens)
+	}
+}
+
 func TestHeartbeatReportsManagedDriftRepair(t *testing.T) {
 	now := time.Date(2026, 7, 24, 12, 0, 0, 0, time.UTC)
 	committed := state.New()
@@ -1291,6 +1307,27 @@ func TestHeartbeatReportsManagedDriftRepair(t *testing.T) {
 	result := value.(output.HeartbeatResult)
 	if result.Empty() || strings.Join(result.ManagedResources, ",") != "skill,agents" || result.CycleID != "managed-surfaces" || deps.factory.opens != 0 {
 		t.Fatalf("result=%+v opens=%d", result, deps.factory.opens)
+	}
+}
+
+func TestHeartbeatManagedRepairFailureStillDeliversUpdateNotice(t *testing.T) {
+	now := time.Date(2026, 7, 24, 12, 0, 0, 0, time.UTC)
+	committed := state.New()
+	committed.LastUpdateCheck = timePointer(now.Add(-25 * time.Hour))
+	runner, deps := testRunner(t, now, nil, committed)
+	runner.deps.ManagedSurfaces = &fakeManagedSurfaces{err: errors.New("synthetic managed failure")}
+	deps.update.result = UpdateStatus{LatestVersion: "1.2.0", Newer: true}
+	value, err := runner.Run(context.Background(), false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	result := value.(output.HeartbeatResult)
+	if result.ErrorCode != "managed_surfaces_unavailable" || len(deps.client.notices) != 1 {
+		t.Fatalf("result=%+v notices=%v", result, deps.client.notices)
+	}
+	stored, err := deps.store.store.LoadState()
+	if err != nil || stored.Generation != committed.Generation+1 || len(stored.DeliveredNoticeVersions) != 1 || stored.DeliveredNoticeVersions[0] != "1.2.0" || stored.LastUpdateCheck == nil || !stored.LastUpdateCheck.Equal(now) {
+		t.Fatalf("stored=%+v err=%v", stored, err)
 	}
 }
 

@@ -149,10 +149,17 @@ func (r *Runner) Run(ctx context.Context, dryRun bool) (output.Result, error) {
 		return dryRunResult(comparison, updateDue), nil
 	}
 	if comparison.Unchanged() && !updateDue && !checkpointExists {
-		if len(managedResources) > 0 {
-			return output.HeartbeatResult{CycleID: "managed-surfaces", ManagedResources: managedResources}, nil
+		result := output.HeartbeatResult{ManagedResources: managedResources}
+		if managedSurfacesErr != nil {
+			result.CycleID = "managed-surfaces"
+			result.ErrorCode = "managed_surfaces_unavailable"
+			return result, nil
 		}
-		return output.HeartbeatResult{}, nil
+		if len(managedResources) > 0 {
+			result.CycleID = "managed-surfaces"
+			return result, nil
+		}
+		return result, nil
 	}
 
 	if !checkpointExists {
@@ -185,6 +192,9 @@ func (r *Runner) Run(ctx context.Context, dryRun bool) (output.Result, error) {
 	}
 
 	result := output.HeartbeatResult{CycleID: checkpoint.CycleID, ManagedResources: managedResources}
+	if managedSurfacesErr != nil {
+		result.ErrorCode = "managed_surfaces_unavailable"
+	}
 	pendingUpdate := UpdateStatus{}
 	if updateDue {
 		committed.LastUpdateCheck = &now
