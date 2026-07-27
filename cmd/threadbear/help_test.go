@@ -86,6 +86,13 @@ func TestHelpExplicitFormsAndBareInvocation(t *testing.T) {
 	if want := renderCommandHelp(inspect); !strings.Contains(want, "threadbear inspect [flags] TASK_ID") || !strings.Contains(want, "Arguments:\n  TASK_ID") {
 		t.Fatalf("inspect help omits its positional: %q", want)
 	}
+	for _, command := range []app.Command{app.CommandInspect, app.CommandRestore} {
+		spec, _ := commandSpecFor(command)
+		want := renderCommandHelp(spec)
+		for _, helpFlag := range []string{"-h", "--help"} {
+			assertHelpRun(t, []string{string(command), "task-123", helpFlag}, 0, want)
+		}
+	}
 	request, err := parseRequest([]string{"configure", "--classifier-model", "--help"})
 	if err != nil || request.Configure.ClassifierModel == nil || *request.Configure.ClassifierModel != "--help" {
 		t.Fatalf("help-like flag value changed parsing: request=%+v err=%v", request, err)

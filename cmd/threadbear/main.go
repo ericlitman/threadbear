@@ -382,7 +382,7 @@ func parseRequest(args []string) (app.Request, error) {
 	flags := newCommandFlagSet(spec, &request)
 	commandArgs := args[1:]
 	if request.Command == app.CommandInspect || request.Command == app.CommandRestore {
-		commandArgs = flagsBeforePositionals(commandArgs, "--json")
+		commandArgs = flagsBeforePositionals(commandArgs, "--json", "-h", "--help")
 	}
 	if err := flags.Parse(commandArgs); err != nil {
 		return request, err
