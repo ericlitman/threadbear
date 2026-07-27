@@ -330,9 +330,9 @@ func aggregateLiveEvalSeries(cases []liveEvalCase, reports []liveEvalReport) liv
 		// majority threshold gates on their coin flips - every case that hit
 		// exactly 3-of-5 proved to be a label defect, while every true model
 		// defect ran at 4-of-5 or worse. For five runs this is 4.
-		Threshold:      (3*len(reports) + 3) / 4,
-		Caveat:         liveEvalFloorCaveat,
-		Reports:        reports,
+		Threshold: (3*len(reports) + 3) / 4,
+		Caveat:    liveEvalFloorCaveat,
+		Reports:   reports,
 	}
 	expected := make(map[string]state.TaskStatus, len(cases))
 	byID := make(map[string]liveEvalCase, len(cases))
