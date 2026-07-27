@@ -366,7 +366,7 @@ flowchart TB
 **Outside this product's identity**
 
 - ThreadBear does not click through the user's screen, edit private Desktop global-state files, reverse-engineer cache invalidation, or depend on whichever task happens to be selected.
-- ThreadBear does not install updates without user action, maintain local release history, implement automatic rollback, invent a custom Codex permission profile, or ask users to grant full access.
+- ThreadBear does not maintain local release history, implement automatic rollback, invent a custom Codex permission profile, or ask users to grant full access. *(Amended 2026-07-26: this bullet originally also said "does not install updates without user action." That clause is superseded by owner decision — opt-out auto-update with consent collected at install, default yes, `configure --auto-update` to disable — contracted in `docs/plans/2026-07-26-001-feat-auto-update-plan.md` [BEAR-39]. The no-release-history and no-automatic-rollback boundaries stand.)*
 - ThreadBear is a local task-state and lifecycle manager, not a general Codex orchestration framework, project planner, task scheduler, or cross-platform Desktop replacement.
 
 ### Dependencies and Assumptions

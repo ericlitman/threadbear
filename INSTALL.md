@@ -161,19 +161,19 @@ Select an exact release, including an intentional downgrade:
 ~/.local/bin/threadbear update --version 1.2.0
 ```
 
-The updater downloads to a private temporary path, verifies the published checksum, embedded version, and updater candidate self-test, and asks the candidate binary to export its embedded managed AGENTS.md and skill content. It prevalidates changed managed surfaces and emits their preview before replacing the installed binary, then refreshes the enabled AGENTS.md block and always-managed skill with the candidate content and verifies the result. A same-version update also reconciles stale managed surfaces from the current binary embedded assets while remaining a no-op when they are current. Managed files keep all bytes outside the single ThreadBear block. Symlinks to user-owned regular files are followed without replacing the link; malformed, dangling, non-file, or foreign-owned targets are refused. The binary and each managed file use safe individual replacement, but there is no cross-file atomicity. If managed refresh fails after binary replacement, the new binary remains installed, partial managed writes are rolled back best-effort, and the error is reported explicitly. A later heartbeat under the new binary is the convergence backstop that repairs residue. No binary rollback file is created or retained.
+Manual and automatic updates use the same updater pipeline. It downloads to a private temporary path, verifies the published checksum, embedded version, and updater candidate self-test, and asks the candidate binary to export its embedded managed AGENTS.md and skill content. It prevalidates changed managed surfaces and emits their preview before replacing the installed binary with one atomic rename, then refreshes the enabled AGENTS.md block and always-managed skill with the candidate content and verifies the result. A same-version manual update also reconciles stale managed surfaces from the current binary embedded assets while remaining a no-op when they are current. Managed files keep all bytes outside the single ThreadBear block. Symlinks to user-owned regular files are followed without replacing the link; malformed, dangling, non-file, or foreign-owned targets are refused. The binary and each managed file use safe individual replacement, but there is no cross-file atomicity. If managed refresh fails after binary replacement, the new binary remains installed, partial managed writes are rolled back best-effort, and the error is reported explicitly. A later heartbeat under the new binary is the convergence backstop that repairs residue. No binary rollback file is created or retained.
 
 The updater deliberately does not rewrite `~/Library/LaunchAgents/org.litman.threadbear.plist`. Scheduler plist changes remain the responsibility of install/configure lifecycle operations. ThreadBear does not retain a release history. An explicit downgrade proceeds binary-only only when the older candidate reports the managed-asset command as `unknown_command`; malformed exports, empty assets, generic execution failures, and all other candidate errors stop the update. The binary-only result warns that AGENTS.md and the skill were not refreshed. Their newer managed content can remain as residue until a BEAR-27-or-newer `threadbear update` or `threadbear configure` reconciles it.
 
-A daily deterministic metadata check is silent when current. For each newer version it places one notice in the control task:
+With auto-update enabled, the heartbeat checks for a newer release no more than once every 30 minutes and applies it through the same verified binary-and-managed-surface pipeline. The next heartbeat announces the completed version change once in the control task with up to three embedded changelog bullets and an opt-out hint. Manual and installer-driven updates use that same once-per-version announcement mechanism.
+
+With auto-update disabled, the deterministic metadata check runs no more than once every 24 hours and remains silent when current. For each newer version it places one fixed notice in the control task:
 
 ```text
 🧵🐻 ThreadBear VERSION is ready. Run threadbear update, or tell me “update ThreadBear.”
 ```
 
-The notice wording is fixed. If `~/.local/bin` is not on `PATH`, run `~/.local/bin/threadbear update` instead of the bare command shown in the notice.
-
-No binary changes until the user invokes an update. From the control task, Codex uses its normal command approval panel; choose one-time or Always approval there. ThreadBear does not request full-access defaults or bypass task permissions.
+If `~/.local/bin` is not on `PATH`, run `~/.local/bin/threadbear update` instead of the bare command shown in the notice. From the control task, Codex uses its normal command approval panel for a manual update; choose one-time or Always approval there. ThreadBear does not request full-access defaults or bypass task permissions.
 
 ## Unsigned binary and Gatekeeper
 

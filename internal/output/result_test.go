@@ -107,6 +107,23 @@ func TestFinalActionDoesNotRepeatPreview(t *testing.T) {
 	}
 }
 
+func TestNotInstalledErrorHumanJSONContract(t *testing.T) {
+	result := ErrorResult{Operation: "status", ErrorCode: "not_installed"}
+	var human, machine bytes.Buffer
+	if err := Write(&human, FormatHuman, result); err != nil {
+		t.Fatal(err)
+	}
+	if err := Write(&machine, FormatJSON, result); err != nil {
+		t.Fatal(err)
+	}
+	if human.String() != "ThreadBear is not installed\n" {
+		t.Fatalf("human=%q", human.String())
+	}
+	if machine.String() != `{"version":1,"operation":"status","error_code":"not_installed"}`+"\n" {
+		t.Fatalf("json=%q", machine.String())
+	}
+}
+
 func TestInstallErrorStepCauseHumanJSONParity(t *testing.T) {
 	result := ErrorResult{Operation: "install", ErrorCode: "install_failed", Step: "resolve_codex_executable", Cause: "install the Codex CLI"}
 	var human, machine bytes.Buffer

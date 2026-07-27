@@ -728,16 +728,19 @@ func validateInstalledState(paths install.Paths) error {
 		return errors.New("state directory is not a directory")
 	}
 	store := install.NewDiskStore(paths)
-	cfg, err := store.LoadConfig()
-	if err != nil {
-		return fmt.Errorf("load installed config: %w", err)
+	cfg, configErr := store.LoadConfig()
+	committed, stateErr := store.LoadState()
+	if errors.Is(configErr, os.ErrNotExist) && errors.Is(stateErr, os.ErrNotExist) {
+		return nil
+	}
+	if configErr != nil {
+		return fmt.Errorf("load installed config: %w", configErr)
 	}
 	if err := cfg.Validate(); err != nil {
 		return fmt.Errorf("validate installed config: %w", err)
 	}
-	committed, err := store.LoadState()
-	if err != nil {
-		return fmt.Errorf("load installed state: %w", err)
+	if stateErr != nil {
+		return fmt.Errorf("load installed state: %w", stateErr)
 	}
 	if err := committed.Validate(); err != nil {
 		return fmt.Errorf("validate installed state: %w", err)

@@ -94,6 +94,9 @@ func StatusHandler(version string, store OperatorStore, launchAgent LaunchAgent)
 			return commandError("status", "dependency_unavailable", ErrUnavailable)
 		}
 		cfg, err := store.LoadConfig()
+		if errors.Is(err, fs.ErrNotExist) {
+			return commandError("status", "not_installed", err)
+		}
 		if err != nil {
 			return commandError("status", "config_read_failed", err)
 		}
