@@ -76,7 +76,9 @@ current state above; it contains no backstage vocabulary; and every suggested
 action would change the frozen current setting. On a pre-mutation failure, copy
 the three-paragraph failure shape exactly and add no inventory of tasks, files,
 settings, adoption, or scheduling. On a successful close, select action phrases
-only from the mapping in section 7 and reject any no-op.
+only from the mapping in section 7 and reject any no-op. Never print a numeric
+zero or the word “zero” in a consumer-facing tidy-up; translate it to “already
+looked right,” “none were ready,” or “nothing needs another try.”
 
 ## 1. Welcome the person
 
@@ -406,7 +408,7 @@ Backstage preference map:
 | Archive completed inactive tasks | on | `--archive=true` |
 | Quiet days before archive | 14 | `--archive-after-days 14` |
 | Maintain status/next-action titles | on | `--rename=true` |
-| Output-token figure | start | `--token-display=start` |
+| Output-token figure | start | `--token-display start` |
 | Managed AGENTS guidance | on | `--agents=true` |
 | Classifier model | `gpt-5.6-luna` | `--classifier-model gpt-5.6-luna` |
 | Classifier effort | medium | `--classifier-effort medium` |
@@ -627,12 +629,19 @@ Continue only after a clear affirmative answer to the friendly installation
 question. If they want a change, update the flags, rerun the review, and ask
 again.
 
-If the person says “not now” or otherwise declines, close warmly without
-pressing for a reason:
+If the person says “not now” or otherwise declines after seeing the full
+review, close warmly without pressing for a reason:
 
 > Of course. Nothing from this review has been installed or changed, and your
 > Mac and Codex are exactly as they were. ThreadBear will be here whenever you’d
 > like to pick this back up.
+
+If they decline earlier from the settings card, use the same close without
+claiming a review exists:
+
+> Of course. Nothing has been installed or changed, and your Mac and Codex are
+> exactly as they were. ThreadBear will be here whenever you’d like to pick this
+> back up.
 
 Do not run the confirmed command, rename or pin a task, or ask them to
 reconsider.
@@ -803,7 +812,7 @@ tasks were ready for the archive.” is legal only when the frozen review has
 archive count, or any task being archived. Never combine the enabled zero-count
 sentence with the disabled close.
 
-Choose no more than two closeout action examples from the actual installed
+Choose exactly two closeout action examples from the actual installed
 preferences, then include the three always-safe examples. Every
 preference-specific example must change the current state:
 

@@ -107,6 +107,7 @@ func TestCodexInstallGuideHasPriorityVisibleStateMachine(t *testing.T) {
 		"every suggested action would change the frozen current setting.",
 		"copy the three-paragraph failure shape exactly and add no inventory",
 		"select action phrases only from the mapping in section 7 and reject any no-op.",
+		"Never print a numeric zero or the word “zero” in a consumer-facing tidy-up",
 	} {
 		if !strings.Contains(guide, want) {
 			t.Fatalf("INSTALL.md priority state machine missing %q", want)
@@ -804,14 +805,14 @@ func TestCodexInstallGuideAdaptsCloseActionsToInstalledPreferences(t *testing.T)
 		}
 	}
 
-	rulesStart := strings.Index(guide, "Choose no more than two closeout action examples from the actual installed")
+	rulesStart := strings.Index(guide, "Choose exactly two closeout action examples from the actual installed")
 	rulesEnd := strings.Index(guide, "Keep closeout results flowing:")
 	if rulesStart == -1 || rulesEnd <= rulesStart {
 		t.Fatal("INSTALL.md missing adaptive close-action rules")
 	}
 	rules := normalizeGuideText(guide[rulesStart:rulesEnd])
 	for _, want := range []string{
-		"Choose no more than two closeout action examples from the actual installed preferences, then include the three always-safe examples.",
+		"Choose exactly two closeout action examples from the actual installed preferences, then include the three always-safe examples.",
 		"when archiving is enabled, offer “stop archiving”; when disabled, offer “archive completed tasks after two weeks”",
 		"when title maintenance is disabled and token figures are inactive, offer “turn title updates on and show token counts at the start”",
 		"when title maintenance is enabled and token figures are at the start, offer “put token counts at the end”; when they are at the end, offer “hide token counts”; when they are hidden, offer “put token counts at the start”",
@@ -951,8 +952,11 @@ func TestCodexInstallGuideHasDistinctWarmFailureResponses(t *testing.T) {
 func TestCodexInstallGuideHandlesNotNowWarmly(t *testing.T) {
 	guide := readInstallGuide(t)
 	for _, want := range []string{
-		"If the person says “not now” or otherwise declines",
+		"If the person says “not now” or otherwise declines after seeing the full\nreview",
 		"Nothing from this review has been installed or changed",
+		"If they decline earlier from the settings card",
+		"without\nclaiming a review exists",
+		"Nothing has been installed or changed, and your Mac and Codex are",
 		"your\n> Mac and Codex are exactly as they were",
 		"ThreadBear will be here whenever",
 		"Do not run the confirmed command",
