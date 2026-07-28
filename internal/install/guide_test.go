@@ -145,6 +145,57 @@ func TestCodexInstallGuideShowsOneModeSpecificSettingsCard(t *testing.T) {
 	}
 }
 
+func TestCodexInstallGuideKeepsAutoUpdateCopyConsistent(t *testing.T) {
+	guide := readInstallGuide(t)
+	enabled := "ThreadBear updates itself automatically, safely verifying every download before installation."
+	disabled := "ThreadBear waits for you to start verified updates; updates happen only when you choose."
+
+	firstCardStart := strings.Index(guide, "For a first install, present the recommended setup:")
+	currentCardStart := strings.Index(guide, "For a reinstall, present a dedicated current-settings card once")
+	currentCardEnd := strings.Index(guide, "Give that reinstall discovery sentence once.")
+	firstReviewStart := strings.Index(guide, "Read the full final-review result yourself.")
+	refreshReviewStart := strings.Index(guide, "For `retained` or `stayed_home`")
+	refreshReviewEnd := strings.Index(guide, "The settings sentence is an example")
+	if firstCardStart == -1 || currentCardStart <= firstCardStart || currentCardEnd <= currentCardStart ||
+		firstReviewStart == -1 || refreshReviewStart <= firstReviewStart || refreshReviewEnd <= refreshReviewStart {
+		t.Fatal("INSTALL.md missing auto-update card or review sections")
+	}
+
+	for name, section := range map[string]string{
+		"recommended card": guide[firstCardStart:currentCardStart],
+		"first review":     guide[firstReviewStart:refreshReviewStart],
+	} {
+		if !strings.Contains(normalizeGuideText(section), enabled) {
+			t.Fatalf("INSTALL.md %s omits enabled automatic-update semantics", name)
+		}
+	}
+	for name, section := range map[string]string{
+		"current-settings card": guide[currentCardStart:currentCardEnd],
+		"refresh review":        guide[refreshReviewStart:refreshReviewEnd],
+	} {
+		normalized := normalizeGuideText(section)
+		if !strings.Contains(normalized, disabled) {
+			t.Fatalf("INSTALL.md %s omits disabled automatic-update semantics", name)
+		}
+		for _, contradiction := range []string{enabled, "verified automatic updates"} {
+			if strings.Contains(strings.ToLower(normalized), strings.ToLower(contradiction)) {
+				t.Fatalf("INSTALL.md %s describes disabled updates as automatic: %q", name, contradiction)
+			}
+		}
+	}
+
+	for _, want := range []string{
+		"Automatic-update copy must follow the frozen `auto_update` value in every settings card and review.",
+		"When `auto_update=true`, say: “" + enabled + "”",
+		"When `auto_update=false`, say: “" + disabled + "”",
+		"Never describe disabled updates as automatic.",
+	} {
+		if !strings.Contains(normalizeGuideText(guide), want) {
+			t.Fatalf("INSTALL.md missing auto-update rendering rule %q", want)
+		}
+	}
+}
+
 func TestCodexInstallGuideDisclosesStatusGuidanceBeforeConsent(t *testing.T) {
 	guide := readInstallGuide(t)
 	normalized := normalizeGuideText(guide)

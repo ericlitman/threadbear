@@ -229,8 +229,8 @@ For a first install, present the recommended setup:
 >
 > - **A quiet five-minute check-in.** ThreadBear looks for changes; when nothing
 >   changed, it uses no model tokens.
-> - **Verified automatic updates.** The bear keeps itself current and checks
->   every download before installing it.
+> - **Verified automatic updates.** ThreadBear updates itself automatically,
+>   safely verifying every download before installation.
 > - **A patient archive.** Only completed tasks that have been quiet for 14 days
 >   are tucked away. Unfinished work stays visible.
 > - **Useful titles.** Status and the next action stay easy to scan, while names
@@ -259,7 +259,7 @@ person’s actual settings:
 > - **A quiet ten-minute check-in.** ThreadBear looks for changes; when nothing
 >   changed, it uses no model tokens.
 > - **Updates when you choose.** ThreadBear waits for you to start verified
->   updates.
+>   updates; updates happen only when you choose.
 > - **Completed tasks stay visible.** ThreadBear does not archive them
 >   automatically, so quiet-day timing is inactive.
 > - **Titles stay untouched.** ThreadBear leaves every title as you set it, so
@@ -275,6 +275,13 @@ person’s actual settings:
 Give that reinstall discovery sentence once. When discovery identifies a first
 install, keep the detection backstage and move directly to the recommended
 card.
+
+Automatic-update copy must follow the frozen `auto_update` value in every
+settings card and review. When `auto_update=true`, say: “ThreadBear updates
+itself automatically, safely verifying every download before installation.”
+When `auto_update=false`, say: “ThreadBear waits for you to start verified
+updates; updates happen only when you choose.” Never describe disabled updates
+as automatic.
 
 Title maintenance controls the token display. Whenever title maintenance is
 off, every current-settings card and review must say that titles stay untouched
@@ -470,8 +477,9 @@ full review with “Everything is ready for your review.”
 > Everything is ready for your review.
 >
 > ThreadBear will live on this Mac, use this task as its home, check in every
-> five minutes, keep itself safely updated, maintain helpful titles, and show
-> conversation size at the start.
+> five minutes, maintain helpful titles, and show conversation size at the
+> start. ThreadBear updates itself automatically, safely verifying every
+> download before installation.
 >
 > Only completed tasks that have been quiet for 14 days will be archived;
 > unfinished tasks stay visible.
@@ -492,10 +500,10 @@ editing the first-install example sentence by sentence:
 
 > Everything is ready for your review.
 >
-> ThreadBear already has a home. This refresh will update ThreadBear itself
-> while keeping your current setup: a ten-minute check-in, verified automatic
-> updates, and titles left untouched with token figures inactive and out of
-> them.
+> ThreadBear already has a home. This refresh updates ThreadBear itself once
+> while keeping your current setup: a ten-minute check-in and titles left
+> untouched with token figures inactive and out of them. ThreadBear waits for
+> you to start verified updates; updates happen only when you choose.
 >
 > Completed tasks stay visible, and quiet-day timing is inactive.
 >
