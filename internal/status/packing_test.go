@@ -254,3 +254,31 @@ func TestPackCapsTasksPerBatch(t *testing.T) {
 		t.Fatalf("packed %d of %d tasks", seen, len(tasks))
 	}
 }
+
+func TestPackCapsTasksPerPreviousBatch(t *testing.T) {
+	previous := TurnEvidence{User: "original request", FinalAgent: "original answer"}
+	tasks := make([]TaskEvidence, 50)
+	for index := range tasks {
+		tasks[index] = TaskEvidence{TaskID: "previous-cap-" + twoDigits(index), Revision: "r", Latest: TurnEvidence{FinalAgent: "short"}, Previous: &previous}
+	}
+	batches, oversized, err := PackTasks(tasks, 1<<20, true)
+	if err != nil || len(oversized) != 0 {
+		t.Fatalf("oversized=%d err=%v", len(oversized), err)
+	}
+	if len(batches) < 3 {
+		t.Fatalf("expected at least 3 capped batches, got %d", len(batches))
+	}
+	seen := 0
+	for _, batch := range batches {
+		if len(batch.Tasks) > maxBatchTasks {
+			t.Fatalf("batch has %d tasks, cap is %d", len(batch.Tasks), maxBatchTasks)
+		}
+		if !strings.Contains(batch.Input, `"previous_pass":true`) {
+			t.Fatal("capped previous-pass batch omitted previous evidence marker")
+		}
+		seen += len(batch.Tasks)
+	}
+	if seen != len(tasks) {
+		t.Fatalf("packed %d of %d tasks", seen, len(tasks))
+	}
+}
