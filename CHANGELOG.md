@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## v1.2.0 - 2026-07-27
+
 ### Added
 
 - Added friendly top-level and per-command CLI help generated from the parser's command and flag registrations.
