@@ -354,7 +354,8 @@ Capture the heartbeat result. When it emits JSON, use the counts of `changed`,
 work, treat those counts as zero. After the heartbeat, rerun `status --json` and
 inspect `pending_retries`.
 
-Translate the result into this shape rather than reciting fields:
+For a first adoption, unreadable replacement, or exact repair, translate the
+result into this shape rather than reciting fields:
 
 > ThreadBear is home 🧵🐻
 >
@@ -368,11 +369,28 @@ Translate the result into this shape rather than reciting fields:
 >
 > I’ll mind the threads. You go make the next thing.
 
-Adapt “this task is now its home” for a retained home, replacement, or manual
-pin. Never expose the raw disposition name. If anything failed, say what the
-person experiences, what you are checking next, and whether installation
-changed anything; put raw diagnostics after the plain explanation only when
-they help. Never direct the person elsewhere to complete, verify, or
+For a retained home, whether this task or another task, close with a dedicated
+refresh version because no new welcome note was posted:
+
+> ThreadBear is home 🧵🐻
+>
+> Everything passed. ThreadBear VERSION is refreshed, its quiet background
+> check is healthy, and its existing home, title, and pin stayed as you left
+> them. This tidy-up refreshed X task titles, archived Y completed tasks,
+> and left Z items to retry.
+>
+> Your current settings remain in effect. From here, you can just talk to me:
+> “stop archiving,” “hide token counts,” “pause,” “how are you?” or “uninstall
+> ThreadBear.”
+>
+> I’ll mind the threads. You go make the next thing.
+
+Adapt the home sentence to say whether ThreadBear remains in this task or its
+existing home in another task. Adapt the first-install version for a replacement
+or manual pin. Never expose the raw disposition name. If anything failed, say
+what the person experiences, what you are checking next, and whether
+installation changed anything; put raw diagnostics after the plain explanation
+only when they help. Never direct the person elsewhere to complete, verify, or
 troubleshoot the installation.
 
 Expected managed resources are:

@@ -21,11 +21,32 @@ func TestCodexInstallGuideCarriesConversationContract(t *testing.T) {
 		"Ready for me to install ThreadBear with these choices?",
 		"Ready for me to refresh ThreadBear with these choices?",
 		"ThreadBear is home 🧵🐻",
+		"Your choices are saved in the welcome note above.",
+		"Your current settings remain in effect.",
 		"I’ll mind the threads. You go make the next thing.",
 	} {
 		if !strings.Contains(guide, want) {
 			t.Fatalf("INSTALL.md missing conversation contract text %q", want)
 		}
+	}
+}
+
+func TestCodexInstallGuideUsesDistinctRefreshCompletionCopy(t *testing.T) {
+	guide := readInstallGuide(t)
+	refreshStart := strings.Index(guide, "For a retained home, whether this task or another task")
+	refreshEnd := strings.Index(guide, "Adapt the home sentence")
+	if refreshStart == -1 || refreshEnd == -1 || refreshEnd <= refreshStart {
+		t.Fatal("INSTALL.md missing dedicated retained-home completion section")
+	}
+	refresh := guide[refreshStart:refreshEnd]
+	if !strings.Contains(refresh, "because no new welcome note was posted") {
+		t.Fatal("retained-home completion guidance does not explain why its copy is distinct")
+	}
+	if !strings.Contains(refresh, "Your current settings remain in effect.") {
+		t.Fatal("retained-home completion copy does not preserve current settings")
+	}
+	if strings.Contains(refresh, "Your choices are saved in the welcome note above.") {
+		t.Fatal("retained-home completion copy incorrectly claims a new welcome note")
 	}
 }
 
