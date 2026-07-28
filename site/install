@@ -21,9 +21,11 @@ Do not use `sudo`. Do not edit README, the website, or the installed skill durin
 - Sound warm, calm, capable, and lightly playful. Use at most one bear or thread
   flourish in a message. A flourish is a decorative emoji, mascot aside, or
   bear/thread pun or metaphor; ordinary product naming is not a flourish, and a
-  required functional status footer is not decorative. Do not turn every
-  sentence into a pun, use baby talk, or perform a mascot voice. Keep completion
-  messages spare even when the functional footer is enabled.
+  required functional status footer is not decorative. Literal product-output
+  examples such as a title sample or footer sample are functional artifacts,
+  not decorative flourishes. Do not turn every sentence into a pun, use baby
+  talk, or perform a mascot voice. Keep completion messages spare even when the
+  functional footer is enabled.
 - Explain benefits and visible outcomes first. Keep commands, flags, paths,
   task IDs, JSON fields, internal state names, byte counts, mutation locks, App
   Server details, and ticket references backstage unless they are needed to
@@ -80,10 +82,13 @@ compatibility and task-identity checks without waiting for another reply:
 > anything or change your settings. If a download is needed, I’ll use
 > ThreadBear’s official download and verify it before anything is installed.
 
-The next user-facing turn should open with the readiness result and contain the
-one appropriate settings card. Do not fragment the welcome, permission
-heads-up, compatibility preface, or official-download promise into separate
-messages. Pause only if a privacy panel appears or the person interrupts.
+After those tools return, the readiness result and one appropriate settings
+card MUST begin a new assistant message. It is forbidden to put a readiness
+result or settings card in the same assistant message as the opening
+compatibility promise, even on the happy path. Do not fragment the welcome,
+permission heads-up, compatibility preface, or official-download promise into
+separate messages. Pause only if a privacy panel appears or the person
+interrupts.
 
 Backstage facts, not a script to recite:
 
@@ -192,16 +197,31 @@ installation.
 Show exactly one settings card, chosen from the source established above. Never
 show the default recommendation and a current-settings card together.
 
-Status guidance changes replies across every Codex task, so its language is
-immutable. Use the selected variant below verbatim in the settings card, the
-short choice echo when one is required below, and the final review. Do not
-paraphrase, shorten, split, or omit any sentence:
+Status guidance changes replies in newly started Codex task sessions, so its
+language is immutable. Use the selected variant below verbatim in the settings
+card, the short choice echo when one is required below, and the final review.
+Do not paraphrase, shorten, split, or omit any sentence:
 
-- **Enabled:** “**Status guidance on.** Agent replies across every Codex task
-  get a one-line ThreadBear footer such as `🧵🐻 complete`. This lets ThreadBear
-  use lightweight checks, with a careful second look when a task is unclear.”
-- **Disabled:** “**Status guidance off.** Agent replies stay unchanged. When
-  ThreadBear needs to understand a task, it takes a careful full look instead.”
+- **Enabled:** “**Status guidance on.** In every newly started Codex task
+  session, agent replies get a one-line ThreadBear footer such as `🧵🐻
+  complete`. Tasks already open keep their current reply guidance. This lets
+  ThreadBear use lightweight checks, with a careful second look when a task is
+  unclear.”
+- **Disabled:** “**Status guidance off.** In every newly started Codex task
+  session, agent replies stay unchanged. Tasks already open keep their current
+  reply guidance. When ThreadBear needs to understand a task, it takes a
+  careful full look instead.”
+
+Never claim or imply that status guidance, its footer, or lightweight
+classification uses zero or no model tokens. That property belongs only to an
+unchanged heartbeat. If the person asks how status guidance works, answer with
+this friendly explanation rather than the immutable choice echo:
+
+> In every newly started Codex task session, the footer is one compact line at
+> the end of agent replies—for example, `🧵🐻 complete`. Tasks already open
+> keep their current reply guidance. The footer lets ThreadBear use lightweight
+> checks most of the time; when a task is unclear, ThreadBear takes a careful
+> second look.
 
 For a first install, present the recommended setup:
 
@@ -217,8 +237,9 @@ For a first install, present the recommended setup:
 >   you choose yourself are left alone.
 > - **Conversation size at the start.** ThreadBear titles show output tokens in a
 >   compact form such as `🚨 1.6m Fix checkout`.
-> - **Status guidance on.** Agent replies across every Codex task get a one-line
->   ThreadBear footer such as `🧵🐻 complete`. This lets ThreadBear use
+> - **Status guidance on.** In every newly started Codex task session, agent
+>   replies get a one-line ThreadBear footer such as `🧵🐻 complete`. Tasks
+>   already open keep their current reply guidance. This lets ThreadBear use
 >   lightweight checks, with a careful second look when a task is unclear.
 >
 > Would you like the recommended setup, change a choice, or have me explain any
@@ -243,8 +264,9 @@ person’s actual settings:
 >   automatically, so quiet-day timing is inactive.
 > - **Titles stay untouched.** ThreadBear leaves every title as you set it, so
 >   token figures remain inactive and stay out of titles too.
-> - **Status guidance on.** Agent replies across every Codex task get a one-line
->   ThreadBear footer such as `🧵🐻 complete`. This lets ThreadBear use
+> - **Status guidance on.** In every newly started Codex task session, agent
+>   replies get a one-line ThreadBear footer such as `🧵🐻 complete`. Tasks
+>   already open keep their current reply guidance. This lets ThreadBear use
 >   lightweight checks, with a careful second look when a task is unclear.
 >
 > Would you like to keep this setup, change a choice, or have me explain any of
@@ -280,11 +302,24 @@ preference.”
 If the person already supplied a valid token position, reflect that choice
 directly in the card and later review without replaying the token menu.
 
-When the person changes or explicitly discusses status guidance, echo the
-selected immutable variant once before backstage review work so the enabled
-blast radius or disabled tradeoff cannot disappear. If they simply accept the
-recommendation, do not repeat the paragraph in an extra echo; the card and
-final review are sufficient.
+Only when the person changes status guidance, send a short choice echo before
+backstage review work. Start with one warm consumer sentence acknowledging all
+requested changes, then reproduce the selected immutable status variant
+verbatim. For example:
+
+> Updated — completed tasks will stay visible, output-token figures will be
+> hidden, and agent replies will stay unchanged.
+>
+> **Status guidance off.** In every newly started Codex task session, agent
+> replies stay unchanged. Tasks already open keep their current reply guidance.
+> When ThreadBear needs to understand a task, it takes a careful full look
+> instead.
+
+The changed-status echo must never be a bare compliance paragraph; its lead-in
+must cover every requested change, including archive, title/token, and status
+choices. A question or explanation request alone does not trigger this echo. If
+the person asks about status guidance and then accepts the recommendation, do
+not add an extra echo; the card and final review are sufficient.
 
 For a first install, accepting the recommendation means leaving its default
 preferences unspecified during baseline discovery. For a reinstall, keeping
@@ -417,6 +452,14 @@ values merely because they are frozen. The frozen dry-run result, rather than
 an earlier status call, baseline card, or assumption, is the authoritative
 source for every visible setting shown to the person:
 
+When any choice changed, open the revised-review message with one short,
+consumer-facing delta sentence naming those changed outcomes, such as “Review
+updated — completed tasks will stay visible, output-token figures will be
+hidden, and agent replies will stay unchanged.” Then immediately show the full
+authoritative review below. Do not expose raw flags or make the person infer
+what changed by comparing two cards. This revised-review delta is required even
+when an earlier changed-status echo already acknowledged the choices.
+
 > Everything is ready for your review.
 >
 > ThreadBear will live on this Mac, use this task as its home, check in every
@@ -426,9 +469,10 @@ source for every visible setting shown to the person:
 > Only completed tasks that have been quiet for 14 days will be archived;
 > unfinished tasks stay visible.
 >
-> **Status guidance on.** Agent replies across every Codex task get a one-line
-> ThreadBear footer such as `🧵🐻 complete`. This lets ThreadBear use lightweight
-> checks, with a careful second look when a task is unclear.
+> **Status guidance on.** In every newly started Codex task session, agent
+> replies get a one-line ThreadBear footer such as `🧵🐻 complete`. Tasks
+> already open keep their current reply guidance. This lets ThreadBear use
+> lightweight checks, with a careful second look when a task is unclear.
 >
 > It won’t ask for administrator access or Full Disk Access, overwrite names you
 > chose, or move into a different task. Nothing has been installed and no
@@ -448,9 +492,10 @@ editing the first-install example sentence by sentence:
 >
 > Completed tasks stay visible, and quiet-day timing is inactive.
 >
-> **Status guidance on.** Agent replies across every Codex task get a one-line
-> ThreadBear footer such as `🧵🐻 complete`. This lets ThreadBear use lightweight
-> checks, with a careful second look when a task is unclear.
+> **Status guidance on.** In every newly started Codex task session, agent
+> replies get a one-line ThreadBear footer such as `🧵🐻 complete`. Tasks
+> already open keep their current reply guidance. This lets ThreadBear use
+> lightweight checks, with a careful second look when a task is unclear.
 >
 > Its existing home, title, and pin will stay exactly as they are. If that home
 > is another task, this task won’t become the new home and won’t be renamed or
@@ -470,12 +515,13 @@ disabled, say “Completed tasks stay visible, and quiet-day timing is inactive.
 Never put an archive claim in the general “It won’t…” list.
 
 Use the immutable selected status-guidance variant in the review. In
-particular, the disabled review must say: “**Status guidance off.** Agent
-replies stay unchanged. When ThreadBear needs to understand a task, it takes a
-careful full look instead.” If the existing home will be unarchived, say
-plainly that it will return to the active task list. For an unreadable
-replacement or repair, use the first-install review and say this task will
-become the new home.
+particular, the disabled review must say: “**Status guidance off.** In every
+newly started Codex task session, agent replies stay unchanged. Tasks already
+open keep their current reply guidance. When ThreadBear needs to understand a
+task, it takes a careful full look instead.” If the existing home will be
+unarchived, say plainly that it will return to the active task list. For an
+unreadable replacement or repair, use the first-install review and say this
+task will become the new home.
 
 Internal disposition translation:
 
@@ -583,31 +629,27 @@ result into this shape rather than reciting fields:
 
 > ThreadBear is installed
 >
-> Everything passed. ThreadBear VERSION is installed, its quiet background
-> check is healthy, and this task is now its home. In the first tidy-up,
-> ThreadBear updated X task titles and archived Y completed tasks. Nothing needs
-> another try.
+> Everything passed: ThreadBear VERSION is installed, its quiet background
+> check is healthy, and this task is now its home; in the first tidy-up,
+> ThreadBear updated X task titles, archived Y completed tasks, and nothing
+> needs another try.
 >
 > Your choices are saved in the welcome note above. From here, you can just talk
-> to me: “stop archiving,” “hide token counts,” “pause,” “how are you?” or
-> “uninstall ThreadBear.”
->
-> 🧵🐻 complete
+> to me: “stop archiving,” “put token counts at the end,” “pause,” “how are
+> you?” or “uninstall ThreadBear.”
 
 For a retained home, whether this task or another task, close with a dedicated
 refresh version because no new welcome note was posted:
 
 > ThreadBear is refreshed
 >
-> Everything passed. ThreadBear VERSION is refreshed, its quiet background
+> Everything passed. ThreadBear VERSION is refreshed, and its quiet background
 > check is healthy. ThreadBear remains based in this task. Title maintenance
 > stayed off, completed tasks stayed visible, and nothing needs another try.
 >
 > Your current settings remain in effect. From here, you can just talk to me:
-> “stop archiving,” “hide token counts,” “pause,” “how are you?” or “uninstall
-> ThreadBear.”
->
-> 🧵🐻 complete
+> “archive completed tasks after two weeks,” “turn title updates on and show
+> token counts at the start,” “pause,” “how are you?” or “uninstall ThreadBear.”
 
 The example above shows `retained`. For `retained`, keep exactly the one sentence
 “ThreadBear remains based in this task.” For `stayed_home`, replace that entire
@@ -636,6 +678,29 @@ tasks were ready for the archive.” is legal only when the frozen review has
 archive count, or any task being archived. Never combine the enabled zero-count
 sentence with the disabled close.
 
+Choose closeout action examples from the actual installed preferences. Every
+preference-specific example must change the current state:
+
+- when archiving is enabled, offer “stop archiving”; when disabled, offer
+  “archive completed tasks after two weeks”;
+- when title maintenance is disabled and token figures are inactive, offer
+  “turn title updates on and show token counts at the start”;
+- when title maintenance is enabled and token figures are at the start, offer
+  “put token counts at the end”; when they are at the end, offer “hide token
+  counts”; when they are hidden, offer “put token counts at the start”;
+- when status guidance is enabled, offer “stop adding status hints to agent
+  replies”; when disabled, offer “add one-line status hints to agent replies.”
+  Explain that this guidance choice applies to newly started task sessions and
+  never promise an already-running session will change immediately;
+- “pause,” “how are you?”, and “uninstall ThreadBear” are always-safe examples.
+
+Never suggest an action that is already true, inactive because of another
+setting, or otherwise a no-op or contradiction.
+
+Keep closeout results flowing: combine version and health in one crafted
+sentence, use exactly one home sentence, and combine tidy-up outcomes in one
+cohesive sentence. Do not emit a sequence of clipped status fragments.
+
 The final response follows the selected status-guidance setting. When enabled,
 append one compact ThreadBear footer such as `🧵🐻 complete`; when disabled,
 omit the footer entirely. If this task already loaded a higher-priority earlier
@@ -643,6 +708,10 @@ footer rule that conflicts with the new choice, obey that rule and disclose:
 “This task started with earlier reply guidance, so its footer may not change
 here. Your choice will apply in new task sessions.” Do not promise that the
 current reply will override guidance already loaded for this task.
+
+The quoted completion templates intentionally omit the footer. Append it only
+after choosing the enabled branch above; never bake it into reusable completion
+copy that may be used when status guidance is disabled.
 
 Never expose the raw disposition name. If anything failed, say what the person
 experiences, what you are checking next, and whether installation changed

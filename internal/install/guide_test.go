@@ -18,7 +18,7 @@ func TestCodexInstallGuideCarriesConversationContract(t *testing.T) {
 		"At the start (recommended)",
 		"At the end",
 		"Hidden",
-		"Agent replies across every Codex task",
+		"every newly started Codex task session",
 		"one-line ThreadBear footer",
 		"Show exactly one settings card",
 		"final-review and confirmed argument-construction stanzas\nmust be byte-for-byte identical",
@@ -49,8 +49,8 @@ func TestCodexInstallGuideHasEnforceableWelcomeOrientation(t *testing.T) {
 		"I’ll take care of the setup right here.",
 		"ThreadBear won’t be installed and no\n> settings will change until you say go",
 		"Finish that same opening assistant turn with these two promises",
-		"The next user-facing turn should open with the readiness result and contain the\none appropriate settings card",
-		"Do not fragment the welcome, permission\nheads-up, compatibility preface, or official-download promise",
+		"the readiness result and one appropriate settings\ncard MUST begin a new assistant message",
+		"It is forbidden to put a readiness\nresult or settings card in the same assistant message as the opening\ncompatibility promise",
 	} {
 		if !strings.Contains(guide, want) {
 			t.Fatalf("INSTALL.md welcome is missing orientation promise %q", want)
@@ -148,8 +148,8 @@ func TestCodexInstallGuideShowsOneModeSpecificSettingsCard(t *testing.T) {
 func TestCodexInstallGuideDisclosesStatusGuidanceBeforeConsent(t *testing.T) {
 	guide := readInstallGuide(t)
 	normalized := normalizeGuideText(guide)
-	enabled := "**Status guidance on.** Agent replies across every Codex task get a one-line ThreadBear footer such as `🧵🐻 complete`. This lets ThreadBear use lightweight checks, with a careful second look when a task is unclear."
-	disabled := "**Status guidance off.** Agent replies stay unchanged. When ThreadBear needs to understand a task, it takes a careful full look instead."
+	enabled := "**Status guidance on.** In every newly started Codex task session, agent replies get a one-line ThreadBear footer such as `🧵🐻 complete`. Tasks already open keep their current reply guidance. This lets ThreadBear use lightweight checks, with a careful second look when a task is unclear."
+	disabled := "**Status guidance off.** In every newly started Codex task session, agent replies stay unchanged. Tasks already open keep their current reply guidance. When ThreadBear needs to understand a task, it takes a careful full look instead."
 	if got := strings.Count(normalized, enabled); got < 5 {
 		t.Fatalf("INSTALL.md contains enabled immutable status copy %d times, want definition, both cards, and both reviews", got)
 	}
@@ -176,11 +176,46 @@ func TestCodexInstallGuideDisclosesStatusGuidanceBeforeConsent(t *testing.T) {
 		"its language is\nimmutable",
 		"Use the selected variant below verbatim in the settings card, the\nshort choice echo when one is required below, and the final review",
 		"Do not\nparaphrase, shorten, split, or omit any sentence",
-		"When the person changes or explicitly discusses status guidance, echo the\nselected immutable variant once",
-		"If they simply accept the\nrecommendation, do not repeat the paragraph in an extra echo",
+		"Only when the person changes status guidance, send a short choice echo",
+		"Start with one warm consumer sentence acknowledging all\nrequested changes",
+		"The changed-status echo must never be a bare compliance paragraph",
+		"A question or explanation request alone does not trigger this echo",
+		"then accepts the recommendation, do\nnot add an extra echo",
 	} {
-		if !strings.Contains(guide, want) {
+		if !strings.Contains(normalized, normalizeGuideText(want)) {
 			t.Fatalf("INSTALL.md missing immutable status-guidance contract %q", want)
+		}
+	}
+	for _, want := range []string{
+		"Never claim or imply that status guidance, its footer, or lightweight\nclassification uses zero or no model tokens",
+		"That property belongs only to an\nunchanged heartbeat",
+		"In every newly started Codex task session, the footer is one compact line at the end of agent replies—for example, `🧵🐻 complete`. Tasks already open keep their current reply guidance. The footer lets ThreadBear use lightweight checks most of the time; when a task is unclear, ThreadBear takes a careful second look.",
+	} {
+		if !strings.Contains(normalized, normalizeGuideText(want)) {
+			t.Fatalf("INSTALL.md missing truthful status explanation %q", want)
+		}
+	}
+	explanationStart := strings.Index(guide, "> In every newly started Codex task session")
+	explanationEnd := strings.Index(guide, "For a first install, present the recommended setup:")
+	if explanationStart == -1 || explanationEnd <= explanationStart {
+		t.Fatal("INSTALL.md missing friendly status explanation block")
+	}
+	if strings.Contains(normalizeGuideText(guide[explanationStart:explanationEnd]), "model token") {
+		t.Fatal("friendly status explanation falsely associates the footer with model-token usage")
+	}
+	lines := strings.Split(guide, "\n")
+	for index, line := range lines {
+		if !strings.Contains(line, "uses no model tokens") {
+			continue
+		}
+		contextStart := index
+		if contextStart > 0 {
+			contextStart--
+		}
+		context := normalizeGuideText(strings.Join(lines[contextStart:index+1], "\n"))
+		if !strings.Contains(context, "Unchanged heartbeats") &&
+			!strings.Contains(context, "when nothing changed") {
+			t.Fatalf("zero-token claim is associated with something other than an unchanged heartbeat: %q", context)
 		}
 	}
 }
@@ -220,12 +255,33 @@ func TestCodexInstallGuideRendersArchiveStateConditionally(t *testing.T) {
 	}
 }
 
+func TestCodexInstallGuideAcknowledgesChangedChoicesWarmly(t *testing.T) {
+	guide := readInstallGuide(t)
+	normalized := normalizeGuideText(guide)
+	echo := "Updated — completed tasks will stay visible, output-token figures will be hidden, and agent replies will stay unchanged. **Status guidance off.** In every newly started Codex task session, agent replies stay unchanged. Tasks already open keep their current reply guidance. When ThreadBear needs to understand a task, it takes a careful full look instead."
+	if !strings.Contains(normalized, echo) {
+		t.Fatal("changed-status echo does not pair an all-change warm lead-in with the immutable off tradeoff")
+	}
+	for _, want := range []string{
+		"When any choice changed, open the revised-review message with one short, consumer-facing delta sentence naming those changed outcomes",
+		"Review updated — completed tasks will stay visible, output-token figures will be hidden, and agent replies will stay unchanged.",
+		"Then immediately show the full authoritative review below.",
+		"Do not expose raw flags",
+		"This revised-review delta is required even when an earlier changed-status echo already acknowledged the choices.",
+	} {
+		if !strings.Contains(normalized, want) {
+			t.Fatalf("INSTALL.md missing revised-review change delta %q", want)
+		}
+	}
+}
+
 func TestCodexInstallGuideKeepsCloseSpare(t *testing.T) {
 	guide := readInstallGuide(t)
 	for _, want := range []string{
 		"A flourish is a decorative emoji, mascot aside, or\n  bear/thread pun or metaphor",
 		"required functional status footer is not decorative",
-		"Keep completion\n  messages spare",
+		"Literal product-output\n  examples such as a title sample or footer sample are functional artifacts",
+		"Keep completion messages spare",
 	} {
 		if !strings.Contains(guide, want) {
 			t.Fatalf("INSTALL.md missing flourish contract %q", want)
@@ -245,9 +301,12 @@ func TestCodexInstallGuideKeepsCloseSpare(t *testing.T) {
 		"first install": guide[firstStart:refreshStart],
 		"refresh":       guide[refreshStart:refreshEnd],
 	} {
-		if got := strings.Count(close, "🧵🐻"); got != 1 {
-			t.Fatalf("%s close has %d status marks, want one functional footer", name, got)
+		if got := strings.Count(close, "🧵🐻"); got != 0 {
+			t.Fatalf("%s reusable close has %d baked-in status marks, want none", name, got)
 		}
+	}
+	if !strings.Contains(guide, "The quoted completion templates intentionally omit the footer.") {
+		t.Fatal("INSTALL.md does not keep the conditional footer outside reusable completion copy")
 	}
 }
 
@@ -418,8 +477,7 @@ func TestCodexInstallGuideRendersCompletionFromEnabledFeatures(t *testing.T) {
 	}
 	first := guide[firstStart:refreshStart]
 	for _, want := range []string{
-		"ThreadBear updated X task titles and archived Y completed tasks",
-		"Nothing needs another try.",
+		"ThreadBear updated X task titles, archived Y completed tasks, and nothing needs another try.",
 	} {
 		if !strings.Contains(normalizeGuideText(first), want) {
 			t.Fatalf("first-install completion missing %q", want)
@@ -472,6 +530,73 @@ func TestCodexInstallGuideRendersCompletionFromEnabledFeatures(t *testing.T) {
 	} {
 		if !strings.Contains(normalizeGuideText(guide), want) {
 			t.Fatalf("INSTALL.md missing archive forbidden-pair rule %q", want)
+		}
+	}
+}
+
+func TestCodexInstallGuideAdaptsCloseActionsToInstalledPreferences(t *testing.T) {
+	guide := readInstallGuide(t)
+	firstStart := strings.Index(guide, "For a first adoption, unreadable replacement, or exact repair")
+	refreshStart := strings.Index(guide, "For a retained home, whether this task or another task")
+	refreshEnd := strings.Index(guide, "The example above shows `retained`.")
+	if firstStart == -1 || refreshStart <= firstStart || refreshEnd <= refreshStart {
+		t.Fatal("INSTALL.md missing adaptive close examples")
+	}
+	first := normalizeGuideText(guide[firstStart:refreshStart])
+	refresh := normalizeGuideText(guide[refreshStart:refreshEnd])
+	for _, want := range []string{"“stop archiving,”", "“put token counts at the end,”"} {
+		if !strings.Contains(first, want) {
+			t.Fatalf("default-enabled close missing state-changing action %q", want)
+		}
+	}
+	for _, want := range []string{
+		"“archive completed tasks after two weeks,”",
+		"“turn title updates on and show token counts at the start,”",
+	} {
+		if !strings.Contains(refresh, want) {
+			t.Fatalf("disabled-preference close missing state-changing action %q", want)
+		}
+	}
+	for _, forbidden := range []string{"“stop archiving,”", "“hide token counts,”"} {
+		if strings.Contains(refresh, forbidden) {
+			t.Fatalf("disabled-preference close suggests no-op action %q", forbidden)
+		}
+	}
+
+	rulesStart := strings.Index(guide, "Choose closeout action examples from the actual installed preferences.")
+	rulesEnd := strings.Index(guide, "Keep closeout results flowing:")
+	if rulesStart == -1 || rulesEnd <= rulesStart {
+		t.Fatal("INSTALL.md missing adaptive close-action rules")
+	}
+	rules := normalizeGuideText(guide[rulesStart:rulesEnd])
+	for _, want := range []string{
+		"when archiving is enabled, offer “stop archiving”; when disabled, offer “archive completed tasks after two weeks”",
+		"when title maintenance is disabled and token figures are inactive, offer “turn title updates on and show token counts at the start”",
+		"when title maintenance is enabled and token figures are at the start, offer “put token counts at the end”; when they are at the end, offer “hide token counts”; when they are hidden, offer “put token counts at the start”",
+		"when status guidance is enabled, offer “stop adding status hints to agent replies”; when disabled, offer “add one-line status hints to agent replies.”",
+		"this guidance choice applies to newly started task sessions",
+		"never promise an already-running session will change immediately",
+		"“pause,” “how are you?”, and “uninstall ThreadBear” are always-safe examples.",
+		"Never suggest an action that is already true, inactive because of another setting, or otherwise a no-op or contradiction.",
+	} {
+		if !strings.Contains(rules, want) {
+			t.Fatalf("INSTALL.md missing adaptive close rule %q", want)
+		}
+	}
+	if !strings.Contains(refresh, "Everything passed. ThreadBear VERSION is refreshed, and its quiet background check is healthy.") {
+		t.Fatal("refresh close does not use the required version-and-health sentence")
+	}
+	if strings.Contains(refresh, "ThreadBear VERSION is refreshed, its quiet background check") {
+		t.Fatal("refresh close retains the comma splice")
+	}
+	for _, want := range []string{
+		"combine version and health in one crafted sentence",
+		"use exactly one home sentence",
+		"combine tidy-up outcomes in one cohesive sentence",
+		"Do not emit a sequence of clipped status fragments.",
+	} {
+		if !strings.Contains(normalizeGuideText(guide), want) {
+			t.Fatalf("INSTALL.md missing flowing close rule %q", want)
 		}
 	}
 }
