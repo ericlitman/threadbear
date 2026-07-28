@@ -1,9 +1,12 @@
 name: Release smoke
 
 on:
-  release:
-    types:
-      - published
+  workflow_call:
+    inputs:
+      tag:
+        description: Published stable-shaped release tag (vN.N.N)
+        required: true
+        type: string
   workflow_dispatch:
     inputs:
       tag:
@@ -15,7 +18,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: release-smoke-${{ github.event.release.tag_name || inputs.tag }}
+  group: release-smoke-${{ inputs.tag }}
   cancel-in-progress: false
 
 jobs:
@@ -25,7 +28,7 @@ jobs:
       - name: Resolve published tag
         id: release
         env:
-          RELEASE_TAG: ${{ github.event.release.tag_name || inputs.tag }}
+          RELEASE_TAG: ${{ inputs.tag }}
         run: |
           if ! printf '%s\n' "$RELEASE_TAG" | awk '/^v[0-9]+\.[0-9]+\.[0-9]+$/ { ok=1 } END { exit(ok ? 0 : 1) }'; then
             echo "release smoke requires an already-published stable-shaped vN.N.N tag" >&2
