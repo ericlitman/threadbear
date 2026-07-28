@@ -110,11 +110,12 @@ ThreadBear.” Do not report command paths, architecture names, release
 reachability, or version numbers unless they explain a failure.
 
 When installed status is available, record every value under `preferences` as
-the reinstall baseline. Present that current setup in the same benefit-led
-format as the recommendation below. Omit unchanged preference flags during a
-reinstall so the installer preserves the current values; add only preferences
-the person asks to change. Never silently reset a reinstall to fresh-install
-defaults.
+helpful context and present that current setup in the same benefit-led format
+as the recommendation below. The installer dry-run remains the authoritative
+baseline. If installed status is unavailable, do not guess fresh-install
+defaults. Run the partial dry-run described below, translate the complete
+resulting settings for the person, and preserve them unless the person asks for
+a change.
 
 ThreadBear v1 is not Developer ID signed or notarized. The supported bootstrap
 verifies the published checksum, candidate health, and embedded version before
@@ -161,9 +162,11 @@ Present the recommended setup as a short card:
 >   you choose yourself are left alone.
 > - **Conversation size at the start.** ThreadBear titles show output tokens in a
 >   compact form such as `🚨 1.6m Fix checkout`.
-> - **Reliable status answers.** Most tasks tell ThreadBear whether they are
->   running, blocked, waiting, or finished. If one cannot, ThreadBear takes a
->   careful second look instead of guessing.
+> - **Reliable status answers.** To help ThreadBear understand what needs you,
+>   enabling this adds one compact ThreadBear status line to agent replies
+>   across your Codex tasks, such as `🧵🐻 complete`. Most checks can then stay
+>   quick and lightweight; if a task is unclear, ThreadBear takes a careful
+>   second look instead of guessing.
 >
 > Would you like the recommended setup, change a choice, or have me explain any
 > of them?
@@ -176,15 +179,15 @@ visible result:
 3. **Hidden:** `🚨 Fix checkout`
 
 If a structured choice control is available, use the exact labels “At the
-start,” “At the end,” and “Don’t show it.” Never use “Choose another display
+start,” “At the end,” and “Hidden.” Never use “Choose another display
 preference.”
 
-For a first install, if the person accepts the recommendation, use the
-fast-path flags below. For a reinstall, describe the card as “the setup
-ThreadBear is using now,” omit unchanged preferences from the flag list, and
-add only requested changes. If they want changes, ask only about those
-settings. Do not interview them about the classifier model, effort, or context
-limit unless they ask to customize the advanced fallback.
+For a first install, accepting the recommendation means leaving its default
+preferences unspecified. For a reinstall, describe the card as “the setup
+ThreadBear is using now.” In both cases, add a preference flag only when the
+person explicitly asks to change that preference. If they want changes, ask
+only about those settings. Do not interview them about the classifier model,
+effort, or context limit unless they ask to customize the advanced fallback.
 
 Backstage preference map:
 
@@ -224,24 +227,20 @@ failed candidate self-test stops before replacing a working binary. The
 candidate is temporary; ThreadBear does not retain version directories or
 rollback copies. Do not narrate this list unless verification fails.
 
-Construct one flag list and keep it unchanged for the confirmed run. Defaults
-fast path for a first install:
+Construct one flag list and keep it unchanged for the confirmed run. For both a
+first install and a reinstall, begin with only the task ID:
 
 ```sh
 CONTROL_TASK_ID='paste-id-here'
-INSTALL_FLAGS="--control-task-id $CONTROL_TASK_ID --heartbeat-seconds 300 --auto-update=true --archive=true --archive-after-days 14 --rename=true --token-display=start --agents=true --classifier-model gpt-5.6-luna --classifier-effort medium --classifier-context-budget-bytes 250000"
+INSTALL_FLAGS="--control-task-id $CONTROL_TASK_ID"
 curl -fsSL https://threadbear.sh/install.sh | sh -s -- --dry-run $INSTALL_FLAGS
 ```
 
-For a reinstall with no preference changes, use only the task ID:
-
-```sh
-INSTALL_FLAGS="--control-task-id $CONTROL_TASK_ID"
-```
-
-Append only flags for changes the person requested, then use that same partial
-list for the review and confirmed run. Unspecified preferences retain their
-installed values.
+Append only flags for preference changes the person explicitly requested, then
+use that same partial list for the review and confirmed run. On a first install,
+unspecified preferences take ThreadBear’s defaults. On a reinstall, unspecified
+preferences preserve the installed values. Accepting the recommendation does
+not mean spelling out every default as flags.
 
 For an exact release, append `--version N.N.N` to both preview and confirmed commands.
 
@@ -254,14 +253,16 @@ output is useful.
 Read the full preview yourself. Do not paste its raw fields into the
 conversation. Translate every effect into a complete, scannable review in this
 shape, adapting the details to the selected settings and install/reinstall
-result:
+result. The dry-run result, rather than an earlier status call or an assumption,
+is the authoritative source for every setting shown to the person:
 
 > Everything is ready for your review.
 >
 > ThreadBear will live on this Mac, use this task as its home, check in every
 > five minutes, keep itself safely updated, wait 14 quiet days before archiving
 > completed work, maintain helpful titles, show conversation size at the start,
-> and use each task’s own status whenever it can.
+> and add one compact ThreadBear status line to agent replies across your Codex
+> tasks so each task can share whether it needs you.
 >
 > It won’t ask for administrator access or Full Disk Access, archive unfinished
 > tasks, overwrite names you chose, or move into a different task. Nothing has
@@ -277,7 +278,8 @@ editing the first-install example sentence by sentence:
 > ThreadBear already has a home. This refresh will update ThreadBear itself
 > while keeping your current setup: a ten-minute check-in, verified automatic
 > updates, completed tasks left visible, helpful titles, output tokens at the
-> end, and lightweight status answers.
+> end, and one compact ThreadBear status line added to agent replies across your
+> Codex tasks for lightweight status answers.
 >
 > Its existing home, title, and pin will stay exactly as they are. If that home
 > is another task, this task won’t become the new home and won’t be renamed or
@@ -286,9 +288,12 @@ editing the first-install example sentence by sentence:
 > Ready for me to refresh ThreadBear with these choices?
 
 The settings sentence is an example; replace every value with the actual
-installed setting. If the existing home will be unarchived, say plainly that it
-will return to the active task list. For an unreadable replacement or repair,
-use the first-install review and say this task will become the new home.
+setting reported by the dry-run. When status guidance is disabled, say instead
+that agent replies stay unchanged and ThreadBear will take a careful look when
+it needs to understand a task. If the existing home will be unarchived, say
+plainly that it will return to the active task list. For an unreadable
+replacement or repair, use the first-install review and say this task will
+become the new home.
 
 Internal disposition translation:
 
@@ -393,6 +398,22 @@ installation changed anything; put raw diagnostics after the plain explanation
 only when they help. Never direct the person elsewhere to complete, verify, or
 troubleshoot the installation.
 
+For a failure after installation has started, use this warm, concrete shape and
+adapt every factual sentence to the evidence:
+
+> ThreadBear hit a snag while starting its quiet background check.
+>
+> The install itself finished and your settings are in place; the health check
+> is the only part that has not passed yet.
+>
+> I’m checking why the background check did not start now. You don’t need to
+> restart the installation or repeat anything—I’ll stay with it here and tell
+> you what I find.
+
+For a failure before mutation, replace the second paragraph with “Nothing was
+installed and your settings did not change.” Never claim that nothing changed
+after mutation began without confirming it from the installer result.
+
 Expected managed resources are:
 
 - `~/.local/bin/threadbear`, mode `0700`;
@@ -471,25 +492,16 @@ Never disable Gatekeeper globally.
 - `2`: invalid arguments or required control task ID missing; no install mutation;
 - `1`: platform, network, checksum, App Server, candidate, confirmation, or lifecycle failure.
 
-Full noninteractive defaults:
+Safe noninteractive invocation with no preference changes:
 
 ```sh
 ~/.local/bin/threadbear install \
   --control-task-id TASK_ID \
-  --noninteractive --confirm \
-  --heartbeat-seconds 300 \
-  --auto-update=true \
-  --archive=true \
-  --archive-after-days 14 \
-  --rename=true \
-  --token-display=start \
-  --agents=true \
-  --classifier-model gpt-5.6-luna \
-  --classifier-effort medium \
-  --classifier-context-budget-bytes 250000
+  --noninteractive --confirm
 ```
 
-Dry-run uses the identical flags with `--dry-run` and without `--confirm`.
+Append only preference flags the person explicitly changes. Dry-run uses the
+identical partial preference flags with `--dry-run` and without `--confirm`.
 
 ## Uninstall
 

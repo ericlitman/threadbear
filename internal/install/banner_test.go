@@ -86,12 +86,29 @@ func TestWelcomeNoticeHumanizesCustomSettings(t *testing.T) {
 		"choose when to install available updates",
 		"keep completed tasks visible until you archive them",
 		"leave every task title entirely to you",
-		"show output tokens at the end, like 🚨 Fix checkout · out 1.6m",
+		"keep output-token figures out of task titles while title updates are off",
 		"leave agent replies unchanged",
 		"custom: gpt-custom with high reasoning, up to 9 KB of context",
 	} {
 		if !strings.Contains(notice, want) {
 			t.Fatalf("welcome notice missing %q\n%s", want, notice)
 		}
+	}
+	if strings.Contains(notice, "show output tokens at the end") {
+		t.Fatalf("welcome notice promises token placement while title updates are off\n%s", notice)
+	}
+}
+
+func TestWelcomeNoticeShowsConfiguredTokenPositionWhenTitleUpdatesAreEnabled(t *testing.T) {
+	preferences := DefaultPreferences()
+	preferences.RenameEnabled = true
+	preferences.TokenDisplay = "end"
+
+	notice := welcomeNotice("1.2.3", preferences)
+	if want := "show output tokens at the end, like 🚨 Fix checkout · out 1.6m"; !strings.Contains(notice, want) {
+		t.Fatalf("welcome notice missing %q\n%s", want, notice)
+	}
+	if strings.Contains(notice, "while title updates are off") {
+		t.Fatalf("welcome notice says title updates are off when they are enabled\n%s", notice)
 	}
 }

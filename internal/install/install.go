@@ -623,6 +623,10 @@ func welcomeNotice(version string, preferences Preferences) string {
 	if preferences.RenameEnabled {
 		rename = "keep status and next actions easy to spot in task titles"
 	}
+	tokenDisplay := "keep output-token figures out of task titles while title updates are off"
+	if preferences.RenameEnabled {
+		tokenDisplay = friendlyTokenDisplay(preferences.TokenDisplay)
+	}
 	autoUpdate := "let you choose when to install available updates"
 	if preferences.AutoUpdateEnabled {
 		autoUpdate = "install verified updates automatically"
@@ -664,7 +668,7 @@ I will mind the threads. You go make the next thing.`,
 		autoUpdate,
 		archive,
 		rename,
-		friendlyTokenDisplay(preferences.TokenDisplay),
+		tokenDisplay,
 		statusHints,
 		classifier,
 	)
