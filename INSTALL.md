@@ -82,12 +82,17 @@ compatibility and task-identity checks without waiting for another reply:
 > anything or change your settings. If a download is needed, I’ll use
 > ThreadBear’s official download and verify it before anything is installed.
 
-After those tools return, send exactly one new post-check assistant message.
-Begin it with the readiness result, then continue in that same assistant turn
-with the entire one appropriate settings card. The card must be complete before
-that message ends. Do not emit a second assistant message, an empty assistant
-turn, a tool call, or any other boundary between the readiness sentence and the
-card.
+Only when every compatibility requirement and discovery check succeeds, send
+exactly one new post-check assistant message. Begin it with the readiness
+result, then continue in that same assistant turn with the entire one
+appropriate settings card. The card must be complete before that message ends.
+Do not emit a second assistant message, an empty assistant turn, a tool call, or
+any other boundary between the readiness sentence and the card.
+
+Any failed prerequisite overrides that success sequence. Do not say this Mac
+and Codex are ready, and do not show a settings card, when HTTPS reachability,
+download verification, task discovery, or another required check has failed.
+Use the appropriate failure shape in section 7 instead.
 
 The opening compatibility promise must remain in the earlier assistant message;
 it is forbidden to put the readiness result or settings card in that opening
@@ -131,13 +136,14 @@ Requirements:
 - HTTPS access to `https://threadbear.sh` and GitHub Releases;
 - no `sudo` and no non-macOS install attempt.
 
-On success, say what matters in one sentence: “This Mac and Codex are ready for
-ThreadBear.” Do not report command paths, architecture names, release
-reachability, or version numbers unless they explain a failure. Do not send
-that readiness sentence as soon as compatibility succeeds. Hold it until the
-task-identity and discovery checks are also finished and the complete
-mode-appropriate settings card is ready to follow it in the same assistant
-message.
+On complete success, say what matters in one sentence: “This Mac and Codex are
+ready for ThreadBear.” Here, success includes both HTTPS checks; a Mac whose
+official download cannot be reached or verified is not ready. Do not report
+command paths, architecture names, release reachability, or version numbers
+unless they explain a failure. Do not send that readiness sentence as soon as
+only the local compatibility checks succeed. Hold it until the task-identity
+and discovery checks are also finished and the complete mode-appropriate
+settings card is ready to follow it in the same assistant message.
 
 When installed status is available, record every value under `preferences` as
 helpful context for the preference branch below. Do not present settings during
@@ -593,12 +599,14 @@ reconsider.
 
 ## 6. Install with one calm progress update
 
-After first-install approval, say: “Lovely. I’m installing ThreadBear now, then
-I’ll run its health checks and report back here.” For a reinstall, say
-“refreshing ThreadBear” instead. That opening progress message is the only
-conversation message until every verification step in section 7 finishes. Do
-not send an interim message saying ThreadBear is installed, complete, or
-successful.
+After first-install approval, say exactly: “Lovely. I’m installing ThreadBear
+now, then I’ll run its health checks and report back here.” For a reinstall,
+replace only “installing” with “refreshing.” Do not paraphrase this message or
+add claims about checks passing, installation stages, task-home setup, or the
+first tidy-up. That opening progress message is the only conversation message
+until every verification step in section 7 finishes. Do not send an interim
+message saying ThreadBear is installed, complete, successful, or that any setup
+check has passed.
 
 In the same shell call as the confirmed curl, reconstruct the exact approved
 assignment-and-argument stanza; never rely on variables or positional arguments
@@ -670,9 +678,12 @@ work, treat those counts as zero. After the heartbeat, rerun `status --json` and
 inspect `pending_retries`.
 
 For a first adoption, unreadable replacement, or exact repair, choose exactly
-one of the following complete variants from the frozen archive setting. Do not
-adapt the archive-enabled variant when `archive=false`; use the full
-archive-disabled variant instead.
+one of the following complete variants from the frozen archive setting. Every
+successful close must include all three paragraphs: version and health with the
+home outcome, the feature-aware tidy-up result, and the welcome-note pointer
+with the conversational controls. Asking a question earlier in the
+installation does not permit a shorter close. Do not adapt the archive-enabled
+variant when `archive=false`; use the full archive-disabled variant instead.
 
 When `archive=true`, use:
 
@@ -771,6 +782,9 @@ template uses exactly two preference-specific examples followed by “pause,”
 Keep closeout results flowing: combine version and health in one crafted
 sentence, use exactly one home sentence, and combine tidy-up outcomes in one
 cohesive sentence. Do not emit a sequence of clipped status fragments.
+Never expose the word “retries” in the successful close; translate a zero
+result to “nothing needs another try,” and explain any nonzero result in plain
+language.
 
 The final response follows the reply guidance already loaded in this current
 task, not the status-guidance setting just saved for newly started sessions. In

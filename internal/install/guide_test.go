@@ -49,10 +49,13 @@ func TestCodexInstallGuideHasEnforceableWelcomeOrientation(t *testing.T) {
 		"I’ll take care of the setup right here.",
 		"ThreadBear won’t be installed and no\n> settings will change until you say go",
 		"Finish that same opening assistant turn with these two promises",
-		"send exactly one new post-check assistant message",
-		"Begin it with the readiness result, then continue in that same assistant turn\nwith the entire one appropriate settings card",
-		"The card must be complete before\nthat message ends",
-		"Do not emit a second assistant message, an empty assistant\nturn, a tool call, or any other boundary between the readiness sentence and the\ncard",
+		"Only when every compatibility requirement and discovery check succeeds",
+		"send\nexactly one new post-check assistant message",
+		"Begin it with the readiness\nresult, then continue in that same assistant turn with the entire one\nappropriate settings card",
+		"The card must be complete before that message ends",
+		"Do not emit a second assistant message, an empty assistant turn, a tool call, or\nany other boundary between the readiness sentence and the card",
+		"Any failed prerequisite overrides that success sequence",
+		"do not show a settings card, when HTTPS reachability",
 		"The opening compatibility promise must remain in the earlier assistant message",
 		"it is forbidden to put the readiness result or settings card in that opening\nmessage",
 	} {
@@ -66,11 +69,13 @@ func TestCodexInstallGuideKeepsReadinessAndCardInOneTurn(t *testing.T) {
 	guide := readInstallGuide(t)
 	normalized := normalizeGuideText(guide)
 	for _, want := range []string{
-		"After those tools return, send exactly one new post-check assistant message.",
+		"Only when every compatibility requirement and discovery check succeeds, send exactly one new post-check assistant message.",
 		"Begin it with the readiness result, then continue in that same assistant turn with the entire one appropriate settings card.",
 		"The card must be complete before that message ends.",
 		"Do not emit a second assistant message, an empty assistant turn, a tool call, or any other boundary between the readiness sentence and the card.",
-		"Do not send that readiness sentence as soon as compatibility succeeds.",
+		"Any failed prerequisite overrides that success sequence.",
+		"Do not say this Mac and Codex are ready, and do not show a settings card, when HTTPS reachability, download verification, task discovery, or another required check has failed.",
+		"Do not send that readiness sentence as soon as only the local compatibility checks succeed.",
 		"Hold it until the task-identity and discovery checks are also finished and the complete mode-appropriate settings card is ready to follow it in the same assistant message.",
 	} {
 		if !strings.Contains(normalized, want) {
@@ -635,8 +640,10 @@ func TestCodexInstallGuideWaitsForVerificationBeforeAnotherProgressMessage(t *te
 	}
 	section := guide[start:end]
 	for _, want := range []string{
-		"That opening progress message is the only\nconversation message until every verification step in section 7 finishes",
-		"Do\nnot send an interim message saying ThreadBear is installed, complete, or\nsuccessful",
+		"say exactly: “Lovely. I’m installing ThreadBear\nnow, then I’ll run its health checks and report back here.”",
+		"Do not paraphrase this message or\nadd claims about checks passing, installation stages, task-home setup, or the\nfirst tidy-up",
+		"That opening progress message is the only conversation message\nuntil every verification step in section 7 finishes",
+		"Do not send an interim\nmessage saying ThreadBear is installed, complete, successful, or that any setup\ncheck has passed",
 	} {
 		if !strings.Contains(section, want) {
 			t.Fatalf("INSTALL.md missing verification-gated progress rule %q", want)
@@ -655,6 +662,8 @@ func TestCodexInstallGuideRendersCompletionFromEnabledFeatures(t *testing.T) {
 	first := guide[firstStart:refreshStart]
 	for _, want := range []string{
 		"choose exactly one of the following complete variants from the frozen archive setting",
+		"Every successful close must include all three paragraphs",
+		"Asking a question earlier in the installation does not permit a shorter close.",
 		"ThreadBear updated X task titles, archived Y completed tasks, and nothing needs another try.",
 		"Completed tasks stayed visible while ThreadBear updated X task titles in the first tidy-up, and nothing needs another try.",
 		"Do not adapt the archive-enabled variant when `archive=false`; use the full archive-disabled variant instead.",
@@ -716,6 +725,7 @@ func TestCodexInstallGuideRendersCompletionFromEnabledFeatures(t *testing.T) {
 		"When automatic archiving is enabled, report the archived-task count",
 		"When it is disabled, do not report an archive count",
 		"When retries are zero, say “Nothing needs another try.”",
+		"Never expose the word “retries” in the successful close",
 		"no completed tasks were ready for the archive",
 	} {
 		if !strings.Contains(rules, want) {
