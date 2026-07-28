@@ -140,6 +140,9 @@ func TestCodexInstallGuideShowsOneModeSpecificSettingsCard(t *testing.T) {
 	if got := strings.Count(guide, "this refresh will keep it there"); got != 1 {
 		t.Fatalf("INSTALL.md has %d reinstall discovery disclosures, want exactly one", got)
 	}
+	if strings.Contains(normalizeGuideText(guide), "home works if you’d like. Here’s the setup it’s using now.") {
+		t.Fatal("reinstall disclosure repeats the current-settings heading")
+	}
 }
 
 func TestCodexInstallGuideDisclosesStatusGuidanceBeforeConsent(t *testing.T) {
@@ -234,7 +237,7 @@ func TestCodexInstallGuideKeepsCloseSpare(t *testing.T) {
 
 	firstStart := strings.Index(guide, "For a first adoption, unreadable replacement, or exact repair")
 	refreshStart := strings.Index(guide, "For a retained home, whether this task or another task")
-	refreshEnd := strings.Index(guide, "After “its quiet background check is healthy,”")
+	refreshEnd := strings.Index(guide, "The example above shows `retained`.")
 	if firstStart == -1 || refreshStart <= firstStart || refreshEnd <= refreshStart {
 		t.Fatal("INSTALL.md missing completion examples")
 	}
@@ -435,7 +438,12 @@ func TestCodexInstallGuideRendersCompletionFromEnabledFeatures(t *testing.T) {
 			t.Fatalf("refresh completion missing disabled-feature outcome %q", want)
 		}
 	}
-	for _, forbidden := range []string{"refreshed X task titles", "archived Y completed tasks", "left Z items to retry"} {
+	for _, forbidden := range []string{
+		"refreshed X task titles",
+		"archived Y completed tasks",
+		"left Z items to retry",
+		"ready for the archive",
+	} {
 		if strings.Contains(refresh, forbidden) {
 			t.Fatalf("refresh completion reports inactive count %q", forbidden)
 		}
@@ -455,6 +463,15 @@ func TestCodexInstallGuideRendersCompletionFromEnabledFeatures(t *testing.T) {
 	} {
 		if !strings.Contains(rules, want) {
 			t.Fatalf("INSTALL.md missing conditional completion rule %q", want)
+		}
+	}
+	for _, want := range []string{
+		"The sentence “No completed tasks were ready for the archive.” is legal only when the frozen review has `archive=true`.",
+		"When the frozen review has `archive=false`, the close MUST say “Completed tasks stayed visible” and MUST NOT mention archive readiness, an archive count, or any task being archived.",
+		"Never combine the enabled zero-count sentence with the disabled close.",
+	} {
+		if !strings.Contains(normalizeGuideText(guide), want) {
+			t.Fatalf("INSTALL.md missing archive forbidden-pair rule %q", want)
 		}
 	}
 }
@@ -514,6 +531,7 @@ func TestCodexInstallGuideHandlesNotNowWarmly(t *testing.T) {
 	for _, want := range []string{
 		"If the person says “not now” or otherwise declines",
 		"Nothing from this review has been installed or changed",
+		"your\n> Mac and Codex are exactly as they were",
 		"ThreadBear will be here whenever",
 		"Do not run the confirmed command",
 		"or ask them to\nreconsider",
@@ -522,12 +540,15 @@ func TestCodexInstallGuideHandlesNotNowWarmly(t *testing.T) {
 			t.Fatalf("INSTALL.md missing warm decline guidance %q", want)
 		}
 	}
+	if strings.Contains(guide, "your\n> current setup is still exactly as it was") {
+		t.Fatal("first-install decline incorrectly assumes a current ThreadBear setup")
+	}
 }
 
 func TestCodexInstallGuideUsesDistinctRefreshCompletionCopy(t *testing.T) {
 	guide := readInstallGuide(t)
 	refreshStart := strings.Index(guide, "For a retained home, whether this task or another task")
-	refreshEnd := strings.Index(guide, "After “its quiet background check is healthy,”")
+	refreshEnd := strings.Index(guide, "The example above shows `retained`.")
 	if refreshStart == -1 || refreshEnd == -1 || refreshEnd <= refreshStart {
 		t.Fatal("INSTALL.md missing dedicated retained-home completion section")
 	}
@@ -546,8 +567,8 @@ func TestCodexInstallGuideUsesDistinctRefreshCompletionCopy(t *testing.T) {
 		t.Fatal("retained-home completion uses a truth-unsafe home headline")
 	}
 	for _, want := range []string{
-		"for `retained`, say “ThreadBear remains based in this task.”",
-		"For `stayed_home`,\nsay “ThreadBear remains based in its existing home in another task; this task\nwas not renamed or pinned.”",
+		"For `retained`, keep exactly the one sentence\n“ThreadBear remains based in this task.”",
+		"For `stayed_home`, replace that entire\nsentence—do not append to it or to a generic home clause—with exactly\n“ThreadBear remains based in its existing home in another task; this task was\nnot renamed or pinned.”",
 		"Never headline either refresh branch “ThreadBear is\nhome.”",
 	} {
 		if !strings.Contains(guide[refreshEnd:], want) {

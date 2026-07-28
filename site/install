@@ -231,7 +231,7 @@ person’s actual settings:
 
 > ThreadBear already has a home, and this refresh will keep it there. A healthy
 > ThreadBear home can’t be moved by the installer, but I can explain how its
-> home works if you’d like. Here’s the setup it’s using now.
+> home works if you’d like.
 >
 > Here’s the setup ThreadBear is using now:
 >
@@ -494,8 +494,8 @@ If the person says “not now” or otherwise declines, close warmly without
 pressing for a reason:
 
 > Of course. Nothing from this review has been installed or changed, and your
-> current setup is still exactly as it was. ThreadBear will be here whenever
-> you’d like to pick this back up.
+> Mac and Codex are exactly as they were. ThreadBear will be here whenever you’d
+> like to pick this back up.
 
 Do not run the confirmed command, rename or pin a task, or ask them to
 reconsider.
@@ -600,7 +600,7 @@ refresh version because no new welcome note was posted:
 > ThreadBear is refreshed
 >
 > Everything passed. ThreadBear VERSION is refreshed, its quiet background
-> check is healthy, and its existing home is unchanged. Title maintenance
+> check is healthy. ThreadBear remains based in this task. Title maintenance
 > stayed off, completed tasks stayed visible, and nothing needs another try.
 >
 > Your current settings remain in effect. From here, you can just talk to me:
@@ -609,10 +609,11 @@ refresh version because no new welcome note was posted:
 >
 > 🧵🐻 complete
 
-After “its quiet background check is healthy,” make the home sentence exact:
-for `retained`, say “ThreadBear remains based in this task.” For `stayed_home`,
-say “ThreadBear remains based in its existing home in another task; this task
-was not renamed or pinned.” Never headline either refresh branch “ThreadBear is
+The example above shows `retained`. For `retained`, keep exactly the one sentence
+“ThreadBear remains based in this task.” For `stayed_home`, replace that entire
+sentence—do not append to it or to a generic home clause—with exactly
+“ThreadBear remains based in its existing home in another task; this task was
+not renamed or pinned.” Never headline either refresh branch “ThreadBear is
 home.” Adapt the first-install version for a replacement or manual pin.
 
 Render the tidy-up from enabled features rather than printing a dashboard of
@@ -627,6 +628,13 @@ zeros:
 - When retries are zero, say “Nothing needs another try.” Mention a retry count
   only when something genuinely needs another try, and explain that ThreadBear
   will keep working on it.
+
+Archive close sentences are mutually exclusive. The sentence “No completed
+tasks were ready for the archive.” is legal only when the frozen review has
+`archive=true`. When the frozen review has `archive=false`, the close MUST say
+“Completed tasks stayed visible” and MUST NOT mention archive readiness, an
+archive count, or any task being archived. Never combine the enabled zero-count
+sentence with the disabled close.
 
 The final response follows the selected status-guidance setting. When enabled,
 append one compact ThreadBear footer such as `🧵🐻 complete`; when disabled,
