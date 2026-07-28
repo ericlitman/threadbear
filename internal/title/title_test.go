@@ -91,12 +91,48 @@ func TestReconcileDoesNotAccumulateActions(t *testing.T) {
 	}
 }
 
+func TestReconcileRendersSingleStatusEmojiWithoutSubject(t *testing.T) {
+	for _, captured := range []string{"⏳", "🚨", "🙋", "🤖", "➡️", "✅", "❔"} {
+		t.Run(captured, func(t *testing.T) {
+			got, err := Reconcile(
+				state.TaskRecord{CapturedTitle: captured},
+				state.StatusComplete,
+				"",
+				"ignored without a subject",
+				tokens.Display{Position: tokens.PositionStart, Value: "1.6m"},
+			)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got.Title != "✅ 1.6m" || got.DurableSubject != "" || got.ManagedAction != "" {
+				t.Fatalf("Reconcile() = %+v", got)
+			}
+		})
+	}
+
+	end, err := Reconcile(
+		state.TaskRecord{CapturedTitle: "❔"},
+		state.StatusUnknown,
+		"",
+		"",
+		tokens.Display{Position: tokens.PositionEnd, Value: "1.6m"},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if end.Title != "❔ · out 1.6m" || end.ManagedTokenPosition != tokens.PositionEnd {
+		t.Fatalf("end = %+v", end)
+	}
+}
+
 func TestReconcileRejectsInvalidInputs(t *testing.T) {
 	if _, err := Reconcile(state.TaskRecord{CapturedTitle: "Subject"}, state.TaskStatus("future"), "", "", tokens.Display{}); !errors.Is(err, ErrInvalidStatus) {
 		t.Fatalf("invalid status error = %v", err)
 	}
-	if _, err := Reconcile(state.TaskRecord{CapturedTitle: "✅ ❔"}, state.StatusComplete, "", "", tokens.Display{}); !errors.Is(err, ErrEmptySubject) {
-		t.Fatalf("empty subject error = %v", err)
+	for _, captured := range []string{"", "✅ ❔"} {
+		if _, err := Reconcile(state.TaskRecord{CapturedTitle: captured}, state.StatusComplete, "", "", tokens.Display{}); !errors.Is(err, ErrEmptySubject) {
+			t.Fatalf("empty subject for %q error = %v", captured, err)
+		}
 	}
 }
 

@@ -41,17 +41,22 @@ func Reconcile(record state.TaskRecord, nextStatus state.TaskStatus, suggestedSu
 	if subject == "" {
 		subject = stripStatusPrefixes(suggestedSubject)
 	}
-	if subject == "" {
+	statusOnly := subject == "" && isStatusOnly(current)
+	if subject == "" && !statusOnly {
 		return Result{}, ErrEmptySubject
 	}
 	action := strings.TrimSpace(nextAction)
-	title := nextStatus.Emoji() + " "
+	title := nextStatus.Emoji()
 	if display.Position == tokens.PositionStart {
-		title += display.Value + " "
+		title += " " + display.Value
 	}
-	title += subject
-	if action != "" {
-		title += " → " + action
+	if subject != "" {
+		title += " " + subject
+		if action != "" {
+			title += " → " + action
+		}
+	} else {
+		action = ""
 	}
 	if display.Position == tokens.PositionEnd {
 		title += " · out " + display.Value
@@ -98,6 +103,15 @@ func stripOwnedToken(value, managed string, position tokens.Position) string {
 		value = strings.TrimSuffix(value, " · out "+managed)
 	}
 	return strings.TrimSpace(value)
+}
+
+func isStatusOnly(value string) bool {
+	switch strings.TrimSpace(value) {
+	case "⏳", "🚨", "🙋", "🤖", "➡️", "✅", "❔":
+		return true
+	default:
+		return false
+	}
 }
 
 func stripStatusPrefixes(value string) string {
