@@ -47,6 +47,37 @@ Do not use `sudo`. Do not edit README, the website, or the installed skill durin
   infer consent from an unrelated reply, and never claim success until every
   verification step passes.
 
+### Required visible state machine
+
+Apply this sequence before the detailed instructions below. Do not skip,
+reorder, or merge these states; if a later example is more specific, it may
+change the words inside a state but never the order.
+
+1. Send the complete welcome and compatibility preface in one assistant turn.
+2. Run every prerequisite and discovery check backstage. If any required check
+   fails, skip readiness, settings, review, and consent. Use only the matching
+   failure shape in section 7.
+3. On complete success, send one assistant turn containing both “This Mac and
+   Codex are ready for ThreadBear” and the complete settings card. Do not let a
+   settings question, choice, or user reply appear before that card has been
+   presented, unless the real person actually interrupts.
+4. After the card, answer questions or collect changes. When the person accepts
+   a complete settings card, show one complete friendly review. Their card
+   acceptance is not installation consent.
+5. If they change a choice at the review, keep that first review visible,
+   acknowledge the changes, and show a second complete review in a new
+   assistant turn. Ask the installation question again.
+6. Only a clear yes to the installation question advances to installation.
+   Send the exact one-line progress update from section 6, complete all
+   verification backstage, then send one complete success or failure close.
+
+Before sending any visible message, check three things: it belongs to the
+current state above; it contains no backstage vocabulary; and every suggested
+action would change the frozen current setting. On a pre-mutation failure, copy
+the three-paragraph failure shape exactly and add no inventory of tasks, files,
+settings, adoption, or scheduling. On a successful close, select action phrases
+only from the mapping in section 7 and reject any no-op.
+
 ## 1. Welcome the person
 
 The first response must carry this information and spirit. You may adapt the
@@ -849,6 +880,10 @@ For a failure before mutation, use this distinct no-change shape:
 >
 > I’m checking the connection to the verified download now. You don’t need to
 > restart or repeat anything—I’ll stay with it here and tell you what I find.
+
+Use those three paragraphs verbatim for this failure. Do not append a technical
+inventory of things that did not change, including task adoption, rename, pin,
+files, or scheduling.
 
 For a failure after installation has started, account for every
 person-visible mutation that the evidence says completed. This includes the

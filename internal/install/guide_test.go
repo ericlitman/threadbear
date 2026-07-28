@@ -91,6 +91,29 @@ func TestCodexInstallGuideKeepsReadinessAndCardInOneTurn(t *testing.T) {
 	}
 }
 
+func TestCodexInstallGuideHasPriorityVisibleStateMachine(t *testing.T) {
+	guide := normalizeGuideText(readInstallGuide(t))
+	for _, want := range []string{
+		"### Required visible state machine",
+		"Do not skip, reorder, or merge these states",
+		"If any required check fails, skip readiness, settings, review, and consent.",
+		"send one assistant turn containing both “This Mac and Codex are ready for ThreadBear” and the complete settings card.",
+		"Do not let a settings question, choice, or user reply appear before that card has been presented",
+		"Their card acceptance is not installation consent.",
+		"keep that first review visible",
+		"show a second complete review in a new assistant turn.",
+		"Only a clear yes to the installation question advances to installation.",
+		"it contains no backstage vocabulary",
+		"every suggested action would change the frozen current setting.",
+		"copy the three-paragraph failure shape exactly and add no inventory",
+		"select action phrases only from the mapping in section 7 and reject any no-op.",
+	} {
+		if !strings.Contains(guide, want) {
+			t.Fatalf("INSTALL.md priority state machine missing %q", want)
+		}
+	}
+}
+
 func TestCodexInstallGuideUsesOneHiddenTokenLabel(t *testing.T) {
 	guide := readInstallGuide(t)
 	if !strings.Contains(guide, "exact labels “At the\nstart,” “At the end,” and “Hidden.”") {
@@ -901,6 +924,9 @@ func TestCodexInstallGuideHasDistinctWarmFailureResponses(t *testing.T) {
 				"I’m checking the connection",
 				"You don’t need to",
 				"restart or repeat anything",
+				"Use those three paragraphs verbatim for this failure.",
+				"Do not append a technical inventory",
+				"task adoption, rename, pin, files, or scheduling",
 			},
 			"post-mutation": {
 				"ThreadBear hit a snag while starting its quiet background check.",
