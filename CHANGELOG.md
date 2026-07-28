@@ -4,6 +4,7 @@
 
 ### Changed
 
+- Made Codex-guided installation the supported end-user path and deprecated direct terminal bootstrap use while retaining it as installing-agent machinery.
 - Made install adopt an explicitly selected readable Codex task with mutation-free dry-run previews, stable adoption diagnostics, and no legacy ThreadWatch cutover.
 
 ### Fixed

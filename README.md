@@ -18,15 +18,19 @@ ThreadBear does not edit `.codex-global-state.json`, click through Codex Desktop
 
 ## Install
 
-ThreadBear v1 supports macOS 12 or newer on Apple silicon and Intel Macs. Release binaries are pure Go and require no end-user runtime.
+Open a new Codex task and paste:
 
-```sh
-curl -fsSL https://threadbear.sh/install.sh | sh
+```text
+Install ThreadBear — follow https://threadbear.sh/install
 ```
 
-The guided installer reads answers from `/dev/tty`, previews every effect, and asks once before mutation. It requires no `sudo` and defaults to a five-minute heartbeat, verified automatic updates, automatic archiving after 14 inactive days, managed title updates, and managed global AGENTS instructions.
+Codex preflights the Mac, asks only about preferences that matter, shows the complete dry-run preview for approval, installs ThreadBear, and verifies the result in the same conversation.
 
-For exact-version, noninteractive, migration, Gatekeeper, update/downgrade, and uninstall details, read [INSTALL.md](INSTALL.md).
+ThreadBear v1 supports macOS 12 or newer on Apple silicon and Intel Macs. Release binaries are pure Go, require no end-user runtime, and install without `sudo`.
+
+> **Deprecated for one release — installer machinery only:** `curl -fsSL https://threadbear.sh/install.sh | sh` remains available for installing agents, but it is not the supported human install path.
+
+For exact-version, noninteractive, Gatekeeper, update/downgrade, and uninstall details, read [INSTALL.md](INSTALL.md).
 
 ## Commands
 

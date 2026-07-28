@@ -539,6 +539,25 @@ func TestInstalledSelfTestMalformedManagedSurfaceHasStablePathSafeDiagnostic(t *
 	t.Fatalf("checks=%+v", result.Checks)
 }
 
+func TestInstallPrompterFailurePointsToSupportedPath(t *testing.T) {
+	err := installPrompterFailure(errors.New("open /dev/tty: device not configured"))
+	var failure *install.InstallFailure
+	if !errors.As(err, &failure) {
+		t.Fatalf("failure=%T %v", err, err)
+	}
+	if failure.Step != "open_prompter" {
+		t.Fatalf("step=%q", failure.Step)
+	}
+	for _, text := range []string{"open /dev/tty: device not configured", "https://threadbear.sh/install", "--noninteractive --confirm"} {
+		if !strings.Contains(failure.Cause, text) {
+			t.Fatalf("cause=%q missing %q", failure.Cause, text)
+		}
+	}
+	if strings.Index(failure.Cause, "https://threadbear.sh/install") > strings.Index(failure.Cause, "open /dev/tty: device not configured") {
+		t.Fatalf("cause does not lead with supported guide: %q", failure.Cause)
+	}
+}
+
 func TestParseInstallControlTaskAndDryRun(t *testing.T) {
 	request, err := parseRequest([]string{"install", "--control-task-id", "task-home", "--dry-run"})
 	if err != nil || request.ControlTaskID != "task-home" || !request.DryRun || request.Confirm {

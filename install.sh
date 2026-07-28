@@ -5,6 +5,7 @@ umask 077
 
 release_base=${THREADBEAR_RELEASE_BASE_URL:-https://github.com/ericlitman/threadbear/releases}
 selected_version=
+noninteractive=false
 previous=
 for argument in "$@"; do
 	if [ "$previous" = version ]; then
@@ -13,6 +14,7 @@ for argument in "$@"; do
 		continue
 	fi
 	case "$argument" in
+		--noninteractive) noninteractive=true ;;
 		--version) previous=version ;;
 		--version=*) selected_version=${argument#--version=} ;;
 	esac
@@ -20,6 +22,9 @@ done
 if [ "$previous" = version ]; then
 	echo "threadbear: --version requires a value" >&2
 	exit 2
+fi
+if [ "$noninteractive" = false ] && { [ -t 0 ] || [ -t 1 ] || [ -t 2 ]; }; then
+	echo "threadbear: terminal installation is deprecated; open a Codex task and follow https://threadbear.sh/install instead." >&2
 fi
 validate_version() {
 	printf '%s\n' "$1" | awk '/^[0-9]+\.[0-9]+\.[0-9]+$/ { valid=1 } END { exit(valid ? 0 : 1) }'

@@ -177,7 +177,7 @@ func newOperatorService(installedVersion string, stdout, stderr io.Writer, forma
 		}
 		prompter, err := install.OpenTTYPrompter()
 		if err != nil {
-			return install.Installer{}, func() error { return nil }, install.Fail("open_prompter", err)
+			return install.Installer{}, func() error { return nil }, installPrompterFailure(err)
 		}
 		installer.Prompter = prompter
 		return installer, prompter.Close, nil
@@ -628,6 +628,10 @@ func archiveControlTask(ctx context.Context, client archiveControlTaskClient, ta
 		return false, err
 	}
 	return true, nil
+}
+
+func installPrompterFailure(err error) error {
+	return install.Fail("open_prompter", fmt.Errorf("supported install: open a Codex task and follow https://threadbear.sh/install; installing agents use --noninteractive --confirm; interactive prompter failed: %w", err))
 }
 
 func writeMutationPreview(fallback io.Writer, format output.Format, preview output.PreviewResult) error {
