@@ -7,6 +7,7 @@
 
 ## Evergreen specs
 - `docs/architecture.md` — Runtime components, deterministic-first heartbeat flow, scheduler, privacy, and safety boundaries.
+- `docs/release-checklist.md` — Required pre-tag replica rehearsal and post-publish release verification.
 - `docs/status-convention.md` — Managed agent footer, seven title states, ownership, and archive eligibility.
 - `docs/compatibility.md` — Supported macOS/Codex surfaces, unsigned distribution, timing, troubleshooting, and lifecycle limits.
 - `docs/benchmark.md` — Approved aggregate classifier evidence and the private-corpus publication boundary.

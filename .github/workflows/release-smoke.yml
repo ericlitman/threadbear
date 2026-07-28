@@ -1,0 +1,60 @@
+name: Release smoke
+
+on:
+  workflow_call:
+    inputs:
+      tag:
+        description: Published stable-shaped release tag (vN.N.N)
+        required: true
+        type: string
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Published stable-shaped release tag (vN.N.N)
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-smoke-${{ inputs.tag }}
+  cancel-in-progress: false
+
+jobs:
+  smoke:
+    runs-on: macos-14
+    steps:
+      - name: Resolve published tag
+        id: release
+        env:
+          RELEASE_TAG: ${{ inputs.tag }}
+        run: |
+          if ! printf '%s\n' "$RELEASE_TAG" | awk '/^v[0-9]+\.[0-9]+\.[0-9]+$/ { ok=1 } END { exit(ok ? 0 : 1) }'; then
+            echo "release smoke requires an already-published stable-shaped vN.N.N tag" >&2
+            exit 1
+          fi
+          echo "tag=$RELEASE_TAG" >> "$GITHUB_OUTPUT"
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.release.outputs.tag }}
+      - name: Execute published install command
+        id: smoke
+        run: scripts/release-smoke.sh "${{ steps.release.outputs.tag }}"
+      - name: Record smoke scope
+        if: always()
+        env:
+          RELEASE_TAG: ${{ steps.release.outputs.tag }}
+          SMOKE_OUTCOME: ${{ steps.smoke.outcome }}
+        run: |
+          {
+            echo "### ThreadBear release smoke"
+            echo
+            echo "- Release: \`$RELEASE_TAG\`"
+            echo "- Result: \`$SMOKE_OUTCOME\`"
+            echo "- Runner architecture: \`$(uname -m)\`"
+            echo "- Proved: live site bootstrap, release manifest, checksum, candidate and installed self-tests, binary install, fixture control-task validation and welcome plumbing, LaunchAgent load, and uninstall cleanup."
+            echo "- Not proved: real Codex auth, real App Server side effects, a classification heartbeat, model behavior, task title/archive effects, or architectures other than this runner."
+            echo "- Deployment timing: a Pages/CDN lag can make the live bootstrap older than the release commit; that red result still requires operator investigation."
+            echo "- A red result marks the published release for operator action; this workflow does not delete, demote, or retry a release."
+          } >> "$GITHUB_STEP_SUMMARY"

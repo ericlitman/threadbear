@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Added
+
+- Added hosted post-publish install smoke coverage and a required pre-tag replica rehearsal checklist.
+
 ### Changed
 
 - Added conversational ThreadBear help, plain-language command mapping, and a safe in-thread uninstall playbook.

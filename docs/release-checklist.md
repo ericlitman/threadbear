@@ -1,0 +1,30 @@
+# Release checklist
+
+Complete this checklist for every stable ThreadBear release.
+
+## Before tagging
+
+1. Prepare the intended `vN.N.N` section in `CHANGELOG.md` and leave a fresh `Unreleased` section.
+2. Make a quiesced, disposable copy of the operator's real Codex home. The copy must contain its `state_N.sqlite`, rollout files, auth needed by Codex, 130+ real-shape tasks, and emoji-only titles. Keep the copy outside this repository.
+3. Choose a readable, unarchived control task in the copy and confirm no ThreadBear LaunchAgent is loaded for the operator account.
+4. From the release commit, run:
+
+   ```sh
+   scripts/replica-rehearsal.sh \
+     --version N.N.N \
+     --control-task-id CONTROL_TASK_ID \
+     --replica /absolute/path/to/copied-codex-home \
+     --codex /absolute/path/to/codex
+   ```
+
+   The script requires a clean release checkout; refuses the genuine Codex home, overlapping paths, and links back into it; verifies 130+ real-shape tasks plus an emoji-only title; copies the supplied replica again into an isolated temporary `HOME`; stages the current-architecture release artifacts outside the repository; executes the bootstrap; completes the first heartbeat when required; verifies the LaunchAgent; and uninstalls on every exit path.
+5. Do not tag unless the rehearsal is green. Retain only its count/status summary with the commit SHA, intended version, macOS and architecture, Codex version, install/self-test/LaunchAgent results, heartbeat aggregate counts, pending retry count, uninstall result, and `isolation=temporary_copy`. Do not retain task IDs, titles, messages, rollout paths, replica state, or raw App Server output.
+
+## Publish and verify
+
+1. Push the stable-shaped `vN.N.N` tag and confirm the release workflow publishes the GitHub release.
+2. Confirm the `Release smoke` workflow triggered by publication passes. It executes the live `https://threadbear.sh/install.sh` bootstrap against that exact release on a GitHub-hosted macOS runner and verifies the manifest, checksum, binary, self-test, fixture control-task plumbing, LaunchAgent, and uninstall chain.
+3. Treat a red release smoke as a failed release requiring operator action and a fix-forward decision. Check Pages/CDN deployment timing because the live bootstrap can briefly lag the release commit; the smoke does not delete, demote, or automatically retry a published release.
+4. For an already-published stable-shaped release, including one marked prerelease on GitHub, rerun `Release smoke` with manual dispatch and its `vN.N.N` tag. SemVer `-rc` tags are not supported by the bootstrap or release workflow.
+
+The hosted smoke explicitly does not prove real Codex auth, real App Server side effects, classification heartbeat behavior, title/archive effects, or an architecture other than its runner. The required replica rehearsal covers the Codex-touching composition before tagging.
