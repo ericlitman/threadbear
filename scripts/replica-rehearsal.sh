@@ -77,9 +77,10 @@ installed=$HOME/.local/bin/threadbear
 cleanup() {
 	chmod -R u+w "$temporary_root" 2>/dev/null || true
 	if [ -z "${rehearsal_ok:-}" ] && [ -n "${THREADBEAR_REHEARSAL_DIAGNOSTICS:-}" ]; then
-		mkdir -p "$THREADBEAR_REHEARSAL_DIAGNOSTICS"
-		cp "$temporary_root"/*.json "$temporary_root"/*.stderr "$temporary_root"/replica-counts "$THREADBEAR_REHEARSAL_DIAGNOSTICS/" 2>/dev/null || true
-		echo "rehearsal diagnostics preserved (may contain task data; delete after review): $THREADBEAR_REHEARSAL_DIAGNOSTICS" >&2
+		if mkdir -p "$THREADBEAR_REHEARSAL_DIAGNOSTICS" 2>/dev/null; then
+			cp "$temporary_root"/*.json "$temporary_root"/*.stderr "$temporary_root"/replica-counts "$THREADBEAR_REHEARSAL_DIAGNOSTICS/" 2>/dev/null || true
+			echo "rehearsal diagnostics preserved (may contain task data; delete after review): $THREADBEAR_REHEARSAL_DIAGNOSTICS" >&2
+		fi
 	fi
 	if [ -x "$installed" ]; then
 		"$installed" uninstall --noninteractive --confirm >/dev/null 2>&1 || true
