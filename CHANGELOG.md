@@ -20,6 +20,7 @@
 - Made uninstall wait briefly for an executing heartbeat and report a clear retry-safe cause if the heartbeat remains in flight.
 - Salvaged valid classifier rows individually and capped classifier batches at twenty tasks, so one mangled ID no longer drops a whole batch and retries stay bear-sized.
 - Matched the replica-rehearsal preconditions to the live corpus: 50+ real-shape tasks required, emoji-only titles reported rather than required.
+- Made the replica rehearsal reuse the host Go module cache so its temporary home always cleans up completely.
 
 ## v1.2.0 - 2026-07-27
 

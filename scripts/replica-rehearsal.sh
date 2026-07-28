@@ -64,6 +64,9 @@ if printf '%s\n' "$disabled_services" | grep -F 'org.litman.threadbear' | grep -
 fi
 
 temporary_root=$(mktemp -d "${TMPDIR:-/tmp}/threadbear-replica-rehearsal.XXXXXX")
+# Reuse the host module cache: with HOME redirected, Go would otherwise download
+# every dependency into the temporary home as read-only files that rm cannot remove.
+export GOMODCACHE="$(go env GOMODCACHE)"
 export HOME="$temporary_root/home"
 export CODEX_HOME="$HOME/.codex"
 export CODEX_SQLITE_HOME="$CODEX_HOME"
@@ -72,6 +75,7 @@ export PATH="$HOME/.local/bin:$PATH"
 installed=$HOME/.local/bin/threadbear
 
 cleanup() {
+	chmod -R u+w "$temporary_root" 2>/dev/null || true
 	if [ -x "$installed" ]; then
 		"$installed" uninstall --noninteractive --confirm >/dev/null 2>&1 || true
 	fi
