@@ -1,84 +1,245 @@
-# Installing ThreadBear
+# Install ThreadBear with Codex
 
-This guide is written for an installing agent. Explain the plan to the user, use the supported command, preserve the preview, and do not assert success until the verification commands pass.
+Open Codex, paste this guide or request, and I’ll take it from there.
 
-## Preconditions
+## Agent brief
 
-Confirm macOS 12 or newer, `arm64` or `x86_64`/`amd64` hardware, Codex Desktop with a compatible local `codex` executable/App Server surface, and HTTPS access to `threadbear.sh` and GitHub Releases. v1 is not Developer ID signed or notarized. Installation is user-local and must not use `sudo`.
+You are installing ThreadBear for the person in this Codex task. Keep them informed, ask only for choices that matter, use the exact commands below, and do not claim success until every verification step passes.
 
-## Guided installation dialogue
+ThreadBear is a user-local macOS utility that classifies changed Codex tasks, keeps useful titles, and conservatively archives completed inactive work. Unchanged heartbeats use no model tokens. Installation adopts the calling Codex task as the control task; it never creates a persistent task.
 
-### 1. Start the canonical bootstrap
+Do not use `sudo`. Do not edit README, the website, or the installed skill during this procedure. Do not rename or pin the calling task until installation succeeds. The welcome notice written after adoption records all selected settings, so do not repeat the preference interview in that task later.
+
+## 1. Permission prebrief
+
+Before commands, give the person this full prebrief:
+
+- macOS privacy prompts may name **`threadbear`**, but they originate from the spawned Codex App Server that ThreadBear uses to read task data.
+- **Documents** access may be requested because Codex workspaces live under `~/Documents/Codex`.
+- **Automation** may be requested because Codex App Server reaches for Codex Computer Use.
+- ThreadBear needs neither Documents access nor Automation permission. Declining both is safe and does not affect ThreadBear's function. There is no supported spawn-side fix in Codex `0.145.0`.
+- ThreadBear does not need **Full Disk Access**. Do not grant it.
+- HTTPS access to `threadbear.sh` and GitHub Releases is needed for the bootstrap, checksum, and release metadata.
+
+If a panel appears, stop and let the person decide. Never click a privacy panel on their behalf.
+
+## 2. Preflight
+
+Run read-only checks and summarize failures plainly:
+
+```sh
+sw_vers -productVersion
+uname -m
+command -v codex
+codex --version
+curl --version
+curl -fsSLI https://threadbear.sh/install.sh >/dev/null
+curl -fsSLI https://github.com/ericlitman/threadbear/releases/latest >/dev/null
+```
+
+Requirements:
+
+- macOS 12 or newer;
+- Apple silicon `arm64` or Intel `x86_64`;
+- Codex Desktop and a working local `codex` executable/App Server;
+- HTTPS access to `https://threadbear.sh` and GitHub Releases;
+- no `sudo` and no non-macOS install attempt.
+
+ThreadBear v1 is not Developer ID signed or notarized. The supported bootstrap verifies SHA-256, candidate health, and embedded version before delegating to the candidate.
+
+## 3. Feature-detect the calling task before mutation
+
+Before downloading, installing, renaming, pinning, or changing any managed resource, feature-detect the available Codex task tooling:
+
+1. Resolve the canonical ID of the **calling task**, meaning this exact task in which the person asked you to follow the guide. Record it as `CONTROL_TASK_ID`. Do not ask the person to copy an ID if the task tooling can resolve it.
+2. Prove that the task tooling supports renaming this task, using a capability/read-only check that does not rename it yet.
+
+If canonical calling-task ID resolution is unavailable, ambiguous, or noncanonical, or if task rename is unsupported, stop and tell the person: **“This Codex version has an unsupported install path for ThreadBear because calling-task identification and rename support are required.”** Do not mutate anything and do not direct them to another task, app, or support channel.
+
+Use only supported task tooling. Do not read private Codex state and do not use UI automation. Do not rename or pin yet. A first install without `--control-task-id`, or a reinstall whose persisted control task is unreadable without a replacement ID, exits `2` without changing files or the scheduler. Installation validates the selected task through the App Server before filesystem or scheduler mutation.
+
+On reinstall, a normal readable persisted control task wins even when the calling task supplies a different ID; the result reports `stayed_home`. An unreadable persisted task can be replaced by the supplied calling task. A persisted archived task is unarchived during reinstall. A supplied archived task is rejected.
+
+## 4. Ask for preferences in plain language
+
+Say: “The defaults are a five-minute heartbeat, automatic verified updates, archive completed tasks after 14 quiet days, keep titles current, show output tokens at the start of titles, install the managed AGENTS guidance, and use the default classifier. Keep all defaults?”
+
+If yes, use the fast path flags below. If no, ask only about the settings they want changed:
+
+| Preference | Default | Flag |
+|---|---:|---|
+| Heartbeat | 300 seconds | `--heartbeat-seconds 300` |
+| Automatic verified updates | on | `--auto-update=true` |
+| Archive completed inactive tasks | on | `--archive=true` |
+| Quiet days before archive | 14 | `--archive-after-days 14` |
+| Maintain status/next-action titles | on | `--rename=true` |
+| Output-token figure | start | `--token-display=start` |
+| Managed AGENTS guidance | on | `--agents=true` |
+| Classifier model | `gpt-5.6-luna` | `--classifier-model gpt-5.6-luna` |
+| Classifier effort | medium | `--classifier-effort medium` |
+| Classifier context budget | 250000 bytes | `--classifier-context-budget-bytes 250000` |
+
+Boolean values use `=`. Examples: `--archive=false`, `--rename=false`, `--agents=false`.
+
+## 5. Understand the bootstrap
+
+The canonical bootstrap is:
 
 ```sh
 curl -fsSL https://threadbear.sh/install.sh | sh
 ```
 
-The pipe supplies the script, not the answers. ThreadBear opens `/dev/tty` for prompts so script input cannot accidentally accept them.
+It resolves the latest release manifest, selects the `darwin/arm64` or `darwin/amd64` candidate, downloads the candidate and its published checksum into a private temporary directory, verifies SHA-256, runs candidate self-test, checks the candidate's embedded version, and only then delegates to `threadbear install`.
 
-The bootstrap fetches the selected release manifest, detects `darwin/arm64` or `darwin/amd64`, and downloads that architecture’s absolute `url` and `sha256_url` exactly as published. It uses a private temporary directory, verifies the checksum, runs `self-test --candidate`, verifies the embedded version, and only then delegates to `threadbear install`.
-
-To install an exact release:
+An exact version is selected with `--version N.N.N` without a leading `v`:
 
 ```sh
 curl -fsSL https://threadbear.sh/install.sh | sh -s -- --version 1.2.0
 ```
 
-Versions must be exact `N.N.N` values without a leading `v`. A missing checksum, mismatch, wrong embedded version, or failed bootstrap candidate self-test stops before a working installed binary is replaced.
+A missing checksum, mismatch, malformed candidate, wrong embedded version, or failed candidate self-test stops before replacing a working binary. The candidate is temporary; ThreadBear does not retain version directories or rollback copies.
 
-### 2. Collect every preference
+## 6. Produce the dry-run preview
 
-On first install, ask the prompts in this order. Pressing Return accepts the shown value.
-
-| Prompt | Default | Noninteractive flag |
-|---|---:|---|
-| Heartbeat interval in seconds | `300` | `--heartbeat-seconds 300` |
-| Automatically update ThreadBear | `yes` | `--auto-update=true` |
-| Automatically archive completed inactive tasks | `yes` | `--archive=true` |
-| Archive inactivity interval in days | `14` | `--archive-after-days 14` |
-| Automatically maintain status and next-action titles | `yes` | `--rename=true` |
-| Show output tokens in managed titles | `start` | `--token-display=start` |
-| Install managed AGENTS.md instructions | `yes` | `--agents=true` |
-| Classifier model | `gpt-5.6-luna` | `--classifier-model gpt-5.6-luna` |
-| Classifier effort | `medium` | `--classifier-effort medium` |
-| Classifier context budget in bytes | `250000` | `--classifier-context-budget-bytes 250000` |
-
-Boolean install/configure flags use `=` forms. Use `--auto-update=false`, `--archive=false`, `--rename=false`, or `--agents=false`; do not pass a separate `false` argument.
-
-### 3. Review the single final preview
-
-Before mutation, ThreadBear prints the deterministic-first classifier rule; binary and state paths; exact managed AGENTS.md and skill mutations; LaunchAgent path and staged/self-tested/enabled sequence; persistent control-task effect; and every selected preference.
-
-The confirmation prompt is exactly:
-
-```text
-Apply exactly this preview? (yes/no) [yes]:
-```
-
-Answer `yes` only when every line matches the user's intent. `no` cancels before the confirmed mutation phase. Install, `configure`, and `uninstall` default to `yes`, because the operator has just reviewed the exact effects and a bare Return that silently discards the whole session is the worse failure.
-
-### 4. Expected final effects
-
-A successful first install creates or adopts exactly these managed resources:
-
-- `~/.local/bin/threadbear` — standalone executable, mode `0700`;
-- `~/.local/share/threadbear/` — private state/config directory, mode `0700`; `config.json` and `state.json` are atomic mode-`0600` files;
-- `~/Library/LaunchAgents/org.litman.threadbear.plist` — user LaunchAgent, mode `0600`;
-- `~/.local/share/threadbear/logs/heartbeat.stdout.log` and `heartbeat.stderr.log` — LaunchAgent output paths;
-- `${CODEX_HOME:-~/.codex}/AGENTS.md` — one identifiable mode-`0600` managed file when enabled, preserving all bytes outside that block;
-- `${CODEX_HOME:-~/.codex}/skills/threadbear/SKILL.md` — one mode-`0600` managed ThreadBear skill block;
-- one persistent Codex control task titled `🧵🐻 ThreadBear 🐻🧵`, opened with a welcome notice that lists the chosen settings and explains how to change them from that chat.
-
-The LaunchAgent uses `StartInterval`, `ProcessType=Background`, and `KeepAlive=false`. The interval is approximate: macOS does not replay launches missed during sleep or while a previous heartbeat is still running.
-
-## Noninteractive installation
-
-Noninteractive installation requires both `--noninteractive` and the explicit confirmation assertion `--confirm`:
+Construct one flag list and keep it unchanged for the confirmed run. Defaults fast path:
 
 ```sh
-curl -fsSL https://threadbear.sh/install.sh | sh -s -- \
-  --noninteractive \
-  --confirm \
+CONTROL_TASK_ID='paste-id-here'
+INSTALL_FLAGS="--control-task-id $CONTROL_TASK_ID --heartbeat-seconds 300 --auto-update=true --archive=true --archive-after-days 14 --rename=true --token-display=start --agents=true --classifier-model gpt-5.6-luna --classifier-effort medium --classifier-context-budget-bytes 250000"
+curl -fsSL https://threadbear.sh/install.sh | sh -s -- --dry-run $INSTALL_FLAGS
+```
+
+For an exact release, append `--version N.N.N` to both preview and confirmed commands.
+
+Dry-run requires no confirmation, acquires no mutating lock, and causes zero mutation. It validates the adoption task and prints the complete deterministic `PreviewResult` in human form. Add `--json` when machine-readable output is useful.
+
+Show the full preview to the person in chat. Explain the control-task disposition:
+
+- `adopted`: first adoption;
+- `retained`: the persisted readable task remains home;
+- `stayed_home`: a different supplied task was ignored because the persisted task is readable;
+- `replaced`: an unreadable persisted task will be replaced;
+- `repaired`: the one exact BEAR-60 controller repair will run;
+- `will_unarchive_control_task=true`: the persisted home will be unarchived by the confirmed install.
+
+Ask: “Apply exactly this preview?” Continue only after an explicit yes.
+
+## 7. Run the identical confirmed flags
+
+Use the same flags, adding only noninteractive confirmation:
+
+```sh
+curl -fsSL https://threadbear.sh/install.sh | sh -s -- --noninteractive --confirm $INSTALL_FLAGS
+```
+
+Do not substitute a different task ID or preference after approval. The installer recomputes the same preview before mutation. If the world changed, it stops and asks for a fresh preview.
+
+The install validates the control task before any filesystem or scheduler mutation, stages and self-tests managed resources, writes private config/state, enables the LaunchAgent, and posts the unchanged welcome notice exactly once for first adoption, unreadable replacement, or the exact repair. It does not call persistent `thread/start`, retitle the control task, pin it, or deliberately kickstart a heartbeat while the install lock is held.
+
+After the installer returns successfully and has released its lock, inspect `control_task_disposition`. Only for `adopted`, `replaced`, or `repaired`, use the supported rename tool detected earlier to rename the calling task exactly `🧵🐻 ThreadBear 🐻🧵`, then pin it once if supported; otherwise tell the person how to pin it manually and continue. For `retained` or `stayed_home`, do not rename, pin, or reassert anything on any task. A user's later rename or unpin is respected and must not be restored. In particular, `stayed_home` from another calling task never renames or pins that calling task. Do not use private Codex state or UI automation.
+
+## 8. Verify, heartbeat once when required, and report here
+
+Run:
+
+```sh
+~/.local/bin/threadbear version
+~/.local/bin/threadbear self-test
+~/.local/bin/threadbear status
+~/.local/bin/threadbear status --json
+launchctl print "gui/$(id -u)/org.litman.threadbear"
+```
+
+Inspect `last_completed_heartbeat` in `status --json`. If it is `null`, run exactly one explicit heartbeat now, after the installer has returned and released its lock:
+
+```sh
+~/.local/bin/threadbear heartbeat
+~/.local/bin/threadbear status --json
+```
+
+That heartbeat is mandatory when the field is null, not optional. Do not request a second user approval beyond normal command-tool approval. Do not run more than one explicit heartbeat during installation verification. If it fails, report and troubleshoot the failure in this same task.
+
+Capture the heartbeat result. When it emits JSON, report the counts of `changed`, `archived_ids`, and `retries`; when it emits no record because there was no work, report those counts as zero. After the heartbeat, rerun `status --json` and report `pending_retries`. Also report install resource and warning counts, installed version, self-test pass/fail, LaunchAgent status, control-task disposition, whether the task was unarchived, and the final `last_completed_heartbeat`. Finish in a friendly bear voice. Never direct the person elsewhere to complete, verify, or troubleshoot the installation.
+
+Expected managed resources are:
+
+- `~/.local/bin/threadbear`, mode `0700`;
+- `~/.local/share/threadbear/`, mode `0700`, with private atomic config/state files;
+- `~/Library/LaunchAgents/org.litman.threadbear.plist`, mode `0600`;
+- logs below `~/.local/share/threadbear/logs/`;
+- `${CODEX_HOME:-~/.codex}/AGENTS.md`, one managed block when enabled;
+- `${CODEX_HOME:-~/.codex}/skills/threadbear/SKILL.md`, one managed block;
+- for an `adopted`, `replaced`, or `repaired` result only, the calling task renamed after success exactly `🧵🐻 ThreadBear 🐻🧵` and pinned once when supported; `retained` and `stayed_home` leave task title and pin state untouched.
+
+## Living with the bear
+
+Read-only diagnosis:
+
+```sh
+~/.local/bin/threadbear status
+~/.local/bin/threadbear status --json
+~/.local/bin/threadbear self-test
+~/.local/bin/threadbear heartbeat --dry-run
+~/.local/bin/threadbear inspect TASK_ID
+```
+
+Pause and resume scheduling:
+
+```sh
+~/.local/bin/threadbear disable
+~/.local/bin/threadbear enable
+```
+
+Reconfigure with a preview first:
+
+```sh
+~/.local/bin/threadbear configure --dry-run --heartbeat-seconds 600
+~/.local/bin/threadbear configure --heartbeat-seconds 600
+~/.local/bin/threadbear configure --auto-update=false --archive=false
+```
+
+For noninteractive configuration use `--noninteractive --confirm`. The welcome notice already records installation settings and plain-language examples, so the agent in the control task should read it instead of repeating onboarding.
+
+## Update or downgrade
+
+```sh
+~/.local/bin/threadbear update
+~/.local/bin/threadbear update --version 1.2.0
+```
+
+Manual and automatic updates share checksum, embedded-version, candidate self-test, managed-surface prevalidation, and atomic binary replacement. Exact version selection is also the downgrade mechanism. No local release history or automatic rollback copy is retained.
+
+## Troubleshooting
+
+1. Run `version`, `status --json`, and `self-test` before mutating anything.
+2. Confirm the persisted control task is readable in Codex. If it is gone, choose a readable unarchived replacement and rerun install with `--control-task-id`.
+3. If a supplied task is archived, unarchive it in Codex and rerun the dry-run.
+4. Inspect the job with `launchctl print "gui/$(id -u)/org.litman.threadbear"`.
+5. Confirm `${CODEX_HOME:-~/.codex}` and the pinned Codex executable are available.
+6. Do not edit config/state by hand unless a maintainer gives a recovery procedure.
+
+### Unsigned binary and Gatekeeper
+
+The supported installer verifies the checksum and candidate. If macOS blocks a manually downloaded verified copy, use Privacy & Security **Open Anyway**, or remove quarantine only from that verified file:
+
+```sh
+xattr -d com.apple.quarantine ~/.local/bin/threadbear
+```
+
+Never disable Gatekeeper globally.
+
+## Exit codes and noninteractive reference
+
+- `0`: preview or installation completed successfully;
+- `2`: invalid arguments or required control task ID missing; no install mutation;
+- `1`: platform, network, checksum, App Server, candidate, confirmation, or lifecycle failure.
+
+Full noninteractive defaults:
+
+```sh
+~/.local/bin/threadbear install \
+  --control-task-id TASK_ID \
+  --noninteractive --confirm \
   --heartbeat-seconds 300 \
   --auto-update=true \
   --archive=true \
@@ -91,107 +252,7 @@ curl -fsSL https://threadbear.sh/install.sh | sh -s -- \
   --classifier-context-budget-bytes 250000
 ```
 
-The preview is written before mutation. Omitting `--confirm` is an error; noninteractive mode never infers consent.
-
-Exit behavior:
-
-- `0`: installation completed successfully;
-- `2`: invalid bootstrap or CLI arguments, including an invalid exact version;
-- `1`: unsupported platform, download/checksum/self-test failure, cancelled confirmation, or installation/lifecycle failure.
-
-## Verify the installation
-
-```sh
-~/.local/bin/threadbear version
-~/.local/bin/threadbear self-test
-~/.local/bin/threadbear status
-launchctl print "gui/$(id -u)/org.litman.threadbear"
-```
-
-Read-only diagnosis is also available:
-
-```sh
-~/.local/bin/threadbear heartbeat --dry-run
-~/.local/bin/threadbear inspect TASK_ID
-~/.local/bin/threadbear status --json
-```
-
-These commands do not invoke a model or mutate task titles/archives. Installed self-test reports condition-specific remedies for stale, unsafe, or inaccessible managed AGENTS.md and skill surfaces. The updater candidate self-test does not inspect installed managed files because update has not refreshed them yet; install internal staged-candidate verification still checks the managed surfaces after staging them. A normal unchanged `~/.local/bin/threadbear heartbeat` compares managed content directly, performs no managed-file write when it is current, and emits zero bytes when no task work, update check, or version-change announcement is due.
-
-For optional bare invocations in the current shell, add the standard user-local bin directory and verify it explicitly:
-
-```sh
-export PATH="$HOME/.local/bin:$PATH"
-command -v threadbear
-```
-
-## Reconfigure later
-
-`~/.local/bin/threadbear configure` changes every onboarding preference and previews effects before confirmation:
-
-```sh
-~/.local/bin/threadbear configure --heartbeat-seconds 600 --archive-after-days 30
-~/.local/bin/threadbear configure --auto-update=false --archive=false --rename=true --agents=false
-~/.local/bin/threadbear configure --token-display=end
-~/.local/bin/threadbear configure --classifier-model gpt-5.6-luna --classifier-effort medium --classifier-context-budget-bytes 250000
-~/.local/bin/threadbear configure --dry-run --heartbeat-seconds 900
-```
-
-For automation, add `--noninteractive --confirm`. Reconfiguration previews and reconciles both the AGENTS.md block and always-managed skill, including a stale skill when preferences are unchanged. It updates the existing job and managed blocks; it does not duplicate LaunchAgents, control tasks, state, or AGENTS.md blocks. Use `~/.local/bin/threadbear disable` to stop scheduled heartbeats without uninstalling, and `~/.local/bin/threadbear enable` to load the same job again.
-
-`--token-display=off|start|end` controls the managed output-token figure. New installs default to `start`; configs created before this setting existed decode as `off` until explicitly changed. Start mode is compact (`🚨 1.6m Subject`), while end mode labels the metric (`🚨 Subject · out 1.6m`).
-
-## ThreadWatch migration
-
-When valid legacy ThreadWatch `state.json` is present and ThreadBear does not yet have a complete config/state pair, the installer previews a data migration. It preserves the control-task identity, title-derived classifications, retry IDs, captured activity, and a detectable legacy heartbeat interval. ThreadBear-only preferences are collected during onboarding. A legacy job or directory without valid migratable state can still be stopped for single-writer safety, but it is not represented as imported data.
-
-Before ThreadBear activates, it stops and verifies the legacy job. Active resources then use `threadbear` and `org.litman.threadbear`; legacy state remains available as migration evidence. If installation fails after ThreadWatch is stopped, the error reports the explicit `launchctl` recovery command.
-
-Rerunning the installer is an idempotent reinstall: it adopts the existing ThreadBear control task and updates managed resources rather than creating duplicates.
-
-## Automatic updates and explicit update or downgrade
-
-Install the latest newer release:
-
-```sh
-~/.local/bin/threadbear update
-```
-
-Select an exact release, including an intentional downgrade:
-
-```sh
-~/.local/bin/threadbear update --version 1.2.0
-```
-
-Manual and automatic updates use the same updater pipeline. It downloads to a private temporary path, verifies the published checksum, embedded version, and updater candidate self-test, and asks the candidate binary to export its embedded managed AGENTS.md and skill content. It prevalidates changed managed surfaces and emits their preview before replacing the installed binary with one atomic rename, then refreshes the enabled AGENTS.md block and always-managed skill with the candidate content and verifies the result. A same-version manual update also reconciles stale managed surfaces from the current binary embedded assets while remaining a no-op when they are current. Managed files keep all bytes outside the single ThreadBear block. Symlinks to user-owned regular files are followed without replacing the link; malformed, dangling, non-file, or foreign-owned targets are refused. The binary and each managed file use safe individual replacement, but there is no cross-file atomicity. If managed refresh fails after binary replacement, the new binary remains installed, partial managed writes are rolled back best-effort, and the error is reported explicitly. A later heartbeat under the new binary is the convergence backstop that repairs residue. No binary rollback file is created or retained.
-
-The updater deliberately does not rewrite `~/Library/LaunchAgents/org.litman.threadbear.plist`. Scheduler plist changes remain the responsibility of install/configure lifecycle operations. ThreadBear does not retain a release history. An explicit downgrade proceeds binary-only only when the older candidate reports the managed-asset command as `unknown_command`; malformed exports, empty assets, generic execution failures, and all other candidate errors stop the update. The binary-only result warns that AGENTS.md and the skill were not refreshed. Their newer managed content can remain as residue until a BEAR-27-or-newer `threadbear update` or `threadbear configure` reconciles it.
-
-Auto-update is enabled by default. The heartbeat checks for a newer release no more than once every 30 minutes and applies it through the same verified replacement path. A failed check or pre-replacement apply leaves the current binary untouched, posts nothing to the control task, and is reported by `threadbear status`. The next heartbeat announces a completed automatic, manual, or installer-driven version change once in the control task with up to three embedded changelog bullets and an opt-out hint.
-
-Disable automatic installation with:
-
-```sh
-~/.local/bin/threadbear configure --auto-update=false
-```
-
-With auto-update disabled, the deterministic metadata check runs no more than once every 24 hours and remains silent when current. For each newer version it places one fixed notice in the control task:
-
-```text
-🧵🐻 ThreadBear VERSION is ready. Run threadbear update, or tell me “update ThreadBear.”
-```
-
-If `~/.local/bin` is not on `PATH`, run `~/.local/bin/threadbear update` instead of the bare command shown in the notice. Re-enable automatic updates with `~/.local/bin/threadbear configure --auto-update=true`. From the control task, Codex uses its normal command approval panel for a manual update; choose one-time or Always approval there. ThreadBear does not request full-access defaults, bypass task permissions, retain local release history, or create automatic rollback state.
-
-## Unsigned binary and Gatekeeper
-
-v1 binaries are not Developer ID signed or notarized. The canonical installer verifies SHA-256 and the executable candidate before installation. If macOS blocks a manually downloaded copy, verify its checksum and source first, then use the standard Privacy & Security “Open Anyway” flow or remove quarantine only from that verified file:
-
-```sh
-xattr -d com.apple.quarantine ~/.local/bin/threadbear
-```
-
-Do not disable Gatekeeper globally.
+Dry-run uses the identical flags with `--dry-run` and without `--confirm`.
 
 ## Uninstall
 
@@ -199,12 +260,10 @@ Do not disable Gatekeeper globally.
 ~/.local/bin/threadbear uninstall
 ```
 
-ThreadBear opens with a thank-you and feedback invitation, asks whether to archive the control task (default `yes`), then previews the full removal and asks once for confirmation (default `yes`). Persistent state is always deleted along with the loaded LaunchAgent/plist, binary, managed AGENTS.md block, managed skill block, and update-notice integration. Existing user text outside managed blocks is preserved, as are task titles and archives.
-
-Noninteractive example:
+Interactive uninstall thanks the person, defaults control-task archival and final confirmation to yes, removes the binary, LaunchAgent, managed blocks, and persistent ThreadBear state, and leaves unrelated task titles and archives alone. Noninteractive form:
 
 ```sh
 ~/.local/bin/threadbear uninstall --noninteractive --confirm --archive-control-task
 ```
 
-Omit `--archive-control-task` to leave the control task unarchived. The former `--delete-state` flag remains accepted as a deprecated no-op for one release; persistent state is deleted regardless.
+Omit `--archive-control-task` to leave the task unarchived. `--delete-state` remains a deprecated no-op for one release; state is deleted either way.

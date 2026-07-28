@@ -404,25 +404,6 @@ func (c *Client) ReadThread(ctx context.Context, threadID string) (Thread, error
 	return response.Thread, nil
 }
 
-func (c *Client) StartPersistentThread(ctx context.Context) (Thread, error) {
-	if err := c.capabilities.requireMethod("thread/start"); err != nil {
-		return Thread{}, err
-	}
-	var response struct {
-		Thread Thread `json:"thread"`
-	}
-	if err := c.call(ctx, "thread/start", map[string]any{"ephemeral": false}, &response); err != nil {
-		return Thread{}, err
-	}
-	if err := validateCanonicalThreadID(response.Thread.ID); err != nil {
-		return Thread{}, fmt.Errorf("invalid App Server thread/start response: %w", err)
-	}
-	if response.Thread.Ephemeral || response.Thread.Path == nil {
-		return Thread{}, errors.New("App Server did not confirm a persistent visible thread")
-	}
-	return response.Thread, nil
-}
-
 func validateCanonicalThreadID(threadID string) error {
 	if threadID == "" {
 		return errors.New("thread ID is required")

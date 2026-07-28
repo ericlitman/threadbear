@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Changed
+
+- Made install adopt an explicitly selected readable Codex task with mutation-free dry-run previews, stable adoption diagnostics, and no legacy ThreadWatch cutover.
+
 ### Fixed
 
 - Salvaged valid classifier rows individually and capped classifier batches at twenty tasks, so one mangled ID no longer drops a whole batch and retries stay bear-sized.

@@ -22,6 +22,12 @@ func installErrorResult(err error) output.ErrorResult {
 		result.ErrorCode = "cancelled"
 		return result
 	}
+	if errors.Is(err, install.ErrControlTaskIDRequired) {
+		result.ErrorCode = "control_task_id_required"
+		result.Step = "select_control_task"
+		result.Cause = err.Error()
+		return result
+	}
 	var failure *install.InstallFailure
 	if errors.As(err, &failure) {
 		result.Step = failure.Step
@@ -38,7 +44,7 @@ func InstallHandler(factory InstallFactory) Handler {
 		if factory == nil {
 			return commandError("install", "dependency_unavailable", ErrUnavailable)
 		}
-		installer, closeInstaller, err := factory(!request.NonInteractive)
+		installer, closeInstaller, err := factory(!request.NonInteractive && !request.DryRun)
 		if err != nil {
 			var failure *install.InstallFailure
 			if !errors.As(err, &failure) {
@@ -60,16 +66,22 @@ func InstallHandler(factory InstallFactory) Handler {
 				ClassifierEffort:             request.Configure.ClassifierEffort,
 				ClassifierContextBudgetBytes: request.Configure.ClassifierContextBudgetBytes,
 			},
+			ControlTaskID:  request.ControlTaskID,
+			DryRun:         request.DryRun,
 			NonInteractive: request.NonInteractive,
 			Confirm:        request.Confirm,
 		})
 		if err != nil {
 			return installErrorResult(err), err
 		}
+		if result.DryRun {
+			return output.PreviewResult{Command: "install", Effects: result.Resources, Details: result.Preview.Lines, ControlTaskID: result.Config.ControlTaskID, SuppliedControlTaskID: result.SuppliedControlTaskID, ControlTaskDisposition: string(result.ControlTaskDisposition), WillUnarchiveControlTask: result.Unarchived}, nil
+		}
 		return output.LifecycleResult{
 			Command: "install", Changed: result.Changed,
-			Resources:     result.Resources,
-			ControlTaskID: result.Config.ControlTaskID, Migrated: result.Migrated, Reinstalled: result.Reinstalled, Warnings: result.Warnings,
+			Resources: result.Resources, ControlTaskID: result.Config.ControlTaskID,
+			ControlTaskDisposition: string(result.ControlTaskDisposition), SuppliedControlTaskID: result.SuppliedControlTaskID,
+			Unarchived: result.Unarchived, Reinstalled: result.Reinstalled, Warnings: result.Warnings,
 		}, nil
 	}
 }

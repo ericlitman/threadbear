@@ -1,7 +1,9 @@
 package install
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -92,28 +94,21 @@ func (s *fakeStore) SaveState(v state.State) error {
 }
 
 type fakeScheduler struct {
-	calls     []string
-	interval  int
-	legacyErr error
-	disabled  bool
-	loaded    bool
-	loadedErr error
+	calls      []string
+	disabled   bool
+	loaded     bool
+	loadedErr  error
+	stageCalls int
+	stageErrAt int
+	stageErr   error
 }
 
-func (s *fakeScheduler) DetectLegacyInterval(context.Context) (int, bool, error) {
-	s.calls = append(s.calls, "detect")
-	return s.interval, s.interval > 0, nil
-}
-func (s *fakeScheduler) StopLegacy(context.Context) error {
-	s.calls = append(s.calls, "stop")
-	return nil
-}
-func (s *fakeScheduler) VerifyLegacyStopped(context.Context) error {
-	s.calls = append(s.calls, "verify")
-	return s.legacyErr
-}
 func (s *fakeScheduler) Stage(context.Context, config.Config) (bool, error) {
 	s.calls = append(s.calls, "stage")
+	s.stageCalls++
+	if s.stageCalls == s.stageErrAt && s.stageErr != nil {
+		return false, s.stageErr
+	}
 	s.disabled = true
 	s.loaded = false
 	return false, nil
@@ -139,36 +134,45 @@ func (s *fakeScheduler) Remove(context.Context) error {
 }
 
 type fakeTasks struct {
-	ensures         int
-	requested       []string
-	archived        []string
-	archivedIDs     map[string]bool
-	ensureChanged   bool
-	failAfterCreate error
-	welcomes        []string
-	welcomeErr      error
+	tasks       map[string]ControlTask
+	readErr     map[string]error
+	reads       []string
+	unarchived  []string
+	archived    []string
+	archivedIDs map[string]bool
+	welcomes    []string
+	welcomeErr  error
 }
 
+func (t *fakeTasks) ReadControlTask(_ context.Context, id string) (ControlTask, error) {
+	t.reads = append(t.reads, id)
+	if err := t.readErr[id]; err != nil {
+		return ControlTask{}, err
+	}
+	if task, ok := t.tasks[id]; ok {
+		return task, nil
+	}
+	if t.tasks == nil {
+		return ControlTask{ID: id}, nil
+	}
+	return ControlTask{}, errors.New("task not found")
+}
+func (t *fakeTasks) UnarchiveControlTask(_ context.Context, id string) (bool, error) {
+	t.unarchived = append(t.unarchived, id)
+	task := t.tasks[id]
+	if !task.Archived {
+		return false, nil
+	}
+	task.Archived = false
+	t.tasks[id] = task
+	return true, nil
+}
 func (t *fakeTasks) PostWelcome(_ context.Context, taskID, text string) error {
 	if t.welcomeErr != nil {
 		return t.welcomeErr
 	}
 	t.welcomes = append(t.welcomes, taskID+"\n"+text)
 	return nil
-}
-
-func (t *fakeTasks) EnsureControlTask(_ context.Context, id string) (string, bool, error) {
-	t.ensures++
-	t.requested = append(t.requested, id)
-	if id != "" {
-		return id, t.ensureChanged, nil
-	}
-	if t.failAfterCreate != nil {
-		err := t.failAfterCreate
-		t.failAfterCreate = nil
-		return "control-new", true, err
-	}
-	return "control-new", true, nil
 }
 func (t *fakeTasks) ArchiveControlTask(_ context.Context, id string) (bool, error) {
 	t.archived = append(t.archived, id)
@@ -247,82 +251,6 @@ func (p *fakePrompter) Choose(label string, defaultYes bool) (bool, error) {
 	return v, nil
 }
 
-type missingLegacy struct{}
-
-func (missingLegacy) Load(string) ([]byte, error) { return nil, fs.ErrNotExist }
-
-type bytesLegacy []byte
-
-func (b bytesLegacy) Load(string) ([]byte, error) { return b, nil }
-
-type renamingScheduler struct {
-	fakeScheduler
-	plistPath  string
-	statePath  string
-	finalState []byte
-	store      *fakeStore
-	stopped    bool
-}
-
-func (s *renamingScheduler) DetectLegacyInterval(context.Context) (int, bool, error) {
-	s.calls = append(s.calls, "detect")
-	for _, path := range []string{s.plistPath, s.plistPath + ".disabled-by-threadbear"} {
-		if _, err := os.Stat(path); err == nil {
-			return s.interval, true, nil
-		} else if !errors.Is(err, os.ErrNotExist) {
-			return 0, false, err
-		}
-	}
-	return 0, false, nil
-}
-
-func (s *renamingScheduler) StopLegacy(context.Context) error {
-	s.calls = append(s.calls, "stop")
-	if s.store != nil && !s.store.lockHeld {
-		return errors.New("ThreadBear lock was not held while stopping legacy")
-	}
-	if _, err := os.Stat(s.plistPath); err == nil {
-		if err := os.Rename(s.plistPath, s.plistPath+".disabled-by-threadbear"); err != nil {
-			return err
-		}
-	} else if !errors.Is(err, os.ErrNotExist) {
-		return err
-	}
-	if len(s.finalState) > 0 {
-		if err := os.WriteFile(s.statePath, s.finalState, 0o600); err != nil {
-			return err
-		}
-	}
-	s.stopped = true
-	return nil
-}
-
-type orderedLegacyLoader struct {
-	scheduler *renamingScheduler
-	calls     int
-}
-
-func (l *orderedLegacyLoader) Load(path string) ([]byte, error) {
-	l.calls++
-	if !l.scheduler.stopped {
-		return nil, errors.New("legacy state read before StopLegacy")
-	}
-	return os.ReadFile(path)
-}
-
-type postStopFailLegacy struct {
-	scheduler *renamingScheduler
-	failed    bool
-}
-
-func (l *postStopFailLegacy) Load(path string) ([]byte, error) {
-	if l.scheduler.stopped && !l.failed {
-		l.failed = true
-		return nil, errors.New("injected final migration read failure")
-	}
-	return os.ReadFile(path)
-}
-
 type lifecycleSelfTest struct {
 	scheduler *fakeScheduler
 	inputs    []SelfTestInput
@@ -354,7 +282,7 @@ func testCodexExecutable(t *testing.T, home string) string {
 func newInstaller(t *testing.T, store *fakeStore, scheduler *fakeScheduler, tasks *fakeTasks, prompt Prompter) Installer {
 	t.Helper()
 	paths := PathsForHome(t.TempDir())
-	return Installer{Paths: paths, Store: store, Scheduler: scheduler, ControlTasks: tasks, Binary: &fakeBinary{}, SelfTester: &fakeSelfTest{}, Legacy: missingLegacy{}, Prompter: prompt, CodexExecutable: testCodexExecutable(t, paths.Home)}
+	return Installer{Paths: paths, Store: store, Scheduler: scheduler, ControlTasks: tasks, Binary: &fakeBinary{}, SelfTester: &fakeSelfTest{}, Prompter: prompt, CodexExecutable: testCodexExecutable(t, paths.Home)}
 }
 
 func TestPathsForHome(t *testing.T) {
@@ -386,7 +314,7 @@ func TestInstallDefaultsAndOneConfirmation(t *testing.T) {
 	tasks := &fakeTasks{}
 	prompt := &fakePrompter{confirmed: true}
 	installer := newInstaller(t, store, scheduler, tasks, prompt)
-	result, err := installer.Install(context.Background(), InstallRequest{})
+	result, err := installer.Install(context.Background(), InstallRequest{ControlTaskID: "control-new"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -400,56 +328,8 @@ func TestInstallDefaultsAndOneConfirmation(t *testing.T) {
 	if !reflect.DeepEqual(scheduler.calls, []string{"stage", "stage", "enable", "healthy"}) {
 		t.Fatalf("calls=%v", scheduler.calls)
 	}
-	if tasks.ensures != 1 || store.saveConfig != 1 || store.saveState != 1 {
-		t.Fatalf("tasks=%d saves=%d/%d", tasks.ensures, store.saveConfig, store.saveState)
-	}
-}
-
-func TestFreshInstallWithoutLegacyPresenceSkipsLegacyScheduler(t *testing.T) {
-	scheduler := &fakeScheduler{}
-	installer := newInstaller(t, &fakeStore{}, scheduler, &fakeTasks{}, nil)
-	if _, err := installer.Install(context.Background(), InstallRequest{NonInteractive: true, Confirm: true}); err != nil {
-		t.Fatal(err)
-	}
-	for _, call := range scheduler.calls {
-		if call == "detect" || call == "stop" || call == "verify" {
-			t.Fatalf("clean install made legacy scheduler call %q: %v", call, scheduler.calls)
-		}
-	}
-}
-
-func TestLegacyFilesystemPresenceTriggersMigrationShutdown(t *testing.T) {
-	tests := map[string]func(t *testing.T, paths Paths){
-		"plist only": func(t *testing.T, paths Paths) {
-			if err := os.MkdirAll(filepath.Dir(paths.LegacyLaunchAgent), 0o700); err != nil {
-				t.Fatal(err)
-			}
-			if err := os.WriteFile(paths.LegacyLaunchAgent, []byte("legacy"), 0o600); err != nil {
-				t.Fatal(err)
-			}
-		},
-		"state artifact": func(t *testing.T, paths Paths) {
-			if err := os.MkdirAll(paths.LegacyStateDirectory, 0o700); err != nil {
-				t.Fatal(err)
-			}
-			if err := os.WriteFile(paths.LegacyRunLock, []byte("artifact"), 0o600); err != nil {
-				t.Fatal(err)
-			}
-		},
-	}
-	for name, setup := range tests {
-		t.Run(name, func(t *testing.T) {
-			scheduler := &fakeScheduler{interval: 77}
-			installer := newInstaller(t, &fakeStore{}, scheduler, &fakeTasks{}, nil)
-			setup(t, installer.Paths)
-			if _, err := installer.Install(context.Background(), InstallRequest{NonInteractive: true, Confirm: true}); err != nil {
-				t.Fatal(err)
-			}
-			wantPrefix := []string{"detect", "stage", "stop", "verify"}
-			if len(scheduler.calls) < len(wantPrefix) || !reflect.DeepEqual(scheduler.calls[:len(wantPrefix)], wantPrefix) {
-				t.Fatalf("calls=%v want prefix=%v", scheduler.calls, wantPrefix)
-			}
-		})
+	if len(tasks.reads) != 2 || store.saveConfig != 1 || store.saveState != 1 {
+		t.Fatalf("reads=%v saves=%d/%d", tasks.reads, store.saveConfig, store.saveState)
 	}
 }
 
@@ -463,10 +343,10 @@ func TestInstallCustomNoninteractiveAndCancellation(t *testing.T) {
 	scheduler := &fakeScheduler{}
 	tasks := &fakeTasks{}
 	installer := newInstaller(t, store, scheduler, tasks, nil)
-	if _, err := installer.Install(context.Background(), InstallRequest{NonInteractive: true, Preferences: &custom}); err == nil {
+	if _, err := installer.Install(context.Background(), InstallRequest{ControlTaskID: "control-new", NonInteractive: true, Preferences: &custom}); err == nil {
 		t.Fatal("missing confirmation accepted")
 	}
-	result, err := installer.Install(context.Background(), InstallRequest{NonInteractive: true, Confirm: true, Preferences: &custom})
+	result, err := installer.Install(context.Background(), InstallRequest{ControlTaskID: "control-new", NonInteractive: true, Confirm: true, Preferences: &custom})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -476,31 +356,11 @@ func TestInstallCustomNoninteractiveAndCancellation(t *testing.T) {
 	cancelStore := &fakeStore{}
 	prompt := &fakePrompter{confirmed: false}
 	cancel := newInstaller(t, cancelStore, &fakeScheduler{}, &fakeTasks{}, prompt)
-	if _, err := cancel.Install(context.Background(), InstallRequest{}); !errors.Is(err, ErrCancelled) {
+	if _, err := cancel.Install(context.Background(), InstallRequest{ControlTaskID: "control-new"}); !errors.Is(err, ErrCancelled) {
 		t.Fatalf("error=%v", err)
 	}
 	if cancelStore.locks != 0 || prompt.confirms != 1 || prompt.previews != 1 {
 		t.Fatalf("mutated on cancel store=%+v prompt=%+v", cancelStore, prompt)
-	}
-}
-
-func TestInstallRejectsActiveLegacyBeforeEnable(t *testing.T) {
-	store := &fakeStore{}
-	scheduler := &fakeScheduler{legacyErr: errors.New("still active")}
-	tasks := &fakeTasks{}
-	installer := newInstaller(t, store, scheduler, tasks, nil)
-	if err := os.MkdirAll(filepath.Dir(installer.Paths.LegacyLaunchAgent), 0o700); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(installer.Paths.LegacyLaunchAgent, []byte("legacy"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	_, err := installer.Install(context.Background(), InstallRequest{NonInteractive: true, Confirm: true})
-	if err == nil {
-		t.Fatal("active legacy accepted")
-	}
-	if tasks.ensures != 0 || store.saveConfig != 0 || !reflect.DeepEqual(scheduler.calls, []string{"detect", "stage", "stop", "verify"}) {
-		t.Fatalf("legacy stop order tasks=%d saves=%d calls=%v", tasks.ensures, store.saveConfig, scheduler.calls)
 	}
 }
 
@@ -520,11 +380,11 @@ func TestReinstallAdoptsExistingControlTaskAndState(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !first.Reinstalled || !second.Reinstalled || tasks.ensures != 2 {
-		t.Fatalf("results=%+v %+v ensures=%d", first, second, tasks.ensures)
+	if !first.Reinstalled || !second.Reinstalled || len(tasks.reads) != 4 {
+		t.Fatalf("results=%+v %+v reads=%v", first, second, tasks.reads)
 	}
-	if tasks.requested[0] != "control-existing" || store.state.Generation != 9 {
-		t.Fatalf("requested=%v state=%+v", tasks.requested, store.state)
+	if tasks.reads[0] != "control-existing" || store.state.Generation != 9 {
+		t.Fatalf("reads=%v state=%+v", tasks.reads, store.state)
 	}
 }
 
@@ -541,62 +401,13 @@ func TestReinstallBackfillsCodexExecutable(t *testing.T) {
 	}
 }
 
-func TestMigrationUsesDetectedInterval(t *testing.T) {
-	legacy := bytesLegacy(`{"schemaVersion":1,"controllerThreadId":"control-old","cycleCompletedAtMs":1700000000000,"retryIds":[],"threads":{}}`)
-	store := &fakeStore{}
-	scheduler := &fakeScheduler{interval: 77}
-	tasks := &fakeTasks{}
-	installer := newInstaller(t, store, scheduler, tasks, nil)
-	if err := os.MkdirAll(filepath.Dir(installer.Paths.LegacyState), 0o700); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(installer.Paths.LegacyState, []byte("migration preview marker"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	installer.Legacy = legacy
-	result, err := installer.Install(context.Background(), InstallRequest{NonInteractive: true, Confirm: true})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !result.Migrated || result.Config.ControlTaskID != "control-old" || result.Config.HeartbeatSeconds != 77 {
-		t.Fatalf("result=%+v", result)
-	}
-	if tasks.requested[0] != "control-old" {
-		t.Fatalf("requested=%v", tasks.requested)
-	}
-}
-
-func TestInstallFailureRerunAdoptsPersistedControlTask(t *testing.T) {
-	store := &fakeStore{saveStateErr: errors.New("disk full")}
-	scheduler := &fakeScheduler{}
-	tasks := &fakeTasks{}
-	installer := newInstaller(t, store, scheduler, tasks, nil)
-	_, err := installer.Install(context.Background(), InstallRequest{NonInteractive: true, Confirm: true})
-	if err == nil {
-		t.Fatal("expected staged state failure")
-	}
-	if !store.configExists || store.config.ControlTaskID != "control-new" || store.stateExists {
-		t.Fatalf("split persistence not staged safely: %+v", store)
-	}
-	result, err := installer.Install(context.Background(), InstallRequest{NonInteractive: true, Confirm: true})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if tasks.ensures != 2 || tasks.requested[1] != "control-new" || result.Config.ControlTaskID != "control-new" {
-		t.Fatalf("duplicate-prone rerun: requested=%v result=%+v", tasks.requested, result)
-	}
-	if !store.stateExists {
-		t.Fatal("split config/state did not converge")
-	}
-}
-
 func TestInstallSelfTestPrecedesEnableAndHealthVerification(t *testing.T) {
 	store := &fakeStore{}
 	scheduler := &fakeScheduler{}
 	selfTest := &orderedSelfTest{scheduler: scheduler}
 	installer := newInstaller(t, store, scheduler, &fakeTasks{}, nil)
 	installer.SelfTester = selfTest
-	if _, err := installer.Install(context.Background(), InstallRequest{NonInteractive: true, Confirm: true}); err != nil {
+	if _, err := installer.Install(context.Background(), InstallRequest{ControlTaskID: "control-new", NonInteractive: true, Confirm: true}); err != nil {
 		t.Fatal(err)
 	}
 	want := []string{"stage", "selftest", "stage", "enable", "healthy", "selftest"}
@@ -682,7 +493,7 @@ func TestNoOpReinstallReportsUnchanged(t *testing.T) {
 	cfg.CodexExecutable = codexExecutable
 	cfg.CodexSpawnPath = spec.SpawnPath
 	store.config = cfg
-	installer := Installer{Paths: paths, Store: store, Scheduler: &fakeScheduler{}, ControlTasks: &fakeTasks{}, Binary: FileBinaryInstaller{Source: source}, SelfTester: &fakeSelfTest{}, Legacy: missingLegacy{}, CodexExecutable: codexExecutable, CodexSpawnPath: spec.SpawnPath}
+	installer := Installer{Paths: paths, Store: store, Scheduler: &fakeScheduler{}, ControlTasks: &fakeTasks{}, Binary: FileBinaryInstaller{Source: source}, SelfTester: &fakeSelfTest{}, CodexExecutable: codexExecutable, CodexSpawnPath: spec.SpawnPath}
 	result, err := installer.Install(context.Background(), InstallRequest{NonInteractive: true, Confirm: true})
 	if err != nil {
 		t.Fatal(err)
@@ -699,7 +510,7 @@ func TestNoninteractiveInstallPublishesPreviewBeforeMutation(t *testing.T) {
 	previews := 0
 	installer.Previewer = func(preview Preview) error {
 		previews++
-		if store.locks != 0 || tasks.ensures != 0 || len(preview.Lines) < 8 {
+		if store.locks != 0 || len(tasks.reads) != 1 || len(preview.Lines) < 8 {
 			t.Fatalf("preview after mutation or incomplete: store=%+v tasks=%+v preview=%+v", store, tasks, preview)
 		}
 		foundMutation := false
@@ -713,7 +524,7 @@ func TestNoninteractiveInstallPublishesPreviewBeforeMutation(t *testing.T) {
 		}
 		return nil
 	}
-	if _, err := installer.Install(context.Background(), InstallRequest{NonInteractive: true, Confirm: true}); err != nil {
+	if _, err := installer.Install(context.Background(), InstallRequest{ControlTaskID: "control-new", NonInteractive: true, Confirm: true}); err != nil {
 		t.Fatal(err)
 	}
 	if previews != 1 {
@@ -806,70 +617,12 @@ func TestCoreSelfTestRequiresSupportedHealthyPrivateSurfacesWithoutStateMutation
 	}
 }
 
-func TestInstallPersistsCreatedControlIDWhenLaterTaskSetupFails(t *testing.T) {
-	store := &fakeStore{}
-	tasks := &fakeTasks{failAfterCreate: errors.New("title failed")}
-	installer := newInstaller(t, store, &fakeScheduler{}, tasks, nil)
-	if _, err := installer.Install(context.Background(), InstallRequest{NonInteractive: true, Confirm: true}); err == nil {
-		t.Fatal("expected task setup failure")
-	}
-	if !store.configExists || store.config.ControlTaskID != "control-new" {
-		t.Fatalf("created ID not persisted: %+v", store)
-	}
-	if _, err := installer.Install(context.Background(), InstallRequest{NonInteractive: true, Confirm: true}); err != nil {
-		t.Fatal(err)
-	}
-	if len(tasks.requested) != 2 || tasks.requested[1] != "control-new" {
-		t.Fatalf("rerun did not adopt task: %v", tasks.requested)
-	}
-}
-
-func TestControlTaskMutationMakesReinstallChanged(t *testing.T) {
-	home := t.TempDir()
-	paths := PathsForHome(home)
-	source := filepath.Join(home, "candidate")
-	if err := os.WriteFile(source, []byte("same"), 0o700); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.MkdirAll(filepath.Dir(paths.Binary), 0o700); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(paths.Binary, []byte("same"), 0o700); err != nil {
-		t.Fatal(err)
-	}
-	if err := WriteManagedBlock(paths.Agents, []byte(assets.AgentsManagedContent)); err != nil {
-		t.Fatal(err)
-	}
-	if err := WriteManagedBlock(paths.Skill, []byte(assets.SkillManagedContent)); err != nil {
-		t.Fatal(err)
-	}
-	cfg := config.Default("control-existing")
-	committed := state.New()
-	store := &fakeStore{config: cfg, state: committed, configExists: true, stateExists: true}
-	codexExecutable := testCodexExecutable(t, home)
-	spec, err := codex.DeriveExecutableSpec(home, codexExecutable, os.Getenv("PATH"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	cfg.CodexExecutable = codexExecutable
-	cfg.CodexSpawnPath = spec.SpawnPath
-	store.config = cfg
-	installer := Installer{Paths: paths, Store: store, Scheduler: &fakeScheduler{}, ControlTasks: &fakeTasks{ensureChanged: true}, Binary: FileBinaryInstaller{Source: source}, SelfTester: &fakeSelfTest{}, Legacy: missingLegacy{}, CodexExecutable: codexExecutable, CodexSpawnPath: spec.SpawnPath}
-	result, err := installer.Install(context.Background(), InstallRequest{NonInteractive: true, Confirm: true})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !result.Changed || !reflect.DeepEqual(result.Resources, []string{"control_task"}) {
-		t.Fatalf("result=%+v", result)
-	}
-}
-
 func TestInteractiveInstallShowsPreviewExactlyOnce(t *testing.T) {
 	prompt := &fakePrompter{confirmed: true}
 	installer := newInstaller(t, &fakeStore{}, &fakeScheduler{}, &fakeTasks{}, prompt)
 	extra := 0
 	installer.Previewer = func(Preview) error { extra++; return nil }
-	if _, err := installer.Install(context.Background(), InstallRequest{}); err != nil {
+	if _, err := installer.Install(context.Background(), InstallRequest{ControlTaskID: "control-new"}); err != nil {
 		t.Fatal(err)
 	}
 	if prompt.previews != 1 || extra != 0 {
@@ -885,7 +638,7 @@ func TestInstallUsesOnlyExplicitTempHome(t *testing.T) {
 	}
 	t.Setenv("HOME", sentinel)
 	installer := newInstaller(t, &fakeStore{}, &fakeScheduler{}, &fakeTasks{}, nil)
-	if _, err := installer.Install(context.Background(), InstallRequest{NonInteractive: true, Confirm: true}); err != nil {
+	if _, err := installer.Install(context.Background(), InstallRequest{ControlTaskID: "control-new", NonInteractive: true, Confirm: true}); err != nil {
 		t.Fatal(err)
 	}
 	entries, err := os.ReadDir(sentinel)
@@ -902,141 +655,14 @@ func TestInstallMissingCodexFailsBeforeMutation(t *testing.T) {
 	paths := PathsForHome(home)
 	t.Setenv("PATH", filepath.Join(home, "missing-bin"))
 	store := NewDiskStore(paths)
-	installer := Installer{Paths: paths, Store: store, Scheduler: &fakeScheduler{}, ControlTasks: &fakeTasks{}, Binary: &fakeBinary{}, SelfTester: &fakeSelfTest{}, Legacy: missingLegacy{}, ResolveCodexExecutableSpec: codex.ResolveExecutableSpec}
-	_, err := installer.Install(context.Background(), InstallRequest{NonInteractive: true, Confirm: true})
+	installer := Installer{Paths: paths, Store: store, Scheduler: &fakeScheduler{}, ControlTasks: &fakeTasks{}, Binary: &fakeBinary{}, SelfTester: &fakeSelfTest{}, ResolveCodexExecutableSpec: codex.ResolveExecutableSpec}
+	_, err := installer.Install(context.Background(), InstallRequest{ControlTaskID: "control-new", NonInteractive: true, Confirm: true})
 	var failure *InstallFailure
 	if !errors.As(err, &failure) || failure.Step != "resolve_codex_executable" || !strings.Contains(failure.Cause, "install the Codex CLI") {
 		t.Fatalf("error=%v failure=%+v", err, failure)
 	}
 	if _, statErr := os.Stat(paths.StateDirectory); !errors.Is(statErr, os.ErrNotExist) {
 		t.Fatalf("state directory created: %v", statErr)
-	}
-}
-
-func TestInstallPostLockFailureRetainsStateDirectoryAndLockFile(t *testing.T) {
-	home := t.TempDir()
-	paths := PathsForHome(home)
-	codexExecutable := testCodexExecutable(t, home)
-	installer := Installer{Paths: paths, Store: NewDiskStore(paths), Scheduler: &fakeScheduler{}, ControlTasks: &fakeTasks{failAfterCreate: errors.New("title failed")}, Binary: &fakeBinary{}, SelfTester: &fakeSelfTest{}, Legacy: missingLegacy{}, CodexExecutable: codexExecutable}
-	_, err := installer.Install(context.Background(), InstallRequest{NonInteractive: true, Confirm: true})
-	if err == nil {
-		t.Fatal("expected failure")
-	}
-	for _, path := range []string{paths.StateDirectory, filepath.Join(paths.StateDirectory, "threadbear.lock")} {
-		if _, statErr := os.Stat(path); statErr != nil {
-			t.Fatalf("retained recovery path %s: %v", path, statErr)
-		}
-	}
-}
-
-func TestMigrationCapturesOriginalIntervalBeforeLegacyPlistIsRenamed(t *testing.T) {
-	home := t.TempDir()
-	paths := PathsForHome(home)
-	oldState := []byte(`{"schemaVersion":1,"controllerThreadId":"control-old","cycleCompletedAtMs":1700000000000,"retryIds":[],"threads":{}}`)
-	finalState := []byte(`{"schemaVersion":1,"controllerThreadId":"control-final","cycleCompletedAtMs":1700000001000,"retryIds":[],"threads":{}}`)
-	for _, path := range []string{paths.LegacyState, paths.LegacyLaunchAgent} {
-		if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
-			t.Fatal(err)
-		}
-	}
-	if err := os.WriteFile(paths.LegacyState, oldState, 0o600); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(paths.LegacyLaunchAgent, []byte("legacy plist with StartInterval 77"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	store := &fakeStore{}
-	scheduler := &renamingScheduler{fakeScheduler: fakeScheduler{interval: 77}, plistPath: paths.LegacyLaunchAgent, statePath: paths.LegacyState, finalState: finalState, store: store}
-	tasks := &fakeTasks{}
-	selfTest := &lifecycleSelfTest{scheduler: &scheduler.fakeScheduler}
-	loader := &orderedLegacyLoader{scheduler: scheduler}
-	installer := Installer{Paths: paths, Store: store, Scheduler: scheduler, ControlTasks: tasks, Binary: &fakeBinary{}, SelfTester: selfTest, Legacy: loader, CodexExecutable: testCodexExecutable(t, home)}
-	result, err := installer.Install(context.Background(), InstallRequest{NonInteractive: true, Confirm: true})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if loader.calls != 1 {
-		t.Fatalf("legacy loader calls=%d want 1 post-stop read", loader.calls)
-	}
-	if result.Config.HeartbeatSeconds != 77 || result.Config.ControlTaskID != "control-final" || store.config.ControlTaskID != "control-final" {
-		t.Fatalf("final migration did not preserve interval/state: result=%+v store=%+v", result, store)
-	}
-	if _, err := os.Stat(paths.LegacyLaunchAgent); !errors.Is(err, os.ErrNotExist) {
-		t.Fatalf("legacy plist was not renamed: %v", err)
-	}
-	if len(selfTest.inputs) != 2 || !selfTest.inputs[0].Candidate || selfTest.inputs[1].Candidate {
-		t.Fatalf("self-test phases=%+v", selfTest.inputs)
-	}
-	if got := scheduler.calls; !reflect.DeepEqual(got[:5], []string{"detect", "stage", "stop", "verify", "stage"}) {
-		t.Fatalf("binding order=%v", got)
-	}
-}
-
-func TestPostStopFinalReadFailureIsActionableAndRerunConverges(t *testing.T) {
-	home := t.TempDir()
-	paths := PathsForHome(home)
-	oldState := []byte(`{"schemaVersion":1,"controllerThreadId":"control-old","cycleCompletedAtMs":1700000000000,"retryIds":[],"threads":{}}`)
-	finalState := []byte(`{"schemaVersion":1,"controllerThreadId":"control-final","cycleCompletedAtMs":1700000001000,"retryIds":[],"threads":{}}`)
-	for _, path := range []string{paths.LegacyState, paths.LegacyLaunchAgent} {
-		if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
-			t.Fatal(err)
-		}
-	}
-	if err := os.WriteFile(paths.LegacyState, oldState, 0o600); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(paths.LegacyLaunchAgent, []byte("legacy plist with StartInterval 77"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	store := &fakeStore{}
-	scheduler := &renamingScheduler{fakeScheduler: fakeScheduler{interval: 77}, plistPath: paths.LegacyLaunchAgent, statePath: paths.LegacyState, finalState: finalState, store: store}
-	tasks := &fakeTasks{}
-	loader := &postStopFailLegacy{scheduler: scheduler}
-	installer := Installer{Paths: paths, Store: store, Scheduler: scheduler, ControlTasks: tasks, Binary: &fakeBinary{}, SelfTester: &fakeSelfTest{}, Legacy: loader, CodexExecutable: testCodexExecutable(t, home)}
-	_, err := installer.Install(context.Background(), InstallRequest{NonInteractive: true, Confirm: true})
-	var failure *InstallFailure
-	if !errors.As(err, &failure) || failure.Step != "load_final_migration" || !strings.Contains(failure.Cause, "ThreadWatch was stopped") || !strings.Contains(failure.Cause, ".disabled-by-threadbear") || !strings.Contains(failure.Cause, "launchctl enable") || !strings.Contains(failure.Cause, "launchctl bootstrap") {
-		t.Fatalf("failure=%v", err)
-	}
-	if store.configExists || store.stateExists || tasks.ensures != 0 {
-		t.Fatalf("pre-stop candidate state was persisted: store=%+v tasks=%+v", store, tasks)
-	}
-	result, err := installer.Install(context.Background(), InstallRequest{NonInteractive: true, Confirm: true})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !store.configExists || !store.stateExists || result.Config.HeartbeatSeconds != 77 || result.Config.ControlTaskID != "control-final" {
-		t.Fatalf("rerun did not converge: result=%+v store=%+v", result, store)
-	}
-}
-
-func TestMigrationReloadsStateAfterPreviewAndLegacyStop(t *testing.T) {
-	home := t.TempDir()
-	paths := PathsForHome(home)
-	oldState := `{"schemaVersion":1,"controllerThreadId":"control-old","cycleCompletedAtMs":1700000000000,"retryIds":[],"threads":{}}`
-	newState := `{"schemaVersion":1,"controllerThreadId":"control-newer","cycleCompletedAtMs":1700000001000,"retryIds":[],"threads":{}}`
-	if err := os.MkdirAll(filepath.Dir(paths.LegacyState), 0o700); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(paths.LegacyState, []byte(oldState), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	store := &fakeStore{}
-	scheduler := &fakeScheduler{interval: 77}
-	tasks := &fakeTasks{}
-	installer := newInstaller(t, store, scheduler, tasks, nil)
-	installer.Paths = paths
-	installer.Legacy = FileLegacyLoader{}
-	installer.Previewer = func(Preview) error { return os.WriteFile(paths.LegacyState, []byte(newState), 0o600) }
-	result, err := installer.Install(context.Background(), InstallRequest{NonInteractive: true, Confirm: true})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !result.Migrated || result.Config.ControlTaskID != "control-newer" || tasks.requested[0] != "control-newer" {
-		t.Fatalf("result=%+v requested=%v", result, tasks.requested)
-	}
-	if !reflect.DeepEqual(scheduler.calls[:4], []string{"detect", "stage", "stop", "verify"}) {
-		t.Fatalf("migration read order calls=%v", scheduler.calls)
 	}
 }
 
@@ -1080,7 +706,7 @@ func TestReinstallRestoresBinaryModeWhenBytesMatch(t *testing.T) {
 	}
 	cfg.CodexSpawnPath = spec.SpawnPath
 	store := &fakeStore{config: cfg, state: state.New(), configExists: true, stateExists: true}
-	installer := Installer{Paths: paths, Store: store, Scheduler: &fakeScheduler{}, ControlTasks: &fakeTasks{}, Binary: FileBinaryInstaller{Source: source}, SelfTester: &fakeSelfTest{}, Legacy: missingLegacy{}, CodexExecutable: codexExecutable}
+	installer := Installer{Paths: paths, Store: store, Scheduler: &fakeScheduler{}, ControlTasks: &fakeTasks{}, Binary: FileBinaryInstaller{Source: source}, SelfTester: &fakeSelfTest{}, CodexExecutable: codexExecutable}
 	result, err := installer.Install(context.Background(), InstallRequest{NonInteractive: true, Confirm: true})
 	if err != nil {
 		t.Fatal(err)
@@ -1091,15 +717,6 @@ func TestReinstallRestoresBinaryModeWhenBytesMatch(t *testing.T) {
 	}
 	if info.Mode().Perm() != 0o700 || !containsResource(result.Resources, "binary") {
 		t.Fatalf("mode=%o result=%+v", info.Mode().Perm(), result)
-	}
-}
-
-func TestInstallFailureIncludesStableStepAndCause(t *testing.T) {
-	installer := newInstaller(t, &fakeStore{}, &fakeScheduler{}, &fakeTasks{failAfterCreate: errors.New("set title denied; verify Codex authentication")}, nil)
-	_, err := installer.Install(context.Background(), InstallRequest{NonInteractive: true, Confirm: true})
-	var failure *InstallFailure
-	if !errors.As(err, &failure) || failure.Step != "ensure_control_task" || !strings.Contains(failure.Cause, "verify Codex authentication") || strings.Contains(failure.Cause, "ThreadWatch was stopped") {
-		t.Fatalf("error=%v failure=%+v", err, failure)
 	}
 }
 
@@ -1150,7 +767,7 @@ func TestReinstallPrefersPersistedExecutableOutsideCurrentPath(t *testing.T) {
 	cfg.CodexExecutable = persisted
 	store := &fakeStore{config: cfg, state: state.New(), configExists: true, stateExists: true}
 	freshCalls := 0
-	installer := Installer{Paths: paths, Store: store, Scheduler: &fakeScheduler{}, ControlTasks: &fakeTasks{}, Binary: &fakeBinary{}, SelfTester: &fakeSelfTest{}, Legacy: missingLegacy{}, CodexExecutable: fresh, ResolveCodexExecutableSpec: func(string, string) (codex.ExecutableSpec, error) {
+	installer := Installer{Paths: paths, Store: store, Scheduler: &fakeScheduler{}, ControlTasks: &fakeTasks{}, Binary: &fakeBinary{}, SelfTester: &fakeSelfTest{}, CodexExecutable: fresh, ResolveCodexExecutableSpec: func(string, string) (codex.ExecutableSpec, error) {
 		freshCalls++
 		return codex.ExecutableSpec{}, errors.New("fresh resolution must not run")
 	}}
@@ -1172,10 +789,10 @@ func TestInstallPersistsResolvedCodexSpawnContract(t *testing.T) {
 	tasks := &executableSpecTasks{fakeTasks: &fakeTasks{}}
 	installer := Installer{
 		Paths: paths, Store: store, Scheduler: &fakeScheduler{}, ControlTasks: tasks,
-		Binary: &fakeBinary{}, SelfTester: &fakeSelfTest{}, Legacy: missingLegacy{},
+		Binary: &fakeBinary{}, SelfTester: &fakeSelfTest{},
 		ResolveCodexExecutableSpec: codex.ResolveExecutableSpec,
 	}
-	result, err := installer.Install(context.Background(), InstallRequest{NonInteractive: true, Confirm: true})
+	result, err := installer.Install(context.Background(), InstallRequest{ControlTaskID: "control-new", NonInteractive: true, Confirm: true})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1201,7 +818,7 @@ func TestReinstallDerivesMissingSpawnPathBeforeFreshResolution(t *testing.T) {
 	freshCalls := 0
 	installer := Installer{
 		Paths: paths, Store: store, Scheduler: &fakeScheduler{}, ControlTasks: &fakeTasks{},
-		Binary: &fakeBinary{}, SelfTester: &fakeSelfTest{}, Legacy: missingLegacy{},
+		Binary: &fakeBinary{}, SelfTester: &fakeSelfTest{},
 		ResolveCodexExecutableSpec: func(string, string) (codex.ExecutableSpec, error) {
 			freshCalls++
 			return codex.ExecutableSpec{}, errors.New("fresh resolution must not run")
@@ -1213,5 +830,457 @@ func TestReinstallDerivesMissingSpawnPathBeforeFreshResolution(t *testing.T) {
 	}
 	if freshCalls != 0 || result.Config.CodexExecutable != executable || result.Config.CodexSpawnPath == "" || store.saveConfig != 1 {
 		t.Fatalf("fresh=%d result=%+v saves=%d", freshCalls, result, store.saveConfig)
+	}
+}
+
+func TestFirstInstallMissingControlIDPrecedesDependencyResolution(t *testing.T) {
+	store := &fakeStore{}
+	scheduler := &fakeScheduler{}
+	tasks := &fakeTasks{}
+	installer := newInstaller(t, store, scheduler, tasks, nil)
+	resolved := 0
+	installer.CodexExecutable = ""
+	installer.ResolveCodexExecutableSpec = func(string, string) (codex.ExecutableSpec, error) {
+		resolved++
+		return codex.ExecutableSpec{}, errors.New("must not resolve")
+	}
+	_, err := installer.Install(context.Background(), InstallRequest{NonInteractive: true, Confirm: true})
+	if !errors.Is(err, ErrControlTaskIDRequired) {
+		t.Fatalf("err=%v", err)
+	}
+	if resolved != 0 || store.locks != 0 || store.saveConfig != 0 || store.saveState != 0 || len(scheduler.calls) != 0 || len(tasks.reads) != 0 || installer.Binary.(*fakeBinary).calls != 0 {
+		t.Fatalf("resolved=%d store=%+v scheduler=%v tasks=%+v binary=%d", resolved, store, scheduler.calls, tasks, installer.Binary.(*fakeBinary).calls)
+	}
+}
+
+func TestInstallDryRunIsDeterministicAndMutationFree(t *testing.T) {
+	store := &fakeStore{}
+	scheduler := &fakeScheduler{}
+	tasks := &fakeTasks{}
+	installer := newInstaller(t, store, scheduler, tasks, nil)
+	request := InstallRequest{ControlTaskID: "task-home", DryRun: true}
+	first, err := installer.Install(context.Background(), request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := installer.Install(context.Background(), request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(first.Preview, second.Preview) || first.ControlTaskDisposition != ControlTaskAdopted || !first.DryRun {
+		t.Fatalf("first=%+v second=%+v", first, second)
+	}
+	if store.locks != 0 || store.saveConfig != 0 || store.saveState != 0 || len(scheduler.calls) != 0 || installer.Binary.(*fakeBinary).calls != 0 || len(tasks.welcomes) != 0 {
+		t.Fatalf("dry run mutated store=%+v scheduler=%v tasks=%+v", store, scheduler.calls, tasks)
+	}
+}
+
+func TestInstallDryRunPreservesRealFilesAndIgnoresHistoricalThreadWatch(t *testing.T) {
+	type snapshotEntry struct {
+		Mode os.FileMode
+		Data []byte
+	}
+	home := t.TempDir()
+	paths := PathsForHome(home)
+	cfg := config.Default("home-task")
+	cfg.HeartbeatSeconds = 777
+	cfg.ArchiveEnabled = false
+	cfg.CodexExecutable = testCodexExecutable(t, home)
+	spec, err := codex.DeriveExecutableSpec(home, cfg.CodexExecutable, os.Getenv("PATH"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg.CodexSpawnPath = spec.SpawnPath
+	committed := state.New()
+	committed.Generation = 42
+	store := NewDiskStore(paths)
+	if err := store.SaveConfig(cfg); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.SaveState(committed); err != nil {
+		t.Fatal(err)
+	}
+	write := func(path string, data []byte, mode os.FileMode) {
+		t.Helper()
+		if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, data, mode); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Chmod(path, mode); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write(paths.Binary, []byte("existing binary\x00bytes"), 0o711)
+	write(paths.LaunchAgent, []byte("current launchagent bytes"), 0o640)
+	write(paths.Agents, []byte("user AGENTS guidance\n"), 0o644)
+	write(paths.Skill, []byte("historical skill bytes\n"), 0o444)
+	legacyDirectory := filepath.Join(home, ".local", "share", "threadwatch")
+	legacyState := filepath.Join(legacyDirectory, "state.json")
+	legacyLock := filepath.Join(legacyDirectory, "run.lock")
+	legacyPlist := filepath.Join(home, "Library", "LaunchAgents", "org.litman.threadwatch.plist")
+	write(legacyState, []byte(`{"control_task_id":"legacy-task","heartbeat_seconds":5}`), 0o604)
+	write(legacyLock, []byte("arbitrary historical lock\x00bytes"), 0o400)
+	write(legacyPlist, []byte("arbitrary historical plist bytes"), 0o666)
+	snapshot := func() map[string]snapshotEntry {
+		t.Helper()
+		got := make(map[string]snapshotEntry)
+		err := filepath.WalkDir(home, func(path string, entry fs.DirEntry, err error) error {
+			if err != nil {
+				return err
+			}
+			info, err := entry.Info()
+			if err != nil {
+				return err
+			}
+			relative, err := filepath.Rel(home, path)
+			if err != nil {
+				return err
+			}
+			item := snapshotEntry{Mode: info.Mode()}
+			if info.Mode().IsRegular() {
+				item.Data, err = os.ReadFile(path)
+				if err != nil {
+					return err
+				}
+			}
+			got[relative] = item
+			return nil
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return got
+	}
+	before := snapshot()
+	scheduler := &fakeScheduler{}
+	tasks := &fakeTasks{tasks: map[string]ControlTask{
+		"home-task":    {ID: "home-task"},
+		"calling-task": {ID: "calling-task"},
+		"legacy-task":  {ID: "legacy-task", Archived: true},
+	}}
+	binary := &fakeBinary{}
+	selfTest := &fakeSelfTest{}
+	installer := Installer{
+		Paths: paths, Store: store, Scheduler: scheduler, ControlTasks: tasks,
+		Binary: binary, SelfTester: selfTest, CodexExecutable: cfg.CodexExecutable, CodexSpawnPath: cfg.CodexSpawnPath,
+	}
+	result, err := installer.Install(context.Background(), InstallRequest{ControlTaskID: "calling-task", DryRun: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.DryRun || result.ControlTaskDisposition != ControlTaskStayedHome || result.Config.ControlTaskID != "home-task" || !reflect.DeepEqual(result.Config, cfg) || !reflect.DeepEqual(result.State, committed) {
+		t.Fatalf("result=%+v", result)
+	}
+	if !reflect.DeepEqual(tasks.reads, []string{"home-task"}) || len(tasks.unarchived) != 0 || len(tasks.archived) != 0 || len(tasks.welcomes) != 0 {
+		t.Fatalf("task calls=%+v", tasks)
+	}
+	if len(scheduler.calls) != 0 || binary.calls != 0 || selfTest.calls != 0 {
+		t.Fatalf("scheduler=%v binary=%d selftest=%d", scheduler.calls, binary.calls, selfTest.calls)
+	}
+	if after := snapshot(); !reflect.DeepEqual(after, before) {
+		t.Fatalf("dry run changed files or modes\nbefore=%#v\nafter=%#v", before, after)
+	}
+}
+
+func TestControlTaskSelectionMatrix(t *testing.T) {
+	tests := []struct {
+		name        string
+		persisted   string
+		persistedOK bool
+		archived    bool
+		supplied    string
+		want        ControlTaskDisposition
+		wantID      string
+		wantErr     bool
+		unarchive   bool
+	}{
+		{name: "first adoption", supplied: "new", want: ControlTaskAdopted, wantID: "new"},
+		{name: "retained", persisted: "home", persistedOK: true, want: ControlTaskRetained, wantID: "home"},
+		{name: "stayed home", persisted: "home", persistedOK: true, supplied: "other", want: ControlTaskStayedHome, wantID: "home"},
+		{name: "unreadable replacement", persisted: "gone", supplied: "new", want: ControlTaskReplaced, wantID: "new"},
+		{name: "persisted archived", persisted: "home", persistedOK: true, archived: true, want: ControlTaskRetained, wantID: "home", unarchive: true},
+		{name: "supplied archived rejected", supplied: "new", archived: true, wantErr: true},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			tasks := &fakeTasks{tasks: map[string]ControlTask{}}
+			if test.persistedOK {
+				tasks.tasks[test.persisted] = ControlTask{ID: test.persisted, Archived: test.archived}
+			} else if test.persisted != "" {
+				tasks.readErr = map[string]error{test.persisted: errors.New("missing")}
+			}
+			if test.supplied != "" {
+				tasks.tasks[test.supplied] = ControlTask{ID: test.supplied, Archived: test.archived && !test.persistedOK}
+			}
+			installer := newInstaller(t, &fakeStore{}, &fakeScheduler{}, tasks, nil)
+			cfg := config.Config{}
+			if test.persisted != "" {
+				cfg = config.Default(test.persisted)
+			}
+			selection, err := installer.selectControlTask(context.Background(), cfg, test.persisted != "", test.supplied)
+			if test.wantErr {
+				if err == nil {
+					t.Fatalf("selection=%+v", selection)
+				}
+				return
+			}
+			if err != nil || selection.Disposition != test.want || selection.ID != test.wantID || selection.Unarchive != test.unarchive {
+				t.Fatalf("selection=%+v err=%v", selection, err)
+			}
+		})
+	}
+}
+
+func TestInstallWelcomeAndUnarchiveDoNotInterfereWithOtherTasks(t *testing.T) {
+	cfg := config.Default("home")
+	store := &fakeStore{config: cfg, state: state.New(), configExists: true, stateExists: true}
+	tasks := &fakeTasks{tasks: map[string]ControlTask{"home": {ID: "home", Archived: true}, "other": {ID: "other"}}}
+	installer := newInstaller(t, store, &fakeScheduler{}, tasks, nil)
+	result, err := installer.Install(context.Background(), InstallRequest{ControlTaskID: "other", NonInteractive: true, Confirm: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.ControlTaskDisposition != ControlTaskStayedHome || !result.Unarchived || !reflect.DeepEqual(tasks.unarchived, []string{"home"}) || len(tasks.welcomes) != 0 || len(tasks.archived) != 0 {
+		t.Fatalf("result=%+v tasks=%+v", result, tasks)
+	}
+	if task := tasks.tasks["other"]; task.Archived {
+		t.Fatalf("unrelated task changed: %+v", task)
+	}
+}
+
+func TestBear60RepairPreservesOneRawBackupAndOnlyReplacesID(t *testing.T) {
+	home := t.TempDir()
+	paths := PathsForHome(home)
+	if err := os.MkdirAll(paths.StateDirectory, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	cfg := config.Default(bear60ControllerID)
+	cfg.CodexExecutable = testCodexExecutable(t, home)
+	spec, err := codex.DeriveExecutableSpec(home, cfg.CodexExecutable, os.Getenv("PATH"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg.CodexSpawnPath = spec.SpawnPath
+	raw, err := json.MarshalIndent(cfg, "", "  ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(paths.Config, raw, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	store := NewDiskStore(paths)
+	if err := store.SaveState(state.New()); err != nil {
+		t.Fatal(err)
+	}
+	run := func() InstallResult {
+		t.Helper()
+		tasks := &fakeTasks{tasks: map[string]ControlTask{"new-home": {ID: "new-home"}}}
+		installer := Installer{Paths: paths, Store: store, Scheduler: &fakeScheduler{}, ControlTasks: tasks, Binary: &fakeBinary{}, SelfTester: &fakeSelfTest{}, CodexExecutable: cfg.CodexExecutable, CodexSpawnPath: cfg.CodexSpawnPath}
+		result, err := installer.Install(context.Background(), InstallRequest{ControlTaskID: "new-home", NonInteractive: true, Confirm: true})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if result.ControlTaskDisposition != ControlTaskRepaired || len(tasks.welcomes) != 1 {
+			t.Fatalf("result=%+v welcomes=%d", result, len(tasks.welcomes))
+		}
+		return result
+	}
+	assertRepair := func() []byte {
+		t.Helper()
+		backup, err := os.ReadFile(paths.ConfigRepairBackup)
+		if err != nil {
+			t.Fatal(err)
+		}
+		info, err := os.Stat(paths.ConfigRepairBackup)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !reflect.DeepEqual(backup, raw) || info.Mode().Perm() != 0o400 {
+			t.Fatalf("backup preserved=%t mode=%04o", reflect.DeepEqual(backup, raw), info.Mode().Perm())
+		}
+		repaired, err := os.ReadFile(paths.Config)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if strings.Count(string(repaired), "new-home") != 1 || strings.Contains(string(repaired), bear60ControllerID) {
+			t.Fatalf("repair did not replace exactly the control ID: %s", repaired)
+		}
+		decoded, err := config.Decode(repaired)
+		if err != nil {
+			t.Fatal(err)
+		}
+		want := cfg
+		want.ControlTaskID = "new-home"
+		if !reflect.DeepEqual(decoded, want) {
+			t.Fatalf("decoded=%+v want=%+v", decoded, want)
+		}
+		return backup
+	}
+	run()
+	backup := assertRepair()
+	if err := os.WriteFile(paths.Config, raw, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	run()
+	if rerunBackup := assertRepair(); !reflect.DeepEqual(rerunBackup, backup) {
+		t.Fatal("interrupted repair rerun changed the immutable backup")
+	}
+}
+
+func TestInstallRequiresControlTaskIDBeforeMutation(t *testing.T) {
+	store := &fakeStore{}
+	scheduler := &fakeScheduler{}
+	installer := newInstaller(t, store, scheduler, &fakeTasks{}, nil)
+	_, err := installer.Install(context.Background(), InstallRequest{NonInteractive: true, Confirm: true})
+	if !errors.Is(err, ErrControlTaskIDRequired) {
+		t.Fatalf("err=%v", err)
+	}
+	if store.locks != 0 || len(scheduler.calls) != 0 || installer.Binary.(*fakeBinary).calls != 0 {
+		t.Fatalf("mutation occurred store=%+v scheduler=%v binary=%d", store, scheduler.calls, installer.Binary.(*fakeBinary).calls)
+	}
+}
+
+func TestInstallWelcomeOnlyForAdoptionAndReplacement(t *testing.T) {
+	for _, test := range []struct {
+		name      string
+		persisted string
+		readable  bool
+		supplied  string
+		want      ControlTaskDisposition
+		welcomes  int
+	}{
+		{name: "adopted", supplied: "new", want: ControlTaskAdopted, welcomes: 1},
+		{name: "retained", persisted: "home", readable: true, want: ControlTaskRetained},
+		{name: "stayed home", persisted: "home", readable: true, supplied: "other", want: ControlTaskStayedHome},
+		{name: "replaced", persisted: "gone", supplied: "new", want: ControlTaskReplaced, welcomes: 1},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			store := &fakeStore{}
+			if test.persisted != "" {
+				store.config = config.Default(test.persisted)
+				store.state = state.New()
+				store.configExists = true
+				store.stateExists = true
+			}
+			tasks := &fakeTasks{tasks: map[string]ControlTask{"new": {ID: "new"}, "other": {ID: "other"}}}
+			if test.readable {
+				tasks.tasks[test.persisted] = ControlTask{ID: test.persisted}
+			}
+			installer := newInstaller(t, store, &fakeScheduler{}, tasks, nil)
+			result, err := installer.Install(context.Background(), InstallRequest{ControlTaskID: test.supplied, NonInteractive: true, Confirm: true})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if result.ControlTaskDisposition != test.want || len(tasks.welcomes) != test.welcomes {
+				t.Fatalf("result=%+v welcomes=%d", result, len(tasks.welcomes))
+			}
+		})
+	}
+}
+
+func TestInstallUnarchivesPersistedTaskWithoutWelcome(t *testing.T) {
+	cfg := config.Default("home")
+	store := &fakeStore{config: cfg, state: state.New(), configExists: true, stateExists: true}
+	tasks := &fakeTasks{tasks: map[string]ControlTask{"home": {ID: "home", Archived: true}}}
+	installer := newInstaller(t, store, &fakeScheduler{}, tasks, nil)
+	result, err := installer.Install(context.Background(), InstallRequest{NonInteractive: true, Confirm: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.Unarchived || len(tasks.unarchived) != 1 || len(tasks.welcomes) != 0 {
+		t.Fatalf("result=%+v tasks=%+v", result, tasks)
+	}
+}
+
+func TestInstallPostLockFailureRetainsStateDirectoryAndLockFile(t *testing.T) {
+	home := t.TempDir()
+	paths := PathsForHome(home)
+	scheduler := &fakeScheduler{stageErrAt: 1, stageErr: errors.New("candidate staging failed")}
+	installer := Installer{Paths: paths, Store: NewDiskStore(paths), Scheduler: scheduler, ControlTasks: &fakeTasks{}, Binary: &fakeBinary{}, SelfTester: &fakeSelfTest{}, CodexExecutable: testCodexExecutable(t, home)}
+	_, err := installer.Install(context.Background(), InstallRequest{ControlTaskID: "control-new", NonInteractive: true, Confirm: true})
+	var failure *InstallFailure
+	if !errors.As(err, &failure) || failure.Step != "stage_candidate_scheduler" {
+		t.Fatalf("err=%v failure=%+v", err, failure)
+	}
+	for _, path := range []string{paths.StateDirectory, filepath.Join(paths.StateDirectory, "threadbear.lock")} {
+		if _, statErr := os.Stat(path); statErr != nil {
+			t.Fatalf("retained recovery path %s: %v", path, statErr)
+		}
+	}
+}
+
+func TestInstallFailureIncludesStableStepAndCause(t *testing.T) {
+	tasks := &fakeTasks{readErr: map[string]error{"control-new": errors.New("read denied; verify Codex authentication")}}
+	installer := newInstaller(t, &fakeStore{}, &fakeScheduler{}, tasks, nil)
+	_, err := installer.Install(context.Background(), InstallRequest{ControlTaskID: "control-new", NonInteractive: true, Confirm: true})
+	var failure *InstallFailure
+	if !errors.As(err, &failure) || failure.Step != "validate_supplied_control_task" || !strings.Contains(failure.Cause, "verify Codex authentication") {
+		t.Fatalf("error=%v failure=%+v", err, failure)
+	}
+}
+
+func TestInstallIgnoresThreadWatchArtifacts(t *testing.T) {
+	home := t.TempDir()
+	paths := PathsForHome(home)
+	legacy := map[string][]byte{
+		filepath.Join(home, ".local", "share", "threadwatch", "state.json"):            []byte(`{"schemaVersion":4,"controllerThreadId":"legacy-control"}`),
+		filepath.Join(home, ".local", "share", "threadwatch", "run.lock"):              []byte("legacy lock"),
+		filepath.Join(home, "Library", "LaunchAgents", "org.litman.threadwatch.plist"): []byte("legacy plist"),
+	}
+	for path, data := range legacy {
+		if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, data, 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	store := &fakeStore{}
+	scheduler := &fakeScheduler{}
+	tasks := &fakeTasks{tasks: map[string]ControlTask{"new-home": {ID: "new-home"}, "legacy-control": {ID: "legacy-control", Archived: true}}}
+	installer := newInstaller(t, store, scheduler, tasks, nil)
+	installer.Paths = paths
+	installer.CodexExecutable = testCodexExecutable(t, home)
+	result, err := installer.Install(context.Background(), InstallRequest{ControlTaskID: "new-home", NonInteractive: true, Confirm: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Config.ControlTaskID != "new-home" || result.Config.HeartbeatSeconds != DefaultPreferences().HeartbeatSeconds {
+		t.Fatalf("legacy artifacts influenced install: %+v", result.Config)
+	}
+	if !reflect.DeepEqual(scheduler.calls, []string{"stage", "stage", "enable", "healthy"}) || !reflect.DeepEqual(tasks.reads, []string{"new-home", "new-home"}) || len(tasks.unarchived) != 0 || len(tasks.archived) != 0 {
+		t.Fatalf("legacy artifacts influenced scheduler/tasks: calls=%v tasks=%+v", scheduler.calls, tasks)
+	}
+	for path, want := range legacy {
+		got, readErr := os.ReadFile(path)
+		if readErr != nil || !bytes.Equal(got, want) {
+			t.Fatalf("ThreadWatch artifact changed: %s got=%q err=%v", path, got, readErr)
+		}
+		info, statErr := os.Stat(path)
+		if statErr != nil {
+			t.Fatalf("stat ThreadWatch artifact %s: %v", path, statErr)
+		}
+		if info.Mode().Perm() != 0o600 {
+			t.Fatalf("ThreadWatch artifact mode changed: %s mode=%v", path, info.Mode())
+		}
+	}
+}
+
+func TestBear60RepairRejectsOtherConfigChangesBeforeMutation(t *testing.T) {
+	cfg := config.Default(bear60ControllerID)
+	store := &fakeStore{config: cfg, state: state.New(), configExists: true, stateExists: true}
+	scheduler := &fakeScheduler{}
+	tasks := &fakeTasks{tasks: map[string]ControlTask{"new-home": {ID: "new-home"}}}
+	installer := newInstaller(t, store, scheduler, tasks, nil)
+	seconds := cfg.HeartbeatSeconds + 1
+	_, err := installer.Install(context.Background(), InstallRequest{ControlTaskID: "new-home", Patch: PreferencePatch{HeartbeatSeconds: &seconds}, NonInteractive: true, Confirm: true})
+	var failure *InstallFailure
+	if !errors.As(err, &failure) || failure.Step != "repair_control_task" || !strings.Contains(failure.Cause, "only control_task_id") {
+		t.Fatalf("err=%v failure=%+v", err, failure)
+	}
+	if store.locks != 0 || store.saveConfig != 0 || store.saveState != 0 || len(scheduler.calls) != 0 || installer.Binary.(*fakeBinary).calls != 0 || len(tasks.welcomes) != 0 {
+		t.Fatalf("repair changed unrelated state: store=%+v scheduler=%v tasks=%+v", store, scheduler.calls, tasks)
 	}
 }

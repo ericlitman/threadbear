@@ -18,6 +18,7 @@ import (
 	"github.com/ericlitman/threadbear/internal/codex/appserver"
 	"github.com/ericlitman/threadbear/internal/config"
 	"github.com/ericlitman/threadbear/internal/install"
+	"github.com/ericlitman/threadbear/internal/launchagent"
 	"github.com/ericlitman/threadbear/internal/state"
 	"github.com/ericlitman/threadbear/internal/tokens"
 )
@@ -90,60 +91,19 @@ func TestInstallScriptRejectsInvalidManifestVersionBeforeAssetURL(t *testing.T) 
 }
 
 type controlTaskClientFake struct {
-	thread      appserver.Thread
-	starts      int
-	reads       int
-	unarchives  int
-	titles      int
-	archives    int
-	setTitleErr error
+	thread   appserver.Thread
+	reads    int
+	archives int
 }
 
 func (c *controlTaskClientFake) ReadThread(context.Context, string) (appserver.Thread, error) {
 	c.reads++
 	return c.thread, nil
 }
-func (c *controlTaskClientFake) StartPersistentThread(context.Context) (appserver.Thread, error) {
-	c.starts++
-	c.thread = appserver.Thread{ID: "control-new", Status: appserver.ThreadStatus{Type: "idle"}}
-	return c.thread, nil
-}
-func (c *controlTaskClientFake) Unarchive(context.Context, string) (appserver.Thread, error) {
-	c.unarchives++
-	c.thread.Status.Type = "idle"
-	return c.thread, nil
-}
-func (c *controlTaskClientFake) SetTitle(_ context.Context, _ string, title string) error {
-	c.titles++
-	if c.setTitleErr != nil {
-		return c.setTitleErr
-	}
-	c.thread.Name = title
-	return nil
-}
 func (c *controlTaskClientFake) Archive(context.Context, string) error {
 	c.archives++
 	c.thread.Status.Type = "archived"
 	return nil
-}
-
-func TestEnsureControlTaskMutatesOnlyWhenNeeded(t *testing.T) {
-	client := &controlTaskClientFake{thread: appserver.Thread{ID: "control-1", Name: controlTaskTitle, Status: appserver.ThreadStatus{Type: "idle"}}}
-	id, changed, err := ensureControlTask(context.Background(), client, "control-1")
-	if err != nil || changed || id != "control-1" || client.unarchives != 0 || client.titles != 0 || client.starts != 0 {
-		t.Fatalf("id=%q changed=%t err=%v client=%+v", id, changed, err, client)
-	}
-	client.thread.Status.Type = "archived"
-	client.thread.Name = "old"
-	_, changed, err = ensureControlTask(context.Background(), client, "control-1")
-	if err != nil || !changed || client.unarchives != 1 || client.titles != 1 {
-		t.Fatalf("changed=%t err=%v client=%+v", changed, err, client)
-	}
-	created := &controlTaskClientFake{setTitleErr: errors.New("title failed")}
-	id, changed, err = ensureControlTask(context.Background(), created, "")
-	if err == nil || !changed || id != "control-new" || created.starts != 1 {
-		t.Fatalf("id=%q changed=%t err=%v client=%+v", id, changed, err, created)
-	}
 }
 
 func TestArchiveControlTaskReportsTruthfulChangedState(t *testing.T) {
@@ -180,7 +140,7 @@ func TestInstallMissingCodexReportsStepAndDoesNotCreateState(t *testing.T) {
 	}
 	t.Cleanup(func() { resolveCodexExecutableSpec = originalResolver })
 	var stdout, stderr strings.Builder
-	code := run(context.Background(), []string{"install", "--noninteractive", "--confirm", "--json"}, &stdout, &stderr)
+	code := run(context.Background(), []string{"install", "--control-task-id", "task-home", "--noninteractive", "--confirm", "--json"}, &stdout, &stderr)
 	if code != 1 || !strings.Contains(stdout.String(), `"step":"resolve_codex_executable"`) || !strings.Contains(stdout.String(), "install the Codex CLI") {
 		t.Fatalf("code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
 	}
@@ -577,4 +537,90 @@ func TestInstalledSelfTestMalformedManagedSurfaceHasStablePathSafeDiagnostic(t *
 		return
 	}
 	t.Fatalf("checks=%+v", result.Checks)
+}
+
+func TestParseInstallControlTaskAndDryRun(t *testing.T) {
+	request, err := parseRequest([]string{"install", "--control-task-id", "task-home", "--dry-run"})
+	if err != nil || request.ControlTaskID != "task-home" || !request.DryRun || request.Confirm {
+		t.Fatalf("request=%+v err=%v", request, err)
+	}
+}
+
+func TestRunFirstInstallWithoutControlTaskIDExitsTwoWithoutStateMutation(t *testing.T) {
+	home := t.TempDir()
+	codexHome := filepath.Join(home, "codex")
+	if err := os.MkdirAll(codexHome, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("HOME", home)
+	t.Setenv("CODEX_HOME", codexHome)
+	originalResolver := resolveCodexExecutableSpec
+	resolveCodexExecutableSpec = func(string, string) (codex.ExecutableSpec, error) {
+		return codex.ExecutableSpec{Path: "/bin/sh", SpawnPath: "/usr/bin:/bin"}, nil
+	}
+	t.Cleanup(func() { resolveCodexExecutableSpec = originalResolver })
+	var stdout, stderr strings.Builder
+	code := run(context.Background(), []string{"install", "--noninteractive", "--confirm"}, &stdout, &stderr)
+	if code != 2 {
+		t.Fatalf("code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+	combined := stdout.String() + stderr.String()
+	if !strings.Contains(combined, "Codex") || !strings.Contains(combined, "INSTALL.md") || !strings.Contains(combined, "--control-task-id") {
+		t.Fatalf("missing friendly install guidance: stdout=%q stderr=%q", stdout.String(), stderr.String())
+	}
+	stateDirectory := filepath.Join(home, ".local", "share", "threadbear")
+	if _, err := os.Stat(stateDirectory); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("state directory mutated: %v", err)
+	}
+}
+
+type productionSchedulerRunner struct {
+	calls  []string
+	loaded bool
+}
+
+func (r *productionSchedulerRunner) Run(_ context.Context, _ string, args ...string) ([]byte, error) {
+	r.calls = append(r.calls, strings.Join(args, " "))
+	switch args[0] {
+	case "print-disabled":
+		return []byte(`"org.litman.threadbear" => true`), nil
+	case "print":
+		if r.loaded {
+			return []byte("loaded"), nil
+		}
+		return []byte("Could not find service"), errors.New("exit status 113")
+	case "enable":
+		return nil, nil
+	case "bootstrap":
+		r.loaded = true
+		return nil, nil
+	case "kickstart":
+		return nil, nil
+	default:
+		return nil, fmt.Errorf("unexpected launchctl command %q", args[0])
+	}
+}
+
+func TestProductionSchedulerEnableDoesNotKickstart(t *testing.T) {
+	home := t.TempDir()
+	runner := &productionSchedulerRunner{}
+	adapter, err := launchagent.New(launchagent.Options{Home: home, BinaryPath: filepath.Join(home, "threadbear"), UID: 501, Runner: runner})
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg := config.Default("control")
+	cfg.CodexExecutable = "/bin/sh"
+	cfg.CodexSpawnPath = "/usr/bin:/bin"
+	if _, err := adapter.Stage(context.Background(), cfg); err != nil {
+		t.Fatal(err)
+	}
+	start := len(runner.calls)
+	changed, err := (productionScheduler{adapter: adapter}).Enable(context.Background())
+	if err != nil || !changed {
+		t.Fatalf("Enable=%t, %v", changed, err)
+	}
+	calls := strings.Join(runner.calls[start:], "\n")
+	if !strings.Contains(calls, "bootstrap ") || strings.Contains(calls, "kickstart ") {
+		t.Fatalf("production scheduler calls=%s", calls)
+	}
 }

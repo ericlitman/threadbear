@@ -35,6 +35,8 @@ Flags:
   --classifier-effort low|medium|high|xhigh  set classifier reasoning effort: low|medium|high|xhigh (default: "")
   --classifier-model MODEL                   set non-empty classifier MODEL without surrounding whitespace (default: "")
   --confirm                                  assert confirmation for noninteractive use (default: false)
+  --control-task-id TASK_ID                  adopt existing readable unarchived Codex task TASK_ID (default: "")
+  --dry-run                                  validate and print the complete install preview without mutation (default: false)
   --heartbeat-seconds SECONDS                set the heartbeat interval in positive SECONDS (default: "")
   --json                                     write stable JSON command results; help stays human-readable (default: false)
   --non-interactive                          do not prompt (default: false)

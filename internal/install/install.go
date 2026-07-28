@@ -3,6 +3,7 @@ package install
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -21,22 +22,21 @@ import (
 	"github.com/ericlitman/threadbear/internal/tokens"
 )
 
+const bear60ControllerID = "019f8f9f-77fb-7240-b9ae-7963527b9af3"
+
 type Paths struct {
-	Home                 string
-	CodexHome            string
-	Binary               string
-	StateDirectory       string
-	Config               string
-	State                string
-	Agents               string
-	Skill                string
-	LaunchAgent          string
-	LaunchAgentStdout    string
-	LaunchAgentStderr    string
-	LegacyStateDirectory string
-	LegacyState          string
-	LegacyRunLock        string
-	LegacyLaunchAgent    string
+	Home               string
+	CodexHome          string
+	Binary             string
+	StateDirectory     string
+	Config             string
+	ConfigRepairBackup string
+	State              string
+	Agents             string
+	Skill              string
+	LaunchAgent        string
+	LaunchAgentStdout  string
+	LaunchAgentStderr  string
 }
 
 func PathsForHome(home string) Paths {
@@ -46,27 +46,21 @@ func PathsForHome(home string) Paths {
 func PathsForHomes(home, codexHome string) Paths {
 	stateDirectory := filepath.Join(home, ".local", "share", "threadbear")
 	return Paths{
-		Home:                 home,
-		CodexHome:            codexHome,
-		Binary:               filepath.Join(home, ".local", "bin", "threadbear"),
-		StateDirectory:       stateDirectory,
-		Config:               filepath.Join(stateDirectory, "config.json"),
-		State:                filepath.Join(stateDirectory, "state.json"),
-		Agents:               filepath.Join(codexHome, "AGENTS.md"),
-		Skill:                filepath.Join(codexHome, "skills", "threadbear", "SKILL.md"),
-		LaunchAgent:          filepath.Join(home, "Library", "LaunchAgents", config.LaunchAgentLabel+".plist"),
-		LaunchAgentStdout:    filepath.Join(stateDirectory, "logs", "heartbeat.stdout.log"),
-		LaunchAgentStderr:    filepath.Join(stateDirectory, "logs", "heartbeat.stderr.log"),
-		LegacyStateDirectory: filepath.Join(home, ".local", "share", "threadwatch"),
-		LegacyState:          filepath.Join(home, ".local", "share", "threadwatch", "state.json"),
-		LegacyRunLock:        filepath.Join(home, ".local", "share", "threadwatch", "run.lock"),
-		LegacyLaunchAgent:    filepath.Join(home, "Library", "LaunchAgents", "org.litman.threadwatch.plist"),
+		Home: home, CodexHome: codexHome,
+		Binary:             filepath.Join(home, ".local", "bin", "threadbear"),
+		StateDirectory:     stateDirectory,
+		Config:             filepath.Join(stateDirectory, "config.json"),
+		ConfigRepairBackup: filepath.Join(stateDirectory, "config.json.bear-60-backup"),
+		State:              filepath.Join(stateDirectory, "state.json"),
+		Agents:             filepath.Join(codexHome, "AGENTS.md"),
+		Skill:              filepath.Join(codexHome, "skills", "threadbear", "SKILL.md"),
+		LaunchAgent:        filepath.Join(home, "Library", "LaunchAgents", config.LaunchAgentLabel+".plist"),
+		LaunchAgentStdout:  filepath.Join(stateDirectory, "logs", "heartbeat.stdout.log"),
+		LaunchAgentStderr:  filepath.Join(stateDirectory, "logs", "heartbeat.stderr.log"),
 	}
 }
 
-type Lock interface {
-	Close() error
-}
+type Lock interface{ Close() error }
 
 type Store interface {
 	AcquireLock() (Lock, error)
@@ -78,36 +72,124 @@ type Store interface {
 
 type DiskStore struct {
 	store *state.Store
+	paths Paths
 }
 
 func NewDiskStore(paths Paths) *DiskStore {
-	return &DiskStore{store: state.NewStore(paths.StateDirectory)}
+	return &DiskStore{store: state.NewStore(paths.StateDirectory), paths: paths}
+}
+func (s *DiskStore) AcquireLock() (Lock, error)           { return s.store.AcquireLock() }
+func (s *DiskStore) LoadConfig() (config.Config, error)   { return s.store.LoadConfig() }
+func (s *DiskStore) SaveConfig(value config.Config) error { return s.store.SaveConfig(value) }
+func (s *DiskStore) LoadState() (state.State, error)      { return s.store.LoadState() }
+func (s *DiskStore) SaveState(value state.State) error    { return s.store.SaveState(value) }
+func (s *DiskStore) RepairControlTaskID(controlTaskID string) error {
+	raw, err := os.ReadFile(s.paths.Config)
+	if err != nil {
+		return err
+	}
+	var decoded map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &decoded); err != nil {
+		return err
+	}
+	old, ok := decoded["control_task_id"]
+	if !ok {
+		return errors.New("config has no control_task_id")
+	}
+	var oldID string
+	if err := json.Unmarshal(old, &oldID); err != nil {
+		return err
+	}
+	if oldID != bear60ControllerID {
+		return errors.New("config is not eligible for the BEAR-60 repair")
+	}
+	oldJSON, _ := json.Marshal(oldID)
+	newJSON, _ := json.Marshal(controlTaskID)
+	key := []byte(`"control_task_id"`)
+	keyAt := bytes.Index(raw, key)
+	if keyAt < 0 {
+		return errors.New("config has no control_task_id")
+	}
+	valueAt := bytes.Index(raw[keyAt+len(key):], oldJSON)
+	if valueAt < 0 {
+		return errors.New("config control_task_id could not be replaced exactly")
+	}
+	valueAt += keyAt + len(key)
+	repaired := append([]byte(nil), raw[:valueAt]...)
+	repaired = append(repaired, newJSON...)
+	repaired = append(repaired, raw[valueAt+len(oldJSON):]...)
+	if info, err := os.Lstat(s.paths.ConfigRepairBackup); errors.Is(err, os.ErrNotExist) {
+		file, createErr := os.OpenFile(s.paths.ConfigRepairBackup, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+		if createErr != nil {
+			return createErr
+		}
+		if _, createErr = file.Write(raw); createErr == nil {
+			createErr = file.Sync()
+		}
+		if createErr == nil {
+			createErr = file.Chmod(0o400)
+		}
+		createErr = errors.Join(createErr, file.Close())
+		if createErr != nil {
+			return createErr
+		}
+		if createErr = syncInstallDirectory(s.paths.StateDirectory); createErr != nil {
+			return createErr
+		}
+	} else if err != nil {
+		return err
+	} else {
+		if !info.Mode().IsRegular() || info.Mode().Perm() != 0o400 {
+			return errors.New("BEAR-60 backup is not an immutable private file")
+		}
+		backup, readErr := os.ReadFile(s.paths.ConfigRepairBackup)
+		if readErr != nil {
+			return readErr
+		}
+		if !bytes.Equal(backup, raw) {
+			return errors.New("BEAR-60 backup does not match the raw pre-repair config")
+		}
+	}
+	temporary, err := os.CreateTemp(s.paths.StateDirectory, ".config.json.repair-*")
+	if err != nil {
+		return err
+	}
+	name := temporary.Name()
+	renamed := false
+	defer func() {
+		temporary.Close()
+		if !renamed {
+			os.Remove(name)
+		}
+	}()
+	if err := temporary.Chmod(0o600); err != nil {
+		return err
+	}
+	if _, err := temporary.Write(repaired); err != nil {
+		return err
+	}
+	if err := temporary.Sync(); err != nil {
+		return err
+	}
+	if err := temporary.Close(); err != nil {
+		return err
+	}
+	if err := os.Rename(name, s.paths.Config); err != nil {
+		return err
+	}
+	renamed = true
+	return syncInstallDirectory(s.paths.StateDirectory)
 }
 
-func (s *DiskStore) AcquireLock() (Lock, error) {
-	return s.store.AcquireLock()
-}
-
-func (s *DiskStore) LoadConfig() (config.Config, error) {
-	return s.store.LoadConfig()
-}
-
-func (s *DiskStore) SaveConfig(value config.Config) error {
-	return s.store.SaveConfig(value)
-}
-
-func (s *DiskStore) LoadState() (state.State, error) {
-	return s.store.LoadState()
-}
-
-func (s *DiskStore) SaveState(value state.State) error {
-	return s.store.SaveState(value)
+func syncInstallDirectory(path string) error {
+	directory, err := os.Open(path)
+	if err != nil {
+		return err
+	}
+	return errors.Join(directory.Sync(), directory.Close())
 }
 
 type Scheduler interface {
-	DetectLegacyInterval(context.Context) (int, bool, error)
-	StopLegacy(context.Context) error
-	VerifyLegacyStopped(context.Context) error
 	Stage(context.Context, config.Config) (bool, error)
 	Enable(context.Context) (bool, error)
 	VerifyHealthy(context.Context) error
@@ -115,24 +197,21 @@ type Scheduler interface {
 	Remove(context.Context) error
 }
 
+type ControlTask struct {
+	ID       string
+	Archived bool
+}
+
 type ControlTasks interface {
-	EnsureControlTask(context.Context, string) (string, bool, error)
+	ReadControlTask(context.Context, string) (ControlTask, error)
+	UnarchiveControlTask(context.Context, string) (bool, error)
 	ArchiveControlTask(context.Context, string) (bool, error)
-	// PostWelcome inserts the post-install welcome notice into the control
-	// task. It uses the notice mechanism, which never starts a turn.
-	PostWelcome(ctx context.Context, taskID, text string) error
+	PostWelcome(context.Context, string, string) error
 }
 
-type BinaryInstaller interface {
-	Install(string) error
-}
-
+type BinaryInstaller interface{ Install(string) error }
 type SelfTester interface {
 	Test(context.Context, SelfTestInput) error
-}
-
-type LegacyLoader interface {
-	Load(string) ([]byte, error)
 }
 
 type PreferencePatch struct {
@@ -151,20 +230,35 @@ type PreferencePatch struct {
 type InstallRequest struct {
 	Preferences    *Preferences
 	Patch          PreferencePatch
+	ControlTaskID  string
+	DryRun         bool
 	NonInteractive bool
 	Confirm        bool
 }
 
+type ControlTaskDisposition string
+
+const (
+	ControlTaskRetained   ControlTaskDisposition = "retained"
+	ControlTaskStayedHome ControlTaskDisposition = "stayed_home"
+	ControlTaskAdopted    ControlTaskDisposition = "adopted"
+	ControlTaskReplaced   ControlTaskDisposition = "replaced"
+	ControlTaskRepaired   ControlTaskDisposition = "repaired"
+)
+
 type InstallResult struct {
-	Config      config.Config
-	State       state.State
-	Paths       Paths
-	Migrated    bool
-	Reinstalled bool
-	Preview     Preview
-	Changed     bool
-	Resources   []string
-	Warnings    []string
+	Config                 config.Config
+	State                  state.State
+	Paths                  Paths
+	Reinstalled            bool
+	Preview                Preview
+	Changed                bool
+	Resources              []string
+	Warnings               []string
+	ControlTaskDisposition ControlTaskDisposition
+	SuppliedControlTaskID  string
+	Unarchived             bool
+	DryRun                 bool
 }
 
 type InstallFailure struct {
@@ -175,13 +269,14 @@ type InstallFailure struct {
 
 func (e *InstallFailure) Error() string { return fmt.Sprintf("install %s: %s", e.Step, e.Cause) }
 func (e *InstallFailure) Unwrap() error { return e.Err }
-
 func Fail(step string, err error) error {
 	if err == nil {
 		return nil
 	}
 	return &InstallFailure{Step: step, Cause: err.Error(), Err: err}
 }
+
+var ErrControlTaskIDRequired = errors.New("control task ID is required; in Codex, open the task that will be ThreadBear's home, copy its ID, then rerun with --control-task-id TASK_ID (see INSTALL.md)")
 
 type Installer struct {
 	Paths                      Paths
@@ -191,13 +286,20 @@ type Installer struct {
 	InstalledVersion           string
 	Binary                     BinaryInstaller
 	SelfTester                 SelfTester
-	Legacy                     LegacyLoader
 	Prompter                   Prompter
 	Previewer                  func(Preview) error
 	CodexExecutable            string
 	CodexSpawnPath             string
 	ResolveCodexExecutable     func(string, string) (string, error)
 	ResolveCodexExecutableSpec func(string, string) (codex.ExecutableSpec, error)
+}
+
+type controlTaskSelection struct {
+	ID          string
+	SuppliedID  string
+	Disposition ControlTaskDisposition
+	Unarchive   bool
+	Welcome     bool
 }
 
 func (i Installer) Install(ctx context.Context, request InstallRequest) (InstallResult, error) {
@@ -208,32 +310,24 @@ func (i Installer) Install(ctx context.Context, request InstallRequest) (Install
 	if err != nil {
 		return InstallResult{}, Fail("load_preview_state", err)
 	}
+	if !previewConfigExists && request.ControlTaskID == "" {
+		return InstallResult{}, Fail("control_task_id_required", ErrControlTaskIDRequired)
+	}
 	executableSpec, err := i.resolveCodexExecutableSpec(previewConfig, previewConfigExists)
 	if err != nil {
 		return InstallResult{}, Fail("resolve_codex_executable", err)
 	}
-	i.CodexExecutable = executableSpec.Path
-	i.CodexSpawnPath = executableSpec.SpawnPath
+	i.CodexExecutable, i.CodexSpawnPath = executableSpec.Path, executableSpec.SpawnPath
 	if consumer, ok := i.ControlTasks.(interface{ SetCodexExecutableSpec(codex.ExecutableSpec) }); ok {
 		consumer.SetCodexExecutableSpec(executableSpec)
 	}
-	migrationNeeded := !previewConfigExists || !previewStateExists
-	legacyPresent, err := legacyInstallationPresent(i.Paths)
+	selection, err := i.selectControlTask(ctx, previewConfig, previewConfigExists, request.ControlTaskID)
 	if err != nil {
-		return InstallResult{}, Fail("inspect_legacy_presence", err)
+		return InstallResult{}, err
 	}
-	legacyInterval, legacyIntervalFound, err := i.detectLegacyInterval(ctx, migrationNeeded && legacyPresent)
-	if err != nil {
-		return InstallResult{}, Fail("detect_legacy_interval", err)
-	}
-	legacyStateExists := migrationNeeded && migrationCandidate(i.Paths.LegacyState)
 	previewPreferences := DefaultPreferences()
-	previewControlTaskID := "threadbear-install-candidate"
 	if previewConfigExists {
 		previewPreferences = preferencesFromConfig(previewConfig)
-		previewControlTaskID = previewConfig.ControlTaskID
-	} else if legacyStateExists && legacyIntervalFound {
-		previewPreferences.HeartbeatSeconds = legacyInterval
 	}
 	var selectedPreferences *Preferences
 	if request.Preferences != nil {
@@ -242,7 +336,11 @@ func (i Installer) Install(ctx context.Context, request InstallRequest) (Install
 		previewPreferences = value
 	}
 	previewPreferences = request.Patch.Apply(previewPreferences)
-	if request.NonInteractive {
+	if request.DryRun {
+		if err := previewPreferences.Validate(); err != nil {
+			return InstallResult{}, Fail("preferences", err)
+		}
+	} else if request.NonInteractive {
 		if !request.Confirm {
 			return InstallResult{}, Fail("confirmation", errors.New("noninteractive install requires confirm"))
 		}
@@ -263,9 +361,20 @@ func (i Installer) Install(ctx context.Context, request InstallRequest) (Install
 	if err := previewPreferences.Validate(); err != nil {
 		return InstallResult{}, Fail("preferences", err)
 	}
-	preview, err := installPreview(i.Paths, previewPreferences, previewConfigExists, migrationNeeded && legacyStateExists)
+	previewConfigCandidate := previewPreferences.config(selection.ID, i.CodexExecutable, i.CodexSpawnPath)
+	if err := validateRepairConfig(previewConfig, previewConfigCandidate, selection); err != nil {
+		return InstallResult{}, Fail("repair_control_task", err)
+	}
+	preview, err := installPreview(i.Paths, previewPreferences, previewConfigExists, selection)
 	if err != nil {
 		return InstallResult{}, Fail("preview", err)
+	}
+	if request.DryRun {
+		candidateState := previewState
+		if !previewStateExists {
+			candidateState = state.New()
+		}
+		return InstallResult{Config: previewConfigCandidate, State: candidateState, Paths: i.Paths, Reinstalled: previewConfigExists, Preview: preview, Resources: previewResources(preview), ControlTaskDisposition: selection.Disposition, SuppliedControlTaskID: selection.SuppliedID, Unarchived: selection.Unarchive, DryRun: true}, nil
 	}
 	if i.Prompter != nil {
 		if err := i.Prompter.ShowPreview(preview); err != nil {
@@ -285,15 +394,6 @@ func (i Installer) Install(ctx context.Context, request InstallRequest) (Install
 			return InstallResult{}, ErrCancelled
 		}
 	}
-	candidateState := previewState
-	if !previewStateExists {
-		candidateState = state.New()
-	}
-	candidateConfig := previewPreferences.config(previewControlTaskID, i.CodexExecutable, i.CodexSpawnPath)
-	resources, err := i.stageCandidate(ctx, candidateConfig, candidateState)
-	if err != nil {
-		return InstallResult{}, err
-	}
 	lock, err := i.Store.AcquireLock()
 	if err != nil {
 		return InstallResult{}, Fail("acquire_lock", err)
@@ -308,44 +408,15 @@ func (i Installer) Install(ctx context.Context, request InstallRequest) (Install
 	if err != nil {
 		return InstallResult{}, Fail("reload_existing", err)
 	}
-	legacyStopped := false
-	if legacyPresent {
-		if err := i.Scheduler.StopLegacy(ctx); err != nil {
-			return InstallResult{}, Fail("stop_legacy_scheduler", err)
-		}
-		legacyStopped = true
-		if err := i.Scheduler.VerifyLegacyStopped(ctx); err != nil {
-			return InstallResult{}, i.stoppedLegacyFailure("verify_legacy_stopped", err)
-		}
-	}
-	fail := func(step string, err error) error {
-		if legacyStopped {
-			return i.stoppedLegacyFailure(step, err)
-		}
-		return Fail(step, err)
-	}
-	finalMigration, migrated, err := i.loadMigrationState(!configExists || !stateExists)
+	currentSelection, err := i.selectControlTask(ctx, currentConfig, configExists, request.ControlTaskID)
 	if err != nil {
-		return InstallResult{}, fail("load_final_migration", err)
+		return InstallResult{}, err
 	}
 	preferences := DefaultPreferences()
-	controlTaskID := ""
 	if configExists {
 		preferences = preferencesFromConfig(currentConfig)
-		controlTaskID = currentConfig.ControlTaskID
 	}
-	if migrated {
-		if controlTaskID == "" {
-			controlTaskID = finalMigration.ControlTaskID
-		}
-		if !stateExists {
-			currentState = finalMigration.State
-		}
-		if !configExists && legacyIntervalFound {
-			preferences.HeartbeatSeconds = legacyInterval
-		}
-	}
-	if !stateExists && !migrated {
+	if !stateExists {
 		currentState = state.New()
 	}
 	if selectedPreferences != nil {
@@ -353,73 +424,162 @@ func (i Installer) Install(ctx context.Context, request InstallRequest) (Install
 	}
 	preferences = request.Patch.Apply(preferences)
 	if err := preferences.Validate(); err != nil {
-		return InstallResult{}, fail("preferences", err)
+		return InstallResult{}, Fail("preferences", err)
 	}
-	if preferences != previewPreferences {
-		return InstallResult{}, fail("stale_preview", errors.New("configuration changed after preview; rerun install to review and confirm the current preferences"))
+	currentPreview, err := installPreview(i.Paths, preferences, configExists, currentSelection)
+	if err != nil {
+		return InstallResult{}, Fail("recompute_preview", err)
 	}
-	controlTaskID, controlTaskChanged, ensureErr := i.ControlTasks.EnsureControlTask(ctx, controlTaskID)
-	if !canonical(controlTaskID) {
-		if ensureErr != nil {
-			return InstallResult{}, fail("ensure_control_task", ensureErr)
-		}
-		return InstallResult{}, fail("ensure_control_task", errors.New("control task returned a noncanonical ID"))
+	if !reflect.DeepEqual(preview, currentPreview) {
+		return InstallResult{}, Fail("stale_preview", errors.New("installation changed after preview; rerun install to review and confirm the current effects"))
 	}
-	nextConfig := preferences.config(controlTaskID, i.CodexExecutable, i.CodexSpawnPath)
+	nextConfig := preferences.config(currentSelection.ID, i.CodexExecutable, i.CodexSpawnPath)
+	if err := validateRepairConfig(currentConfig, nextConfig, currentSelection); err != nil {
+		return InstallResult{}, Fail("repair_control_task", err)
+	}
+	resources, err := i.stageCandidate(ctx, nextConfig, currentState)
+	if err != nil {
+		return InstallResult{}, err
+	}
 	if err := nextConfig.Validate(); err != nil {
-		return InstallResult{}, fail("validate_config", err)
+		return InstallResult{}, Fail("validate_config", err)
+	}
+	if currentSelection.Disposition == ControlTaskRepaired {
+		// BEAR-60: remove this exact repair in the first release after operator convergence.
+		repairer, ok := i.Store.(interface{ RepairControlTaskID(string) error })
+		if !ok {
+			return InstallResult{}, Fail("repair_control_task", errors.New("store cannot preserve the raw pre-repair config"))
+		}
+		if err := repairer.RepairControlTaskID(currentSelection.ID); err != nil {
+			return InstallResult{}, Fail("repair_control_task", err)
+		}
+		currentConfig.ControlTaskID = currentSelection.ID
+		resources = appendUnique(resources, "config")
 	}
 	if !configExists || !reflect.DeepEqual(nextConfig, currentConfig) {
 		if err := i.Store.SaveConfig(nextConfig); err != nil {
-			return InstallResult{}, fail("persist_config", err)
+			return InstallResult{}, Fail("persist_config", err)
 		}
 		resources = appendUnique(resources, "config")
 	}
-	if ensureErr != nil {
-		return InstallResult{}, fail("ensure_control_task", ensureErr)
-	}
-	if controlTaskChanged {
-		resources = appendUnique(resources, "control_task")
-	}
 	if !stateExists {
 		if err := i.Store.SaveState(currentState); err != nil {
-			return InstallResult{}, fail("persist_state", err)
+			return InstallResult{}, Fail("persist_state", err)
 		}
 		resources = appendUnique(resources, "state")
 	}
+	unarchived := false
+	if currentSelection.Unarchive {
+		changed, err := i.ControlTasks.UnarchiveControlTask(ctx, currentSelection.ID)
+		if err != nil {
+			return InstallResult{}, Fail("unarchive_control_task", err)
+		}
+		unarchived = changed
+		if changed {
+			resources = appendUnique(resources, "control_task")
+		}
+	}
 	finalSchedulerChanged, err := i.Scheduler.Stage(ctx, nextConfig)
 	if err != nil {
-		return InstallResult{}, fail("stage_final_scheduler", err)
+		return InstallResult{}, Fail("stage_final_scheduler", err)
 	}
 	enabledChanged, err := i.Scheduler.Enable(ctx)
 	if err != nil {
-		return InstallResult{}, fail("enable_scheduler", err)
+		return InstallResult{}, Fail("enable_scheduler", err)
 	}
 	if err := i.Scheduler.VerifyHealthy(ctx); err != nil {
-		return InstallResult{}, fail("verify_scheduler_health", err)
+		return InstallResult{}, Fail("verify_scheduler_health", err)
 	}
 	if finalSchedulerChanged || enabledChanged {
 		resources = appendUnique(resources, "launchagent")
 	}
 	if err := i.SelfTester.Test(ctx, SelfTestInput{Paths: i.Paths, Config: nextConfig, State: currentState}); err != nil {
-		return InstallResult{}, fail("installed_self_test", err)
+		return InstallResult{}, Fail("installed_self_test", err)
 	}
 	if err := lock.Close(); err != nil {
-		return InstallResult{}, fail("release_lock", err)
+		return InstallResult{}, Fail("release_lock", err)
 	}
 	lockHeld = false
 	warnings := make([]string, 0, 1)
-	// Welcome once. A reinstall over an existing config is not a first
-	// meeting, and appending the same greeting to the control thread on every
-	// run would turn ThreadBear's own thread into the noise it exists to
-	// prevent. A newly created control task earns one regardless, since that
-	// thread has never been greeted.
-	if !configExists || controlTaskChanged {
-		if err := i.ControlTasks.PostWelcome(ctx, controlTaskID, welcomeNotice(i.InstalledVersion, preferences)); err != nil {
+	if currentSelection.Welcome {
+		if err := i.ControlTasks.PostWelcome(ctx, currentSelection.ID, welcomeNotice(i.InstalledVersion, preferences)); err != nil {
 			warnings = append(warnings, fmt.Sprintf("welcome notice not posted: %v", err))
 		}
 	}
-	return InstallResult{Config: nextConfig, State: currentState, Paths: i.Paths, Migrated: migrated, Reinstalled: configExists, Preview: preview, Changed: len(resources) > 0, Resources: resources, Warnings: warnings}, nil
+	return InstallResult{Config: nextConfig, State: currentState, Paths: i.Paths, Reinstalled: configExists, Preview: currentPreview, Changed: len(resources) > 0, Resources: resources, Warnings: warnings, ControlTaskDisposition: currentSelection.Disposition, SuppliedControlTaskID: currentSelection.SuppliedID, Unarchived: unarchived}, nil
+}
+
+func validateRepairConfig(current, next config.Config, selection controlTaskSelection) error {
+	if selection.Disposition != ControlTaskRepaired {
+		return nil
+	}
+	expected := current
+	expected.ControlTaskID = selection.ID
+	if !reflect.DeepEqual(expected, next) {
+		return errors.New("the BEAR-60 repair can replace only control_task_id; rerun with the persisted preferences unchanged")
+	}
+	return nil
+}
+
+func (i Installer) selectControlTask(ctx context.Context, persisted config.Config, persistedExists bool, supplied string) (controlTaskSelection, error) {
+	if strings.TrimSpace(supplied) != supplied {
+		return controlTaskSelection{}, Fail("control_task", errors.New("--control-task-id must be canonical and have no surrounding whitespace"))
+	}
+	read := func(id string) (ControlTask, error) {
+		if id == "" {
+			return ControlTask{}, ErrControlTaskIDRequired
+		}
+		task, err := i.ControlTasks.ReadControlTask(ctx, id)
+		if err != nil {
+			return ControlTask{}, err
+		}
+		if task.ID != id || strings.TrimSpace(task.ID) != task.ID || task.ID == "" {
+			return ControlTask{}, errors.New("App Server returned a noncanonical control task")
+		}
+		return task, nil
+	}
+	if persistedExists && persisted.ControlTaskID == bear60ControllerID && supplied != "" && supplied != persisted.ControlTaskID {
+		task, err := read(supplied)
+		if err != nil {
+			return controlTaskSelection{}, Fail("validate_supplied_control_task", err)
+		}
+		if task.Archived {
+			return controlTaskSelection{}, Fail("validate_supplied_control_task", errors.New("the supplied control task is archived; unarchive it in Codex before installing"))
+		}
+		return controlTaskSelection{ID: supplied, SuppliedID: supplied, Disposition: ControlTaskRepaired, Welcome: true}, nil
+	}
+	if persistedExists {
+		task, persistedErr := read(persisted.ControlTaskID)
+		if persistedErr == nil {
+			disposition := ControlTaskRetained
+			if supplied != "" && supplied != persisted.ControlTaskID {
+				disposition = ControlTaskStayedHome
+			}
+			return controlTaskSelection{ID: persisted.ControlTaskID, SuppliedID: supplied, Disposition: disposition, Unarchive: task.Archived}, nil
+		}
+		if supplied == "" {
+			return controlTaskSelection{}, Fail("control_task_id_required", ErrControlTaskIDRequired)
+		}
+		task, err := read(supplied)
+		if err != nil {
+			return controlTaskSelection{}, Fail("validate_supplied_control_task", err)
+		}
+		if task.Archived {
+			return controlTaskSelection{}, Fail("validate_supplied_control_task", errors.New("the supplied control task is archived; unarchive it in Codex before installing"))
+		}
+		return controlTaskSelection{ID: supplied, SuppliedID: supplied, Disposition: ControlTaskReplaced, Welcome: true}, nil
+	}
+	if supplied == "" {
+		return controlTaskSelection{}, Fail("control_task_id_required", ErrControlTaskIDRequired)
+	}
+	task, err := read(supplied)
+	if err != nil {
+		return controlTaskSelection{}, Fail("validate_supplied_control_task", err)
+	}
+	if task.Archived {
+		return controlTaskSelection{}, Fail("validate_supplied_control_task", errors.New("the supplied control task is archived; unarchive it in Codex before installing"))
+	}
+	return controlTaskSelection{ID: supplied, SuppliedID: supplied, Disposition: ControlTaskAdopted, Welcome: true}, nil
 }
 
 func welcomeNotice(version string, preferences Preferences) string {
@@ -524,11 +684,6 @@ func (i Installer) stageCandidate(ctx context.Context, candidateConfig config.Co
 	return resources, nil
 }
 
-func (i Installer) stoppedLegacyFailure(step string, err error) error {
-	cause := fmt.Sprintf("ThreadWatch was stopped before ThreadBear installation completed: %v. To re-enable ThreadWatch, rename %s back to %s, then run `launchctl enable gui/$(id -u)/org.litman.threadwatch` and `launchctl bootstrap gui/$(id -u) %s`", err, i.Paths.LegacyLaunchAgent+".disabled-by-threadbear", i.Paths.LegacyLaunchAgent, i.Paths.LegacyLaunchAgent)
-	return Fail(step, errors.New(cause))
-}
-
 func appendUnique(values []string, value string) []string {
 	for _, existing := range values {
 		if existing == value {
@@ -562,27 +717,6 @@ func binaryNeedsInstall(path string, installer BinaryInstaller) (bool, error) {
 		return false, err
 	}
 	return !bytes.Equal(source, destination), nil
-}
-
-func legacyInstallationPresent(paths Paths) (bool, error) {
-	if _, err := os.Lstat(paths.LegacyLaunchAgent); err == nil {
-		return true, nil
-	} else if !errors.Is(err, fs.ErrNotExist) {
-		return false, fmt.Errorf("inspect legacy LaunchAgent plist: %w", err)
-	}
-	entries, err := os.ReadDir(paths.LegacyStateDirectory)
-	if errors.Is(err, fs.ErrNotExist) {
-		return false, nil
-	}
-	if err != nil {
-		return false, fmt.Errorf("inspect legacy state directory: %w", err)
-	}
-	return len(entries) > 0, nil
-}
-
-func migrationCandidate(path string) bool {
-	info, err := os.Stat(path)
-	return err == nil && info.Mode().IsRegular()
 }
 
 func applyManaged(path string, enabled bool, content []byte) (bool, error) {
@@ -666,46 +800,7 @@ func (i Installer) validate() error {
 	if !filepath.IsAbs(i.Paths.Home) || !filepath.IsAbs(i.Paths.CodexHome) || i.Store == nil || i.Scheduler == nil || i.ControlTasks == nil || i.Binary == nil || i.SelfTester == nil {
 		return errors.New("installer dependencies and absolute home are required")
 	}
-	if i.Legacy == nil {
-		i.Legacy = FileLegacyLoader{}
-	}
 	return nil
-}
-
-func (i Installer) detectLegacyInterval(ctx context.Context, needed bool) (int, bool, error) {
-	if !needed {
-		return 0, false, nil
-	}
-	interval, detected, err := i.Scheduler.DetectLegacyInterval(ctx)
-	if err != nil {
-		return 0, false, fmt.Errorf("detect legacy interval: %w", err)
-	}
-	if detected && interval <= 0 {
-		return 0, false, errors.New("detected legacy interval is invalid")
-	}
-	return interval, detected, nil
-}
-
-func (i Installer) loadMigrationState(needed bool) (Migration, bool, error) {
-	if !needed {
-		return Migration{}, false, nil
-	}
-	loader := i.Legacy
-	if loader == nil {
-		loader = FileLegacyLoader{}
-	}
-	data, err := loader.Load(i.Paths.LegacyState)
-	if errors.Is(err, fs.ErrNotExist) {
-		return Migration{}, false, nil
-	}
-	if err != nil {
-		return Migration{}, false, fmt.Errorf("read ThreadWatch state: %w", err)
-	}
-	migration, err := DecodeThreadWatch(data)
-	if err != nil {
-		return Migration{}, false, err
-	}
-	return migration, true, nil
 }
 
 func loadExisting(store Store) (config.Config, state.State, bool, bool, error) {
@@ -722,12 +817,10 @@ func loadExisting(store Store) (config.Config, state.State, bool, bool, error) {
 	return currentConfig, currentState, !configMissing, !stateMissing, nil
 }
 
-func installPreview(paths Paths, preferences Preferences, reinstall, migration bool) (Preview, error) {
+func installPreview(paths Paths, preferences Preferences, reinstall bool, selection controlTaskSelection) (Preview, error) {
 	mode := "install"
 	if reinstall {
 		mode = "reinstall"
-	} else if migration {
-		mode = "migration install"
 	}
 	agents, _, err := ManagedMutationPreview(paths.Agents, preferences.AgentsEnabled, []byte(assets.AgentsManagedContent))
 	if err != nil {
@@ -737,16 +830,31 @@ func installPreview(paths Paths, preferences Preferences, reinstall, migration b
 	if err != nil {
 		return Preview{}, fmt.Errorf("preview skill mutation: %w", err)
 	}
-	return Preview{Operation: mode, Lines: []string{
-		"ThreadBear uses deterministic checks first and invokes the classifier only for unresolved changed tasks",
-		"binary: " + paths.Binary,
-		"state: " + paths.StateDirectory,
+	lines := []string{
+		"deterministic-first: unchanged heartbeats use zero model tokens",
+		fmt.Sprintf("binary %s: stage and verify candidate", paths.Binary),
+		fmt.Sprintf("state %s: private config and state", paths.StateDirectory),
 		agents,
 		skill,
-		"LaunchAgent staged disabled, self-tested, then enabled: " + paths.LaunchAgent,
-		"one persistent Codex control task",
-		fmt.Sprintf("heartbeat=%ds auto-update=%t archive=%t/%dd rename=%t token-display=%s agents=%t classifier=%s/%s context=%d bytes", preferences.HeartbeatSeconds, preferences.AutoUpdateEnabled, preferences.ArchiveEnabled, preferences.ArchiveAfterDays, preferences.RenameEnabled, preferences.TokenDisplay, preferences.AgentsEnabled, preferences.ClassifierModel, preferences.ClassifierEffort, preferences.ClassifierContextBudgetBytes),
-	}}, nil
+		fmt.Sprintf("LaunchAgent %s: stage disabled, self-test, then enable", paths.LaunchAgent),
+		fmt.Sprintf("control task %s: %s", selection.ID, selection.Disposition),
+		fmt.Sprintf("preferences: heartbeat=%ds auto_update=%t archive=%t/%dd rename=%t tokens=%s agents=%t classifier=%s/%s budget=%d", preferences.HeartbeatSeconds, preferences.AutoUpdateEnabled, preferences.ArchiveEnabled, preferences.ArchiveAfterDays, preferences.RenameEnabled, preferences.TokenDisplay, preferences.AgentsEnabled, preferences.ClassifierModel, preferences.ClassifierEffort, preferences.ClassifierContextBudgetBytes),
+	}
+	if selection.SuppliedID != "" && selection.Disposition == ControlTaskStayedHome {
+		lines = append(lines, fmt.Sprintf("supplied control task %s: ignored; existing readable task stayed home", selection.SuppliedID))
+	}
+	if selection.Unarchive {
+		lines = append(lines, "persisted control task: will be unarchived on reinstall")
+	}
+	if selection.Disposition == ControlTaskRepaired {
+		lines = append(lines, fmt.Sprintf("BEAR-60 repair backup: preserve %s once", paths.ConfigRepairBackup))
+	}
+	return Preview{Operation: mode, Lines: lines}, nil
+}
+
+func previewResources(preview Preview) []string {
+	resources := []string{"agents", "binary", "config", "control_task", "launchagent", "skill", "state"}
+	return resources
 }
 
 func ManagedMutationPreview(path string, enabled bool, content []byte) (string, bool, error) {
@@ -772,12 +880,6 @@ func ManagedMutationPreview(path string, enabled bool, content []byte) (string, 
 		}
 	}
 	return path + ": " + action, changed, nil
-}
-
-type FileLegacyLoader struct{}
-
-func (FileLegacyLoader) Load(path string) ([]byte, error) {
-	return os.ReadFile(path)
 }
 
 type FileBinaryInstaller struct {

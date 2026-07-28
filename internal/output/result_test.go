@@ -12,7 +12,7 @@ import (
 )
 
 func TestLifecycleResultHumanJSONParity(t *testing.T) {
-	result := LifecycleResult{Command: "install", Changed: true, Resources: []string{"state", "binary"}, ControlTaskID: "control-1", Migrated: true}
+	result := LifecycleResult{Command: "install", Changed: true, Resources: []string{"state", "binary"}, ControlTaskID: "control-1", ControlTaskDisposition: "adopted"}
 	var human, machine bytes.Buffer
 	if err := Write(&human, FormatHuman, result); err != nil {
 		t.Fatal(err)
@@ -24,12 +24,12 @@ func TestLifecycleResultHumanJSONParity(t *testing.T) {
 	if err := json.Unmarshal(machine.Bytes(), &decoded); err != nil {
 		t.Fatal(err)
 	}
-	for _, fact := range []string{"install", "control-1", "binary,state", "migrated=true"} {
+	for _, fact := range []string{"install", "control-1=adopted", "binary,state"} {
 		if !strings.Contains(human.String(), fact) {
 			t.Fatalf("human output missing %q: %q", fact, human.String())
 		}
 	}
-	if decoded.Command != result.Command || !decoded.Changed || decoded.ControlTaskID != result.ControlTaskID || !decoded.Migrated || len(decoded.Resources) != 2 {
+	if decoded.Command != result.Command || !decoded.Changed || decoded.ControlTaskID != result.ControlTaskID || decoded.ControlTaskDisposition != "adopted" || len(decoded.Resources) != 2 || !strings.Contains(machine.String(), `"migrated":false`) {
 		t.Fatalf("decoded=%+v", decoded)
 	}
 }
@@ -53,7 +53,7 @@ func TestUninstallLifecycleResultHasFriendlyHumanAndStableJSON(t *testing.T) {
 	if unchanged.String() != human.String() {
 		t.Fatalf("unchanged human=%q", unchanged.String())
 	}
-	want := `{"version":1,"command":"uninstall","changed":true,"resources":["binary"],"control_task_id":"","migrated":false,"reinstalled":false,"archived_control_task":false,"deleted_state":true,"preview":[]}` + "\n"
+	want := `{"version":1,"command":"uninstall","changed":true,"resources":["binary"],"control_task_id":"","migrated":false,"reinstalled":false,"unarchived":false,"archived_control_task":false,"deleted_state":true,"preview":[]}` + "\n"
 	if machine.String() != want {
 		t.Fatalf("json=%q", machine.String())
 	}
@@ -77,7 +77,7 @@ func TestHeartbeatManagedMutationHumanJSONParity(t *testing.T) {
 }
 
 func TestPreviewDetailsHumanJSONContract(t *testing.T) {
-	result := PreviewResult{Command: "install", Effects: []string{"binary"}, Details: []string{"AGENTS.md: write managed block", "LaunchAgent staged disabled"}}
+	result := PreviewResult{Command: "install", Effects: []string{"binary"}, Details: []string{"AGENTS.md: write managed block", "LaunchAgent staged disabled"}, WillUnarchiveControlTask: true}
 	var human, machine bytes.Buffer
 	if err := Write(&human, FormatHuman, result); err != nil {
 		t.Fatal(err)
@@ -85,14 +85,14 @@ func TestPreviewDetailsHumanJSONContract(t *testing.T) {
 	if err := Write(&machine, FormatJSON, result); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(human.String(), "write managed block") || !strings.Contains(human.String(), "staged disabled") {
+	if !strings.Contains(human.String(), "write managed block") || !strings.Contains(human.String(), "staged disabled") || !strings.Contains(human.String(), "will be unarchived") {
 		t.Fatalf("human=%q", human.String())
 	}
 	var decoded PreviewResult
 	if err := json.Unmarshal(machine.Bytes(), &decoded); err != nil {
 		t.Fatal(err)
 	}
-	if len(decoded.Details) != 2 || decoded.Command != "install" {
+	if len(decoded.Details) != 2 || decoded.Command != "install" || !decoded.WillUnarchiveControlTask || strings.Contains(machine.String(), `"unarchived"`) {
 		t.Fatalf("decoded=%+v", decoded)
 	}
 }
@@ -245,5 +245,42 @@ func TestManagedRefreshFailureOutputExplainsInstalledBinaryRecovery(t *testing.T
 	}
 	if !strings.Contains(encoded.String(), `"error_code":"managed_refresh_failed"`) || !strings.Contains(encoded.String(), `"step":"refresh_managed_surfaces"`) {
 		t.Fatalf("json=%q", encoded.String())
+	}
+}
+
+func TestMissingControlTaskIDHumanGuidance(t *testing.T) {
+	result := ErrorResult{Operation: "install", ErrorCode: "control_task_id_required", Step: "select_control_task", Cause: "open a Codex task, copy its ID, rerun with --control-task-id TASK_ID, and see INSTALL.md"}
+	var human, machine bytes.Buffer
+	if err := Write(&human, FormatHuman, result); err != nil {
+		t.Fatal(err)
+	}
+	if err := Write(&machine, FormatJSON, result); err != nil {
+		t.Fatal(err)
+	}
+	for _, text := range []string{"Codex", "--control-task-id", "INSTALL.md"} {
+		if !strings.Contains(human.String(), text) || !strings.Contains(machine.String(), text) {
+			t.Fatalf("missing %q human=%q json=%q", text, human.String(), machine.String())
+		}
+	}
+}
+
+func TestLifecycleStayedHomeHumanNamesBothTaskIDs(t *testing.T) {
+	result := LifecycleResult{Command: "install", ControlTaskID: "persisted-home", SuppliedControlTaskID: "calling-task", ControlTaskDisposition: "stayed_home", Reinstalled: true}
+	human := result.Human()
+	for _, want := range []string{"ThreadBear stayed home", "persisted-home", "calling-task"} {
+		if !strings.Contains(human, want) {
+			t.Fatalf("human=%q missing %q", human, want)
+		}
+	}
+}
+
+func TestStayedHomeResultSaysThreadBearStayedHome(t *testing.T) {
+	result := LifecycleResult{Command: "install", ControlTaskID: "home", ControlTaskDisposition: "stayed_home", SuppliedControlTaskID: "other"}
+	var human bytes.Buffer
+	if err := Write(&human, FormatHuman, result); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(human.String(), "ThreadBear stayed home") {
+		t.Fatalf("human=%q", human.String())
 	}
 }

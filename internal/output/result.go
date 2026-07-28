@@ -200,16 +200,33 @@ func (r InspectResult) normalized() InspectResult {
 }
 
 type PreviewResult struct {
-	Version int      `json:"version"`
-	Command string   `json:"command"`
-	Effects []string `json:"effects"`
-	Details []string `json:"details"`
+	Version                  int      `json:"version"`
+	Command                  string   `json:"command"`
+	Effects                  []string `json:"effects"`
+	Details                  []string `json:"details"`
+	ControlTaskID            string   `json:"control_task_id,omitempty"`
+	SuppliedControlTaskID    string   `json:"supplied_control_task_id,omitempty"`
+	ControlTaskDisposition   string   `json:"control_task_disposition,omitempty"`
+	WillUnarchiveControlTask bool     `json:"will_unarchive_control_task,omitempty"`
 }
 
 func (PreviewResult) result()     {}
 func (PreviewResult) Empty() bool { return false }
 func (r PreviewResult) Human() string {
-	return fmt.Sprintf("ThreadBear preview for %s: %s · %s", r.Command, strings.Join(r.Effects, ", "), strings.Join(r.Details, " · "))
+	line := fmt.Sprintf("ThreadBear preview for %s: %s · %s", r.Command, strings.Join(r.Effects, ", "), strings.Join(r.Details, " · "))
+	if r.ControlTaskDisposition != "" {
+		line += fmt.Sprintf(" · control task %s=%s", r.ControlTaskID, r.ControlTaskDisposition)
+	}
+	if r.ControlTaskDisposition == "stayed_home" {
+		line += " · ThreadBear stayed home"
+	}
+	if r.SuppliedControlTaskID != "" {
+		line += " · supplied control task " + r.SuppliedControlTaskID
+	}
+	if r.WillUnarchiveControlTask {
+		line += " · persisted control task will be unarchived"
+	}
+	return line
 }
 
 type ActionResult struct {
@@ -235,17 +252,20 @@ func (r ActionResult) Human() string {
 }
 
 type LifecycleResult struct {
-	Version             int      `json:"version"`
-	Command             string   `json:"command"`
-	Changed             bool     `json:"changed"`
-	Resources           []string `json:"resources"`
-	ControlTaskID       string   `json:"control_task_id"`
-	Migrated            bool     `json:"migrated"`
-	Warnings            []string `json:"warnings,omitempty"`
-	Reinstalled         bool     `json:"reinstalled"`
-	ArchivedControlTask bool     `json:"archived_control_task"`
-	DeletedState        bool     `json:"deleted_state"`
-	Preview             []string `json:"preview"`
+	Version                int      `json:"version"`
+	Command                string   `json:"command"`
+	Changed                bool     `json:"changed"`
+	Resources              []string `json:"resources"`
+	ControlTaskID          string   `json:"control_task_id"`
+	Migrated               bool     `json:"migrated"`
+	Warnings               []string `json:"warnings,omitempty"`
+	Reinstalled            bool     `json:"reinstalled"`
+	ControlTaskDisposition string   `json:"control_task_disposition,omitempty"`
+	SuppliedControlTaskID  string   `json:"supplied_control_task_id,omitempty"`
+	Unarchived             bool     `json:"unarchived"`
+	ArchivedControlTask    bool     `json:"archived_control_task"`
+	DeletedState           bool     `json:"deleted_state"`
+	Preview                []string `json:"preview"`
 }
 
 func (LifecycleResult) result()     {}
@@ -258,7 +278,12 @@ func (r LifecycleResult) Human() string {
 	if len(r.Resources) > 0 {
 		resources = strings.Join(r.Resources, ",")
 	}
-	line := fmt.Sprintf("ThreadBear %s changed=%t · resources %s · control task %s · migrated=%t · reinstalled=%t · archived control task=%t · deleted state=%t", r.Command, r.Changed, resources, r.ControlTaskID, r.Migrated, r.Reinstalled, r.ArchivedControlTask, r.DeletedState)
+	line := fmt.Sprintf("ThreadBear %s changed=%t · resources %s · control task %s=%s · reinstalled=%t · unarchived=%t · archived control task=%t · deleted state=%t", r.Command, r.Changed, resources, r.ControlTaskID, r.ControlTaskDisposition, r.Reinstalled, r.Unarchived, r.ArchivedControlTask, r.DeletedState)
+	if r.ControlTaskDisposition == "stayed_home" {
+		line = fmt.Sprintf("ThreadBear stayed home at persisted control task %s instead of supplied control task %s · changed=%t · resources %s · reinstalled=%t · unarchived=%t", r.ControlTaskID, r.SuppliedControlTaskID, r.Changed, resources, r.Reinstalled, r.Unarchived)
+	} else if r.SuppliedControlTaskID != "" {
+		line += " · supplied control task " + r.SuppliedControlTaskID
+	}
 	for _, warning := range r.Warnings {
 		line += " · warning: " + warning
 	}
@@ -353,6 +378,9 @@ func (ErrorResult) Empty() bool { return false }
 func (r ErrorResult) Human() string {
 	if r.Operation == "status" && r.ErrorCode == "not_installed" {
 		return "ThreadBear is not installed"
+	}
+	if r.Operation == "install" && r.ErrorCode == "control_task_id_required" {
+		return r.Cause
 	}
 	if r.Step != "" {
 		return fmt.Sprintf("ThreadBear couldn't %s (%s) · failed step %s · %s", r.Operation, r.ErrorCode, r.Step, r.Cause)
@@ -673,6 +701,19 @@ func validateResult(value Result) error {
 		if err := checkCode("command", result.Command, false); err != nil {
 			return err
 		}
+		if result.ControlTaskDisposition != "" {
+			if err := checkCode("control_task_disposition", result.ControlTaskDisposition, false); err != nil {
+				return err
+			}
+			if err := checkID("control_task_id", result.ControlTaskID); err != nil {
+				return err
+			}
+		}
+		if result.SuppliedControlTaskID != "" {
+			if err := checkID("supplied_control_task_id", result.SuppliedControlTaskID); err != nil {
+				return err
+			}
+		}
 		for _, effect := range result.Effects {
 			if err := checkCode("effect", effect, false); err != nil {
 				return err
@@ -697,7 +738,17 @@ func validateResult(value Result) error {
 			}
 		}
 		if result.ControlTaskID != "" {
-			return checkID("control_task_id", result.ControlTaskID)
+			if err := checkID("control_task_id", result.ControlTaskID); err != nil {
+				return err
+			}
+		}
+		if result.ControlTaskDisposition != "" {
+			if err := checkCode("control_task_disposition", result.ControlTaskDisposition, false); err != nil {
+				return err
+			}
+		}
+		if result.SuppliedControlTaskID != "" {
+			return checkID("supplied_control_task_id", result.SuppliedControlTaskID)
 		}
 	case SelfTestResult:
 		if len(result.Checks) == 0 {
