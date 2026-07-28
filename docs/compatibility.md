@@ -8,7 +8,7 @@ Release binaries are standalone pure-Go executables built with `CGO_ENABLED=0`. 
 
 ## Unsigned distribution
 
-v1 binaries are not Developer ID signed or notarized. The supported installer verifies the published SHA-256 checksum, candidate executable health, and embedded version before installation. See [INSTALL.md](../INSTALL.md#unsigned-binary-and-gatekeeper) for the narrow Gatekeeper recovery path; do not disable Gatekeeper globally.
+v1 binaries are not Developer ID signed or notarized. The supported Codex-guided install has the installing agent invoke the bootstrap, which verifies the published SHA-256 checksum, candidate executable health, and embedded version before installation. See [INSTALL.md](../INSTALL.md#unsigned-binary-and-gatekeeper) for the narrow Gatekeeper recovery path; do not disable Gatekeeper globally.
 
 ## Codex surfaces
 
@@ -31,6 +31,8 @@ The job receives explicit `HOME`, `CODEX_HOME`, sanitized `PATH`, and `LC_ALL=C`
 Ordinary inventory and deterministic classification are local. At the start of each non-dry-run heartbeat, under the existing shared lock, ThreadBear compares the enabled AGENTS.md block and always-managed skill with its embedded content and repairs drift before inventory or classification. A clean comparison performs no write, starts no model, and produces no output. If repair fails, the heartbeat reports a stable diagnostic while unchanged handling, update notices or announcements, and checkpoint commit continue without a control-task failure post. Network/model activity occurs only for configured-classifier calls on unresolved changed tasks, a release metadata check at the configured mode's cadence, or an install/update. Automatic and manual updates use the same verified updater and managed-surface refresh pipeline.
 
 ## Troubleshooting order
+
+For install or reinstall problems, stay in the Codex task and have the installing agent follow `https://threadbear.sh/install`; `--noninteractive --confirm` is the machinery path for that agent, not a human-facing terminal install.
 
 Use read-only commands first:
 

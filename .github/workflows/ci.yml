@@ -23,7 +23,17 @@ jobs:
       - run: CGO_ENABLED=0 GOOS=darwin GOARCH=arm64 go build -o /tmp/threadbear_darwin_arm64 ./cmd/threadbear
       - run: CGO_ENABLED=0 GOOS=darwin GOARCH=amd64 go build -o /tmp/threadbear_darwin_amd64 ./cmd/threadbear
       - run: sh -n install.sh
-      - run: if [ -f site/install.sh ]; then cmp install.sh site/install.sh; fi
+      - run: cmp install.sh site/install.sh
+      - run: cmp INSTALL.md site/install
+      - name: Check static site links
+        run: |
+          python3 -m http.server 8000 --directory site >/tmp/threadbear-site.log 2>&1 &
+          server=$!
+          trap 'kill "$server"' EXIT
+          sleep 1
+          for path in / /install /install.sh /releases/latest.json; do
+            curl --fail --silent --show-error "http://127.0.0.1:8000$path" >/dev/null
+          done
       - name: Lint rendered plist fixture
         run: |
           sed \

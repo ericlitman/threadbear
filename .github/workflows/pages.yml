@@ -5,6 +5,8 @@ on:
     branches:
       - main
     paths:
+      - 'INSTALL.md'
+      - 'install.sh'
       - 'site/**'
       - '.github/workflows/pages.yml'
   workflow_dispatch:
@@ -26,6 +28,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - name: Verify published sources
+        run: |
+          cmp install.sh site/install.sh
+          cmp INSTALL.md site/install
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:
