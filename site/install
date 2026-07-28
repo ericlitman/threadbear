@@ -47,8 +47,9 @@ Do not use `sudo`. Do not edit README, the website, or the installed skill durin
 The first response must carry this information and spirit. You may adapt the
 wording to the conversation, but preserve this orientation contract: say what
 ThreadBear will do for the person, keep the setup in this task, let them keep,
-change, or ask about every choice before anything changes, and promise to
-verify that everything is healthy before calling the work complete:
+change, or ask about every choice, promise a friendly review showing exactly
+what will happen before anything changes, and promise to verify that everything
+is healthy before calling the work complete:
 
 > Welcome to ThreadBear 🧵🐻
 >
@@ -149,8 +150,8 @@ Choose the settings source before starting the preference conversation:
 
 ```sh
 CONTROL_TASK_ID='paste-exact-task-id-here'
-DISCOVERY_FLAGS="--control-task-id $CONTROL_TASK_ID"
-curl -fsSL https://threadbear.sh/install.sh | sh -s -- --dry-run $DISCOVERY_FLAGS
+set -- --control-task-id "$CONTROL_TASK_ID"
+curl -fsSL https://threadbear.sh/install.sh | sh -s -- --dry-run "$@"
 ```
 
 Use that result to determine first install versus reinstall and capture every
@@ -188,9 +189,9 @@ For a first install, present the recommended setup:
 >   compact form such as `🚨 1.6m Fix checkout`.
 > - **Reliable status answers.** To help ThreadBear understand what needs you,
 >   enabling this adds one compact ThreadBear status line to agent replies
->   across your Codex tasks, such as `🧵🐻 complete`. Most checks can then stay
->   quick and lightweight; if a task is unclear, ThreadBear takes a careful
->   second look instead of guessing.
+>   across your Codex tasks. It appears as a one-line footer, such as
+>   `🧵🐻 complete`. Most checks can then stay quick and lightweight; if a task
+>   is unclear, ThreadBear takes a careful second look instead of guessing.
 >
 > Would you like the recommended setup, change a choice, or have me explain any
 > of them?
@@ -200,6 +201,9 @@ actual value from installed status or the initial discovery dry-run. This
 example shows one possible existing setup; replace every outcome with the
 person’s actual settings:
 
+> ThreadBear already has a home, so I’ll keep it right where it is and show you
+> the setup it’s using now.
+>
 > Here’s the setup ThreadBear is using now:
 >
 > - **A quiet ten-minute check-in.** ThreadBear looks for changes; when nothing
@@ -207,15 +211,19 @@ person’s actual settings:
 > - **Updates when you choose.** ThreadBear waits for you to start verified
 >   updates.
 > - **Completed tasks stay visible.** ThreadBear does not archive them
->   automatically.
+>   automatically, so quiet-day timing is inactive.
 > - **Titles stay untouched.** ThreadBear leaves every title as you set it, so
 >   token figures remain inactive and stay out of titles too.
-> - **Reliable status answers.** This adds one compact ThreadBear status line,
->   such as `🧵🐻 complete`, to agent replies across your Codex tasks so most
->   checks stay quick and lightweight.
+> - **Reliable status answers.** This adds one compact ThreadBear status line to
+>   agent replies across your Codex tasks. It appears as a one-line footer, such
+>   as `🧵🐻 complete`, so most checks stay quick and lightweight.
 >
 > Would you like to keep this setup, change a choice, or have me explain any of
 > it?
+
+Give that reinstall discovery sentence once. When discovery identifies a first
+install, keep the detection backstage and move directly to the recommended
+card.
 
 Title maintenance controls the token display. Whenever title maintenance is
 off, every current-settings card and review must say that titles stay untouched
@@ -223,6 +231,10 @@ and token figures remain inactive and out of titles; never present a stored
 token position as active. When title maintenance is on, pair the useful-title
 outcome with the actual active token position. Skip the token-position choices
 unless the person is considering re-enabling title maintenance.
+
+Archive timing depends on automatic archiving. Whenever archiving is off, say
+that completed tasks stay visible and quiet-day timing is inactive; do not
+mention a quiet-day number as though it were active.
 
 When title maintenance is on and the person wants to change the token display,
 or when they are considering turning titles back on, name every choice and show
@@ -236,6 +248,9 @@ If a structured choice control is available, use the exact labels “At the
 start,” “At the end,” and “Hidden.” Never use “Choose another display
 preference.”
 
+If the person already supplied a valid token position, reflect that choice
+directly in the card and later review without replaying the token menu.
+
 For a first install, accepting the recommendation means leaving its default
 preferences unspecified during baseline discovery. For a reinstall, keeping
 the current card means leaving its preferences unspecified during baseline
@@ -243,6 +258,11 @@ discovery. In both cases, add a baseline preference flag only when the person
 explicitly asks to change that preference. If they want changes, ask only about
 those settings. Do not interview them about the classifier model, effort, or
 context limit unless they ask to customize the advanced fallback.
+
+Always resolve and freeze the classifier model, effort, and context budget
+backstage, but never show them in a settings card, review, or warm close unless
+the person asked about advanced settings. A complete frozen argument list is a
+safety mechanism, not a reason to expose a complete technical settings list.
 
 Backstage preference map:
 
@@ -291,35 +311,59 @@ never rely on variables surviving from an earlier tool call:
 
 ```sh
 CONTROL_TASK_ID='paste-exact-task-id-here'
-BASELINE_FLAGS="--control-task-id $CONTROL_TASK_ID"
-curl -fsSL https://threadbear.sh/install.sh | sh -s -- --dry-run $BASELINE_FLAGS
+set -- --control-task-id "$CONTROL_TASK_ID"
+# Include these two lines only when the person explicitly changed the model:
+CLASSIFIER_MODEL='example model with internal whitespace'
+set -- "$@" --classifier-model "$CLASSIFIER_MODEL"
+curl -fsSL https://threadbear.sh/install.sh | sh -s -- --dry-run "$@"
 ```
 
-Append requested changes literally to `BASELINE_FLAGS` before that curl. On a
-first install, unspecified preferences resolve to ThreadBear’s defaults. On a
-reinstall, they resolve to the installed values, so this partial baseline
-cannot reset an unmentioned preference.
+Append each requested change with `set -- "$@"` before that curl, passing every
+value as its own quoted argument. Omit the model example when the person did not
+change it. On a first install, unspecified preferences resolve to ThreadBear’s
+defaults. On a reinstall, they resolve to the installed values, so this partial
+baseline cannot reset an unmentioned preference.
+
+Assign each resolved text value separately as a shell-safe quoted literal, then
+pass it as its own quoted positional argument. If a value contains a literal
+single quote, escape it correctly for the surrounding single-quoted shell
+literal; never interpolate or flatten text values into one aggregate string.
 
 Read every resolved preference from the baseline result. Materialize all of
 them—heartbeat, automatic updates, archive behavior and quiet days, title
 maintenance, token display, status guidance, classifier model, classifier
-effort, and classifier context budget—into a complete frozen list. The example
-below shows defaults only to demonstrate the complete shape; replace every
-value with the baseline result, including an inactive stored token position
-when title maintenance is off:
+effort, and classifier context budget—into a complete frozen list. The
+non-model values below show defaults only to demonstrate the complete shape.
+The classifier model placeholder intentionally contains internal whitespace to
+demonstrate safe quoting. Replace every value with the baseline result,
+including an inactive stored token position when title maintenance is off:
 
 ```sh
 CONTROL_TASK_ID='paste-exact-task-id-here'
-FROZEN_FLAGS="--control-task-id $CONTROL_TASK_ID --heartbeat-seconds 300 --auto-update=true --archive=true --archive-after-days 14 --rename=true --token-display=start --agents=true --classifier-model gpt-5.6-luna --classifier-effort medium --classifier-context-budget-bytes 250000"
-curl -fsSL https://threadbear.sh/install.sh | sh -s -- --dry-run $FROZEN_FLAGS
+TOKEN_DISPLAY='start'
+CLASSIFIER_MODEL='example model with internal whitespace'
+CLASSIFIER_EFFORT='medium'
+set -- \
+  --control-task-id "$CONTROL_TASK_ID" \
+  --heartbeat-seconds '300' \
+  --auto-update=true \
+  --archive=true \
+  --archive-after-days '14' \
+  --rename=true \
+  --token-display "$TOKEN_DISPLAY" \
+  --agents=true \
+  --classifier-model "$CLASSIFIER_MODEL" \
+  --classifier-effort "$CLASSIFIER_EFFORT" \
+  --classifier-context-budget-bytes '250000'
+curl -fsSL https://threadbear.sh/install.sh | sh -s -- --dry-run "$@"
 ```
 
 This second dry-run is the final review source. Do not show the baseline result.
 Read the complete frozen result, translate it into the single friendly review
-below, and keep the exact task ID and full `FROZEN_FLAGS` line for
-reconstruction after consent. The final-review and confirmed preference lists
+below, and keep the exact assignment-and-`set --` stanza for reconstruction
+after consent. The final-review and confirmed argument-construction stanzas
 must be byte-for-byte identical, and therefore semantically identical; only
-`--dry-run` changes to `--noninteractive --confirm`.
+the curl mode changes from `--dry-run` to `--noninteractive --confirm`.
 
 For an exact release, append the same `--version N.N.N` selection to the
 baseline, final-review, and confirmed commands.
@@ -331,19 +375,20 @@ the complete deterministic `PreviewResult`. Add `--json` when machine-readable
 output is useful.
 
 Read the full final-review result yourself. Do not paste its raw fields into the
-conversation. Translate every effect into a complete, scannable review in this
-shape, adapting the details to the selected settings and install/reinstall
-result. The frozen dry-run result, rather than an earlier status call, baseline
-card, or assumption, is the authoritative source for every setting shown to the
-person:
+conversation. Translate the person-visible choices and outcomes into a
+scannable review in this shape, adapting the details to the selected settings
+and install/reinstall result. Do not add classifier details or other backstage
+values merely because they are frozen. The frozen dry-run result, rather than
+an earlier status call, baseline card, or assumption, is the authoritative
+source for every visible setting shown to the person:
 
 > Everything is ready for your review.
 >
 > ThreadBear will live on this Mac, use this task as its home, check in every
 > five minutes, keep itself safely updated, wait 14 quiet days before archiving
 > completed work, maintain helpful titles, show conversation size at the start,
-> and add one compact ThreadBear status line to agent replies across your Codex
-> tasks so each task can share whether it needs you.
+> and add one compact ThreadBear status line as a footer on agent replies across
+> your Codex tasks so each task can share whether it needs you.
 >
 > It won’t ask for administrator access or Full Disk Access, archive unfinished
 > tasks, overwrite names you chose, or move into a different task. Nothing has
@@ -360,8 +405,8 @@ editing the first-install example sentence by sentence:
 > while keeping your current setup: a ten-minute check-in, verified automatic
 > updates, completed tasks left visible, titles left untouched with token
 > figures inactive and out of them, and one compact ThreadBear status line
-> added to agent replies across your Codex tasks for lightweight status
-> answers.
+> added as a footer to agent replies across your Codex tasks for lightweight
+> status answers.
 >
 > Its existing home, title, and pin will stay exactly as they are. If that home
 > is another task, this task won’t become the new home and won’t be renamed or
@@ -405,22 +450,41 @@ reconsider.
 
 After first-install approval, say: “Lovely. I’m installing ThreadBear now, then
 I’ll run its health checks and report back here.” For a reinstall, say
-“refreshing ThreadBear” instead. In the same shell call as the confirmed curl,
-reconstruct the exact approved task ID and complete literal preference list;
-never rely on variables from the review tool call. Replace the example values
-below with the frozen values that produced the person’s review:
+“refreshing ThreadBear” instead. That opening progress message is the only
+conversation message until every verification step in section 7 finishes. Do
+not send an interim message saying ThreadBear is installed, complete, or
+successful.
+
+In the same shell call as the confirmed curl, reconstruct the exact approved
+assignment-and-argument stanza; never rely on variables or positional arguments
+from the review tool call. Replace the example values below with the frozen
+values that produced the person’s review:
 
 ```sh
 CONTROL_TASK_ID='paste-exact-task-id-here'
-FROZEN_FLAGS="--control-task-id $CONTROL_TASK_ID --heartbeat-seconds 300 --auto-update=true --archive=true --archive-after-days 14 --rename=true --token-display=start --agents=true --classifier-model gpt-5.6-luna --classifier-effort medium --classifier-context-budget-bytes 250000"
-curl -fsSL https://threadbear.sh/install.sh | sh -s -- --noninteractive --confirm $FROZEN_FLAGS
+TOKEN_DISPLAY='start'
+CLASSIFIER_MODEL='example model with internal whitespace'
+CLASSIFIER_EFFORT='medium'
+set -- \
+  --control-task-id "$CONTROL_TASK_ID" \
+  --heartbeat-seconds '300' \
+  --auto-update=true \
+  --archive=true \
+  --archive-after-days '14' \
+  --rename=true \
+  --token-display "$TOKEN_DISPLAY" \
+  --agents=true \
+  --classifier-model "$CLASSIFIER_MODEL" \
+  --classifier-effort "$CLASSIFIER_EFFORT" \
+  --classifier-context-budget-bytes '250000'
+curl -fsSL https://threadbear.sh/install.sh | sh -s -- --noninteractive --confirm "$@"
 ```
 
-The `CONTROL_TASK_ID` value and `FROZEN_FLAGS` text must match the final-review
-block byte for byte. Do not substitute a different task ID or preference after
-approval. The identical complete list prevents the person’s preference choices
-from drifting between review and confirmation. The installer revalidates the
-task and managed resources before mutation and stops if a safety check fails.
+The assignment-and-`set --` stanza must match the final-review block byte for
+byte. Do not substitute a different task ID or preference after approval. The
+identical complete argument list prevents the person’s preference choices from
+drifting between review and confirmation. The installer revalidates the task
+and managed resources before mutation and stops if a safety check fails.
 
 The install validates the control task before any filesystem or scheduler mutation, stages and self-tests managed resources, writes private config/state, enables the LaunchAgent, and posts the unchanged welcome notice exactly once for first adoption, unreadable replacement, or the exact repair. It does not call persistent `thread/start`, retitle the control task, pin it, or deliberately kickstart a heartbeat while the install lock is held.
 
@@ -467,13 +531,15 @@ result into this shape rather than reciting fields:
 >
 > Everything passed. ThreadBear VERSION is installed, its quiet background
 > check is healthy, and this task is now its home. The first tidy-up refreshed
-> X task titles, archived Y completed tasks, and left Z items to retry.
+> X task titles and archived Y completed tasks. Nothing needs another try.
 >
 > Your choices are saved in the welcome note above. From here, you can just talk
 > to me: “stop archiving,” “hide token counts,” “pause,” “how are you?” or
 > “uninstall ThreadBear.”
 >
 > I’ll mind the threads. You go make the next thing.
+>
+> 🧵🐻 complete
 
 For a retained home, whether this task or another task, close with a dedicated
 refresh version because no new welcome note was posted:
@@ -482,22 +548,47 @@ refresh version because no new welcome note was posted:
 >
 > Everything passed. ThreadBear VERSION is refreshed, its quiet background
 > check is healthy, and its existing home, title, and pin stayed as you left
-> them. This tidy-up refreshed X task titles, archived Y completed tasks,
-> and left Z items to retry.
+> them. Title maintenance stayed off, completed tasks stayed visible, and
+> nothing needs another try.
 >
 > Your current settings remain in effect. From here, you can just talk to me:
 > “stop archiving,” “hide token counts,” “pause,” “how are you?” or “uninstall
 > ThreadBear.”
 >
 > I’ll mind the threads. You go make the next thing.
+>
+> 🧵🐻 complete
 
 Adapt the home sentence to say whether ThreadBear remains in this task or its
 existing home in another task. Adapt the first-install version for a replacement
-or manual pin. Never expose the raw disposition name. If anything failed, say
-what the person experiences, what you are checking next, and whether
-installation changed anything; put raw diagnostics after the plain explanation
-only when they help. Never direct the person elsewhere to complete, verify, or
-troubleshoot the installation.
+or manual pin.
+
+Render the tidy-up from enabled features rather than printing a dashboard of
+zeros:
+
+- When title maintenance is enabled, report the refreshed-title count; if it is
+  zero, say the titles already looked right. When it is disabled, do not report
+  a title count; say “Title maintenance stayed off.”
+- When automatic archiving is enabled, report the archived-task count; if it is
+  zero, say no completed tasks were ready for the archive. When it is disabled,
+  do not report an archive count; say “Completed tasks stayed visible.”
+- When retries are zero, say “Nothing needs another try.” Mention a retry count
+  only when something genuinely needs another try, and explain that ThreadBear
+  will keep working on it.
+
+The final response follows the selected status-guidance setting. When enabled,
+append one compact ThreadBear footer such as `🧵🐻 complete`; when disabled,
+omit the footer entirely. If this task already loaded a higher-priority earlier
+footer rule that conflicts with the new choice, obey that rule and disclose:
+“This task started with earlier reply guidance, so its footer may not change
+here. Your choice will apply in new task sessions.” Do not promise that the
+current reply will override guidance already loaded for this task.
+
+Never expose the raw disposition name. If anything failed, say what the person
+experiences, what you are checking next, and whether installation changed
+anything; put raw diagnostics after the plain explanation only when they help.
+Never direct the person elsewhere to complete, verify, or troubleshoot the
+installation.
 
 For a failure before mutation, use this distinct no-change shape:
 
