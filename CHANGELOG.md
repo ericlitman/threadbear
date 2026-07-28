@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## v1.3.0 - 2026-07-28
+
 ### Added
 
 - Added hosted post-publish install smoke coverage and a required pre-tag replica rehearsal checklist.
