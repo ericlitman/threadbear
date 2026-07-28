@@ -18,6 +18,7 @@ import (
 
 	"github.com/ericlitman/threadbear/internal/config"
 	"github.com/ericlitman/threadbear/internal/state"
+	"github.com/ericlitman/threadbear/internal/tokens"
 )
 
 type fakeLock struct {
@@ -875,6 +876,33 @@ func TestInstallDryRunIsDeterministicAndMutationFree(t *testing.T) {
 	}
 }
 
+func TestInstallDryRunCustomPreferencesAreMutationFree(t *testing.T) {
+	store := &fakeStore{}
+	scheduler := &fakeScheduler{}
+	tasks := &fakeTasks{}
+	installer := newInstaller(t, store, scheduler, tasks, nil)
+	archive := false
+	tokenDisplay := tokens.PositionEnd
+	request := InstallRequest{
+		ControlTaskID: "task-home",
+		DryRun:        true,
+		Patch: PreferencePatch{
+			ArchiveEnabled: &archive,
+			TokenDisplay:   &tokenDisplay,
+		},
+	}
+	result, err := installer.Install(context.Background(), request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.DryRun || result.Config.ArchiveEnabled || result.Config.TokenDisplay != tokens.PositionEnd {
+		t.Fatalf("result=%+v", result)
+	}
+	if store.locks != 0 || store.saveConfig != 0 || store.saveState != 0 || len(scheduler.calls) != 0 || installer.Binary.(*fakeBinary).calls != 0 || len(tasks.welcomes) != 0 {
+		t.Fatalf("custom dry run mutated store=%+v scheduler=%v tasks=%+v", store, scheduler.calls, tasks)
+	}
+}
+
 func TestInstallDryRunPreservesRealFilesAndIgnoresHistoricalThreadWatch(t *testing.T) {
 	type snapshotEntry struct {
 		Mode os.FileMode
@@ -885,6 +913,8 @@ func TestInstallDryRunPreservesRealFilesAndIgnoresHistoricalThreadWatch(t *testi
 	cfg := config.Default("home-task")
 	cfg.HeartbeatSeconds = 777
 	cfg.ArchiveEnabled = false
+	cfg.AutoUpdateEnabled = false
+	cfg.TokenDisplay = tokens.PositionEnd
 	cfg.CodexExecutable = testCodexExecutable(t, home)
 	spec, err := codex.DeriveExecutableSpec(home, cfg.CodexExecutable, os.Getenv("PATH"))
 	if err != nil {

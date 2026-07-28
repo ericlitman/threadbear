@@ -31,19 +31,67 @@ func TestWelcomeNoticeCarriesSettingsAndChatInstructions(t *testing.T) {
 	preferences := DefaultPreferences()
 	notice := welcomeNotice("1.2.3", preferences)
 	for _, want := range []string{
-		"ThreadBear 1.2.3",
-		"every 300 seconds",
-		"automatic ThreadBear updates: on",
-		"after 14 quiet days",
-		"gpt-5.6-luna",
-		"tell me here in this chat",
-		"threadbear configure",
+		"ThreadBear 1.2.3 is home",
+		"To keep your Codex tasks tidy, I will:",
+		"check quietly every 5 minutes",
+		"install verified updates automatically",
+		"tuck completed tasks away after 14 quiet days",
+		"keep status and next actions easy to spot in task titles",
+		"show output tokens at the start, like 🚨 1.6m Fix checkout",
+		"add a one-line status hint to agent replies so most checks stay lightweight",
+		"use local task evidence first, then ask Codex for a careful second look only when a task is unclear",
+		`Say "check every ten minutes"`,
+		"I will mind the threads",
 	} {
 		if !strings.Contains(notice, want) {
 			t.Fatalf("welcome notice missing %q\n%s", want, notice)
 		}
 	}
+	for _, leak := range []string{
+		"300 seconds",
+		"AGENTS.md",
+		"byte budget",
+		"threadbear configure",
+		"managed",
+		"gpt-5.6-luna",
+		"250 KB",
+		"recommended settings",
+		"helpful task titles: on",
+		"conversation size in titles:",
+	} {
+		if strings.Contains(notice, leak) {
+			t.Fatalf("welcome notice leaks %q\n%s", leak, notice)
+		}
+	}
 	if strings.Contains(notice, "—") {
 		t.Fatal("em dash in welcome notice")
+	}
+}
+
+func TestWelcomeNoticeHumanizesCustomSettings(t *testing.T) {
+	preferences := DefaultPreferences()
+	preferences.HeartbeatSeconds = 3600
+	preferences.AutoUpdateEnabled = false
+	preferences.ArchiveEnabled = false
+	preferences.RenameEnabled = false
+	preferences.TokenDisplay = "end"
+	preferences.AgentsEnabled = false
+	preferences.ClassifierModel = "gpt-custom"
+	preferences.ClassifierEffort = "high"
+	preferences.ClassifierContextBudgetBytes = 9000
+
+	notice := welcomeNotice("1.2.3", preferences)
+	for _, want := range []string{
+		"every hour",
+		"choose when to install available updates",
+		"keep completed tasks visible until you archive them",
+		"leave every task title entirely to you",
+		"show output tokens at the end, like 🚨 Fix checkout · out 1.6m",
+		"leave agent replies unchanged",
+		"custom: gpt-custom with high reasoning, up to 9 KB of context",
+	} {
+		if !strings.Contains(notice, want) {
+			t.Fatalf("welcome notice missing %q\n%s", want, notice)
+		}
 	}
 }
