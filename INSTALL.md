@@ -67,7 +67,11 @@ change the words inside a state but never the order.
 5. If they change a choice at the review, keep that first review visible,
    acknowledge the changes, and show a second complete review in a new
    assistant turn. Ask the installation question again.
-6. Only a clear yes to the installation question advances to installation.
+6. Before asking the installation question, freeze a close plan from the same
+   reviewed settings: archive enabled or disabled, title maintenance enabled or
+   disabled, token position, and the two exact mapped actions. Counts may fill
+   that plan later, but installation results must not switch it back to defaults.
+7. Only a clear yes to the installation question advances to installation.
    Send the exact one-line progress update from section 6, complete all
    verification backstage, then send one complete success or failure close.
 
@@ -499,6 +503,12 @@ below, and keep the exact assignment-and-`set --` stanza for reconstruction
 after consent. The final-review and confirmed argument-construction stanzas
 must be byte-for-byte identical, and therefore semantically identical; only
 the curl mode changes from `--dry-run` to `--noninteractive --confirm`.
+
+At the same time, freeze the consumer-facing close plan from that review:
+`archive` branch, title-maintenance branch, active token position, exact archive
+action, and exact title/token action. Keep the plan backstage. After consent,
+use heartbeat counts only to fill its tidy-up outcomes. Never derive close
+branches or actions again from defaults, earlier status, or a result template.
 
 For an exact release, append the same `--version N.N.N` selection to the
 baseline, final-review, and confirmed commands.
