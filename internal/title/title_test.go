@@ -94,34 +94,44 @@ func TestReconcileDoesNotAccumulateActions(t *testing.T) {
 func TestReconcileRendersSingleStatusEmojiWithoutSubject(t *testing.T) {
 	for _, captured := range []string{"⏳", "🚨", "🙋", "🤖", "➡️", "✅", "❔"} {
 		t.Run(captured, func(t *testing.T) {
-			got, err := Reconcile(
-				state.TaskRecord{CapturedTitle: captured},
-				state.StatusComplete,
-				"",
-				"ignored without a subject",
-				tokens.Display{Position: tokens.PositionStart, Value: "1.6m"},
-			)
+			got, err := Reconcile(state.TaskRecord{CapturedTitle: captured}, state.StatusComplete, "", "ignored without a subject", tokens.Display{})
 			if err != nil {
 				t.Fatal(err)
 			}
-			if got.Title != "✅ 1.6m" || got.DurableSubject != "" || got.ManagedAction != "" {
+			if got.Title != "✅" || got.DurableSubject != "" || got.ManagedAction != "" {
 				t.Fatalf("Reconcile() = %+v", got)
 			}
 		})
 	}
+}
 
-	end, err := Reconcile(
-		state.TaskRecord{CapturedTitle: "❔"},
-		state.StatusUnknown,
-		"",
-		"",
-		tokens.Display{Position: tokens.PositionEnd, Value: "1.6m"},
-	)
-	if err != nil {
-		t.Fatal(err)
+func TestReconcileStatusOnlyTitleIsFixedPointAcrossTokenPositions(t *testing.T) {
+	tests := []struct {
+		name    string
+		display tokens.Display
+	}{
+		{name: "off", display: tokens.Display{}},
+		{name: "start", display: tokens.Display{Position: tokens.PositionStart, Value: "1.6m"}},
+		{name: "end", display: tokens.Display{Position: tokens.PositionEnd, Value: "1.6m"}},
 	}
-	if end.Title != "❔ · out 1.6m" || end.ManagedTokenPosition != tokens.PositionEnd {
-		t.Fatalf("end = %+v", end)
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			first, err := Reconcile(state.TaskRecord{CapturedTitle: "❔"}, state.StatusUnknown, "", "", test.display)
+			if err != nil {
+				t.Fatal(err)
+			}
+			record := state.TaskRecord{
+				CapturedTitle: first.Title, DurableSubject: first.DurableSubject, LastAppliedTitle: first.Title,
+				ManagedTokenDisplay: first.ManagedTokenDisplay, ManagedTokenPosition: first.ManagedTokenPosition,
+			}
+			second, err := Reconcile(record, state.StatusUnknown, "", "", test.display)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if first.Title != "❔" || second.Title != first.Title || second.DurableSubject != "" || second.ManagedTokenDisplay != "" {
+				t.Fatalf("first=%+v second=%+v", first, second)
+			}
+		})
 	}
 }
 

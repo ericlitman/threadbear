@@ -45,6 +45,9 @@ func Reconcile(record state.TaskRecord, nextStatus state.TaskStatus, suggestedSu
 	if subject == "" && !statusOnly {
 		return Result{}, ErrEmptySubject
 	}
+	if statusOnly {
+		display = tokens.Display{}
+	}
 	action := strings.TrimSpace(nextAction)
 	title := nextStatus.Emoji()
 	if display.Position == tokens.PositionStart {
