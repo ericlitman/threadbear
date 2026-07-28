@@ -441,6 +441,12 @@ func TestCodexInstallGuideAcknowledgesChangedChoicesWarmly(t *testing.T) {
 		t.Fatal("changed-status echo does not pair an all-change warm lead-in with the immutable off tradeoff")
 	}
 	for _, want := range []string{
+		"Preserve this decision order exactly.",
+		"First send the readiness result and settings card, then wait for the person’s reply.",
+		"If they request a change at that review instead of consenting, do not install and do not erase the first review from the conversation.",
+		"send a second full authoritative review and ask the friendly installation question again.",
+		"Only a clear yes after that second review is consent.",
+		"Never invent, move, or reorder a person’s reply.",
 		"Only after the person has seen a full review and then changes a choice does the next review need a short, consumer-facing delta.",
 		"When the warm changed-status echo already named every changed outcome, that echo is the delta",
 		"start the next assistant message directly with the full authoritative review below and do not repeat “Review updated.”",
@@ -892,13 +898,16 @@ func TestCodexInstallGuideHasDistinctWarmFailureResponses(t *testing.T) {
 			},
 			"post-mutation": {
 				"ThreadBear hit a snag while starting its quiet background check.",
-				"The install itself finished and your settings are in place",
+				"account for every person-visible mutation",
+				"task-home adoption, rename, pin",
+				"Do not compress those outcomes into “your settings are in place.”",
+				"The install itself finished: ThreadBear is in place, this task is now its home, named `🧵🐻 ThreadBear 🐻🧵` and pinned, and your settings are in place",
 				"I’m checking why the background check did not start now.",
 				"You don’t need to",
 				"restart the installation or repeat anything",
 			},
 		}[name] {
-			if !strings.Contains(strings.ReplaceAll(section, "\n> ", " "), want) {
+			if !strings.Contains(normalizeGuideText(section), want) {
 				t.Fatalf("INSTALL.md %s response missing %q", name, want)
 			}
 		}

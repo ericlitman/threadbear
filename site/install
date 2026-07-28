@@ -484,6 +484,15 @@ values merely because they are frozen. The frozen dry-run result, rather than
 an earlier status call, baseline card, or assumption, is the authoritative
 source for every visible setting shown to the person:
 
+Preserve this decision order exactly. First send the readiness result and
+settings card, then wait for the person’s reply. If they accept those settings,
+run the backstage review and show the first full review below. If they request
+a change at that review instead of consenting, do not install and do not erase
+the first review from the conversation. Acknowledge all requested changes,
+rerun the backstage review, then send a second full authoritative review and
+ask the friendly installation question again. Only a clear yes after that
+second review is consent. Never invent, move, or reorder a person’s reply.
+
 Only after the person has seen a full review and then changes a choice does the
 next review need a short, consumer-facing delta. When the warm changed-status
 echo already named every changed outcome, that echo is the delta; start the
@@ -829,13 +838,18 @@ For a failure before mutation, use this distinct no-change shape:
 > I’m checking the connection to the verified download now. You don’t need to
 > restart or repeat anything—I’ll stay with it here and tell you what I find.
 
-For a failure after installation has started, use this post-mutation shape and
+For a failure after installation has started, account for every
+person-visible mutation that the evidence says completed. This includes the
+install and settings plus task-home adoption, rename, pin, retained-home
+preservation, or unarchiving when any of those occurred. Do not compress those
+outcomes into “your settings are in place.” Use this post-mutation shape and
 adapt every factual sentence to the evidence:
 
 > ThreadBear hit a snag while starting its quiet background check.
 >
-> The install itself finished and your settings are in place; the health check
-> is the only part that has not passed yet.
+> The install itself finished: ThreadBear is in place, this task is now its
+> home, named `🧵🐻 ThreadBear 🐻🧵` and pinned, and your settings are in place;
+> the health check is the only part that has not passed yet.
 >
 > I’m checking why the background check did not start now. You don’t need to
 > restart the installation or repeat anything—I’ll stay with it here and tell
