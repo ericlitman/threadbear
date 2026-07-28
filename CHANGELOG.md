@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Changed
+
+- Recast Codex-guided installation as a warm ThreadBear welcome with progressive preference choices, plain-language review and consent, backstage technical details, and a friendlier settings notice.
+
 ## v1.3.0 - 2026-07-28
 
 ### Added

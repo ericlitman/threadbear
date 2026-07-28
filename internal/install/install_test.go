@@ -18,6 +18,7 @@ import (
 
 	"github.com/ericlitman/threadbear/internal/config"
 	"github.com/ericlitman/threadbear/internal/state"
+	"github.com/ericlitman/threadbear/internal/tokens"
 )
 
 type fakeLock struct {
@@ -875,6 +876,99 @@ func TestInstallDryRunIsDeterministicAndMutationFree(t *testing.T) {
 	}
 }
 
+func TestInstallDryRunCustomPreferencesAreMutationFree(t *testing.T) {
+	store := &fakeStore{}
+	scheduler := &fakeScheduler{}
+	tasks := &fakeTasks{}
+	installer := newInstaller(t, store, scheduler, tasks, nil)
+	archive := false
+	tokenDisplay := tokens.PositionEnd
+	request := InstallRequest{
+		ControlTaskID: "task-home",
+		DryRun:        true,
+		Patch: PreferencePatch{
+			ArchiveEnabled: &archive,
+			TokenDisplay:   &tokenDisplay,
+		},
+	}
+	result, err := installer.Install(context.Background(), request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.DryRun || result.Config.ArchiveEnabled || result.Config.TokenDisplay != tokens.PositionEnd {
+		t.Fatalf("result=%+v", result)
+	}
+	if store.locks != 0 || store.saveConfig != 0 || store.saveState != 0 || len(scheduler.calls) != 0 || installer.Binary.(*fakeBinary).calls != 0 || len(tasks.welcomes) != 0 {
+		t.Fatalf("custom dry run mutated store=%+v scheduler=%v tasks=%+v", store, scheduler.calls, tasks)
+	}
+}
+
+func TestInstallConfirmedFullPreferencePatchAppliesReviewedDryRunSnapshot(t *testing.T) {
+	cfg := config.Default("task-home")
+	cfg.HeartbeatSeconds = 420
+	cfg.ArchiveEnabled = false
+	cfg.ArchiveAfterDays = 31
+	cfg.RenameEnabled = false
+	cfg.AutoUpdateEnabled = false
+	cfg.TokenDisplay = tokens.PositionEnd
+	cfg.AgentsEnabled = false
+	cfg.ClassifierModel = "reviewed-model"
+	cfg.ClassifierEffort = config.EffortHigh
+	cfg.ClassifierContextBudgetBytes = 2468
+	store := &fakeStore{
+		config:       cfg,
+		state:        state.New(),
+		configExists: true,
+		stateExists:  true,
+	}
+	installer := newInstaller(t, store, &fakeScheduler{}, &fakeTasks{}, nil)
+
+	heartbeatSeconds := 600
+	dryRun, err := installer.Install(context.Background(), InstallRequest{
+		ControlTaskID: "task-home",
+		DryRun:        true,
+		Patch: PreferencePatch{
+			HeartbeatSeconds: &heartbeatSeconds,
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	reviewed := preferencesFromConfig(dryRun.Config)
+
+	store.config.AutoUpdateEnabled = true
+	if reviewed.AutoUpdateEnabled == store.config.AutoUpdateEnabled {
+		t.Fatal("intervening preference change did not differ from reviewed snapshot")
+	}
+
+	result, err := installer.Install(context.Background(), InstallRequest{
+		ControlTaskID:  "task-home",
+		NonInteractive: true,
+		Confirm:        true,
+		Patch: PreferencePatch{
+			HeartbeatSeconds:             &reviewed.HeartbeatSeconds,
+			ArchiveEnabled:               &reviewed.ArchiveEnabled,
+			ArchiveAfterDays:             &reviewed.ArchiveAfterDays,
+			RenameEnabled:                &reviewed.RenameEnabled,
+			AutoUpdateEnabled:            &reviewed.AutoUpdateEnabled,
+			TokenDisplay:                 &reviewed.TokenDisplay,
+			AgentsEnabled:                &reviewed.AgentsEnabled,
+			ClassifierModel:              &reviewed.ClassifierModel,
+			ClassifierEffort:             &reviewed.ClassifierEffort,
+			ClassifierContextBudgetBytes: &reviewed.ClassifierContextBudgetBytes,
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := preferencesFromConfig(result.Config); got != reviewed {
+		t.Fatalf("installed preferences=%+v reviewed=%+v", got, reviewed)
+	}
+	if got := preferencesFromConfig(store.config); got != reviewed {
+		t.Fatalf("persisted preferences=%+v reviewed=%+v", got, reviewed)
+	}
+}
+
 func TestInstallDryRunPreservesRealFilesAndIgnoresHistoricalThreadWatch(t *testing.T) {
 	type snapshotEntry struct {
 		Mode os.FileMode
@@ -885,6 +979,8 @@ func TestInstallDryRunPreservesRealFilesAndIgnoresHistoricalThreadWatch(t *testi
 	cfg := config.Default("home-task")
 	cfg.HeartbeatSeconds = 777
 	cfg.ArchiveEnabled = false
+	cfg.AutoUpdateEnabled = false
+	cfg.TokenDisplay = tokens.PositionEnd
 	cfg.CodexExecutable = testCodexExecutable(t, home)
 	spec, err := codex.DeriveExecutableSpec(home, cfg.CodexExecutable, os.Getenv("PATH"))
 	if err != nil {

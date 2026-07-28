@@ -137,12 +137,12 @@ func (p *TTYPrompter) Collect(value Preferences) (Preferences, error) {
 	if value.RenameEnabled, err = p.askBool("Automatically maintain status and next-action titles", value.RenameEnabled); err != nil {
 		return Preferences{}, err
 	}
-	p.describe("Show how many output tokens each thread has used, right in its title. Choose off, start, or end of the title.")
-	tokenDisplay, err := p.askString("Show output tokens in managed titles (off, start, end)", string(value.TokenDisplay))
+	p.describe("Show how many output tokens each thread has used, right in its title. Choose Hidden, Start, or End.")
+	tokenDisplay, err := p.askString("Show output tokens in managed titles (Hidden, Start, End)", tokenDisplayPromptValue(value.TokenDisplay))
 	if err != nil {
 		return Preferences{}, err
 	}
-	value.TokenDisplay = tokens.Position(tokenDisplay)
+	value.TokenDisplay = parseTokenDisplayPromptValue(tokenDisplay)
 	p.describe("Add a small managed block to your global AGENTS.md asking agents to end each reply with a one line status footer. Most threads then classify instantly, with zero tokens.")
 	if value.AgentsEnabled, err = p.askBool("Install managed AGENTS.md instructions", value.AgentsEnabled); err != nil {
 		return Preferences{}, err
@@ -165,6 +165,32 @@ func (p *TTYPrompter) Collect(value Preferences) (Preferences, error) {
 		return Preferences{}, err
 	}
 	return value, nil
+}
+
+func tokenDisplayPromptValue(position tokens.Position) string {
+	switch position {
+	case tokens.PositionStart:
+		return "Start"
+	case tokens.PositionEnd:
+		return "End"
+	case tokens.PositionOff:
+		return "Hidden"
+	default:
+		return string(position)
+	}
+}
+
+func parseTokenDisplayPromptValue(value string) tokens.Position {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "hidden", "off":
+		return tokens.PositionOff
+	case "start":
+		return tokens.PositionStart
+	case "end":
+		return tokens.PositionEnd
+	default:
+		return tokens.Position(value)
+	}
 }
 
 func (p *TTYPrompter) ShowPreview(preview Preview) error {

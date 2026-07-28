@@ -615,51 +615,134 @@ func welcomeNotice(version string, preferences Preferences) string {
 	if version == "" {
 		version = "v1"
 	}
-	archive := "no"
+	archive := "keep completed tasks visible until you archive them"
 	if preferences.ArchiveEnabled {
-		archive = fmt.Sprintf("yes, after %d quiet days", preferences.ArchiveAfterDays)
+		archive = fmt.Sprintf("tuck completed tasks away after %d quiet days", preferences.ArchiveAfterDays)
 	}
-	rename := "no"
+	rename := "leave every task title entirely to you"
 	if preferences.RenameEnabled {
-		rename = "yes"
+		rename = "keep status and next actions easy to spot in task titles"
 	}
-	autoUpdate := "off"
+	tokenDisplay := "keep output-token figures out of task titles while title updates are off"
+	if preferences.RenameEnabled {
+		tokenDisplay = friendlyTokenDisplay(preferences.TokenDisplay)
+	}
+	autoUpdate := "let you choose when to install available updates"
 	if preferences.AutoUpdateEnabled {
-		autoUpdate = "on"
+		autoUpdate = "install verified updates automatically"
 	}
-	agents := "off"
+	statusHints := "leave agent replies unchanged"
 	if preferences.AgentsEnabled {
-		agents = "on"
+		statusHints = "add a one-line status hint to agent replies so most checks stay lightweight"
 	}
-	return fmt.Sprintf(`🧵🐻 Hi! ThreadBear %s is installed and watching over this Codex.
+	classifier := "use local task evidence first, then ask Codex for a careful second look only when a task is unclear"
+	defaults := DefaultPreferences()
+	if preferences.ClassifierModel != defaults.ClassifierModel ||
+		preferences.ClassifierEffort != defaults.ClassifierEffort ||
+		preferences.ClassifierContextBudgetBytes != defaults.ClassifierContextBudgetBytes {
+		classifier = fmt.Sprintf(
+			"%s (custom: %s with %s reasoning, up to %s of context)",
+			classifier,
+			preferences.ClassifierModel,
+			preferences.ClassifierEffort,
+			friendlyByteLimit(preferences.ClassifierContextBudgetBytes),
+		)
+	}
+	heartbeatExample, archiveExample, tokenExample := welcomeChangeExamples(preferences)
+	return fmt.Sprintf(`🧵🐻 ThreadBear %s is home.
 
-Here is how I am set up:
-- heartbeat: every %d seconds
-- automatic ThreadBear updates: %s
-- archive finished threads: %s
-- keep titles updated: %s
-- token figures in titles: %s
-- managed AGENTS.md footer: %s
-- classifier: %s at %s effort, %d byte budget
+To keep your Codex tasks tidy, I will:
+- check quietly %s
+- %s
+- %s
+- %s
+- %s
+- %s
+- %s
 
-Want anything different? Just tell me here in this chat, in plain words:
-"set my heartbeat to 10 minutes", "stop archiving", "turn off token counts".
-The installed ThreadBear skill shows me the matching threadbear configure
-command and I will run it for you. You can also run threadbear configure
-in a terminal any time.
+Want anything different? Say %q,
+%q, or %q.
 
-Happy wrangling. Go do great things!`,
+I will mind the threads. You go make the next thing.`,
 		version,
-		preferences.HeartbeatSeconds,
+		friendlyInterval(preferences.HeartbeatSeconds),
 		autoUpdate,
 		archive,
 		rename,
-		string(preferences.TokenDisplay),
-		agents,
-		preferences.ClassifierModel,
-		string(preferences.ClassifierEffort),
-		preferences.ClassifierContextBudgetBytes,
+		tokenDisplay,
+		statusHints,
+		classifier,
+		heartbeatExample,
+		archiveExample,
+		tokenExample,
 	)
+}
+
+func welcomeChangeExamples(preferences Preferences) (string, string, string) {
+	heartbeat := "check every ten minutes"
+	if preferences.HeartbeatSeconds == 10*60 {
+		heartbeat = "check every five minutes"
+	}
+
+	archive := "archive completed tasks after two weeks"
+	if preferences.ArchiveEnabled {
+		archive = "stop archiving"
+	}
+
+	tokenDisplay := "turn title updates on and show token counts at the start"
+	if preferences.RenameEnabled {
+		switch preferences.TokenDisplay {
+		case tokens.PositionStart:
+			tokenDisplay = "put token counts at the end"
+		case tokens.PositionEnd:
+			tokenDisplay = "hide token counts"
+		default:
+			tokenDisplay = "put token counts at the start"
+		}
+	}
+	return heartbeat, archive, tokenDisplay
+}
+
+func friendlyInterval(seconds int) string {
+	if seconds%3600 == 0 {
+		hours := seconds / 3600
+		if hours == 1 {
+			return "every hour"
+		}
+		return fmt.Sprintf("every %d hours", hours)
+	}
+	if seconds%60 == 0 {
+		minutes := seconds / 60
+		if minutes == 1 {
+			return "every minute"
+		}
+		return fmt.Sprintf("every %d minutes", minutes)
+	}
+	if seconds == 1 {
+		return "every second"
+	}
+	return fmt.Sprintf("every %d seconds", seconds)
+}
+
+func friendlyTokenDisplay(position tokens.Position) string {
+	switch position {
+	case tokens.PositionStart:
+		return "show output tokens at the start, like 🚨 1.6m Fix checkout"
+	case tokens.PositionEnd:
+		return "show output tokens at the end, like 🚨 Fix checkout · out 1.6m"
+	default:
+		return "keep output-token figures out of task titles"
+	}
+}
+
+func friendlyByteLimit(bytes int) string {
+	if bytes%1000000 == 0 {
+		return fmt.Sprintf("%d MB", bytes/1000000)
+	}
+	if bytes%1000 == 0 {
+		return fmt.Sprintf("%d KB", bytes/1000)
+	}
+	return fmt.Sprintf("%d bytes", bytes)
 }
 
 func (i Installer) stageCandidate(ctx context.Context, candidateConfig config.Config, candidateState state.State) ([]string, error) {
