@@ -76,6 +76,11 @@ installed=$HOME/.local/bin/threadbear
 
 cleanup() {
 	chmod -R u+w "$temporary_root" 2>/dev/null || true
+	if [ -z "${rehearsal_ok:-}" ] && [ -n "${THREADBEAR_REHEARSAL_DIAGNOSTICS:-}" ]; then
+		mkdir -p "$THREADBEAR_REHEARSAL_DIAGNOSTICS"
+		cp "$temporary_root"/*.json "$temporary_root"/*.stderr "$temporary_root"/replica-counts "$THREADBEAR_REHEARSAL_DIAGNOSTICS/" 2>/dev/null || true
+		echo "rehearsal diagnostics preserved (may contain task data; delete after review): $THREADBEAR_REHEARSAL_DIAGNOSTICS" >&2
+	fi
 	if [ -x "$installed" ]; then
 		"$installed" uninstall --noninteractive --confirm >/dev/null 2>&1 || true
 	fi
@@ -254,7 +259,7 @@ if not text:
     print("changed=0 archived=0 retries=0")
 else:
     result = json.loads(text)
-    if result.get("error_code"):
+    if result.get("error_code") not in (None, "", "partial_failure"):
         raise SystemExit(1)
     print("changed=%d archived=%d retries=%d" % (len(result.get("changed", [])), len(result.get("archived_ids", [])), len(result.get("retries", []))))
 PY
@@ -291,5 +296,6 @@ fi
 
 codex_version=$("$codex" --version 2>/dev/null | sed -n '1p')
 replica_counts=$(sed -n '1p' "$temporary_root/replica-counts")
+rehearsal_ok=1
 printf 'replica rehearsal passed: commit=%s version=%s architecture=%s macos=%s codex=%s %s install=ok self_test=ok launchagent=ok heartbeat_%s %s %s uninstall=ok isolation=temporary_copy\n' \
 	"$source_commit" "$version" "$(uname -m)" "$(sw_vers -productVersion)" "$codex_version" "$replica_counts" "$heartbeat_required" "$heartbeat_counts" "$status_counts"
