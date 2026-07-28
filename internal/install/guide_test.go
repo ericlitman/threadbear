@@ -18,15 +18,16 @@ func TestCodexInstallGuideCarriesConversationContract(t *testing.T) {
 		"At the start (recommended)",
 		"At the end",
 		"Hidden",
-		"one compact ThreadBear status line to agent replies",
+		"Agent replies across every Codex task",
+		"one-line ThreadBear footer",
 		"Show exactly one settings card",
 		"final-review and confirmed argument-construction stanzas\nmust be byte-for-byte identical",
 		"Ready for me to install ThreadBear with these choices?",
 		"Ready for me to refresh ThreadBear with these choices?",
-		"ThreadBear is home 🧵🐻",
+		"ThreadBear is installed",
+		"ThreadBear is refreshed",
 		"Your choices are saved in the welcome note above.",
 		"Your current settings remain in effect.",
-		"I’ll mind the threads. You go make the next thing.",
 	} {
 		if !strings.Contains(guide, want) {
 			t.Fatalf("INSTALL.md missing conversation contract text %q", want)
@@ -47,6 +48,9 @@ func TestCodexInstallGuideHasEnforceableWelcomeOrientation(t *testing.T) {
 		"verify that everything\nis healthy before calling the work complete",
 		"I’ll take care of the setup right here.",
 		"ThreadBear won’t be installed and no\n> settings will change until you say go",
+		"Finish that same opening assistant turn with these two promises",
+		"The next user-facing turn should open with the readiness result and contain the\none appropriate settings card",
+		"Do not fragment the welcome, permission\nheads-up, compatibility preface, or official-download promise",
 	} {
 		if !strings.Contains(guide, want) {
 			t.Fatalf("INSTALL.md welcome is missing orientation promise %q", want)
@@ -125,20 +129,29 @@ func TestCodexInstallGuideShowsOneModeSpecificSettingsCard(t *testing.T) {
 		"show exactly one appropriate card in the next section",
 		"Give that reinstall discovery sentence once.",
 		"When discovery identifies a first\ninstall, keep the detection backstage",
+		"installer\ncannot move a healthy readable home during a refresh",
+		"requires a separate uninstall and new adoption, not a refresh\nchoice",
+		"Do not offer or begin that destructive rehome path",
 	} {
 		if !strings.Contains(guide, want) {
 			t.Fatalf("INSTALL.md missing mode-specific card branch %q", want)
 		}
 	}
-	if got := strings.Count(guide, "so I’ll keep it right where it is and show you"); got != 1 {
+	if got := strings.Count(guide, "this refresh will keep it there"); got != 1 {
 		t.Fatalf("INSTALL.md has %d reinstall discovery disclosures, want exactly one", got)
 	}
 }
 
 func TestCodexInstallGuideDisclosesStatusGuidanceBeforeConsent(t *testing.T) {
 	guide := readInstallGuide(t)
-	if got := strings.Count(guide, "one compact ThreadBear status line"); got < 3 {
-		t.Fatalf("INSTALL.md discloses the visible status line %d times, want recommendation plus both reviews", got)
+	normalized := normalizeGuideText(guide)
+	enabled := "**Status guidance on.** Agent replies across every Codex task get a one-line ThreadBear footer such as `🧵🐻 complete`. This lets ThreadBear use lightweight checks, with a careful second look when a task is unclear."
+	disabled := "**Status guidance off.** Agent replies stay unchanged. When ThreadBear needs to understand a task, it takes a careful full look instead."
+	if got := strings.Count(normalized, enabled); got < 5 {
+		t.Fatalf("INSTALL.md contains enabled immutable status copy %d times, want definition, both cards, and both reviews", got)
+	}
+	if got := strings.Count(normalized, disabled); got < 2 {
+		t.Fatalf("INSTALL.md contains disabled immutable status copy %d times, want definition and review guard", got)
 	}
 	for name, bounds := range map[string][2]string{
 		"recommendation": {"For a first install, present the recommended setup:", "For a reinstall, present a dedicated current-settings card once"},
@@ -151,19 +164,87 @@ func TestCodexInstallGuideDisclosesStatusGuidanceBeforeConsent(t *testing.T) {
 		if start == -1 || end == -1 || end <= start {
 			t.Fatalf("INSTALL.md missing %s status-guidance section", name)
 		}
-		section := strings.ReplaceAll(guide[start:end], "\n> ", " ")
-		if !strings.Contains(section, "one compact ThreadBear status line") ||
-			!strings.Contains(section, "agent replies") ||
-			!strings.Contains(section, "Codex tasks") {
-			t.Fatalf("INSTALL.md %s section does not disclose the visible cross-task reply change", name)
+		section := normalizeGuideText(guide[start:end])
+		if !strings.Contains(section, enabled) {
+			t.Fatalf("INSTALL.md %s section does not preserve immutable enabled status copy", name)
 		}
 	}
-	recommendationStart := strings.Index(guide, "For a first install, present the recommended setup:")
-	recommendationEnd := strings.Index(guide, "For a reinstall, present a dedicated current-settings card once")
-	recommendation := guide[recommendationStart:recommendationEnd]
-	if !strings.Contains(recommendation, "one-line footer") ||
-		!strings.Contains(recommendation, "🧵🐻 complete") {
-		t.Fatal("default card does not show the concrete status-footer artifact and sample")
+	for _, want := range []string{
+		"its language is\nimmutable",
+		"Use the selected variant below verbatim in the settings card, the\nshort choice echo when one is required below, and the final review",
+		"Do not\nparaphrase, shorten, split, or omit any sentence",
+		"When the person changes or explicitly discusses status guidance, echo the\nselected immutable variant once",
+		"If they simply accept the\nrecommendation, do not repeat the paragraph in an extra echo",
+	} {
+		if !strings.Contains(guide, want) {
+			t.Fatalf("INSTALL.md missing immutable status-guidance contract %q", want)
+		}
+	}
+}
+
+func TestCodexInstallGuideRendersArchiveStateConditionally(t *testing.T) {
+	guide := readInstallGuide(t)
+	normalized := normalizeGuideText(guide)
+	if strings.Contains(normalized, "It won’t ask for administrator access or Full Disk Access, archive unfinished tasks") {
+		t.Fatal("general review safety list implies archiving is active")
+	}
+	for _, want := range []string{
+		"Only completed tasks that have been quiet for 14 days will be archived; unfinished tasks stay visible.",
+		"Completed tasks stay visible, and quiet-day timing is inactive.",
+		"Never put an archive claim in the general “It won’t…” list.",
+	} {
+		if !strings.Contains(normalized, want) {
+			t.Fatalf("INSTALL.md missing conditional archive review copy %q", want)
+		}
+	}
+	firstStart := strings.Index(guide, "Read the full final-review result yourself.")
+	refreshStart := strings.Index(guide, "For `retained` or `stayed_home`")
+	refreshEnd := strings.Index(guide, "The settings sentence is an example")
+	if firstStart == -1 || refreshStart <= firstStart || refreshEnd <= refreshStart {
+		t.Fatal("INSTALL.md missing archive review examples")
+	}
+	if !strings.Contains(
+		normalizeGuideText(guide[firstStart:refreshStart]),
+		"Only completed tasks that have been quiet for 14 days will be archived; unfinished tasks stay visible.",
+	) {
+		t.Fatal("first-install review omits enabled archive boundary")
+	}
+	if !strings.Contains(
+		normalizeGuideText(guide[refreshStart:refreshEnd]),
+		"Completed tasks stay visible, and quiet-day timing is inactive.",
+	) {
+		t.Fatal("refresh review omits disabled archive tradeoff")
+	}
+}
+
+func TestCodexInstallGuideKeepsCloseSpare(t *testing.T) {
+	guide := readInstallGuide(t)
+	for _, want := range []string{
+		"A flourish is a decorative emoji, mascot aside, or\n  bear/thread pun or metaphor",
+		"required functional status footer is not decorative",
+		"Keep completion\n  messages spare",
+	} {
+		if !strings.Contains(guide, want) {
+			t.Fatalf("INSTALL.md missing flourish contract %q", want)
+		}
+	}
+	if strings.Contains(guide, "I’ll mind the threads") {
+		t.Fatal("completion examples still stack a thread flourish with the status footer")
+	}
+
+	firstStart := strings.Index(guide, "For a first adoption, unreadable replacement, or exact repair")
+	refreshStart := strings.Index(guide, "For a retained home, whether this task or another task")
+	refreshEnd := strings.Index(guide, "After “its quiet background check is healthy,”")
+	if firstStart == -1 || refreshStart <= firstStart || refreshEnd <= refreshStart {
+		t.Fatal("INSTALL.md missing completion examples")
+	}
+	for name, close := range map[string]string{
+		"first install": guide[firstStart:refreshStart],
+		"refresh":       guide[refreshStart:refreshEnd],
+	} {
+		if got := strings.Count(close, "🧵🐻"); got != 1 {
+			t.Fatalf("%s close has %d status marks, want one functional footer", name, got)
+		}
 	}
 }
 
@@ -334,14 +415,17 @@ func TestCodexInstallGuideRendersCompletionFromEnabledFeatures(t *testing.T) {
 	}
 	first := guide[firstStart:refreshStart]
 	for _, want := range []string{
-		"refreshed\n> X task titles and archived Y completed tasks",
+		"ThreadBear updated X task titles and archived Y completed tasks",
 		"Nothing needs another try.",
 	} {
-		if !strings.Contains(first, want) {
+		if !strings.Contains(normalizeGuideText(first), want) {
 			t.Fatalf("first-install completion missing %q", want)
 		}
 	}
-	refresh := guide[refreshStart:rulesStart]
+	if strings.Contains(first, "Title maintenance is on") {
+		t.Fatal("first-install completion redundantly restates enabled title maintenance")
+	}
+	refresh := normalizeGuideText(guide[refreshStart:rulesStart])
 	for _, want := range []string{
 		"Title maintenance stayed off",
 		"completed tasks stayed visible",
@@ -360,13 +444,14 @@ func TestCodexInstallGuideRendersCompletionFromEnabledFeatures(t *testing.T) {
 	if rulesEnd == -1 {
 		t.Fatal("INSTALL.md missing completion feature rules")
 	}
-	rules := guide[rulesStart : rulesStart+rulesEnd]
+	rules := normalizeGuideText(guide[rulesStart : rulesStart+rulesEnd])
 	for _, want := range []string{
-		"When title maintenance is enabled, report the refreshed-title count",
-		"When it is disabled, do not report\n  a title count",
+		"When title maintenance is enabled, say how many task titles ThreadBear updated",
+		"When it is disabled, do not report a title count",
 		"When automatic archiving is enabled, report the archived-task count",
-		"When it is disabled,\n  do not report an archive count",
+		"When it is disabled, do not report an archive count",
 		"When retries are zero, say “Nothing needs another try.”",
+		"no completed tasks were ready for the archive",
 	} {
 		if !strings.Contains(rules, want) {
 			t.Fatalf("INSTALL.md missing conditional completion rule %q", want)
@@ -442,7 +527,7 @@ func TestCodexInstallGuideHandlesNotNowWarmly(t *testing.T) {
 func TestCodexInstallGuideUsesDistinctRefreshCompletionCopy(t *testing.T) {
 	guide := readInstallGuide(t)
 	refreshStart := strings.Index(guide, "For a retained home, whether this task or another task")
-	refreshEnd := strings.Index(guide, "Adapt the home sentence")
+	refreshEnd := strings.Index(guide, "After “its quiet background check is healthy,”")
 	if refreshStart == -1 || refreshEnd == -1 || refreshEnd <= refreshStart {
 		t.Fatal("INSTALL.md missing dedicated retained-home completion section")
 	}
@@ -455,6 +540,19 @@ func TestCodexInstallGuideUsesDistinctRefreshCompletionCopy(t *testing.T) {
 	}
 	if strings.Contains(refresh, "Your choices are saved in the welcome note above.") {
 		t.Fatal("retained-home completion copy incorrectly claims a new welcome note")
+	}
+	if strings.Contains(refresh, "ThreadBear is home") ||
+		!strings.Contains(refresh, "ThreadBear is refreshed") {
+		t.Fatal("retained-home completion uses a truth-unsafe home headline")
+	}
+	for _, want := range []string{
+		"for `retained`, say “ThreadBear remains based in this task.”",
+		"For `stayed_home`,\nsay “ThreadBear remains based in its existing home in another task; this task\nwas not renamed or pinned.”",
+		"Never headline either refresh branch “ThreadBear is\nhome.”",
+	} {
+		if !strings.Contains(guide[refreshEnd:], want) {
+			t.Fatalf("INSTALL.md missing exact retained-home branch copy %q", want)
+		}
 	}
 }
 
@@ -514,6 +612,18 @@ func shellArgumentStanza(t *testing.T, block string) string {
 		t.Fatalf("shell block missing curl after argument stanza:\n%s", block)
 	}
 	return strings.TrimSpace(block[:curlAt])
+}
+
+func normalizeGuideText(text string) string {
+	lines := strings.Split(text, "\n")
+	for index, line := range lines {
+		line = strings.TrimSpace(line)
+		line = strings.TrimPrefix(line, ">")
+		line = strings.TrimSpace(line)
+		line = strings.TrimPrefix(line, "- ")
+		lines[index] = strings.TrimSpace(line)
+	}
+	return strings.Join(strings.Fields(strings.Join(lines, " ")), " ")
 }
 
 func readInstallGuide(t *testing.T) string {

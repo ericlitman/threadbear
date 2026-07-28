@@ -19,8 +19,11 @@ Do not use `sudo`. Do not edit README, the website, or the installed skill durin
 - Open with the ThreadBear welcome below before running a command or summarizing
   defaults. Brand, orientation, and reassurance come before machinery.
 - Sound warm, calm, capable, and lightly playful. Use at most one bear or thread
-  flourish in a message; do not turn every sentence into a pun, use baby talk,
-  or perform a mascot voice.
+  flourish in a message. A flourish is a decorative emoji, mascot aside, or
+  bear/thread pun or metaphor; ordinary product naming is not a flourish, and a
+  required functional status footer is not decorative. Do not turn every
+  sentence into a pun, use baby talk, or perform a mascot voice. Keep completion
+  messages spare even when the functional footer is enabled.
 - Explain benefits and visible outcomes first. Keep commands, flags, paths,
   task IDs, JSON fields, internal state names, byte counts, mutation locks, App
   Server details, and ticket references backstage unless they are needed to
@@ -70,6 +73,18 @@ Follow it with one calm macOS heads-up:
 > choosing Don’t Allow is safe. It never needs Full Disk Access. If a prompt
 > appears, I’ll pause so you can decide.
 
+Finish that same opening assistant turn with these two promises, then run the
+compatibility and task-identity checks without waiting for another reply:
+
+> I’m checking whether this Mac is ready for ThreadBear. I won’t install
+> anything or change your settings. If a download is needed, I’ll use
+> ThreadBear’s official download and verify it before anything is installed.
+
+The next user-facing turn should open with the readiness result and contain the
+one appropriate settings card. Do not fragment the welcome, permission
+heads-up, compatibility preface, or official-download promise into separate
+messages. Pause only if a privacy panel appears or the person interrupts.
+
 Backstage facts, not a script to recite:
 
 - macOS privacy prompts may name **`threadbear`**, but they originate from the spawned Codex App Server that ThreadBear uses to read task data.
@@ -83,8 +98,7 @@ If a panel appears, stop and let the person decide. Never click a privacy panel 
 
 ## 2. Check compatibility quietly
 
-Say one sentence before the commands: “I’m checking whether this Mac is ready
-for ThreadBear. I won’t install anything or change your settings.” Then run:
+After the compatibility sentence in the opening turn, run:
 
 ```sh
 sw_vers -productVersion
@@ -119,8 +133,8 @@ dry-run remains the authoritative baseline.
 
 ThreadBear v1 is not Developer ID signed or notarized. The supported bootstrap
 verifies the published checksum, candidate health, and embedded version before
-delegating to the candidate. Before download, tell the person simply: “I’ll use
-ThreadBear’s official download and verify it before anything is installed.”
+delegating to the candidate. The official-download promise belongs in the
+opening turn above; do not repeat it as a separate progress message.
 
 ## 3. Identify this task backstage
 
@@ -166,12 +180,28 @@ calling task supplies a different ID; the internal result reports
 calling task. A persisted archived task is unarchived during reinstall. A
 supplied archived task is rejected. Explain only the visible outcome:
 ThreadBear will keep its existing home, adopt this task as a replacement, or
-ask the person to unarchive the selected task before continuing.
+ask the person to unarchive the selected task before continuing. The installer
+cannot move a healthy readable home during a refresh; never offer or imply that
+supplying this task will move it. If the person asks about changing homes,
+explain that it requires a separate uninstall and new adoption, not a refresh
+choice. Do not offer or begin that destructive rehome path during guided
+installation.
 
 ## 4. Make the preferences feel like features
 
 Show exactly one settings card, chosen from the source established above. Never
 show the default recommendation and a current-settings card together.
+
+Status guidance changes replies across every Codex task, so its language is
+immutable. Use the selected variant below verbatim in the settings card, the
+short choice echo when one is required below, and the final review. Do not
+paraphrase, shorten, split, or omit any sentence:
+
+- **Enabled:** “**Status guidance on.** Agent replies across every Codex task
+  get a one-line ThreadBear footer such as `🧵🐻 complete`. This lets ThreadBear
+  use lightweight checks, with a careful second look when a task is unclear.”
+- **Disabled:** “**Status guidance off.** Agent replies stay unchanged. When
+  ThreadBear needs to understand a task, it takes a careful full look instead.”
 
 For a first install, present the recommended setup:
 
@@ -187,11 +217,9 @@ For a first install, present the recommended setup:
 >   you choose yourself are left alone.
 > - **Conversation size at the start.** ThreadBear titles show output tokens in a
 >   compact form such as `🚨 1.6m Fix checkout`.
-> - **Reliable status answers.** To help ThreadBear understand what needs you,
->   enabling this adds one compact ThreadBear status line to agent replies
->   across your Codex tasks. It appears as a one-line footer, such as
->   `🧵🐻 complete`. Most checks can then stay quick and lightweight; if a task
->   is unclear, ThreadBear takes a careful second look instead of guessing.
+> - **Status guidance on.** Agent replies across every Codex task get a one-line
+>   ThreadBear footer such as `🧵🐻 complete`. This lets ThreadBear use
+>   lightweight checks, with a careful second look when a task is unclear.
 >
 > Would you like the recommended setup, change a choice, or have me explain any
 > of them?
@@ -201,8 +229,9 @@ actual value from installed status or the initial discovery dry-run. This
 example shows one possible existing setup; replace every outcome with the
 person’s actual settings:
 
-> ThreadBear already has a home, so I’ll keep it right where it is and show you
-> the setup it’s using now.
+> ThreadBear already has a home, and this refresh will keep it there. A healthy
+> ThreadBear home can’t be moved by the installer, but I can explain how its
+> home works if you’d like. Here’s the setup it’s using now.
 >
 > Here’s the setup ThreadBear is using now:
 >
@@ -214,9 +243,9 @@ person’s actual settings:
 >   automatically, so quiet-day timing is inactive.
 > - **Titles stay untouched.** ThreadBear leaves every title as you set it, so
 >   token figures remain inactive and stay out of titles too.
-> - **Reliable status answers.** This adds one compact ThreadBear status line to
->   agent replies across your Codex tasks. It appears as a one-line footer, such
->   as `🧵🐻 complete`, so most checks stay quick and lightweight.
+> - **Status guidance on.** Agent replies across every Codex task get a one-line
+>   ThreadBear footer such as `🧵🐻 complete`. This lets ThreadBear use
+>   lightweight checks, with a careful second look when a task is unclear.
 >
 > Would you like to keep this setup, change a choice, or have me explain any of
 > it?
@@ -250,6 +279,12 @@ preference.”
 
 If the person already supplied a valid token position, reflect that choice
 directly in the card and later review without replaying the token menu.
+
+When the person changes or explicitly discusses status guidance, echo the
+selected immutable variant once before backstage review work so the enabled
+blast radius or disabled tradeoff cannot disappear. If they simply accept the
+recommendation, do not repeat the paragraph in an extra echo; the card and
+final review are sufficient.
 
 For a first install, accepting the recommendation means leaving its default
 preferences unspecified during baseline discovery. For a reinstall, keeping
@@ -385,14 +420,19 @@ source for every visible setting shown to the person:
 > Everything is ready for your review.
 >
 > ThreadBear will live on this Mac, use this task as its home, check in every
-> five minutes, keep itself safely updated, wait 14 quiet days before archiving
-> completed work, maintain helpful titles, show conversation size at the start,
-> and add one compact ThreadBear status line as a footer on agent replies across
-> your Codex tasks so each task can share whether it needs you.
+> five minutes, keep itself safely updated, maintain helpful titles, and show
+> conversation size at the start.
 >
-> It won’t ask for administrator access or Full Disk Access, archive unfinished
-> tasks, overwrite names you chose, or move into a different task. Nothing has
-> been installed and no settings have changed.
+> Only completed tasks that have been quiet for 14 days will be archived;
+> unfinished tasks stay visible.
+>
+> **Status guidance on.** Agent replies across every Codex task get a one-line
+> ThreadBear footer such as `🧵🐻 complete`. This lets ThreadBear use lightweight
+> checks, with a careful second look when a task is unclear.
+>
+> It won’t ask for administrator access or Full Disk Access, overwrite names you
+> chose, or move into a different task. Nothing has been installed and no
+> settings have changed.
 >
 > Ready for me to install ThreadBear with these choices?
 
@@ -403,10 +443,14 @@ editing the first-install example sentence by sentence:
 >
 > ThreadBear already has a home. This refresh will update ThreadBear itself
 > while keeping your current setup: a ten-minute check-in, verified automatic
-> updates, completed tasks left visible, titles left untouched with token
-> figures inactive and out of them, and one compact ThreadBear status line
-> added as a footer to agent replies across your Codex tasks for lightweight
-> status answers.
+> updates, and titles left untouched with token figures inactive and out of
+> them.
+>
+> Completed tasks stay visible, and quiet-day timing is inactive.
+>
+> **Status guidance on.** Agent replies across every Codex task get a one-line
+> ThreadBear footer such as `🧵🐻 complete`. This lets ThreadBear use lightweight
+> checks, with a careful second look when a task is unclear.
 >
 > Its existing home, title, and pin will stay exactly as they are. If that home
 > is another task, this task won’t become the new home and won’t be renamed or
@@ -417,11 +461,21 @@ editing the first-install example sentence by sentence:
 The settings sentence is an example; replace every value with the actual
 setting reported by the frozen dry-run. If title maintenance is disabled, keep
 the combined titles-and-tokens outcome above and never describe the stored token
-position as active. When status guidance is disabled, say instead that agent
-replies stay unchanged and ThreadBear will take a careful look when it needs to
-understand a task. If the existing home will be unarchived, say plainly that it
-will return to the active task list. For an unreadable replacement or repair,
-use the first-install review and say this task will become the new home.
+position as active.
+
+Render archive behavior with one of these exact semantics. When archiving is
+enabled, say “Only completed tasks that have been quiet for N days will be
+archived; unfinished tasks stay visible,” using the actual N. When archiving is
+disabled, say “Completed tasks stay visible, and quiet-day timing is inactive.”
+Never put an archive claim in the general “It won’t…” list.
+
+Use the immutable selected status-guidance variant in the review. In
+particular, the disabled review must say: “**Status guidance off.** Agent
+replies stay unchanged. When ThreadBear needs to understand a task, it takes a
+careful full look instead.” If the existing home will be unarchived, say
+plainly that it will return to the active task list. For an unreadable
+replacement or repair, use the first-install review and say this task will
+become the new home.
 
 Internal disposition translation:
 
@@ -527,48 +581,46 @@ inspect `pending_retries`.
 For a first adoption, unreadable replacement, or exact repair, translate the
 result into this shape rather than reciting fields:
 
-> ThreadBear is home 🧵🐻
+> ThreadBear is installed
 >
 > Everything passed. ThreadBear VERSION is installed, its quiet background
-> check is healthy, and this task is now its home. The first tidy-up refreshed
-> X task titles and archived Y completed tasks. Nothing needs another try.
+> check is healthy, and this task is now its home. In the first tidy-up,
+> ThreadBear updated X task titles and archived Y completed tasks. Nothing needs
+> another try.
 >
 > Your choices are saved in the welcome note above. From here, you can just talk
 > to me: “stop archiving,” “hide token counts,” “pause,” “how are you?” or
 > “uninstall ThreadBear.”
->
-> I’ll mind the threads. You go make the next thing.
 >
 > 🧵🐻 complete
 
 For a retained home, whether this task or another task, close with a dedicated
 refresh version because no new welcome note was posted:
 
-> ThreadBear is home 🧵🐻
+> ThreadBear is refreshed
 >
 > Everything passed. ThreadBear VERSION is refreshed, its quiet background
-> check is healthy, and its existing home, title, and pin stayed as you left
-> them. Title maintenance stayed off, completed tasks stayed visible, and
-> nothing needs another try.
+> check is healthy, and its existing home is unchanged. Title maintenance
+> stayed off, completed tasks stayed visible, and nothing needs another try.
 >
 > Your current settings remain in effect. From here, you can just talk to me:
 > “stop archiving,” “hide token counts,” “pause,” “how are you?” or “uninstall
 > ThreadBear.”
 >
-> I’ll mind the threads. You go make the next thing.
->
 > 🧵🐻 complete
 
-Adapt the home sentence to say whether ThreadBear remains in this task or its
-existing home in another task. Adapt the first-install version for a replacement
-or manual pin.
+After “its quiet background check is healthy,” make the home sentence exact:
+for `retained`, say “ThreadBear remains based in this task.” For `stayed_home`,
+say “ThreadBear remains based in its existing home in another task; this task
+was not renamed or pinned.” Never headline either refresh branch “ThreadBear is
+home.” Adapt the first-install version for a replacement or manual pin.
 
 Render the tidy-up from enabled features rather than printing a dashboard of
 zeros:
 
-- When title maintenance is enabled, report the refreshed-title count; if it is
-  zero, say the titles already looked right. When it is disabled, do not report
-  a title count; say “Title maintenance stayed off.”
+- When title maintenance is enabled, say how many task titles ThreadBear
+  updated; if it updated zero, say the titles already looked right. When it is
+  disabled, do not report a title count; say “Title maintenance stayed off.”
 - When automatic archiving is enabled, report the archived-task count; if it is
   zero, say no completed tasks were ready for the archive. When it is disabled,
   do not report an archive count; say “Completed tasks stayed visible.”
