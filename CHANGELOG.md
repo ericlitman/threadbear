@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Fixed
+
+- Salvaged valid classifier rows individually and capped classifier batches at twenty tasks, so one mangled ID no longer drops a whole batch and retries stay bear-sized.
+
 ## v1.2.0 - 2026-07-27
 
 ### Added
