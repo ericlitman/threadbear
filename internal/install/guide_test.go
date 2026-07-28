@@ -18,8 +18,8 @@ func TestCodexInstallGuideCarriesConversationContract(t *testing.T) {
 		"At the end",
 		"Hidden",
 		"one compact ThreadBear status line to agent replies",
-		"status is unavailable, do not guess fresh-install\ndefaults",
-		"The installer dry-run remains the authoritative\nbaseline",
+		"Show exactly one settings card",
+		"final-review and confirmed preference lists\nmust be byte-for-byte identical",
 		"Ready for me to install ThreadBear with these choices?",
 		"Ready for me to refresh ThreadBear with these choices?",
 		"ThreadBear is home 🧵🐻",
@@ -29,6 +29,25 @@ func TestCodexInstallGuideCarriesConversationContract(t *testing.T) {
 	} {
 		if !strings.Contains(guide, want) {
 			t.Fatalf("INSTALL.md missing conversation contract text %q", want)
+		}
+	}
+}
+
+func TestCodexInstallGuideHasEnforceableWelcomeOrientation(t *testing.T) {
+	guide := readInstallGuide(t)
+	if strings.Contains(guide, "five-step orientation") {
+		t.Fatal("INSTALL.md still describes orientation with an unenforceable step count")
+	}
+	for _, want := range []string{
+		"say what\nThreadBear will do for the person",
+		"keep the setup in this task",
+		"let them keep,\nchange, or ask about every choice before anything changes",
+		"verify that everything is healthy before calling the work complete",
+		"I’ll take care of the setup right here.",
+		"ThreadBear won’t be installed and no\n> settings will change until you say go",
+	} {
+		if !strings.Contains(guide, want) {
+			t.Fatalf("INSTALL.md welcome is missing orientation promise %q", want)
 		}
 	}
 }
@@ -45,14 +64,70 @@ func TestCodexInstallGuideUsesOneHiddenTokenLabel(t *testing.T) {
 	}
 }
 
+func TestCodexInstallGuideHonorsTitleTokenDependency(t *testing.T) {
+	guide := readInstallGuide(t)
+	for name, bounds := range map[string][2]string{
+		"current settings": {"For a reinstall, present a dedicated current-settings card once", "Title maintenance controls the token display."},
+		"refresh review":   {"For `retained` or `stayed_home`", "The settings sentence is an example"},
+	} {
+		start := strings.Index(guide, bounds[0])
+		end := strings.Index(guide, bounds[1])
+		if start == -1 || end == -1 || end <= start {
+			t.Fatalf("INSTALL.md missing %s title/token section", name)
+		}
+		section := strings.ToLower(strings.ReplaceAll(guide[start:end], "\n> ", " "))
+		for _, want := range []string{"titles", "untouched", "token figures", "inactive"} {
+			if !strings.Contains(section, want) {
+				t.Fatalf("INSTALL.md %s does not carry inactive title/token outcome %q", name, want)
+			}
+		}
+	}
+	compactGuide := strings.ReplaceAll(guide, "\n", " ")
+	for _, want := range []string{
+		"never present a stored token position as active",
+		"Skip the token-position choices unless the person is considering re-enabling title maintenance",
+	} {
+		if !strings.Contains(compactGuide, want) {
+			t.Fatalf("INSTALL.md missing title/token dependency rule %q", want)
+		}
+	}
+}
+
+func TestCodexInstallGuideShowsOneModeSpecificSettingsCard(t *testing.T) {
+	guide := readInstallGuide(t)
+	if got := strings.Count(guide, "Here’s the setup ThreadBear is using now:"); got != 1 {
+		t.Fatalf("INSTALL.md has %d current-settings cards, want exactly one", got)
+	}
+	checkStart := strings.Index(guide, "## 2. Check compatibility quietly")
+	checkEnd := strings.Index(guide, "## 3. Identify this task backstage")
+	if checkStart == -1 || checkEnd <= checkStart {
+		t.Fatal("INSTALL.md missing compatibility section")
+	}
+	compatibility := guide[checkStart:checkEnd]
+	if strings.Contains(compatibility, "Here’s the setup") ||
+		!strings.Contains(compatibility, "Do not present settings during\nthe compatibility check") {
+		t.Fatal("compatibility section presents settings instead of recording them backstage")
+	}
+	for _, want := range []string{
+		"When installed status was unavailable, do not guess whether this is a first\n  install or reinstall",
+		"run this initial task-ID-only dry-run",
+		"show exactly one appropriate card in the next section",
+	} {
+		if !strings.Contains(guide, want) {
+			t.Fatalf("INSTALL.md missing mode-specific card branch %q", want)
+		}
+	}
+}
+
 func TestCodexInstallGuideDisclosesStatusGuidanceBeforeConsent(t *testing.T) {
 	guide := readInstallGuide(t)
 	if got := strings.Count(guide, "one compact ThreadBear status line"); got < 3 {
 		t.Fatalf("INSTALL.md discloses the visible status line %d times, want recommendation plus both reviews", got)
 	}
 	for name, bounds := range map[string][2]string{
-		"recommendation": {"Present the recommended setup as a short card:", "If the person wants to change the token display"},
-		"first install":  {"Read the full preview yourself.", "For `retained` or `stayed_home`"},
+		"recommendation": {"For a first install, present the recommended setup:", "For a reinstall, present a dedicated current-settings card once"},
+		"current setup":  {"For a reinstall, present a dedicated current-settings card once", "Title maintenance controls the token display."},
+		"first install":  {"Read the full final-review result yourself.", "For `retained` or `stayed_home`"},
 		"refresh":        {"For `retained` or `stayed_home`", "The settings sentence is an example"},
 	} {
 		start := strings.Index(guide, bounds[0])
@@ -69,37 +144,124 @@ func TestCodexInstallGuideDisclosesStatusGuidanceBeforeConsent(t *testing.T) {
 	}
 }
 
-func TestCodexInstallGuideUsesPartialFlagsAsPreferenceBaseline(t *testing.T) {
+func TestCodexInstallGuideFreezesResolvedPreferencesForConsent(t *testing.T) {
 	guide := readInstallGuide(t)
 	for _, want := range []string{
-		"For both a\nfirst install and a reinstall, begin with only the task ID",
-		"Append only flags for preference changes the person explicitly requested",
-		"On a first install,\nunspecified preferences take ThreadBear’s defaults. On a reinstall, unspecified\npreferences preserve the installed values.",
-		"The dry-run result, rather than an earlier status call or an assumption,\nis the authoritative source for every setting shown to the person",
+		"baseline dry-run with the task ID plus only preference changes the\nperson explicitly requested",
+		"Read every resolved preference from the baseline result.",
+		"Materialize all of\nthem",
+		"second dry-run is the final review source",
+		"The final-review and confirmed preference lists\nmust be byte-for-byte identical, and therefore semantically identical",
+		"identical complete list prevents the person’s preference choices\nfrom drifting between review and confirmation",
+		"revalidates the\ntask and managed resources before mutation and stops if a safety check fails",
 	} {
 		if !strings.Contains(guide, want) {
-			t.Fatalf("INSTALL.md missing partial preference baseline guidance %q", want)
+			t.Fatalf("INSTALL.md missing frozen preference guidance %q", want)
 		}
 	}
-	if strings.Contains(guide, `INSTALL_FLAGS="--control-task-id $CONTROL_TASK_ID --heartbeat-seconds`) {
-		t.Fatal("INSTALL.md still contains the all-default flag fast path")
+
+	if !strings.Contains(guide, `BASELINE_FLAGS="--control-task-id $CONTROL_TASK_ID"`) {
+		t.Fatal("INSTALL.md baseline dry-run is not task-ID-only before explicit changes")
 	}
-	if strings.Contains(guide, "Full noninteractive defaults:") {
-		t.Fatal("INSTALL.md still offers a full-default noninteractive command")
+	if strings.Contains(guide, "If the world changed") {
+		t.Fatal("INSTALL.md claims an unsupported cross-invocation preview check")
+	}
+
+	var frozenLines []string
+	for _, line := range strings.Split(guide, "\n") {
+		if strings.HasPrefix(line, "FROZEN_FLAGS=") {
+			frozenLines = append(frozenLines, line)
+		}
+	}
+	if len(frozenLines) != 2 {
+		t.Fatalf("INSTALL.md has %d frozen flag examples, want final review and confirmed run", len(frozenLines))
+	}
+	if frozenLines[0] != frozenLines[1] {
+		t.Fatalf("final-review and confirmed frozen flags differ:\n%s\n%s", frozenLines[0], frozenLines[1])
+	}
+	for _, flag := range []string{
+		"--control-task-id",
+		"--heartbeat-seconds",
+		"--auto-update=",
+		"--archive=",
+		"--archive-after-days",
+		"--rename=",
+		"--token-display=",
+		"--agents=",
+		"--classifier-model",
+		"--classifier-effort",
+		"--classifier-context-budget-bytes",
+	} {
+		if !strings.Contains(frozenLines[0], flag) {
+			t.Fatalf("frozen flag list omits %q", flag)
+		}
+	}
+
+	for name, bounds := range map[string][2]string{
+		"final review":  {"Read every resolved preference from the baseline result.", "This second dry-run is the final review source."},
+		"confirmed run": {"## 6. Install with one calm progress update", "The `CONTROL_TASK_ID` value and `FROZEN_FLAGS` text"},
+	} {
+		start := strings.Index(guide, bounds[0])
+		end := strings.Index(guide, bounds[1])
+		if start == -1 || end == -1 || end <= start {
+			t.Fatalf("INSTALL.md missing %s command block", name)
+		}
+		block := guide[start:end]
+		idAt := strings.Index(block, "CONTROL_TASK_ID=")
+		flagsAt := strings.Index(block, "FROZEN_FLAGS=")
+		curlAt := strings.Index(block, "curl -fsSL")
+		if idAt == -1 || flagsAt <= idAt || curlAt <= flagsAt {
+			t.Fatalf("INSTALL.md %s does not assign task ID and frozen flags before curl", name)
+		}
 	}
 }
 
-func TestCodexInstallGuideHasWarmFailureResponse(t *testing.T) {
+func TestCodexInstallGuideHasDistinctWarmFailureResponses(t *testing.T) {
+	guide := readInstallGuide(t)
+	preStart := strings.Index(guide, "For a failure before mutation")
+	postStart := strings.Index(guide, "For a failure after installation has started")
+	postEnd := strings.Index(guide, "Never combine the pre-mutation headline")
+	if preStart == -1 || postStart <= preStart || postEnd <= postStart {
+		t.Fatal("INSTALL.md missing split failure-response sections")
+	}
+	for name, section := range map[string]string{
+		"pre-mutation":  guide[preStart:postStart],
+		"post-mutation": guide[postStart:postEnd],
+	} {
+		for _, want := range map[string][]string{
+			"pre-mutation": {
+				"ThreadBear paused before installing",
+				"Nothing was installed and your settings did not change.",
+				"I’m checking the connection",
+				"You don’t need to",
+				"restart or repeat anything",
+			},
+			"post-mutation": {
+				"ThreadBear hit a snag while starting its quiet background check.",
+				"The install itself finished and your settings are in place",
+				"I’m checking why the background check did not start now.",
+				"You don’t need to",
+				"restart the installation or repeat anything",
+			},
+		}[name] {
+			if !strings.Contains(strings.ReplaceAll(section, "\n> ", " "), want) {
+				t.Fatalf("INSTALL.md %s response missing %q", name, want)
+			}
+		}
+	}
+}
+
+func TestCodexInstallGuideHandlesNotNowWarmly(t *testing.T) {
 	guide := readInstallGuide(t)
 	for _, want := range []string{
-		"ThreadBear hit a snag while starting its quiet background check.",
-		"The install itself finished and your settings are in place",
-		"I’m checking why the background check did not start now.",
-		"You don’t need to\n> restart the installation or repeat anything",
-		"Nothing was\ninstalled and your settings did not change.",
+		"If the person says “not now” or otherwise declines",
+		"Nothing from this review has been installed or changed",
+		"ThreadBear will be here whenever",
+		"Do not run the confirmed command",
+		"or ask them to\nreconsider",
 	} {
 		if !strings.Contains(guide, want) {
-			t.Fatalf("INSTALL.md missing failure-response guidance %q", want)
+			t.Fatalf("INSTALL.md missing warm decline guidance %q", want)
 		}
 	}
 }

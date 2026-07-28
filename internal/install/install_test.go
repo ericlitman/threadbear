@@ -903,6 +903,72 @@ func TestInstallDryRunCustomPreferencesAreMutationFree(t *testing.T) {
 	}
 }
 
+func TestInstallConfirmedFullPreferencePatchAppliesReviewedDryRunSnapshot(t *testing.T) {
+	cfg := config.Default("task-home")
+	cfg.HeartbeatSeconds = 420
+	cfg.ArchiveEnabled = false
+	cfg.ArchiveAfterDays = 31
+	cfg.RenameEnabled = false
+	cfg.AutoUpdateEnabled = false
+	cfg.TokenDisplay = tokens.PositionEnd
+	cfg.AgentsEnabled = false
+	cfg.ClassifierModel = "reviewed-model"
+	cfg.ClassifierEffort = config.EffortHigh
+	cfg.ClassifierContextBudgetBytes = 2468
+	store := &fakeStore{
+		config:       cfg,
+		state:        state.New(),
+		configExists: true,
+		stateExists:  true,
+	}
+	installer := newInstaller(t, store, &fakeScheduler{}, &fakeTasks{}, nil)
+
+	heartbeatSeconds := 600
+	dryRun, err := installer.Install(context.Background(), InstallRequest{
+		ControlTaskID: "task-home",
+		DryRun:        true,
+		Patch: PreferencePatch{
+			HeartbeatSeconds: &heartbeatSeconds,
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	reviewed := preferencesFromConfig(dryRun.Config)
+
+	store.config.AutoUpdateEnabled = true
+	if reviewed.AutoUpdateEnabled == store.config.AutoUpdateEnabled {
+		t.Fatal("intervening preference change did not differ from reviewed snapshot")
+	}
+
+	result, err := installer.Install(context.Background(), InstallRequest{
+		ControlTaskID:  "task-home",
+		NonInteractive: true,
+		Confirm:        true,
+		Patch: PreferencePatch{
+			HeartbeatSeconds:             &reviewed.HeartbeatSeconds,
+			ArchiveEnabled:               &reviewed.ArchiveEnabled,
+			ArchiveAfterDays:             &reviewed.ArchiveAfterDays,
+			RenameEnabled:                &reviewed.RenameEnabled,
+			AutoUpdateEnabled:            &reviewed.AutoUpdateEnabled,
+			TokenDisplay:                 &reviewed.TokenDisplay,
+			AgentsEnabled:                &reviewed.AgentsEnabled,
+			ClassifierModel:              &reviewed.ClassifierModel,
+			ClassifierEffort:             &reviewed.ClassifierEffort,
+			ClassifierContextBudgetBytes: &reviewed.ClassifierContextBudgetBytes,
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := preferencesFromConfig(result.Config); got != reviewed {
+		t.Fatalf("installed preferences=%+v reviewed=%+v", got, reviewed)
+	}
+	if got := preferencesFromConfig(store.config); got != reviewed {
+		t.Fatalf("persisted preferences=%+v reviewed=%+v", got, reviewed)
+	}
+}
+
 func TestInstallDryRunPreservesRealFilesAndIgnoresHistoricalThreadWatch(t *testing.T) {
 	type snapshotEntry struct {
 		Mode os.FileMode

@@ -648,6 +648,7 @@ func welcomeNotice(version string, preferences Preferences) string {
 			friendlyByteLimit(preferences.ClassifierContextBudgetBytes),
 		)
 	}
+	heartbeatExample, archiveExample, tokenExample := welcomeChangeExamples(preferences)
 	return fmt.Sprintf(`🧵🐻 ThreadBear %s is home.
 
 To keep your Codex tasks tidy, I will:
@@ -659,8 +660,8 @@ To keep your Codex tasks tidy, I will:
 - %s
 - %s
 
-Want anything different? Say "check every ten minutes",
-"stop archiving", or "put token counts at the end".
+Want anything different? Say %q,
+%q, or %q.
 
 I will mind the threads. You go make the next thing.`,
 		version,
@@ -671,7 +672,35 @@ I will mind the threads. You go make the next thing.`,
 		tokenDisplay,
 		statusHints,
 		classifier,
+		heartbeatExample,
+		archiveExample,
+		tokenExample,
 	)
+}
+
+func welcomeChangeExamples(preferences Preferences) (string, string, string) {
+	heartbeat := "check every ten minutes"
+	if preferences.HeartbeatSeconds == 10*60 {
+		heartbeat = "check every five minutes"
+	}
+
+	archive := "archive completed tasks after two weeks"
+	if preferences.ArchiveEnabled {
+		archive = "stop archiving"
+	}
+
+	tokenDisplay := "turn title updates on and show token counts at the start"
+	if preferences.RenameEnabled {
+		switch preferences.TokenDisplay {
+		case tokens.PositionStart:
+			tokenDisplay = "put token counts at the end"
+		case tokens.PositionEnd:
+			tokenDisplay = "hide token counts"
+		default:
+			tokenDisplay = "put token counts at the start"
+		}
+	}
+	return heartbeat, archive, tokenDisplay
 }
 
 func friendlyInterval(seconds int) string {

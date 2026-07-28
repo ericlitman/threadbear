@@ -41,6 +41,44 @@ func TestTTYPrompterDefaultsCustomAndSingleConfirmation(t *testing.T) {
 	}
 }
 
+func TestTTYPrompterUsesHiddenLabelAndAcceptsHiddenOrLegacyOff(t *testing.T) {
+	for _, input := range []string{"hidden", "off"} {
+		t.Run(input, func(t *testing.T) {
+			var output bytes.Buffer
+			answers := strings.Repeat("\n", 5) + input + "\n" + strings.Repeat("\n", 4)
+			got, err := NewTTYPrompter(strings.NewReader(answers), &output).Collect(DefaultPreferences())
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got.TokenDisplay != tokens.PositionOff {
+				t.Fatalf("token display=%q", got.TokenDisplay)
+			}
+			for _, want := range []string{
+				"Choose Hidden, Start, or End.",
+				"Show output tokens in managed titles (Hidden, Start, End) [Start]:",
+			} {
+				if !strings.Contains(output.String(), want) {
+					t.Fatalf("prompt missing %q\n%s", want, output.String())
+				}
+			}
+		})
+	}
+
+	defaults := DefaultPreferences()
+	defaults.TokenDisplay = tokens.PositionOff
+	var output bytes.Buffer
+	got, err := NewTTYPrompter(strings.NewReader(strings.Repeat("\n", 10)), &output).Collect(defaults)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.TokenDisplay != tokens.PositionOff {
+		t.Fatalf("default token display=%q", got.TokenDisplay)
+	}
+	if !strings.Contains(output.String(), "Show output tokens in managed titles (Hidden, Start, End) [Hidden]:") {
+		t.Fatalf("hidden default not presented with human label\n%s", output.String())
+	}
+}
+
 func TestTTYPrompterShowsPlainMessage(t *testing.T) {
 	var output bytes.Buffer
 	prompt := NewTTYPrompter(strings.NewReader(""), &output)

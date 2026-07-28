@@ -41,6 +41,8 @@ func TestWelcomeNoticeCarriesSettingsAndChatInstructions(t *testing.T) {
 		"add a one-line status hint to agent replies so most checks stay lightweight",
 		"use local task evidence first, then ask Codex for a careful second look only when a task is unclear",
 		`Say "check every ten minutes"`,
+		`"stop archiving"`,
+		`"put token counts at the end"`,
 		"I will mind the threads",
 	} {
 		if !strings.Contains(notice, want) {
@@ -89,6 +91,9 @@ func TestWelcomeNoticeHumanizesCustomSettings(t *testing.T) {
 		"keep output-token figures out of task titles while title updates are off",
 		"leave agent replies unchanged",
 		"custom: gpt-custom with high reasoning, up to 9 KB of context",
+		`Say "check every ten minutes"`,
+		`"archive completed tasks after two weeks"`,
+		`"turn title updates on and show token counts at the start"`,
 	} {
 		if !strings.Contains(notice, want) {
 			t.Fatalf("welcome notice missing %q\n%s", want, notice)
@@ -110,5 +115,33 @@ func TestWelcomeNoticeShowsConfiguredTokenPositionWhenTitleUpdatesAreEnabled(t *
 	}
 	if strings.Contains(notice, "while title updates are off") {
 		t.Fatalf("welcome notice says title updates are off when they are enabled\n%s", notice)
+	}
+}
+
+func TestWelcomeNoticeChangeExamplesNeverRepeatCurrentSettings(t *testing.T) {
+	preferences := DefaultPreferences()
+	preferences.HeartbeatSeconds = 10 * 60
+	preferences.ArchiveEnabled = false
+	preferences.RenameEnabled = true
+	preferences.TokenDisplay = "end"
+
+	notice := welcomeNotice("1.2.3", preferences)
+	for _, want := range []string{
+		`Say "check every five minutes"`,
+		`"archive completed tasks after two weeks"`,
+		`"hide token counts"`,
+	} {
+		if !strings.Contains(notice, want) {
+			t.Fatalf("welcome notice missing %q\n%s", want, notice)
+		}
+	}
+	for _, noOp := range []string{
+		`Say "check every ten minutes"`,
+		`"stop archiving"`,
+		`"put token counts at the end"`,
+	} {
+		if strings.Contains(notice, noOp) {
+			t.Fatalf("welcome notice suggests current setting %q\n%s", noOp, notice)
+		}
 	}
 }

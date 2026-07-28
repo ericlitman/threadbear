@@ -45,9 +45,10 @@ Do not use `sudo`. Do not edit README, the website, or the installed skill durin
 ## 1. Welcome the person
 
 The first response must carry this information and spirit. You may adapt the
-wording to the conversation, but preserve the brand, the five-step orientation,
-the promise that the review does not install or reconfigure anything, and the
-invitation to ask about any choice:
+wording to the conversation, but preserve this orientation contract: say what
+ThreadBear will do for the person, keep the setup in this task, let them keep,
+change, or ask about every choice before anything changes, and promise to
+verify that everything is healthy before calling the work complete:
 
 > Welcome to ThreadBear 🧵🐻
 >
@@ -110,12 +111,10 @@ ThreadBear.” Do not report command paths, architecture names, release
 reachability, or version numbers unless they explain a failure.
 
 When installed status is available, record every value under `preferences` as
-helpful context and present that current setup in the same benefit-led format
-as the recommendation below. The installer dry-run remains the authoritative
-baseline. If installed status is unavailable, do not guess fresh-install
-defaults. Run the partial dry-run described below, translate the complete
-resulting settings for the person, and preserve them unless the person asks for
-a change.
+helpful context for the preference branch below. Do not present settings during
+the compatibility check; the person should see one settings card, at the
+natural decision point, rather than the same information twice. The installer
+dry-run remains the authoritative baseline.
 
 ThreadBear v1 is not Developer ID signed or notarized. The supported bootstrap
 verifies the published checksum, candidate health, and embedded version before
@@ -138,6 +137,28 @@ support channel.
 
 Use only supported task tooling. Do not read private Codex state and do not use UI automation. Do not rename or pin yet. A first install without `--control-task-id`, or a reinstall whose persisted control task is unreadable without a replacement ID, exits `2` without changing files or the scheduler. Installation validates the selected task through the App Server before filesystem or scheduler mutation.
 
+Choose the settings source before starting the preference conversation:
+
+- When installed status succeeded, this is a known reinstall. Keep its reported
+  preferences backstage and use them exactly once to build the current-settings
+  card in the next section.
+- When installed status was unavailable, do not guess whether this is a first
+  install or reinstall and do not show the recommended defaults yet. After
+  identifying the calling task, run this initial task-ID-only dry-run in one
+  self-contained shell call:
+
+```sh
+CONTROL_TASK_ID='paste-exact-task-id-here'
+DISCOVERY_FLAGS="--control-task-id $CONTROL_TASK_ID"
+curl -fsSL https://threadbear.sh/install.sh | sh -s -- --dry-run $DISCOVERY_FLAGS
+```
+
+Use that result to determine first install versus reinstall and capture every
+actual resulting preference. This discovery changes nothing. Keep its raw
+output backstage, then show exactly one appropriate card in the next section:
+the recommendation for a first install or the current-settings card for a
+reinstall.
+
 On reinstall, a normal readable persisted control task wins even when the
 calling task supplies a different ID; the internal result reports
 `stayed_home`. An unreadable persisted task can be replaced by the supplied
@@ -148,7 +169,10 @@ ask the person to unarchive the selected task before continuing.
 
 ## 4. Make the preferences feel like features
 
-Present the recommended setup as a short card:
+Show exactly one settings card, chosen from the source established above. Never
+show the default recommendation and a current-settings card together.
+
+For a first install, present the recommended setup:
 
 > Here’s the setup I recommend:
 >
@@ -171,8 +195,38 @@ Present the recommended setup as a short card:
 > Would you like the recommended setup, change a choice, or have me explain any
 > of them?
 
-If the person wants to change the token display, name every choice and show the
-visible result:
+For a reinstall, present a dedicated current-settings card once, using every
+actual value from installed status or the initial discovery dry-run. This
+example shows one possible existing setup; replace every outcome with the
+person’s actual settings:
+
+> Here’s the setup ThreadBear is using now:
+>
+> - **A quiet ten-minute check-in.** ThreadBear looks for changes; when nothing
+>   changed, it uses no model tokens.
+> - **Updates when you choose.** ThreadBear waits for you to start verified
+>   updates.
+> - **Completed tasks stay visible.** ThreadBear does not archive them
+>   automatically.
+> - **Titles stay untouched.** ThreadBear leaves every title as you set it, so
+>   token figures remain inactive and stay out of titles too.
+> - **Reliable status answers.** This adds one compact ThreadBear status line,
+>   such as `🧵🐻 complete`, to agent replies across your Codex tasks so most
+>   checks stay quick and lightweight.
+>
+> Would you like to keep this setup, change a choice, or have me explain any of
+> it?
+
+Title maintenance controls the token display. Whenever title maintenance is
+off, every current-settings card and review must say that titles stay untouched
+and token figures remain inactive and out of titles; never present a stored
+token position as active. When title maintenance is on, pair the useful-title
+outcome with the actual active token position. Skip the token-position choices
+unless the person is considering re-enabling title maintenance.
+
+When title maintenance is on and the person wants to change the token display,
+or when they are considering turning titles back on, name every choice and show
+the visible result:
 
 1. **At the start (recommended):** `🚨 1.6m Fix checkout`
 2. **At the end:** `🚨 Fix checkout · out 1.6m`
@@ -183,11 +237,12 @@ start,” “At the end,” and “Hidden.” Never use “Choose another displa
 preference.”
 
 For a first install, accepting the recommendation means leaving its default
-preferences unspecified. For a reinstall, describe the card as “the setup
-ThreadBear is using now.” In both cases, add a preference flag only when the
-person explicitly asks to change that preference. If they want changes, ask
-only about those settings. Do not interview them about the classifier model,
-effort, or context limit unless they ask to customize the advanced fallback.
+preferences unspecified during baseline discovery. For a reinstall, keeping
+the current card means leaving its preferences unspecified during baseline
+discovery. In both cases, add a baseline preference flag only when the person
+explicitly asks to change that preference. If they want changes, ask only about
+those settings. Do not interview them about the classifier model, effort, or
+context limit unless they ask to customize the advanced fallback.
 
 Backstage preference map:
 
@@ -227,22 +282,47 @@ failed candidate self-test stops before replacing a working binary. The
 candidate is temporary; ThreadBear does not retain version directories or
 rollback copies. Do not narrate this list unless verification fails.
 
-Construct one flag list and keep it unchanged for the confirmed run. For both a
-first install and a reinstall, begin with only the task ID:
+Keep the two-pass safety work backstage. The person should see one friendly
+final review, not two technical previews.
+
+First, run a baseline dry-run with the task ID plus only preference changes the
+person explicitly requested. Reconstruct the values in this same shell call;
+never rely on variables surviving from an earlier tool call:
 
 ```sh
-CONTROL_TASK_ID='paste-id-here'
-INSTALL_FLAGS="--control-task-id $CONTROL_TASK_ID"
-curl -fsSL https://threadbear.sh/install.sh | sh -s -- --dry-run $INSTALL_FLAGS
+CONTROL_TASK_ID='paste-exact-task-id-here'
+BASELINE_FLAGS="--control-task-id $CONTROL_TASK_ID"
+curl -fsSL https://threadbear.sh/install.sh | sh -s -- --dry-run $BASELINE_FLAGS
 ```
 
-Append only flags for preference changes the person explicitly requested, then
-use that same partial list for the review and confirmed run. On a first install,
-unspecified preferences take ThreadBear’s defaults. On a reinstall, unspecified
-preferences preserve the installed values. Accepting the recommendation does
-not mean spelling out every default as flags.
+Append requested changes literally to `BASELINE_FLAGS` before that curl. On a
+first install, unspecified preferences resolve to ThreadBear’s defaults. On a
+reinstall, they resolve to the installed values, so this partial baseline
+cannot reset an unmentioned preference.
 
-For an exact release, append `--version N.N.N` to both preview and confirmed commands.
+Read every resolved preference from the baseline result. Materialize all of
+them—heartbeat, automatic updates, archive behavior and quiet days, title
+maintenance, token display, status guidance, classifier model, classifier
+effort, and classifier context budget—into a complete frozen list. The example
+below shows defaults only to demonstrate the complete shape; replace every
+value with the baseline result, including an inactive stored token position
+when title maintenance is off:
+
+```sh
+CONTROL_TASK_ID='paste-exact-task-id-here'
+FROZEN_FLAGS="--control-task-id $CONTROL_TASK_ID --heartbeat-seconds 300 --auto-update=true --archive=true --archive-after-days 14 --rename=true --token-display=start --agents=true --classifier-model gpt-5.6-luna --classifier-effort medium --classifier-context-budget-bytes 250000"
+curl -fsSL https://threadbear.sh/install.sh | sh -s -- --dry-run $FROZEN_FLAGS
+```
+
+This second dry-run is the final review source. Do not show the baseline result.
+Read the complete frozen result, translate it into the single friendly review
+below, and keep the exact task ID and full `FROZEN_FLAGS` line for
+reconstruction after consent. The final-review and confirmed preference lists
+must be byte-for-byte identical, and therefore semantically identical; only
+`--dry-run` changes to `--noninteractive --confirm`.
+
+For an exact release, append the same `--version N.N.N` selection to the
+baseline, final-review, and confirmed commands.
 
 The `--dry-run` command is a hard safety boundary for the agent. It requires no
 confirmation, acquires no mutating lock, and makes no installation, scheduler,
@@ -250,11 +330,12 @@ managed-file, or Codex-task change. It validates the adoption task and prints
 the complete deterministic `PreviewResult`. Add `--json` when machine-readable
 output is useful.
 
-Read the full preview yourself. Do not paste its raw fields into the
+Read the full final-review result yourself. Do not paste its raw fields into the
 conversation. Translate every effect into a complete, scannable review in this
 shape, adapting the details to the selected settings and install/reinstall
-result. The dry-run result, rather than an earlier status call or an assumption,
-is the authoritative source for every setting shown to the person:
+result. The frozen dry-run result, rather than an earlier status call, baseline
+card, or assumption, is the authoritative source for every setting shown to the
+person:
 
 > Everything is ready for your review.
 >
@@ -277,9 +358,10 @@ editing the first-install example sentence by sentence:
 >
 > ThreadBear already has a home. This refresh will update ThreadBear itself
 > while keeping your current setup: a ten-minute check-in, verified automatic
-> updates, completed tasks left visible, helpful titles, output tokens at the
-> end, and one compact ThreadBear status line added to agent replies across your
-> Codex tasks for lightweight status answers.
+> updates, completed tasks left visible, titles left untouched with token
+> figures inactive and out of them, and one compact ThreadBear status line
+> added to agent replies across your Codex tasks for lightweight status
+> answers.
 >
 > Its existing home, title, and pin will stay exactly as they are. If that home
 > is another task, this task won’t become the new home and won’t be renamed or
@@ -288,12 +370,13 @@ editing the first-install example sentence by sentence:
 > Ready for me to refresh ThreadBear with these choices?
 
 The settings sentence is an example; replace every value with the actual
-setting reported by the dry-run. When status guidance is disabled, say instead
-that agent replies stay unchanged and ThreadBear will take a careful look when
-it needs to understand a task. If the existing home will be unarchived, say
-plainly that it will return to the active task list. For an unreadable
-replacement or repair, use the first-install review and say this task will
-become the new home.
+setting reported by the frozen dry-run. If title maintenance is disabled, keep
+the combined titles-and-tokens outcome above and never describe the stored token
+position as active. When status guidance is disabled, say instead that agent
+replies stay unchanged and ThreadBear will take a careful look when it needs to
+understand a task. If the existing home will be unarchived, say plainly that it
+will return to the active task list. For an unreadable replacement or repair,
+use the first-install review and say this task will become the new home.
 
 Internal disposition translation:
 
@@ -308,18 +391,36 @@ Continue only after a clear affirmative answer to the friendly installation
 question. If they want a change, update the flags, rerun the review, and ask
 again.
 
+If the person says “not now” or otherwise declines, close warmly without
+pressing for a reason:
+
+> Of course. Nothing from this review has been installed or changed, and your
+> current setup is still exactly as it was. ThreadBear will be here whenever
+> you’d like to pick this back up.
+
+Do not run the confirmed command, rename or pin a task, or ask them to
+reconsider.
+
 ## 6. Install with one calm progress update
 
 After first-install approval, say: “Lovely. I’m installing ThreadBear now, then
 I’ll run its health checks and report back here.” For a reinstall, say
-“refreshing ThreadBear” instead. Use the same flags, adding only noninteractive
-confirmation:
+“refreshing ThreadBear” instead. In the same shell call as the confirmed curl,
+reconstruct the exact approved task ID and complete literal preference list;
+never rely on variables from the review tool call. Replace the example values
+below with the frozen values that produced the person’s review:
 
 ```sh
-curl -fsSL https://threadbear.sh/install.sh | sh -s -- --noninteractive --confirm $INSTALL_FLAGS
+CONTROL_TASK_ID='paste-exact-task-id-here'
+FROZEN_FLAGS="--control-task-id $CONTROL_TASK_ID --heartbeat-seconds 300 --auto-update=true --archive=true --archive-after-days 14 --rename=true --token-display=start --agents=true --classifier-model gpt-5.6-luna --classifier-effort medium --classifier-context-budget-bytes 250000"
+curl -fsSL https://threadbear.sh/install.sh | sh -s -- --noninteractive --confirm $FROZEN_FLAGS
 ```
 
-Do not substitute a different task ID or preference after approval. The installer recomputes the same preview before mutation. If the world changed, it stops and asks for a fresh preview.
+The `CONTROL_TASK_ID` value and `FROZEN_FLAGS` text must match the final-review
+block byte for byte. Do not substitute a different task ID or preference after
+approval. The identical complete list prevents the person’s preference choices
+from drifting between review and confirmation. The installer revalidates the
+task and managed resources before mutation and stops if a safety check fails.
 
 The install validates the control task before any filesystem or scheduler mutation, stages and self-tests managed resources, writes private config/state, enables the LaunchAgent, and posts the unchanged welcome notice exactly once for first adoption, unreadable replacement, or the exact repair. It does not call persistent `thread/start`, retitle the control task, pin it, or deliberately kickstart a heartbeat while the install lock is held.
 
@@ -398,7 +499,17 @@ installation changed anything; put raw diagnostics after the plain explanation
 only when they help. Never direct the person elsewhere to complete, verify, or
 troubleshoot the installation.
 
-For a failure after installation has started, use this warm, concrete shape and
+For a failure before mutation, use this distinct no-change shape:
+
+> ThreadBear paused before installing because it couldn’t verify the official
+> download.
+>
+> Nothing was installed and your settings did not change.
+>
+> I’m checking the connection to the verified download now. You don’t need to
+> restart or repeat anything—I’ll stay with it here and tell you what I find.
+
+For a failure after installation has started, use this post-mutation shape and
 adapt every factual sentence to the evidence:
 
 > ThreadBear hit a snag while starting its quiet background check.
@@ -410,9 +521,9 @@ adapt every factual sentence to the evidence:
 > restart the installation or repeat anything—I’ll stay with it here and tell
 > you what I find.
 
-For a failure before mutation, replace the second paragraph with “Nothing was
-installed and your settings did not change.” Never claim that nothing changed
-after mutation began without confirming it from the installer result.
+Never combine the pre-mutation headline with a post-mutation result, and never
+claim that nothing changed after mutation began without confirming it from the
+installer result.
 
 Expected managed resources are:
 
@@ -492,16 +603,11 @@ Never disable Gatekeeper globally.
 - `2`: invalid arguments or required control task ID missing; no install mutation;
 - `1`: platform, network, checksum, App Server, candidate, confirmation, or lifecycle failure.
 
-Safe noninteractive invocation with no preference changes:
-
-```sh
-~/.local/bin/threadbear install \
-  --control-task-id TASK_ID \
-  --noninteractive --confirm
-```
-
-Append only preference flags the person explicitly changes. Dry-run uses the
-identical partial preference flags with `--dry-run` and without `--confirm`.
+A safe noninteractive install follows the two-pass flow above: resolve current
+or default values with partial baseline flags, materialize every preference
+into a complete list, dry-run that frozen list, then confirm with the identical
+complete list. A task-ID-only confirmed install is unsafe because an unrelated
+configuration change could otherwise drift between review and consent.
 
 ## Uninstall
 
