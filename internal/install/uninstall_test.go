@@ -6,11 +6,39 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strings"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/ericlitman/threadbear/internal/config"
 	"github.com/ericlitman/threadbear/internal/state"
 )
+
+type lockedStore struct {
+	Store
+	err      error
+	attempts int
+}
+
+func (s *lockedStore) AcquireLock() (Lock, error) {
+	s.attempts++
+	return nil, s.err
+}
+
+type observedStore struct {
+	Store
+	contended chan struct{}
+	once      sync.Once
+}
+
+func (s *observedStore) AcquireLock() (Lock, error) {
+	lock, err := s.Store.AcquireLock()
+	if errors.Is(err, state.ErrLocked) {
+		s.once.Do(func() { close(s.contended) })
+	}
+	return lock, err
+}
 
 type countingStore struct {
 	Store
@@ -248,6 +276,85 @@ func TestUninstallLoadedJobWithoutArtifactsReportsChangedAndUnloads(t *testing.T
 	}
 	if !reflect.DeepEqual(scheduler.calls, []string{"loaded", "loaded", "remove"}) {
 		t.Fatalf("calls=%v", scheduler.calls)
+	}
+}
+
+func TestUninstallWaitsForRunningHeartbeatLaunchAgent(t *testing.T) {
+	paths, _, scheduler, tasks := installedFixture(t)
+	scheduler.loaded = true
+	diskStore := NewDiskStore(paths)
+	heartbeatLock, err := diskStore.AcquireLock()
+	if err != nil {
+		t.Fatal(err)
+	}
+	store := &observedStore{Store: diskStore, contended: make(chan struct{})}
+	result := make(chan struct {
+		value UninstallResult
+		err   error
+	}, 1)
+	go func() {
+		value, uninstallErr := (Uninstaller{Paths: paths, Store: store, Scheduler: scheduler, ControlTasks: tasks}).Uninstall(context.Background(), UninstallRequest{NonInteractive: true, Confirm: true})
+		result <- struct {
+			value UninstallResult
+			err   error
+		}{value: value, err: uninstallErr}
+	}()
+	select {
+	case <-store.contended:
+	case completed := <-result:
+		t.Fatalf("uninstall returned while heartbeat held the lock: result=%+v err=%v", completed.value, completed.err)
+	case <-time.After(2 * time.Second):
+		t.Fatal("uninstall did not contend with the running heartbeat")
+	}
+	if err := heartbeatLock.Close(); err != nil {
+		t.Fatal(err)
+	}
+	var completed struct {
+		value UninstallResult
+		err   error
+	}
+	select {
+	case completed = <-result:
+	case <-time.After(2 * time.Second):
+		t.Fatal("uninstall did not finish after heartbeat released the lock")
+	}
+	if completed.err != nil || !completed.value.Changed || !completed.value.DeletedState || scheduler.loaded {
+		t.Fatalf("result=%+v err=%v scheduler=%+v", completed.value, completed.err, scheduler)
+	}
+	if _, err := os.Stat(paths.StateDirectory); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("state remains: %v", err)
+	}
+	rerun, err := (Uninstaller{Paths: paths, Store: store, Scheduler: scheduler, ControlTasks: tasks}).Uninstall(context.Background(), UninstallRequest{NonInteractive: true, Confirm: true})
+	if err != nil || rerun.Changed {
+		t.Fatalf("rerun=%+v err=%v", rerun, err)
+	}
+	if _, err := os.Stat(paths.StateDirectory); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("rerun recreated state: %v", err)
+	}
+}
+
+func TestAcquireUninstallLockReportsHeartbeatInFlight(t *testing.T) {
+	store := &lockedStore{Store: &fakeStore{}, err: state.ErrLocked}
+	_, err := acquireUninstallLock(context.Background(), store, 20*time.Millisecond, time.Millisecond)
+	if !errors.Is(err, ErrHeartbeatInFlight) || !strings.Contains(err.Error(), "heartbeat in flight after waiting 20ms; rerunning uninstall is safe") {
+		t.Fatalf("error=%v", err)
+	}
+	if store.attempts < 2 {
+		t.Fatalf("attempts=%d", store.attempts)
+	}
+}
+
+func TestAcquireUninstallLockHonorsCancellationAndOtherErrors(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	available := &lockedStore{Store: &fakeStore{}}
+	if _, err := acquireUninstallLock(ctx, available, time.Second, time.Millisecond); !errors.Is(err, context.Canceled) || available.attempts != 0 {
+		t.Fatalf("cancellation error=%v attempts=%d", err, available.attempts)
+	}
+	other := errors.New("lock file unavailable")
+	failed := &lockedStore{Store: &fakeStore{}, err: other}
+	if _, err := acquireUninstallLock(context.Background(), failed, time.Second, time.Millisecond); !errors.Is(err, other) || failed.attempts != 1 {
+		t.Fatalf("error=%v attempts=%d", err, failed.attempts)
 	}
 }
 

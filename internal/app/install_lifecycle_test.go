@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -23,6 +24,25 @@ func TestInstallHandlerMapsTypedFailureWithoutParsing(t *testing.T) {
 	cancelled := installErrorResult(install.ErrCancelled)
 	if cancelled.ErrorCode != "cancelled" || cancelled.Step != "" || cancelled.Cause != "" {
 		t.Fatalf("cancelled=%+v", cancelled)
+	}
+}
+
+func TestUninstallErrorResultNamesHeartbeatInFlight(t *testing.T) {
+	err := fmt.Errorf("%w after waiting 30s; rerunning uninstall is safe", install.ErrHeartbeatInFlight)
+	result := uninstallErrorResult(err)
+	if result.ErrorCode != "heartbeat_in_flight" || result.Step != "wait_for_heartbeat" || result.Cause != err.Error() || !strings.Contains(result.Human(), "heartbeat in flight") || strings.Contains(result.Human(), "uninstall_failed") {
+		t.Fatalf("result=%+v human=%q", result, result.Human())
+	}
+}
+
+func TestUninstallErrorResultKeepsContextCancellationDistinct(t *testing.T) {
+	cancelled := uninstallErrorResult(context.Canceled)
+	if cancelled.ErrorCode != "cancelled" {
+		t.Fatalf("cancelled=%+v", cancelled)
+	}
+	deadline := uninstallErrorResult(context.DeadlineExceeded)
+	if deadline.ErrorCode != "cancelled" {
+		t.Fatalf("deadline=%+v", deadline)
 	}
 }
 

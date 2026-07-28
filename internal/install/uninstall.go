@@ -6,7 +6,17 @@ import (
 	"fmt"
 	"io/fs"
 	"os"
+	"time"
+
+	"github.com/ericlitman/threadbear/internal/state"
 )
+
+const (
+	uninstallLockWait          = 30 * time.Second
+	uninstallLockRetryInterval = 100 * time.Millisecond
+)
+
+var ErrHeartbeatInFlight = errors.New("heartbeat in flight")
 
 type ChoicePrompter interface {
 	ShowMessage(string) error
@@ -108,7 +118,7 @@ func (u Uninstaller) Uninstall(ctx context.Context, request UninstallRequest) (U
 	if !hadLaunchAgent && !schedulerLoaded && !hadBinary && !hadAgents && !hadSkill && !hadState {
 		return UninstallResult{Preview: preview, Changed: false, Resources: []string{}}, nil
 	}
-	lock, err := u.Store.AcquireLock()
+	lock, err := acquireUninstallLock(ctx, u.Store, uninstallLockWait, uninstallLockRetryInterval)
 	if err != nil {
 		return UninstallResult{}, err
 	}
@@ -200,6 +210,37 @@ func (u Uninstaller) Uninstall(ctx context.Context, request UninstallRequest) (U
 		resources = append(resources, "state")
 	}
 	return UninstallResult{ArchivedControlTask: archivedControlTask, DeletedState: hadState, Preview: preview, Changed: len(resources) > 0, Resources: resources}, nil
+}
+
+func acquireUninstallLock(ctx context.Context, store Store, wait, retryInterval time.Duration) (Lock, error) {
+	deadline := time.Now().Add(wait)
+	for {
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		default:
+		}
+		if !time.Now().Before(deadline) {
+			return nil, fmt.Errorf("%w after waiting %s; rerunning uninstall is safe", ErrHeartbeatInFlight, wait)
+		}
+		lock, err := store.AcquireLock()
+		if err == nil {
+			return lock, nil
+		}
+		if !errors.Is(err, state.ErrLocked) {
+			return nil, err
+		}
+		retry := min(retryInterval, time.Until(deadline))
+		timer := time.NewTimer(retry)
+		select {
+		case <-ctx.Done():
+			if !timer.Stop() {
+				<-timer.C
+			}
+			return nil, ctx.Err()
+		case <-timer.C:
+		}
+	}
 }
 
 func managedFileHasBlock(path string) bool {
