@@ -222,34 +222,6 @@ func TestReadThreadRejectsMalformedResponseIDs(t *testing.T) {
 	}
 }
 
-func TestStartPersistentThread(t *testing.T) {
-	caps := fixtureCaps(t)
-	delete(caps.Methods, "thread/start")
-	unsupported := startFake(t, "normal", caps)
-	defer unsupported.Close()
-	if _, err := unsupported.StartPersistentThread(context.Background()); !errors.Is(err, ErrCapability) {
-		t.Fatalf("error=%v", err)
-	}
-	c := startFake(t, "persistent", fixtureCaps(t))
-	defer c.Close()
-	thread, err := c.StartPersistentThread(context.Background())
-	if err != nil || thread.ID != "control-1" || thread.Ephemeral || thread.Path == nil {
-		t.Fatalf("thread=%+v err=%v", thread, err)
-	}
-}
-
-func TestStartPersistentThreadRejectsMalformedResponses(t *testing.T) {
-	for _, scenario := range []string{"persistent-empty-id", "persistent-noncanonical-id", "persistent-ephemeral", "persistent-nil-path"} {
-		t.Run(scenario, func(t *testing.T) {
-			c := startFake(t, scenario, fixtureCaps(t))
-			defer c.Close()
-			if _, err := c.StartPersistentThread(context.Background()); err == nil {
-				t.Fatal("error=nil")
-			}
-		})
-	}
-}
-
 func TestMutations(t *testing.T) {
 	c := startFake(t, "normal", fixtureCaps(t))
 	defer c.Close()

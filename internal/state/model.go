@@ -127,6 +127,7 @@ type State struct {
 	LastUpdateCheck         *time.Time               `json:"last_update_check,omitempty"`
 	LastAnnouncedVersion    string                   `json:"last_announced_version,omitempty"`
 	LastReconciledVersion   string                   `json:"last_reconciled_version,omitempty"`
+	PendingWelcomeTaskID    string                   `json:"pending_welcome_task_id,omitempty"`
 	LastUpdateFailure       *Failure                 `json:"last_update_failure,omitempty"`
 	LastReconcileFailure    *Failure                 `json:"last_reconcile_failure,omitempty"`
 	Tasks                   map[string]TaskRecord    `json:"tasks"`
@@ -155,6 +156,9 @@ func (s State) Validate() error {
 	}
 	if s.LastReconciledVersion != "" && strings.TrimSpace(s.LastReconciledVersion) != s.LastReconciledVersion {
 		return errors.New("last_reconciled_version must not contain surrounding whitespace")
+	}
+	if s.PendingWelcomeTaskID != "" && !canonicalIdentifier(s.PendingWelcomeTaskID) {
+		return errors.New("pending_welcome_task_id must be canonical")
 	}
 	for name, failure := range map[string]*Failure{"last_update_failure": s.LastUpdateFailure, "last_reconcile_failure": s.LastReconcileFailure} {
 		if failure != nil && (!stableCode(failure.Code) || failure.Timestamp.IsZero()) {

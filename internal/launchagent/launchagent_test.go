@@ -7,7 +7,6 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"syscall"
 	"testing"
 
 	"github.com/ericlitman/threadbear/internal/config"
@@ -45,18 +44,13 @@ func (r *fakeRunner) Run(_ context.Context, name string, args ...string) ([]byte
 		}
 		return []byte("Could not find service"), errors.New("exit status 113")
 	case "bootstrap":
-		data, err := os.ReadFile(args[2])
-		if err != nil {
+		if _, err := os.Stat(args[2]); err != nil {
 			return nil, err
 		}
-		label := Label
-		if strings.Contains(string(data), LegacyLabel) {
-			label = LegacyLabel
-		}
-		if r.disabled[label] {
+		if r.disabled[Label] {
 			return []byte("Bootstrap failed: service is disabled"), errors.New("exit status 5")
 		}
-		r.loaded[args[1]+"/"+label] = true
+		r.loaded[args[1]+"/"+Label] = true
 		return nil, nil
 	case "bootout":
 		delete(r.loaded, args[1])
@@ -250,7 +244,7 @@ func TestEnablePrecedesBootstrapAndPreservesIdempotency(t *testing.T) {
 		t.Fatalf("Enable = %v, %v", changed, err)
 	}
 	calls := runner.calls[callStart:]
-	enableIndex, bootstrapIndex := -1, -1
+	enableIndex, bootstrapIndex, kickstartIndex := -1, -1, -1
 	for index, call := range calls {
 		if strings.Contains(call, " enable "+adapter.service) {
 			enableIndex = index
@@ -258,9 +252,12 @@ func TestEnablePrecedesBootstrapAndPreservesIdempotency(t *testing.T) {
 		if strings.Contains(call, " bootstrap "+adapter.domain+" "+adapter.plistPath) {
 			bootstrapIndex = index
 		}
+		if strings.Contains(call, " kickstart -k "+adapter.service) {
+			kickstartIndex = index
+		}
 	}
-	if enableIndex < 0 || bootstrapIndex < 0 || enableIndex >= bootstrapIndex {
-		t.Fatalf("enable did not precede bootstrap: %v", calls)
+	if enableIndex < 0 || bootstrapIndex < 0 || kickstartIndex < 0 || enableIndex >= bootstrapIndex || bootstrapIndex >= kickstartIndex {
+		t.Fatalf("enable/bootstrap/kickstart order=%v", calls)
 	}
 	changed, err = adapter.Enable(context.Background())
 	if err != nil || changed {
@@ -333,101 +330,6 @@ func TestHealthyRequiresPlistEnabledAndLoaded(t *testing.T) {
 	}
 }
 
-func TestCleanInstallLifecycleDoesNotOperateOnLegacyLabel(t *testing.T) {
-	runner := newFakeRunner()
-	adapter, _ := testAdapter(t, runner)
-	cfg := config.Default("control")
-	cfg.CodexExecutable = "/custom/codex/bin/codex"
-	cfg.CodexSpawnPath = "/custom/codex/bin:/custom/node/bin"
-	if _, err := adapter.Stage(context.Background(), cfg); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := adapter.Stage(context.Background(), cfg); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := adapter.Enable(context.Background()); err != nil {
-		t.Fatal(err)
-	}
-	if healthy, err := adapter.Healthy(context.Background()); err != nil || !healthy {
-		t.Fatalf("Healthy=%t, %v", healthy, err)
-	}
-	for _, call := range runner.calls {
-		if strings.Contains(call, LegacyLabel) {
-			t.Fatalf("clean install operated on legacy label: %s", call)
-		}
-	}
-}
-
-func TestLegacyStopVerifyAndIntervalDetection(t *testing.T) {
-	runner := newFakeRunner()
-	adapter, _ := testAdapter(t, runner)
-	if err := os.MkdirAll(filepath.Dir(adapter.legacyPlistPath), 0o700); err != nil {
-		t.Fatal(err)
-	}
-	legacy := `<?xml version="1.0"?><plist><dict><key>Label</key><string>org.litman.threadwatch</string><key>StartInterval</key><integer>420</integer></dict></plist>`
-	if err := os.WriteFile(adapter.legacyPlistPath, []byte(legacy), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	interval, found, err := adapter.DetectLegacyInterval()
-	if err != nil || !found || interval != 420 {
-		t.Fatalf("DetectLegacyInterval = %d, %v, %v", interval, found, err)
-	}
-	runner.loaded[adapter.legacyService] = true
-	if err := adapter.VerifyLegacyStopped(context.Background()); err == nil {
-		t.Fatal("verification accepted loaded legacy job")
-	}
-	unrelated := filepath.Join(filepath.Dir(adapter.legacyLockPath), "keep.log")
-	if err := os.MkdirAll(filepath.Dir(unrelated), 0o700); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(unrelated, []byte("keep"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	if err := adapter.StopLegacy(context.Background()); err != nil {
-		t.Fatal(err)
-	}
-	if !runner.disabled[LegacyLabel] {
-		t.Fatal("legacy label was not durably disabled")
-	}
-	if _, err := os.Stat(adapter.legacyPlistPath); !errors.Is(err, os.ErrNotExist) {
-		t.Fatalf("legacy plist remains: %v", err)
-	}
-	if _, err := os.Stat(adapter.legacyPlistPath + ".disabled-by-threadbear"); err != nil {
-		t.Fatalf("legacy plist was not quarantined: %v", err)
-	}
-	interval, found, err = adapter.DetectLegacyInterval()
-	if err != nil || !found || interval != 420 {
-		t.Fatalf("quarantined DetectLegacyInterval = %d, %v, %v", interval, found, err)
-	}
-	if data, err := os.ReadFile(unrelated); err != nil || string(data) != "keep" {
-		t.Fatalf("unrelated legacy data changed: %q %v", data, err)
-	}
-	stopped, err := adapter.LegacyStopped(context.Background())
-	if err != nil || !stopped {
-		t.Fatalf("LegacyStopped = %v, %v", stopped, err)
-	}
-	if err := adapter.VerifyLegacyStopped(context.Background()); err != nil {
-		t.Fatal(err)
-	}
-}
-
-func TestLegacyVerificationUsesInjectableRunLockProbe(t *testing.T) {
-	runner := newFakeRunner()
-	home := t.TempDir()
-	called := ""
-	adapter, err := New(Options{Home: home, BinaryPath: filepath.Join(home, "threadbear"), UID: 501, Runner: runner, LegacyLockProbe: func(path string) error { called = path; return errors.New("held") }})
-	if err != nil {
-		t.Fatal(err)
-	}
-	runner.disabled[LegacyLabel] = true
-	if err := adapter.VerifyLegacyStopped(context.Background()); err == nil || !strings.Contains(err.Error(), "held") {
-		t.Fatalf("error=%v", err)
-	}
-	if called != adapter.legacyLockPath {
-		t.Fatalf("probe path=%q", called)
-	}
-}
-
 func TestExecRunnerUsesExplicitMinimalEnvironment(t *testing.T) {
 	output, err := (ExecRunner{}).Run(context.Background(), "/usr/bin/env")
 	if err != nil {
@@ -464,22 +366,6 @@ func TestStageWritesPlistWithoutActivation(t *testing.T) {
 	healthy, err := adapter.Healthy(context.Background())
 	if err != nil || !healthy {
 		t.Fatalf("Healthy=%t, %v", healthy, err)
-	}
-}
-
-func TestVerifyLockAvailableRejectsRealAdvisoryFlock(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "run.lock")
-	file, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR, 0o600)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer file.Close()
-	if err := syscall.Flock(int(file.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
-		t.Fatal(err)
-	}
-	defer syscall.Flock(int(file.Fd()), syscall.LOCK_UN)
-	if err := verifyLockAvailable(path); err == nil {
-		t.Fatal("held advisory flock was accepted")
 	}
 }
 
@@ -538,5 +424,63 @@ func TestStageIdenticalDisabledUnloadedJobIsNoOp(t *testing.T) {
 		if strings.Contains(call, " disable ") || strings.Contains(call, " bootout ") {
 			t.Fatalf("no-op Stage mutated scheduler: %s", call)
 		}
+	}
+}
+
+func TestEnableWithoutKickstartActivatesWithoutRunningHeartbeat(t *testing.T) {
+	runner := newFakeRunner()
+	adapter, _ := testAdapter(t, runner)
+	cfg := config.Default("control")
+	cfg.CodexExecutable = "/custom/codex/bin/codex"
+	cfg.CodexSpawnPath = "/custom/codex/bin:/custom/node/bin"
+	if _, err := adapter.Stage(context.Background(), cfg); err != nil {
+		t.Fatal(err)
+	}
+	start := len(runner.calls)
+	changed, err := adapter.EnableWithoutKickstart(context.Background())
+	if err != nil || !changed {
+		t.Fatalf("EnableWithoutKickstart=%t, %v", changed, err)
+	}
+	calls := strings.Join(runner.calls[start:], "\n")
+	if !strings.Contains(calls, " enable "+adapter.service) || !strings.Contains(calls, " bootstrap "+adapter.domain+" "+adapter.plistPath) {
+		t.Fatalf("activation calls=%s", calls)
+	}
+	if strings.Contains(calls, " kickstart ") {
+		t.Fatalf("no-kickstart activation ran heartbeat: %s", calls)
+	}
+}
+
+func TestEnableKickstartsButEnableWithoutKickstartDoesNot(t *testing.T) {
+	cfg := config.Default("control")
+	cfg.CodexExecutable = "/custom/codex/bin/codex"
+	cfg.CodexSpawnPath = "/custom/codex/bin:/custom/node/bin"
+
+	installerRunner := newFakeRunner()
+	installerAdapter, _ := testAdapter(t, installerRunner)
+	if _, err := installerAdapter.Stage(context.Background(), cfg); err != nil {
+		t.Fatal(err)
+	}
+	start := len(installerRunner.calls)
+	if changed, err := installerAdapter.EnableWithoutKickstart(context.Background()); err != nil || !changed {
+		t.Fatalf("EnableWithoutKickstart=%t, %v", changed, err)
+	}
+	for _, call := range installerRunner.calls[start:] {
+		if strings.Contains(call, " kickstart ") {
+			t.Fatalf("installer enable kickstarted under lock: %s", call)
+		}
+	}
+
+	explicitRunner := newFakeRunner()
+	explicitAdapter, _ := testAdapter(t, explicitRunner)
+	if _, err := explicitAdapter.Stage(context.Background(), cfg); err != nil {
+		t.Fatal(err)
+	}
+	start = len(explicitRunner.calls)
+	if changed, err := explicitAdapter.Enable(context.Background()); err != nil || !changed {
+		t.Fatalf("Enable=%t, %v", changed, err)
+	}
+	calls := strings.Join(explicitRunner.calls[start:], "\n")
+	if !strings.Contains(calls, " bootstrap ") || !strings.Contains(calls, " kickstart -k "+explicitAdapter.service) {
+		t.Fatalf("explicit enable did not bootstrap and kickstart: %s", calls)
 	}
 }

@@ -10,7 +10,6 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
-	"syscall"
 
 	"github.com/ericlitman/threadbear/internal/app"
 	"github.com/ericlitman/threadbear/internal/codex"
@@ -34,39 +33,32 @@ func (ExecRunner) Run(ctx context.Context, name string, args ...string) ([]byte,
 }
 
 type Options struct {
-	Home            string
-	CodexHome       string
-	BinaryPath      string
-	PlistPath       string
-	StdoutPath      string
-	StderrPath      string
-	Path            string
-	LCAll           string
-	LaunchctlPath   string
-	LegacyPlistPath string
-	LegacyLockPath  string
-	LegacyLockProbe func(string) error
-	UID             int
-	Runner          CommandRunner
+	Home          string
+	CodexHome     string
+	BinaryPath    string
+	PlistPath     string
+	StdoutPath    string
+	StderrPath    string
+	Path          string
+	LCAll         string
+	LaunchctlPath string
+	UID           int
+	Runner        CommandRunner
 }
 
 type Adapter struct {
-	home            string
-	codexHome       string
-	binaryPath      string
-	plistPath       string
-	stdoutPath      string
-	stderrPath      string
-	path            string
-	lcAll           string
-	launchctlPath   string
-	legacyPlistPath string
-	legacyLockPath  string
-	legacyLockProbe func(string) error
-	domain          string
-	service         string
-	legacyService   string
-	runner          CommandRunner
+	home          string
+	codexHome     string
+	binaryPath    string
+	plistPath     string
+	stdoutPath    string
+	stderrPath    string
+	path          string
+	lcAll         string
+	launchctlPath string
+	domain        string
+	service       string
+	runner        CommandRunner
 }
 
 func New(options Options) (*Adapter, error) {
@@ -102,25 +94,16 @@ func New(options Options) (*Adapter, error) {
 	if options.LaunchctlPath == "" {
 		options.LaunchctlPath = "/bin/launchctl"
 	}
-	if options.LegacyPlistPath == "" {
-		options.LegacyPlistPath = filepath.Join(options.Home, "Library", "LaunchAgents", LegacyLabel+".plist")
-	}
-	if options.LegacyLockPath == "" {
-		options.LegacyLockPath = filepath.Join(options.Home, ".local", "share", "threadwatch", "run.lock")
-	}
-	if options.LegacyLockProbe == nil {
-		options.LegacyLockProbe = verifyLockAvailable
-	}
 	if options.Runner == nil {
 		options.Runner = ExecRunner{}
 	}
-	for name, value := range map[string]string{"CODEX_HOME": options.CodexHome, "plist": options.PlistPath, "stdout log": options.StdoutPath, "stderr log": options.StderrPath, "launchctl": options.LaunchctlPath, "legacy plist": options.LegacyPlistPath, "legacy lock": options.LegacyLockPath} {
+	for name, value := range map[string]string{"CODEX_HOME": options.CodexHome, "plist": options.PlistPath, "stdout log": options.StdoutPath, "stderr log": options.StderrPath, "launchctl": options.LaunchctlPath} {
 		if !filepath.IsAbs(value) {
 			return nil, fmt.Errorf("LaunchAgent %s path must be absolute", name)
 		}
 	}
 	domain := "gui/" + strconv.Itoa(uid)
-	return &Adapter{home: options.Home, codexHome: options.CodexHome, binaryPath: options.BinaryPath, plistPath: options.PlistPath, stdoutPath: options.StdoutPath, stderrPath: options.StderrPath, path: options.Path, lcAll: options.LCAll, launchctlPath: options.LaunchctlPath, legacyPlistPath: options.LegacyPlistPath, legacyLockPath: options.LegacyLockPath, legacyLockProbe: options.LegacyLockProbe, domain: domain, service: domain + "/" + Label, legacyService: domain + "/" + LegacyLabel, runner: options.Runner}, nil
+	return &Adapter{home: options.Home, codexHome: options.CodexHome, binaryPath: options.BinaryPath, plistPath: options.PlistPath, stdoutPath: options.StdoutPath, stderrPath: options.StderrPath, path: options.Path, lcAll: options.LCAll, launchctlPath: options.LaunchctlPath, domain: domain, service: domain + "/" + Label, runner: options.Runner}, nil
 }
 
 func (a *Adapter) Healthy(ctx context.Context) (bool, error) {
@@ -239,6 +222,14 @@ func (a *Adapter) Stage(ctx context.Context, value config.Config) (bool, error) 
 }
 
 func (a *Adapter) Enable(ctx context.Context) (bool, error) {
+	return a.enable(ctx, true)
+}
+
+func (a *Adapter) EnableWithoutKickstart(ctx context.Context) (bool, error) {
+	return a.enable(ctx, false)
+}
+
+func (a *Adapter) enable(ctx context.Context, kickstart bool) (bool, error) {
 	disabled, err := a.disabled(ctx, Label)
 	if err != nil {
 		return false, err
@@ -262,8 +253,10 @@ func (a *Adapter) Enable(ctx context.Context) (bool, error) {
 		if err := a.command(ctx, "bootstrap", a.domain, a.plistPath); err != nil {
 			return false, err
 		}
-		if err := a.command(ctx, "kickstart", "-k", a.service); err != nil {
-			return false, err
+		if kickstart {
+			if err := a.command(ctx, "kickstart", "-k", a.service); err != nil {
+				return false, err
+			}
 		}
 	}
 	return true, nil
@@ -323,89 +316,6 @@ func (a *Adapter) Remove(ctx context.Context) error {
 	return nil
 }
 
-func (a *Adapter) StopLegacy(ctx context.Context) error {
-	disabled, err := a.disabled(ctx, LegacyLabel)
-	if err != nil {
-		return err
-	}
-	if !disabled {
-		if err := a.command(ctx, "disable", a.legacyService); err != nil {
-			return fmt.Errorf("disable legacy LaunchAgent: %w", err)
-		}
-	}
-	loaded, err := a.loaded(ctx, a.legacyService)
-	if err != nil {
-		return err
-	}
-	if loaded {
-		if err := a.bootout(ctx, a.legacyService); err != nil {
-			return fmt.Errorf("stop legacy LaunchAgent: %w", err)
-		}
-	}
-	if _, err := os.Lstat(a.legacyPlistPath); err == nil {
-		disabledPath := a.legacyPlistPath + ".disabled-by-threadbear"
-		if err := os.Rename(a.legacyPlistPath, disabledPath); err != nil {
-			return fmt.Errorf("quarantine legacy LaunchAgent plist: %w", err)
-		}
-	} else if !errors.Is(err, os.ErrNotExist) {
-		return fmt.Errorf("inspect legacy LaunchAgent plist: %w", err)
-	}
-	return a.VerifyLegacyStopped(ctx)
-}
-
-func (a *Adapter) VerifyLegacyStopped(ctx context.Context) error {
-	disabled, err := a.disabled(ctx, LegacyLabel)
-	if err != nil {
-		return err
-	}
-	if !disabled {
-		return errors.New("legacy LaunchAgent is not disabled")
-	}
-	loaded, err := a.loaded(ctx, a.legacyService)
-	if err != nil {
-		return err
-	}
-	if loaded {
-		return errors.New("legacy LaunchAgent is still loaded")
-	}
-	if _, err := os.Lstat(a.legacyPlistPath); err == nil {
-		return errors.New("legacy LaunchAgent plist can still reactivate")
-	} else if !errors.Is(err, os.ErrNotExist) {
-		return err
-	}
-	if err := a.legacyLockProbe(a.legacyLockPath); err != nil {
-		return fmt.Errorf("legacy run lock is held: %w", err)
-	}
-	return nil
-}
-
-func (a *Adapter) LegacyStopped(ctx context.Context) (bool, error) {
-	loaded, err := a.loaded(ctx, a.legacyService)
-	return !loaded, err
-}
-
-func (a *Adapter) DetectLegacyInterval() (int, bool, error) {
-	path := a.legacyPlistPath
-	data, err := os.ReadFile(path)
-	if errors.Is(err, os.ErrNotExist) {
-		path += ".disabled-by-threadbear"
-		data, err = os.ReadFile(path)
-	}
-	if errors.Is(err, os.ErrNotExist) {
-		return 0, false, nil
-	}
-	if err != nil {
-		return 0, false, fmt.Errorf("read legacy LaunchAgent plist %s: %w", path, err)
-	}
-	interval, found, err := plistStartInterval(data)
-	if err != nil {
-		return 0, false, fmt.Errorf("detect legacy LaunchAgent interval: %w", err)
-	}
-	return interval, found, nil
-}
-
-func (a *Adapter) LegacyInterval() (int, bool, error) { return a.DetectLegacyInterval() }
-
 func (a *Adapter) loaded(ctx context.Context, service string) (bool, error) {
 	output, err := a.runner.Run(ctx, a.launchctlPath, "print", service)
 	if err == nil {
@@ -464,19 +374,4 @@ func commandError(action string, output []byte, err error) error {
 func notLoaded(output []byte, err error) bool {
 	text := strings.ToLower(string(output) + " " + err.Error())
 	return strings.Contains(text, "could not find service") || strings.Contains(text, "no such process") || strings.Contains(text, "not found")
-}
-
-func verifyLockAvailable(path string) error {
-	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
-		return err
-	}
-	file, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR, 0o600)
-	if err != nil {
-		return err
-	}
-	defer file.Close()
-	if err := syscall.Flock(int(file.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
-		return err
-	}
-	return syscall.Flock(int(file.Fd()), syscall.LOCK_UN)
 }

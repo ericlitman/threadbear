@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 
 	"github.com/ericlitman/threadbear/internal/install"
@@ -22,5 +23,12 @@ func TestInstallHandlerMapsTypedFailureWithoutParsing(t *testing.T) {
 	cancelled := installErrorResult(install.ErrCancelled)
 	if cancelled.ErrorCode != "cancelled" || cancelled.Step != "" || cancelled.Cause != "" {
 		t.Fatalf("cancelled=%+v", cancelled)
+	}
+}
+
+func TestInstallErrorResultGuidesMissingControlTaskID(t *testing.T) {
+	result := installErrorResult(install.Fail("control_task_id_required", install.ErrControlTaskIDRequired))
+	if result.ErrorCode != "control_task_id_required" || result.Step != "select_control_task" || !strings.Contains(result.Cause, "--control-task-id") || !strings.Contains(result.Cause, "INSTALL.md") {
+		t.Fatalf("result=%+v", result)
 	}
 }

@@ -5,10 +5,8 @@ import (
 	"encoding/xml"
 	"errors"
 	"fmt"
-	"io"
 	"os"
 	"path/filepath"
-	"strconv"
 	"text/template"
 
 	"github.com/ericlitman/threadbear/assets"
@@ -17,7 +15,6 @@ import (
 
 const (
 	Label         = config.LaunchAgentLabel
-	LegacyLabel   = "org.litman.threadwatch"
 	DefaultLocale = "C"
 )
 
@@ -112,50 +109,4 @@ func writePrivateAtomic(path string, data []byte) error {
 		return fmt.Errorf("sync LaunchAgent directory: %w", err)
 	}
 	return nil
-}
-
-func plistStartInterval(data []byte) (int, bool, error) {
-	decoder := xml.NewDecoder(bytes.NewReader(data))
-	for {
-		token, err := decoder.Token()
-		if errors.Is(err, io.EOF) {
-			return 0, false, nil
-		}
-		if err != nil {
-			return 0, false, fmt.Errorf("parse plist: %w", err)
-		}
-		start, ok := token.(xml.StartElement)
-		if !ok || start.Name.Local != "key" {
-			continue
-		}
-		var key string
-		if err := decoder.DecodeElement(&key, &start); err != nil {
-			return 0, false, fmt.Errorf("parse plist key: %w", err)
-		}
-		if key != "StartInterval" {
-			continue
-		}
-		for {
-			token, err := decoder.Token()
-			if err != nil {
-				return 0, false, fmt.Errorf("parse StartInterval: %w", err)
-			}
-			value, ok := token.(xml.StartElement)
-			if !ok {
-				continue
-			}
-			if value.Name.Local != "integer" {
-				return 0, false, errors.New("StartInterval is not an integer")
-			}
-			var raw string
-			if err := decoder.DecodeElement(&raw, &value); err != nil {
-				return 0, false, fmt.Errorf("parse StartInterval value: %w", err)
-			}
-			interval, err := strconv.Atoi(raw)
-			if err != nil || interval <= 0 {
-				return 0, false, errors.New("StartInterval must be positive")
-			}
-			return interval, true, nil
-		}
-	}
 }

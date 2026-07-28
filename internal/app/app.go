@@ -82,6 +82,7 @@ type Request struct {
 	ArchiveControlTask bool
 	Version            string
 	TaskID             string
+	ControlTaskID      string
 	Configure          ConfigPatch
 }
 
@@ -148,8 +149,14 @@ func (r Request) Validate() error {
 	if !needsTask && taskID != "" {
 		return fmt.Errorf("%w: %s does not accept a task ID", ErrInvalidRequest, r.Command)
 	}
-	if r.DryRun && r.Command != CommandHeartbeat && r.Command != CommandConfigure {
-		return fmt.Errorf("%w: --dry-run is heartbeat- or configure-only", ErrInvalidRequest)
+	if strings.TrimSpace(r.ControlTaskID) != r.ControlTaskID {
+		return fmt.Errorf("%w: control task ID must not contain surrounding whitespace", ErrInvalidRequest)
+	}
+	if r.ControlTaskID != "" && r.Command != CommandInstall {
+		return fmt.Errorf("%w: --control-task-id is install-only", ErrInvalidRequest)
+	}
+	if r.DryRun && r.Command != CommandHeartbeat && r.Command != CommandConfigure && r.Command != CommandInstall {
+		return fmt.Errorf("%w: --dry-run is heartbeat-, configure-, or install-only", ErrInvalidRequest)
 	}
 	if r.Command != CommandConfigure && r.Command != CommandInstall && !r.Configure.Empty() {
 		return fmt.Errorf("%w: preference patch is install- or configure-only", ErrInvalidRequest)

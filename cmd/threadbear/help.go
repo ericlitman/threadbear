@@ -29,6 +29,8 @@ var commandSpecs = []commandSpec{
 		registerFlags: func(flags *flag.FlagSet, request *app.Request) {
 			registerConfigureFlags(flags, &request.Configure)
 			registerLifecycleFlags(flags, request)
+			flags.StringVar(&request.ControlTaskID, "control-task-id", "", "adopt existing readable unarchived Codex task `TASK_ID`")
+			flags.BoolVar(&request.DryRun, "dry-run", false, "validate and print the complete install preview without mutation")
 			flags.StringVar(&request.Version, "version", "", "install exact release `N.N.N` without a leading v instead of the latest")
 		},
 	},

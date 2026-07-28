@@ -105,6 +105,9 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 		return 1
 	}
 	if dispatchErr != nil {
+		if errorResult, ok := result.(output.ErrorResult); ok && errorResult.ErrorCode == "control_task_id_required" {
+			return 2
+		}
 		return 1
 	}
 	return 0
@@ -132,7 +135,6 @@ func newOperatorService(installedVersion string, stdout, stderr io.Writer, forma
 	launch, err := launchagent.New(launchagent.Options{
 		Home: home, CodexHome: codexHome, BinaryPath: paths.Binary, PlistPath: paths.LaunchAgent,
 		StdoutPath: paths.LaunchAgentStdout, StderrPath: paths.LaunchAgentStderr,
-		LegacyPlistPath: paths.LegacyLaunchAgent, LegacyLockPath: paths.LegacyRunLock,
 	})
 	if err != nil {
 		return nil, func() {}, err
@@ -514,25 +516,16 @@ func (f optionalBool) Set(value string) error {
 
 func (optionalBool) IsBoolFlag() bool { return true }
 
-const controlTaskTitle = "🧵🐻 ThreadBear 🐻🧵"
-
 var _ install.Scheduler = productionScheduler{}
 var _ install.ControlTasks = appServerControlTasks{}
 
 type productionScheduler struct{ adapter *launchagent.Adapter }
 
-func (s productionScheduler) DetectLegacyInterval(context.Context) (int, bool, error) {
-	return s.adapter.DetectLegacyInterval()
-}
-func (s productionScheduler) StopLegacy(ctx context.Context) error { return s.adapter.StopLegacy(ctx) }
-func (s productionScheduler) VerifyLegacyStopped(ctx context.Context) error {
-	return s.adapter.VerifyLegacyStopped(ctx)
-}
 func (s productionScheduler) Stage(ctx context.Context, cfg config.Config) (bool, error) {
 	return s.adapter.Stage(ctx, cfg)
 }
 func (s productionScheduler) Enable(ctx context.Context) (bool, error) {
-	return s.adapter.Enable(ctx)
+	return s.adapter.EnableWithoutKickstart(ctx)
 }
 func (s productionScheduler) VerifyHealthy(ctx context.Context) error {
 	healthy, err := s.adapter.Healthy(ctx)
@@ -560,13 +553,29 @@ func (a *appServerControlTasks) SetCodexExecutableSpec(spec codex.ExecutableSpec
 	}
 }
 
-func (a appServerControlTasks) EnsureControlTask(ctx context.Context, taskID string) (string, bool, error) {
+func (a appServerControlTasks) ReadControlTask(ctx context.Context, taskID string) (install.ControlTask, error) {
 	client, err := a.open(ctx)
 	if err != nil {
-		return "", false, err
+		return install.ControlTask{}, err
 	}
-	ensuredID, changed, ensureErr := ensureControlTask(ctx, client, taskID)
-	return ensuredID, changed, errors.Join(ensureErr, client.Close())
+	thread, readErr := client.ReadThread(ctx, taskID)
+	return install.ControlTask{ID: thread.ID, Archived: thread.Status.Type == "archived"}, errors.Join(readErr, client.Close())
+}
+
+func (a appServerControlTasks) UnarchiveControlTask(ctx context.Context, taskID string) (bool, error) {
+	client, err := a.open(ctx)
+	if err != nil {
+		return false, err
+	}
+	thread, readErr := client.ReadThread(ctx, taskID)
+	if readErr != nil {
+		return false, errors.Join(readErr, client.Close())
+	}
+	if thread.Status.Type != "archived" {
+		return false, client.Close()
+	}
+	_, unarchiveErr := client.Unarchive(ctx, taskID)
+	return unarchiveErr == nil, errors.Join(unarchiveErr, client.Close())
 }
 
 func (a appServerControlTasks) PostWelcome(ctx context.Context, taskID, text string) error {
@@ -574,7 +583,23 @@ func (a appServerControlTasks) PostWelcome(ctx context.Context, taskID, text str
 	if err != nil {
 		return err
 	}
-	return errors.Join(client.InsertNotice(ctx, taskID, text), client.Close())
+	return errors.Join(postWelcomeOnce(ctx, client, taskID, text), client.Close())
+}
+
+type welcomeControlTaskClient interface {
+	ReadPersistedAssistantMessage(context.Context, string, string) (appserver.PersistedMessageResult, error)
+	InsertNotice(context.Context, string, string) error
+}
+
+func postWelcomeOnce(ctx context.Context, client welcomeControlTaskClient, taskID, text string) error {
+	delivered, err := client.ReadPersistedAssistantMessage(ctx, taskID, text)
+	if err != nil {
+		return err
+	}
+	if delivered.Found {
+		return nil
+	}
+	return client.InsertNotice(ctx, taskID, text)
 }
 
 func (a appServerControlTasks) ArchiveControlTask(ctx context.Context, taskID string) (bool, error) {
@@ -586,63 +611,12 @@ func (a appServerControlTasks) ArchiveControlTask(ctx context.Context, taskID st
 	return changed, errors.Join(archiveErr, client.Close())
 }
 
-type controlTaskClient interface {
+type archiveControlTaskClient interface {
 	ReadThread(context.Context, string) (appserver.Thread, error)
-	StartPersistentThread(context.Context) (appserver.Thread, error)
-	Unarchive(context.Context, string) (appserver.Thread, error)
-	SetTitle(context.Context, string, string) error
 	Archive(context.Context, string) error
 }
 
-func ensureControlTask(ctx context.Context, client controlTaskClient, taskID string) (string, bool, error) {
-	changed := false
-	var thread appserver.Thread
-	var err error
-	if taskID == "" {
-		thread, err = client.StartPersistentThread(ctx)
-		if err != nil {
-			return "", false, err
-		}
-		taskID = thread.ID
-		changed = true
-	} else {
-		thread, err = client.ReadThread(ctx, taskID)
-		if err != nil {
-			// An adopted control task can be gone: migrated from ThreadWatch
-			// after the thread was deleted, or a Codex home that no longer
-			// holds it. Losing the old thread is not a reason to refuse the
-			// install - and refusing here is especially costly, because by
-			// this point the legacy scheduler has already been stopped. Start
-			// a fresh control task and carry on.
-			thread, err = client.StartPersistentThread(ctx)
-			if err != nil {
-				return taskID, false, err
-			}
-			taskID = thread.ID
-			changed = true
-		}
-	}
-	name := thread.Name
-	if thread.Status.Type == "archived" {
-		thread, err = client.Unarchive(ctx, taskID)
-		if err != nil {
-			return taskID, changed, err
-		}
-		if thread.Name != "" {
-			name = thread.Name
-		}
-		changed = true
-	}
-	if name != controlTaskTitle {
-		if err := client.SetTitle(ctx, taskID, controlTaskTitle); err != nil {
-			return taskID, changed, err
-		}
-		changed = true
-	}
-	return taskID, changed, nil
-}
-
-func archiveControlTask(ctx context.Context, client controlTaskClient, taskID string) (bool, error) {
+func archiveControlTask(ctx context.Context, client archiveControlTaskClient, taskID string) (bool, error) {
 	thread, err := client.ReadThread(ctx, taskID)
 	if err != nil {
 		return false, err

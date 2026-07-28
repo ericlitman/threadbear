@@ -527,3 +527,15 @@ func TestUpdateStateAndAnnouncementValidation(t *testing.T) {
 		t.Fatal("CycleCheckpoint.Validate() accepted an incomplete announcement")
 	}
 }
+
+func TestPendingWelcomeTaskIDValidation(t *testing.T) {
+	value := New()
+	value.PendingWelcomeTaskID = "home-task"
+	if err := value.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	value.PendingWelcomeTaskID = " home-task "
+	if err := value.Validate(); err == nil {
+		t.Fatal("accepted noncanonical pending welcome task ID")
+	}
+}

@@ -12,7 +12,7 @@ v1 binaries are not Developer ID signed or notarized. The supported installer ve
 
 ## Codex surfaces
 
-ThreadBear depends on compatibility-detectable local Codex capabilities for complete read-only inventory; persistent title, archive, and unarchive operations; fresh non-persisted classifier sessions with model/effort overrides; and a zero-model notice insertion into the control task.
+ThreadBear depends on compatibility-detectable local Codex capabilities for complete read-only inventory; readable control-task adoption; persistent title, archive, and unarchive operations; fresh non-persisted classifier sessions with model/effort overrides; and a zero-model notice insertion into the control task. Install never creates a persistent task, retitles the adopted task, or pins it.
 
 `~/.local/bin/threadbear self-test` checks the supported platform/architecture, binary, pinned Codex executable, local Codex home, state/config integrity, managed files, and LaunchAgent health. A failed installed AGENTS.md or skill check identifies whether the surface is stale, unsafe, or inaccessible and gives a condition-specific remedy without exposing its path. The updater candidate self-test is read-only, does not check installed managed files, and does not mutate titles or archives because update refreshes those files only after candidate validation. Install internal staged-candidate verification still checks managed surfaces after install stages them. Symlinks to user-owned regular managed files are followed without replacing the link; malformed, dangling, non-file, and foreign-owned targets fail conservatively. If a required surface changes or config/state uses an unsupported schema, ThreadBear fails instead of guessing.
 
@@ -44,7 +44,7 @@ Use read-only commands first:
 
 `~/.local/bin/threadbear status` reports installed version, LaunchAgent health, last completed heartbeat, control-task identity, preferences including auto-update, pending retries, the last update check, and the most recent update or managed-surface failure without invoking a model. `~/.local/bin/threadbear inspect TASK_ID` reports the task's configured and applied token-display positions, managed figure, and token-usage availability without exposing rollout paths or task prose.
 
-If scheduling is intentionally paused, run `~/.local/bin/threadbear enable`. Inspect the job with `launchctl print "gui/$(id -u)/org.litman.threadbear"`. For a legacy migration failure after ThreadWatch was stopped, follow the exact recovery command printed by the installer; do not run both automation jobs concurrently.
+If scheduling is intentionally paused, run `~/.local/bin/threadbear enable`. Inspect the job with `launchctl print "gui/$(id -u)/org.litman.threadbear"`. Install ignores unrelated historical scheduler, lock, state, and task artifacts; it validates only the selected existing control task and ThreadBear-owned resources.
 
 ## Updates, downgrades, and removal
 
