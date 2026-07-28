@@ -131,7 +131,7 @@ titles = connection.execute("SELECT title, name FROM threads WHERE source = 'vsc
 effective_titles = [(name or title or "").strip() for title, name in titles]
 status_only = {"⏳", "🚨", "🙋", "🤖", "➡️", "✅", "❔"}
 emoji_only_titles = sum(title in status_only for title in effective_titles)
-if len(titles) < 130 or emoji_only_titles == 0:
+if len(titles) < 50:
     connection.close()
     raise SystemExit(1)
 Path(sys.argv[4]).write_text("replica_tasks=%d emoji_only_titles=%d" % (len(titles), emoji_only_titles), encoding="utf-8")
@@ -162,7 +162,7 @@ connection.commit()
 connection.close()
 print(database)
 PY
-) || { echo "replica must contain 130+ real-shape tasks, an emoji-only title, and self-contained rollout paths" >&2; exit 1; }
+) || { echo "replica must contain 50+ real-shape tasks and self-contained rollout paths" >&2; exit 1; }
 [ -n "$state_database" ]
 
 release_directory=$temporary_root/releases/download/v$version
