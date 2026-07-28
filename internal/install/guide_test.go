@@ -49,11 +49,39 @@ func TestCodexInstallGuideHasEnforceableWelcomeOrientation(t *testing.T) {
 		"I’ll take care of the setup right here.",
 		"ThreadBear won’t be installed and no\n> settings will change until you say go",
 		"Finish that same opening assistant turn with these two promises",
-		"the readiness result and one appropriate settings\ncard MUST begin a new assistant message",
-		"It is forbidden to put a readiness\nresult or settings card in the same assistant message as the opening\ncompatibility promise",
+		"send exactly one new post-check assistant message",
+		"Begin it with the readiness result, then continue in that same assistant turn\nwith the entire one appropriate settings card",
+		"The card must be complete before\nthat message ends",
+		"Do not emit a second assistant message, an empty assistant\nturn, a tool call, or any other boundary between the readiness sentence and the\ncard",
+		"The opening compatibility promise must remain in the earlier assistant message",
+		"it is forbidden to put the readiness result or settings card in that opening\nmessage",
 	} {
 		if !strings.Contains(guide, want) {
 			t.Fatalf("INSTALL.md welcome is missing orientation promise %q", want)
+		}
+	}
+}
+
+func TestCodexInstallGuideKeepsReadinessAndCardInOneTurn(t *testing.T) {
+	guide := readInstallGuide(t)
+	normalized := normalizeGuideText(guide)
+	for _, want := range []string{
+		"After those tools return, send exactly one new post-check assistant message.",
+		"Begin it with the readiness result, then continue in that same assistant turn with the entire one appropriate settings card.",
+		"The card must be complete before that message ends.",
+		"Do not emit a second assistant message, an empty assistant turn, a tool call, or any other boundary between the readiness sentence and the card.",
+		"Do not send that readiness sentence as soon as compatibility succeeds.",
+		"Hold it until the task-identity and discovery checks are also finished and the complete mode-appropriate settings card is ready to follow it in the same assistant message.",
+	} {
+		if !strings.Contains(normalized, want) {
+			t.Fatalf("INSTALL.md missing indivisible post-check message rule %q", want)
+		}
+	}
+	for _, contradiction := range []string{
+		"the readiness result and one appropriate settings card MUST begin a new assistant message",
+	} {
+		if strings.Contains(normalized, contradiction) {
+			t.Fatalf("INSTALL.md retains ambiguous post-check boundary wording %q", contradiction)
 		}
 	}
 }

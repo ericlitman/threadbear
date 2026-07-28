@@ -82,13 +82,18 @@ compatibility and task-identity checks without waiting for another reply:
 > anything or change your settings. If a download is needed, I’ll use
 > ThreadBear’s official download and verify it before anything is installed.
 
-After those tools return, the readiness result and one appropriate settings
-card MUST begin a new assistant message. It is forbidden to put a readiness
-result or settings card in the same assistant message as the opening
-compatibility promise, even on the happy path. Do not fragment the welcome,
-permission heads-up, compatibility preface, or official-download promise into
-separate messages. Pause only if a privacy panel appears or the person
-interrupts.
+After those tools return, send exactly one new post-check assistant message.
+Begin it with the readiness result, then continue in that same assistant turn
+with the entire one appropriate settings card. The card must be complete before
+that message ends. Do not emit a second assistant message, an empty assistant
+turn, a tool call, or any other boundary between the readiness sentence and the
+card.
+
+The opening compatibility promise must remain in the earlier assistant message;
+it is forbidden to put the readiness result or settings card in that opening
+message, even on the happy path. Do not fragment the welcome, permission
+heads-up, compatibility preface, or official-download promise into separate
+messages. Pause only if a privacy panel appears or the person interrupts.
 
 Backstage facts, not a script to recite:
 
@@ -128,7 +133,11 @@ Requirements:
 
 On success, say what matters in one sentence: “This Mac and Codex are ready for
 ThreadBear.” Do not report command paths, architecture names, release
-reachability, or version numbers unless they explain a failure.
+reachability, or version numbers unless they explain a failure. Do not send
+that readiness sentence as soon as compatibility succeeds. Hold it until the
+task-identity and discovery checks are also finished and the complete
+mode-appropriate settings card is ready to follow it in the same assistant
+message.
 
 When installed status is available, record every value under `preferences` as
 helpful context for the preference branch below. Do not present settings during
