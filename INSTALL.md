@@ -25,7 +25,7 @@ Do not use `sudo`. Do not edit README, the website, or the installed skill durin
   examples such as a title sample or footer sample are functional artifacts,
   not decorative flourishes. Do not turn every sentence into a pun, use baby
   talk, or perform a mascot voice. Keep completion messages spare even when the
-  functional footer is enabled.
+  current task’s loaded guidance requires a functional footer.
 - Explain benefits and visible outcomes first. Keep commands, flags, paths,
   task IDs, JSON fields, internal state names, byte counts, mutation locks, App
   Server details, and ticket references backstage unless they are needed to
@@ -222,6 +222,8 @@ this friendly explanation rather than the immutable choice echo:
 > keep their current reply guidance. The footer lets ThreadBear use lightweight
 > checks most of the time; when a task is unclear, ThreadBear takes a careful
 > second look.
+>
+> Would you like to keep it on, turn it off, or ask anything else?
 
 For a first install, present the recommended setup:
 
@@ -234,9 +236,12 @@ For a first install, present the recommended setup:
 > - **A patient archive.** Only completed tasks that have been quiet for 14 days
 >   are tucked away. Unfinished work stays visible.
 > - **Useful titles.** Status and the next action stay easy to scan, while names
->   you choose yourself are left alone.
+>   you choose after setup are left alone.
 > - **Conversation size at the start.** ThreadBear titles show output tokens in a
 >   compact form such as `🚨 1.6m Fix checkout`.
+> - **A recognizable ThreadBear home.** After setup succeeds, I’ll name this
+>   task `🧵🐻 ThreadBear 🐻🧵` and pin it when Codex supports that. You can
+>   rename or unpin it later, and ThreadBear will respect your choice.
 > - **Status guidance on.** In every newly started Codex task session, agent
 >   replies get a one-line ThreadBear footer such as `🧵🐻 complete`. Tasks
 >   already open keep their current reply guidance. This lets ThreadBear use
@@ -245,14 +250,19 @@ For a first install, present the recommended setup:
 > Would you like the recommended setup, change a choice, or have me explain any
 > of them?
 
+The recognizable-home bullet is required on every first-install card, and its
+matching rename, pin, and later-choice disclosure is required in every
+first-install final review. Do not hide this visible task change in backstage
+installation mechanics.
+
 For a reinstall, present a dedicated current-settings card once, using every
 actual value from installed status or the initial discovery dry-run. This
 example shows one possible existing setup; replace every outcome with the
 person’s actual settings:
 
-> ThreadBear already has a home, and this refresh will keep it there. A healthy
-> ThreadBear home can’t be moved by the installer, but I can explain how its
-> home works if you’d like.
+> ThreadBear already has a home. This refresh keeps it exactly where it is and
+> leaves this task’s name and pin untouched. I can explain how ThreadBear’s home
+> works if you’d like.
 >
 > Here’s the setup ThreadBear is using now:
 >
@@ -459,14 +469,15 @@ values merely because they are frozen. The frozen dry-run result, rather than
 an earlier status call, baseline card, or assumption, is the authoritative
 source for every visible setting shown to the person:
 
-Only after the person has seen a full review and then changes a choice, open the
-re-review with one short, consumer-facing delta sentence naming those changed
-outcomes, such as “Review updated — completed tasks will stay visible,
-output-token figures will be hidden, and agent replies will stay unchanged.”
-Then immediately show the full authoritative review below. Do not expose raw
-flags or make the person infer what changed by comparing two reviews. This
-re-review delta is required even when an earlier changed-status echo already
-acknowledged the new choices.
+Only after the person has seen a full review and then changes a choice does the
+next review need a short, consumer-facing delta. When the warm changed-status
+echo already named every changed outcome, that echo is the delta; start the
+next assistant message directly with the full authoritative review below and
+do not repeat “Review updated.” Otherwise, open the re-review with one sentence
+such as “Review updated — completed tasks will stay visible, output-token
+figures will be hidden, and agent replies will stay unchanged.” Then immediately
+show the full review. Do not expose raw flags, make the person compare reviews,
+or send both forms of delta for one change.
 
 When the person changes choices from the recommendation before seeing their
 first review, do not prepend “Review updated” to that first review. If the
@@ -481,6 +492,10 @@ full review with “Everything is ready for your review.”
 > start. ThreadBear updates itself automatically, safely verifying every
 > download before installation.
 >
+> After setup succeeds, I’ll name this task `🧵🐻 ThreadBear 🐻🧵` and pin it
+> when Codex supports that. You can rename or unpin it later, and ThreadBear
+> will respect your choice.
+>
 > Only completed tasks that have been quiet for 14 days will be archived;
 > unfinished tasks stay visible.
 >
@@ -489,14 +504,14 @@ full review with “Everything is ready for your review.”
 > already open keep their current reply guidance. This lets ThreadBear use
 > lightweight checks, with a careful second look when a task is unclear.
 >
-> It won’t ask for administrator access or Full Disk Access, overwrite names you
-> chose, or move into a different task. Nothing has been installed and no
-> settings have changed.
+> It won’t ask for administrator access or Full Disk Access. Nothing has been
+> installed and no settings have changed.
 >
 > Ready for me to install ThreadBear with these choices?
 
 For `retained` or `stayed_home`, use a dedicated refresh review rather than
-editing the first-install example sentence by sentence:
+editing the first-install example sentence by sentence. This example shows
+`stayed_home`, with the existing home in another task:
 
 > Everything is ready for your review.
 >
@@ -512,11 +527,17 @@ editing the first-install example sentence by sentence:
 > already open keep their current reply guidance. This lets ThreadBear use
 > lightweight checks, with a careful second look when a task is unclear.
 >
-> Its existing home, title, and pin will stay exactly as they are. If that home
-> is another task, this task won’t become the new home and won’t be renamed or
-> pinned. Nothing has been installed and no settings have changed.
+> Its existing home, title, and pin will stay exactly as they are. This task
+> won’t become the new home and won’t be renamed or pinned. Nothing has been
+> installed and no settings have changed.
 >
 > Ready for me to refresh ThreadBear with these choices?
+
+For `retained`, replace that home paragraph with this exact known outcome:
+
+> ThreadBear’s home is already this task. Its title and pin will stay exactly
+> as they are; this refresh won’t rename or pin it again. Nothing has been
+> installed and no settings have changed.
 
 The settings sentence is an example; replace every value with the actual
 setting reported by the frozen dry-run. If title maintenance is disabled, keep
@@ -648,10 +669,10 @@ When `archive=true`, use:
 
 > ThreadBear is installed
 >
-> Everything passed: ThreadBear VERSION is installed, its quiet background
-> check is healthy, and this task is now its home; in the first tidy-up,
-> ThreadBear updated X task titles, archived Y completed tasks, and nothing
-> needs another try.
+> Everything passed: ThreadBear VERSION is installed, and its quiet background
+> check is healthy. This task is now ThreadBear’s home, named `🧵🐻 ThreadBear
+> 🐻🧵` and pinned. In the first tidy-up, ThreadBear updated X task titles,
+> archived Y completed tasks, and nothing needs another try.
 >
 > Your choices are saved in the welcome note above. From here, you can just talk
 > to me: “stop archiving,” “put token counts at the end,” “pause,” “how are
@@ -661,14 +682,20 @@ When `archive=false`, use:
 
 > ThreadBear is installed
 >
-> Everything passed: ThreadBear VERSION is installed, its quiet background
-> check is healthy, and this task is now its home. Completed tasks stayed
-> visible while ThreadBear updated X task titles in the first tidy-up, and
-> nothing needs another try.
+> Everything passed: ThreadBear VERSION is installed, and its quiet background
+> check is healthy. This task is now ThreadBear’s home, named `🧵🐻 ThreadBear
+> 🐻🧵` and pinned. Completed tasks stayed visible while ThreadBear updated X
+> task titles in the first tidy-up, and nothing needs another try.
 >
 > Your choices are saved in the welcome note above. From here, you can just talk
 > to me: “archive completed tasks after two weeks,” “put token counts at the
 > end,” “pause,” “how are you?” or “uninstall ThreadBear.”
+
+The pinned sentence in those first-install variants assumes supported pinning.
+When automatic pinning is unavailable, replace that entire sentence with this
+actual outcome: “This task is now ThreadBear’s home and is named `🧵🐻
+ThreadBear 🐻🧵`, but Codex did not offer automatic pinning; you can pin it from
+the task menu.”
 
 For a retained home, whether this task or another task, close with a dedicated
 refresh version because no new welcome note was posted:
@@ -736,25 +763,32 @@ Keep closeout results flowing: combine version and health in one crafted
 sentence, use exactly one home sentence, and combine tidy-up outcomes in one
 cohesive sentence. Do not emit a sequence of clipped status fragments.
 
-The final response follows the selected status-guidance setting. When enabled
-and no earlier task guidance conflicts, add a blank line after the completion
-prose and finish with exactly this standalone final line:
+The final response follows the reply guidance already loaded in this current
+task, not the status-guidance setting just saved for newly started sessions. In
+a fresh installation task with no preloaded ThreadBear footer rule, omit the
+footer even when status guidance was saved as on. This is true whether the
+person accepted the recommendation directly or asked for an explanation first;
+the footer sample in the card and review previews future task sessions and is
+not an instruction to add one here.
+
+If this task already loaded a higher-priority footer rule, obey it regardless
+of the newly saved choice. When that loaded rule requires a footer, add a blank
+line after the completion prose and finish with exactly this standalone final
+line:
 
 > 🧵🐻 complete
 
 The footer must be its own final line. Never append it to a sentence, place it
 inline after an example, or put it in the same paragraph as completion prose.
-When status guidance is disabled, omit the footer entirely. If this task already
-loaded a higher-priority earlier footer rule that conflicts with the new choice,
-obey that rule and disclose: “This task started with earlier reply guidance, so
-its footer may not change here. Your choice will apply in new task sessions.”
-Do not promise that the current reply will override guidance already loaded for
-this task.
+When the loaded rule conflicts with the newly saved choice, disclose: “This task
+started with earlier reply guidance, so its footer may not change here. Your
+choice will apply in new task sessions.” Do not promise that the current reply
+will override guidance already loaded for this task.
 
 The quoted completion templates intentionally omit the footer. Render it only
-as the standalone final line after choosing the enabled branch above; never
-bake it into reusable completion copy that may be used when status guidance is
-disabled.
+as the standalone final line when this task’s preloaded guidance requires it;
+never bake it into reusable completion copy or add it merely because the newly
+saved setting is enabled.
 
 Never expose the raw disposition name. If anything failed, say what the person
 experiences, what you are checking next, and whether installation changed

@@ -137,8 +137,19 @@ func TestCodexInstallGuideShowsOneModeSpecificSettingsCard(t *testing.T) {
 			t.Fatalf("INSTALL.md missing mode-specific card branch %q", want)
 		}
 	}
-	if got := strings.Count(guide, "this refresh will keep it there"); got != 1 {
+	if got := strings.Count(guide, "This refresh keeps it exactly where it is"); got != 1 {
 		t.Fatalf("INSTALL.md has %d reinstall discovery disclosures, want exactly one", got)
+	}
+	for _, want := range []string{
+		"leaves this task’s name and pin untouched",
+		"I can explain how ThreadBear’s home works if you’d like.",
+	} {
+		if !strings.Contains(normalizeGuideText(guide), want) {
+			t.Fatalf("INSTALL.md reinstall disclosure omits consumer outcome %q", want)
+		}
+	}
+	if strings.Contains(normalizeGuideText(guide), "ThreadBear home can’t be moved by the installer") {
+		t.Fatal("INSTALL.md reinstall disclosure exposes installer machinery")
 	}
 	if strings.Contains(normalizeGuideText(guide), "home works if you’d like. Here’s the setup it’s using now.") {
 		t.Fatal("reinstall disclosure repeats the current-settings heading")
@@ -196,6 +207,88 @@ func TestCodexInstallGuideKeepsAutoUpdateCopyConsistent(t *testing.T) {
 	}
 }
 
+func TestCodexInstallGuideDisclosesFirstInstallRenameAndPin(t *testing.T) {
+	guide := readInstallGuide(t)
+	firstCardStart := strings.Index(guide, "For a first install, present the recommended setup:")
+	reinstallCardStart := strings.Index(guide, "For a reinstall, present a dedicated current-settings card once")
+	firstReviewStart := strings.Index(guide, "Read the full final-review result yourself.")
+	refreshReviewStart := strings.Index(guide, "For `retained` or `stayed_home`")
+	firstCloseStart := strings.Index(guide, "For a first adoption, unreadable replacement, or exact repair")
+	refreshCloseStart := strings.Index(guide, "For a retained home, whether this task or another task")
+	if firstCardStart == -1 || reinstallCardStart <= firstCardStart ||
+		firstReviewStart == -1 || refreshReviewStart <= firstReviewStart ||
+		firstCloseStart == -1 || refreshCloseStart <= firstCloseStart {
+		t.Fatal("INSTALL.md missing first-install rename/pin disclosure sections")
+	}
+
+	for name, section := range map[string]string{
+		"recommendation card": guide[firstCardStart:reinstallCardStart],
+		"final review":        guide[firstReviewStart:refreshReviewStart],
+	} {
+		normalized := normalizeGuideText(section)
+		for _, want := range []string{
+			"`🧵🐻 ThreadBear 🐻🧵`",
+			"pin it when Codex supports that",
+			"You can rename or unpin it later",
+			"ThreadBear will respect your choice",
+		} {
+			if !strings.Contains(normalized, want) {
+				t.Fatalf("INSTALL.md %s omits rename/pin disclosure %q", name, want)
+			}
+		}
+	}
+	for _, want := range []string{
+		"The recognizable-home bullet is required on every first-install card",
+		"matching rename, pin, and later-choice disclosure is required in every first-install final review",
+		"Do not hide this visible task change in backstage installation mechanics.",
+	} {
+		if !strings.Contains(normalizeGuideText(guide), want) {
+			t.Fatalf("INSTALL.md missing first-install rename/pin contract %q", want)
+		}
+	}
+	if strings.Contains(normalizeGuideText(guide[firstReviewStart:refreshReviewStart]), "overwrite names you chose") {
+		t.Fatal("first-install review falsely promises not to replace the calling task's current name")
+	}
+
+	firstClose := normalizeGuideText(guide[firstCloseStart:refreshCloseStart])
+	pinnedOutcome := "This task is now ThreadBear’s home, named `🧵🐻 ThreadBear 🐻🧵` and pinned."
+	if got := strings.Count(firstClose, pinnedOutcome); got != 2 {
+		t.Fatalf("first-install completion has %d pinned outcomes, want one in each archive variant", got)
+	}
+	for _, want := range []string{
+		"The pinned sentence in those first-install variants assumes supported pinning.",
+		"When automatic pinning is unavailable, replace that entire sentence",
+		"This task is now ThreadBear’s home and is named `🧵🐻 ThreadBear 🐻🧵`, but Codex did not offer automatic pinning; you can pin it from the task menu.",
+	} {
+		if !strings.Contains(firstClose, want) {
+			t.Fatalf("INSTALL.md first-install close omits pin outcome handling %q", want)
+		}
+	}
+}
+
+func TestCodexInstallGuideUsesKnownRefreshHomeOutcome(t *testing.T) {
+	guide := readInstallGuide(t)
+	start := strings.Index(guide, "For `retained` or `stayed_home`")
+	end := strings.Index(guide, "The settings sentence is an example")
+	if start == -1 || end <= start {
+		t.Fatal("INSTALL.md missing dedicated refresh review")
+	}
+	review := normalizeGuideText(guide[start:end])
+	for _, want := range []string{
+		"This example shows `stayed_home`, with the existing home in another task",
+		"This task won’t become the new home and won’t be renamed or pinned.",
+		"For `retained`, replace that home paragraph with this exact known outcome:",
+		"ThreadBear’s home is already this task. Its title and pin will stay exactly as they are; this refresh won’t rename or pin it again.",
+	} {
+		if !strings.Contains(review, want) {
+			t.Fatalf("INSTALL.md refresh review omits known home outcome %q", want)
+		}
+	}
+	if strings.Contains(review, "If that home is another task") {
+		t.Fatal("INSTALL.md refresh review hedges a discovered other-task outcome")
+	}
+}
+
 func TestCodexInstallGuideDisclosesStatusGuidanceBeforeConsent(t *testing.T) {
 	guide := readInstallGuide(t)
 	normalized := normalizeGuideText(guide)
@@ -241,6 +334,7 @@ func TestCodexInstallGuideDisclosesStatusGuidanceBeforeConsent(t *testing.T) {
 		"Never claim or imply that status guidance, its footer, or lightweight\nclassification uses zero or no model tokens",
 		"That property belongs only to an\nunchanged heartbeat",
 		"In every newly started Codex task session, the footer is one compact line at the end of agent replies—for example, `🧵🐻 complete`. Tasks already open keep their current reply guidance. The footer lets ThreadBear use lightweight checks most of the time; when a task is unclear, ThreadBear takes a careful second look.",
+		"Would you like to keep it on, turn it off, or ask anything else?",
 	} {
 		if !strings.Contains(normalized, normalizeGuideText(want)) {
 			t.Fatalf("INSTALL.md missing truthful status explanation %q", want)
@@ -314,11 +408,12 @@ func TestCodexInstallGuideAcknowledgesChangedChoicesWarmly(t *testing.T) {
 		t.Fatal("changed-status echo does not pair an all-change warm lead-in with the immutable off tradeoff")
 	}
 	for _, want := range []string{
-		"Only after the person has seen a full review and then changes a choice, open the re-review with one short, consumer-facing delta sentence naming those changed outcomes",
+		"Only after the person has seen a full review and then changes a choice does the next review need a short, consumer-facing delta.",
+		"When the warm changed-status echo already named every changed outcome, that echo is the delta",
+		"start the next assistant message directly with the full authoritative review below and do not repeat “Review updated.”",
+		"Otherwise, open the re-review with one sentence such as “Review updated — completed tasks will stay visible, output-token figures will be hidden, and agent replies will stay unchanged.” Then immediately show the full review.",
 		"Review updated — completed tasks will stay visible, output-token figures will be hidden, and agent replies will stay unchanged.",
-		"Then immediately show the full authoritative review below.",
-		"Do not expose raw flags",
-		"This re-review delta is required even when an earlier changed-status echo already acknowledged the new choices.",
+		"Do not expose raw flags, make the person compare reviews, or send both forms of delta for one change.",
 		"When the person changes choices from the recommendation before seeing their first review, do not prepend “Review updated” to that first review.",
 		"If the change included status guidance, the warm all-changes echo above is sufficient",
 		"Then begin the first full review with “Everything is ready for your review.”",
@@ -355,8 +450,8 @@ func TestCodexInstallGuideKeepsCloseSpare(t *testing.T) {
 		"first install": guide[firstStart:refreshStart],
 		"refresh":       guide[refreshStart:refreshEnd],
 	} {
-		if got := strings.Count(close, "🧵🐻"); got != 0 {
-			t.Fatalf("%s reusable close has %d baked-in status marks, want none", name, got)
+		if got := strings.Count(close, "🧵🐻 complete"); got != 0 {
+			t.Fatalf("%s reusable close has %d baked-in status footers, want none", name, got)
 		}
 	}
 	if !strings.Contains(guide, "The quoted completion templates intentionally omit the footer.") {
@@ -671,11 +766,19 @@ func TestCodexInstallGuideAdaptsCloseActionsToInstalledPreferences(t *testing.T)
 		"archive-disabled first install": guide[disabledStart:refreshStart],
 		"refresh":                        guide[refreshStart:refreshEnd],
 	} {
-		if got := strings.Count(close, "“"); got != 5 {
+		actionsStart := strings.Index(close, "> Your ")
+		if actionsStart == -1 {
+			t.Fatalf("%s close is missing its action paragraph", name)
+		}
+		actions := close[actionsStart:]
+		if actionsEnd := strings.Index(actions, "\n\n"); actionsEnd != -1 {
+			actions = actions[:actionsEnd]
+		}
+		if got := strings.Count(actions, "“"); got != 5 {
 			t.Fatalf("%s close has %d quoted actions, want two preference actions and three safe actions", name, got)
 		}
 		for _, safe := range []string{"“pause,”", "“how are you?”", "“uninstall ThreadBear.”"} {
-			if !strings.Contains(normalizeGuideText(close), safe) {
+			if !strings.Contains(normalizeGuideText(actions), safe) {
 				t.Fatalf("%s close is missing always-safe action %q", name, safe)
 			}
 		}
@@ -702,16 +805,29 @@ func TestCodexInstallGuideFinalFooterFollowsStatusGuidance(t *testing.T) {
 	guide := readInstallGuide(t)
 	normalized := normalizeGuideText(guide)
 	for _, want := range []string{
+		"The final response follows the reply guidance already loaded in this current task, not the status-guidance setting just saved for newly started sessions.",
+		"In a fresh installation task with no preloaded ThreadBear footer rule, omit the footer even when status guidance was saved as on.",
+		"This is true whether the person accepted the recommendation directly or asked for an explanation first",
+		"the footer sample in the card and review previews future task sessions and is not an instruction to add one here.",
+		"If this task already loaded a higher-priority footer rule, obey it regardless of the newly saved choice.",
 		"add a blank line after the completion\nprose and finish with exactly this standalone final line:\n\n> 🧵🐻 complete",
 		"The footer must be its own final line.",
 		"Never append it to a sentence, place it\ninline after an example, or put it in the same paragraph as completion prose.",
-		"When status guidance is disabled, omit the footer entirely.",
-		"If this task already loaded a higher-priority earlier\nfooter rule that conflicts with the new choice",
+		"When the loaded rule conflicts with the newly saved choice",
 		"This task started with earlier reply guidance, so its footer may not change",
 		"Your choice will apply in new task sessions.",
+		"never bake it into reusable completion copy or add it merely because the newly saved setting is enabled.",
 	} {
 		if !strings.Contains(normalized, normalizeGuideText(want)) {
 			t.Fatalf("INSTALL.md missing selected-footer behavior %q", want)
+		}
+	}
+	for _, contradiction := range []string{
+		"The final response follows the selected status-guidance setting.",
+		"after choosing the enabled branch above",
+	} {
+		if strings.Contains(normalized, contradiction) {
+			t.Fatalf("INSTALL.md still lets the newly saved setting control the current close: %q", contradiction)
 		}
 	}
 }
