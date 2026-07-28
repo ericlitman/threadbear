@@ -86,6 +86,20 @@ func InstallHandler(factory InstallFactory) Handler {
 	}
 }
 
+func uninstallErrorResult(err error) output.ErrorResult {
+	result := output.ErrorResult{Operation: "uninstall", ErrorCode: "uninstall_failed"}
+	if errors.Is(err, install.ErrCancelled) || errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+		result.ErrorCode = "cancelled"
+		return result
+	}
+	if errors.Is(err, install.ErrHeartbeatInFlight) {
+		result.ErrorCode = "heartbeat_in_flight"
+		result.Step = "wait_for_heartbeat"
+		result.Cause = err.Error()
+	}
+	return result
+}
+
 func UninstallHandler(factory UninstallFactory) Handler {
 	return func(ctx context.Context, request Request) (output.Result, error) {
 		if request.Command != CommandUninstall {
@@ -104,11 +118,7 @@ func UninstallHandler(factory UninstallFactory) Handler {
 			ArchiveControlTask: request.ArchiveControlTask,
 		})
 		if err != nil {
-			code := "uninstall_failed"
-			if errors.Is(err, install.ErrCancelled) {
-				code = "cancelled"
-			}
-			return commandError("uninstall", code, err)
+			return uninstallErrorResult(err), err
 		}
 		return output.LifecycleResult{
 			Command: "uninstall", Changed: result.Changed,
