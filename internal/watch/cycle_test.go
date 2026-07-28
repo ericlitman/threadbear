@@ -332,6 +332,37 @@ func TestHeartbeatRendersOutputTokensAndLeavesUnchangedTitlesAlone(t *testing.T)
 	}
 }
 
+func TestHeartbeatClearsEmojiOnlyTitleReconcileRetry(t *testing.T) {
+	now := time.Date(2026, 7, 26, 12, 0, 0, 0, time.UTC)
+	task := codex.Task{TaskID: "legacy", Revision: "1", Title: "✅", Source: "vscode"}
+	committed := state.New()
+	committed.LastUpdateCheck = timePointer(now)
+	previous := record(task, state.StatusComplete, now)
+	previous.Retry = &state.Retry{
+		Operation: "title", ErrorCode: "title_reconcile_failed", Attempts: 1,
+		LastAttemptAt: now.Add(-time.Minute), NextAttemptAt: now,
+	}
+	committed.Tasks[task.TaskID] = previous
+	runner, deps := testRunner(t, now, []codex.Task{task}, committed)
+	deps.client.latest[task.TaskID] = completedEvidence(now, "done", "🧵🐻 complete")
+
+	value, err := runner.Run(context.Background(), false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	stored, _ := deps.store.store.LoadState()
+	if stored.Tasks[task.TaskID].Retry != nil || len(value.(output.HeartbeatResult).Retries) != 0 || len(deps.client.titles) != 0 {
+		t.Fatalf("state=%+v result=%+v titles=%v", stored.Tasks[task.TaskID], value, deps.client.titles)
+	}
+
+	if _, err := runner.Run(context.Background(), false); err != nil {
+		t.Fatal(err)
+	}
+	if len(deps.client.latestReads) != 1 {
+		t.Fatalf("title reconciliation retried: latest_reads=%v", deps.client.latestReads)
+	}
+}
+
 func TestHeartbeatRepositionsTokenDisplayWithoutReclassification(t *testing.T) {
 	now := time.Date(2026, 7, 26, 12, 0, 0, 0, time.UTC)
 	task := codex.Task{TaskID: "task-a", Revision: "1", Title: "➡️ 1.6m Release service → review rollout", Source: "vscode", RolloutPath: "/synthetic/task-a.jsonl"}

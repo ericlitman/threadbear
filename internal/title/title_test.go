@@ -91,12 +91,58 @@ func TestReconcileDoesNotAccumulateActions(t *testing.T) {
 	}
 }
 
+func TestReconcileRendersSingleStatusEmojiWithoutSubject(t *testing.T) {
+	for _, captured := range []string{"⏳", "🚨", "🙋", "🤖", "➡️", "✅", "❔"} {
+		t.Run(captured, func(t *testing.T) {
+			got, err := Reconcile(state.TaskRecord{CapturedTitle: captured}, state.StatusComplete, "", "ignored without a subject", tokens.Display{})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got.Title != "✅" || got.DurableSubject != "" || got.ManagedAction != "" {
+				t.Fatalf("Reconcile() = %+v", got)
+			}
+		})
+	}
+}
+
+func TestReconcileStatusOnlyTitleIsFixedPointAcrossTokenPositions(t *testing.T) {
+	tests := []struct {
+		name    string
+		display tokens.Display
+	}{
+		{name: "off", display: tokens.Display{}},
+		{name: "start", display: tokens.Display{Position: tokens.PositionStart, Value: "1.6m"}},
+		{name: "end", display: tokens.Display{Position: tokens.PositionEnd, Value: "1.6m"}},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			first, err := Reconcile(state.TaskRecord{CapturedTitle: "❔"}, state.StatusUnknown, "", "", test.display)
+			if err != nil {
+				t.Fatal(err)
+			}
+			record := state.TaskRecord{
+				CapturedTitle: first.Title, DurableSubject: first.DurableSubject, LastAppliedTitle: first.Title,
+				ManagedTokenDisplay: first.ManagedTokenDisplay, ManagedTokenPosition: first.ManagedTokenPosition,
+			}
+			second, err := Reconcile(record, state.StatusUnknown, "", "", test.display)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if first.Title != "❔" || second.Title != first.Title || second.DurableSubject != "" || second.ManagedTokenDisplay != "" {
+				t.Fatalf("first=%+v second=%+v", first, second)
+			}
+		})
+	}
+}
+
 func TestReconcileRejectsInvalidInputs(t *testing.T) {
 	if _, err := Reconcile(state.TaskRecord{CapturedTitle: "Subject"}, state.TaskStatus("future"), "", "", tokens.Display{}); !errors.Is(err, ErrInvalidStatus) {
 		t.Fatalf("invalid status error = %v", err)
 	}
-	if _, err := Reconcile(state.TaskRecord{CapturedTitle: "✅ ❔"}, state.StatusComplete, "", "", tokens.Display{}); !errors.Is(err, ErrEmptySubject) {
-		t.Fatalf("empty subject error = %v", err)
+	for _, captured := range []string{"", "✅ ❔"} {
+		if _, err := Reconcile(state.TaskRecord{CapturedTitle: captured}, state.StatusComplete, "", "", tokens.Display{}); !errors.Is(err, ErrEmptySubject) {
+			t.Fatalf("empty subject for %q error = %v", captured, err)
+		}
 	}
 }
 
