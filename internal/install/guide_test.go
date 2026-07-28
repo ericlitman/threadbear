@@ -668,9 +668,11 @@ func TestCodexInstallGuideRendersCompletionFromEnabledFeatures(t *testing.T) {
 	first := guide[firstStart:refreshStart]
 	for _, want := range []string{
 		"choose exactly one of the following complete variants from the frozen archive setting",
-		"Every successful close must include all three paragraphs",
+		"Every successful close must include all three content blocks",
+		"one complete result paragraph with version, health, home, and feature-aware tidy-up outcomes",
+		"one complete action paragraph with the welcome-note pointer and conversational controls",
 		"Asking a question earlier in the installation does not permit a shorter close.",
-		"ThreadBear updated X task titles, archived Y completed tasks, and nothing needs another try.",
+		"ThreadBear updated X task titles, no completed tasks were ready for the archive, and nothing needs another try.",
 		"Completed tasks stayed visible while ThreadBear updated X task titles in the first tidy-up, and nothing needs another try.",
 		"Do not adapt the archive-enabled variant when `archive=false`; use the full archive-disabled variant instead.",
 	} {
@@ -733,6 +735,7 @@ func TestCodexInstallGuideRendersCompletionFromEnabledFeatures(t *testing.T) {
 		"When retries are zero, say “Nothing needs another try.”",
 		"Never expose the word “retries” in the successful close",
 		"no completed tasks were ready for the archive",
+		"Never substitute a numeric zero into an archived-task phrase.",
 	} {
 		if !strings.Contains(rules, want) {
 			t.Fatalf("INSTALL.md missing conditional completion rule %q", want)
@@ -793,6 +796,9 @@ func TestCodexInstallGuideAdaptsCloseActionsToInstalledPreferences(t *testing.T)
 		"the choice applies to newly started task sessions",
 		"never promise an already-running session will change immediately",
 		"“pause,” “how are you?”, and “uninstall ThreadBear” are always-safe examples.",
+		"Use those action phrases verbatim; do not improvise or reverse them.",
+		"when token figures are at the end, the close MUST offer “hide token counts”",
+		"MUST NOT offer either “put token counts at the start” or “put token counts at the end.”",
 		"Never suggest an action that is already true, inactive because of another setting, or otherwise a no-op or contradiction.",
 		"Every quoted successful-close template uses exactly two preference-specific examples followed by “pause,” “how are you?”, and “uninstall ThreadBear.”",
 	} {
@@ -900,8 +906,10 @@ func TestCodexInstallGuideHasDistinctWarmFailureResponses(t *testing.T) {
 				"ThreadBear hit a snag while starting its quiet background check.",
 				"account for every person-visible mutation",
 				"task-home adoption, rename, pin",
+				"a posted welcome note",
 				"Do not compress those outcomes into “your settings are in place.”",
 				"The install itself finished: ThreadBear is in place, this task is now its home, named `🧵🐻 ThreadBear 🐻🧵` and pinned, and your settings are in place",
+				"The welcome note above records those choices",
 				"I’m checking why the background check did not start now.",
 				"You don’t need to",
 				"restart the installation or repeat anything",

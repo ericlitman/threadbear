@@ -688,11 +688,12 @@ inspect `pending_retries`.
 
 For a first adoption, unreadable replacement, or exact repair, choose exactly
 one of the following complete variants from the frozen archive setting. Every
-successful close must include all three paragraphs: version and health with the
-home outcome, the feature-aware tidy-up result, and the welcome-note pointer
-with the conversational controls. Asking a question earlier in the
-installation does not permit a shorter close. Do not adapt the archive-enabled
-variant when `archive=false`; use the full archive-disabled variant instead.
+successful close must include all three content blocks: the heading, one
+complete result paragraph with version, health, home, and feature-aware tidy-up
+outcomes, and one complete action paragraph with the welcome-note pointer and
+conversational controls. Asking a question earlier in the installation does
+not permit a shorter close. Do not adapt the archive-enabled variant when
+`archive=false`; use the full archive-disabled variant instead.
 
 When `archive=true`, use:
 
@@ -700,8 +701,8 @@ When `archive=true`, use:
 >
 > Everything passed: ThreadBear VERSION is installed, and its quiet background
 > check is healthy. This task is now ThreadBear’s home, named `🧵🐻 ThreadBear
-> 🐻🧵` and pinned. In the first tidy-up, ThreadBear updated X task titles,
-> archived Y completed tasks, and nothing needs another try.
+> 🐻🧵` and pinned. In the first tidy-up, ThreadBear updated X task titles, no
+> completed tasks were ready for the archive, and nothing needs another try.
 >
 > Your choices are saved in the welcome note above. From here, you can just talk
 > to me: “stop archiving,” “put token counts at the end,” “pause,” “how are
@@ -759,6 +760,11 @@ zeros:
   only when something genuinely needs another try, and explain that ThreadBear
   will keep working on it.
 
+The archive-enabled quoted template deliberately demonstrates the zero-archive
+case. When the archived-task count is greater than zero, replace only “no
+completed tasks were ready for the archive” with “ThreadBear archived N
+completed tasks.” Never substitute a numeric zero into an archived-task phrase.
+
 Archive close sentences are mutually exclusive. The sentence “No completed
 tasks were ready for the archive.” is legal only when the frozen review has
 `archive=true`. When the frozen review has `archive=false`, the close MUST say
@@ -782,6 +788,12 @@ preference-specific example must change the current state:
   and explain that the choice applies to newly started task sessions; never
   promise an already-running session will change immediately;
 - “pause,” “how are you?”, and “uninstall ThreadBear” are always-safe examples.
+
+Use those action phrases verbatim; do not improvise or reverse them. Before
+sending the close, compare each chosen phrase to the frozen setting. In
+particular, when token figures are at the end, the close MUST offer “hide token
+counts” and MUST NOT offer either “put token counts at the start” or “put token
+counts at the end.”
 
 Never suggest an action that is already true, inactive because of another
 setting, or otherwise a no-op or contradiction. Every quoted successful-close
@@ -841,15 +853,16 @@ For a failure before mutation, use this distinct no-change shape:
 For a failure after installation has started, account for every
 person-visible mutation that the evidence says completed. This includes the
 install and settings plus task-home adoption, rename, pin, retained-home
-preservation, or unarchiving when any of those occurred. Do not compress those
-outcomes into “your settings are in place.” Use this post-mutation shape and
-adapt every factual sentence to the evidence:
+preservation, unarchiving, or a posted welcome note when any of those occurred.
+Do not compress those outcomes into “your settings are in place.” Use this
+post-mutation shape and adapt every factual sentence to the evidence:
 
 > ThreadBear hit a snag while starting its quiet background check.
 >
 > The install itself finished: ThreadBear is in place, this task is now its
-> home, named `🧵🐻 ThreadBear 🐻🧵` and pinned, and your settings are in place;
-> the health check is the only part that has not passed yet.
+> home, named `🧵🐻 ThreadBear 🐻🧵` and pinned, and your settings are in place.
+> The welcome note above records those choices; the health check is the only
+> part that has not passed yet.
 >
 > I’m checking why the background check did not start now. You don’t need to
 > restart the installation or repeat anything—I’ll stay with it here and tell
