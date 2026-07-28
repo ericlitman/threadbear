@@ -27,3 +27,28 @@ func TestManagedGuidanceUsesConcreteFooterExamples(t *testing.T) {
 		t.Fatal("managed AGENTS content contains a fill-in footer")
 	}
 }
+
+func TestManagedSkillConversationalContract(t *testing.T) {
+	required := []string{
+		"lead with a short friendly capability card, never a raw command dump",
+		"`~/.local/bin/threadbear help`",
+		"`~/.local/bin/threadbear help <command>`",
+		"`~/.local/bin/threadbear configure --archive=false`",
+		"`~/.local/bin/threadbear configure --token-display=off`",
+		"`~/.local/bin/threadbear configure --auto-update=false`",
+		"`--noninteractive` and `--confirm`",
+		"closes this very chat the user is typing in",
+		"add `--archive-control-task` only after an explicit yes",
+		"Thanks for using ThreadBear. I'd love any feedback on why this wasn't for you. Drop me an email at eric@litman.org if you're open to sharing. Now, on to the uninstall!",
+	}
+	for _, text := range required {
+		if !strings.Contains(SkillManagedContent, text) {
+			t.Errorf("managed skill content is missing %q", text)
+		}
+	}
+	card := strings.Index(SkillManagedContent, "lead with a short friendly capability card")
+	help := strings.Index(SkillManagedContent, "`~/.local/bin/threadbear help`")
+	if card < 0 || help < 0 || card > help {
+		t.Fatal("managed skill does not put the capability card before command help")
+	}
+}
