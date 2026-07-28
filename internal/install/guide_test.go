@@ -263,14 +263,17 @@ func TestCodexInstallGuideAcknowledgesChangedChoicesWarmly(t *testing.T) {
 		t.Fatal("changed-status echo does not pair an all-change warm lead-in with the immutable off tradeoff")
 	}
 	for _, want := range []string{
-		"When any choice changed, open the revised-review message with one short, consumer-facing delta sentence naming those changed outcomes",
+		"Only after the person has seen a full review and then changes a choice, open the re-review with one short, consumer-facing delta sentence naming those changed outcomes",
 		"Review updated — completed tasks will stay visible, output-token figures will be hidden, and agent replies will stay unchanged.",
 		"Then immediately show the full authoritative review below.",
 		"Do not expose raw flags",
-		"This revised-review delta is required even when an earlier changed-status echo already acknowledged the choices.",
+		"This re-review delta is required even when an earlier changed-status echo already acknowledged the new choices.",
+		"When the person changes choices from the recommendation before seeing their first review, do not prepend “Review updated” to that first review.",
+		"If the change included status guidance, the warm all-changes echo above is sufficient",
+		"Then begin the first full review with “Everything is ready for your review.”",
 	} {
 		if !strings.Contains(normalized, want) {
-			t.Fatalf("INSTALL.md missing revised-review change delta %q", want)
+			t.Fatalf("INSTALL.md missing first-review/re-review distinction %q", want)
 		}
 	}
 }
@@ -477,10 +480,32 @@ func TestCodexInstallGuideRendersCompletionFromEnabledFeatures(t *testing.T) {
 	}
 	first := guide[firstStart:refreshStart]
 	for _, want := range []string{
+		"choose exactly one of the following complete variants from the frozen archive setting",
 		"ThreadBear updated X task titles, archived Y completed tasks, and nothing needs another try.",
+		"Completed tasks stayed visible while ThreadBear updated X task titles in the first tidy-up, and nothing needs another try.",
+		"Do not adapt the archive-enabled variant when `archive=false`; use the full archive-disabled variant instead.",
 	} {
 		if !strings.Contains(normalizeGuideText(first), want) {
 			t.Fatalf("first-install completion missing %q", want)
+		}
+	}
+	disabledStart := strings.Index(first, "When `archive=false`, use:")
+	if disabledStart == -1 {
+		t.Fatal("first-install completion is missing the archive-disabled complete variant")
+	}
+	disabledOutcome := "Completed tasks stayed visible while ThreadBear updated X task titles in the first tidy-up, and nothing needs another try."
+	if !strings.Contains(normalizeGuideText(first[disabledStart:]), disabledOutcome) {
+		t.Fatal("archive-disabled first-install close does not preserve the cohesive disabled outcome")
+	}
+	resultStart := strings.Index(first[disabledStart:], "> Everything passed:")
+	actionsStart := strings.Index(first[disabledStart:], "> Your choices are saved")
+	if resultStart == -1 || actionsStart <= resultStart {
+		t.Fatal("archive-disabled first-install close is missing its result paragraph")
+	}
+	disabledResult := strings.ToLower(normalizeGuideText(first[disabledStart+resultStart : disabledStart+actionsStart]))
+	for _, forbidden := range []string{"ready for the archive", "archived y", "archive count"} {
+		if strings.Contains(disabledResult, forbidden) {
+			t.Fatalf("archive-disabled first-install result mentions an enabled archive outcome %q", forbidden)
 		}
 	}
 	if strings.Contains(first, "Title maintenance is on") {
@@ -563,24 +588,45 @@ func TestCodexInstallGuideAdaptsCloseActionsToInstalledPreferences(t *testing.T)
 		}
 	}
 
-	rulesStart := strings.Index(guide, "Choose closeout action examples from the actual installed preferences.")
+	rulesStart := strings.Index(guide, "Choose no more than two closeout action examples from the actual installed")
 	rulesEnd := strings.Index(guide, "Keep closeout results flowing:")
 	if rulesStart == -1 || rulesEnd <= rulesStart {
 		t.Fatal("INSTALL.md missing adaptive close-action rules")
 	}
 	rules := normalizeGuideText(guide[rulesStart:rulesEnd])
 	for _, want := range []string{
+		"Choose no more than two closeout action examples from the actual installed preferences, then include the three always-safe examples.",
 		"when archiving is enabled, offer “stop archiving”; when disabled, offer “archive completed tasks after two weeks”",
 		"when title maintenance is disabled and token figures are inactive, offer “turn title updates on and show token counts at the start”",
 		"when title maintenance is enabled and token figures are at the start, offer “put token counts at the end”; when they are at the end, offer “hide token counts”; when they are hidden, offer “put token counts at the start”",
-		"when status guidance is enabled, offer “stop adding status hints to agent replies”; when disabled, offer “add one-line status hints to agent replies.”",
-		"this guidance choice applies to newly started task sessions",
+		"a status-guidance example is optional and should normally be omitted from the close",
+		"the choice applies to newly started task sessions",
 		"never promise an already-running session will change immediately",
 		"“pause,” “how are you?”, and “uninstall ThreadBear” are always-safe examples.",
 		"Never suggest an action that is already true, inactive because of another setting, or otherwise a no-op or contradiction.",
+		"Every quoted successful-close template uses exactly two preference-specific examples followed by “pause,” “how are you?”, and “uninstall ThreadBear.”",
 	} {
 		if !strings.Contains(rules, want) {
 			t.Fatalf("INSTALL.md missing adaptive close rule %q", want)
+		}
+	}
+	enabledStart := strings.Index(guide, "When `archive=true`, use:")
+	disabledStart := strings.Index(guide, "When `archive=false`, use:")
+	if enabledStart == -1 || disabledStart <= enabledStart || refreshStart <= disabledStart {
+		t.Fatal("INSTALL.md missing complete first-install close variants")
+	}
+	for name, close := range map[string]string{
+		"archive-enabled first install":  guide[enabledStart:disabledStart],
+		"archive-disabled first install": guide[disabledStart:refreshStart],
+		"refresh":                        guide[refreshStart:refreshEnd],
+	} {
+		if got := strings.Count(close, "“"); got != 5 {
+			t.Fatalf("%s close has %d quoted actions, want two preference actions and three safe actions", name, got)
+		}
+		for _, safe := range []string{"“pause,”", "“how are you?”", "“uninstall ThreadBear.”"} {
+			if !strings.Contains(normalizeGuideText(close), safe) {
+				t.Fatalf("%s close is missing always-safe action %q", name, safe)
+			}
 		}
 	}
 	if !strings.Contains(refresh, "Everything passed. ThreadBear VERSION is refreshed, and its quiet background check is healthy.") {
@@ -603,14 +649,17 @@ func TestCodexInstallGuideAdaptsCloseActionsToInstalledPreferences(t *testing.T)
 
 func TestCodexInstallGuideFinalFooterFollowsStatusGuidance(t *testing.T) {
 	guide := readInstallGuide(t)
+	normalized := normalizeGuideText(guide)
 	for _, want := range []string{
-		"When enabled,\nappend one compact ThreadBear footer such as `🧵🐻 complete`",
-		"when disabled,\nomit the footer entirely",
+		"add a blank line after the completion\nprose and finish with exactly this standalone final line:\n\n> 🧵🐻 complete",
+		"The footer must be its own final line.",
+		"Never append it to a sentence, place it\ninline after an example, or put it in the same paragraph as completion prose.",
+		"When status guidance is disabled, omit the footer entirely.",
 		"If this task already loaded a higher-priority earlier\nfooter rule that conflicts with the new choice",
 		"This task started with earlier reply guidance, so its footer may not change",
 		"Your choice will apply in new task sessions.",
 	} {
-		if !strings.Contains(guide, want) {
+		if !strings.Contains(normalized, normalizeGuideText(want)) {
 			t.Fatalf("INSTALL.md missing selected-footer behavior %q", want)
 		}
 	}

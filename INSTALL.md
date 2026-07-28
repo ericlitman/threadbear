@@ -452,13 +452,20 @@ values merely because they are frozen. The frozen dry-run result, rather than
 an earlier status call, baseline card, or assumption, is the authoritative
 source for every visible setting shown to the person:
 
-When any choice changed, open the revised-review message with one short,
-consumer-facing delta sentence naming those changed outcomes, such as “Review
-updated — completed tasks will stay visible, output-token figures will be
-hidden, and agent replies will stay unchanged.” Then immediately show the full
-authoritative review below. Do not expose raw flags or make the person infer
-what changed by comparing two cards. This revised-review delta is required even
-when an earlier changed-status echo already acknowledged the choices.
+Only after the person has seen a full review and then changes a choice, open the
+re-review with one short, consumer-facing delta sentence naming those changed
+outcomes, such as “Review updated — completed tasks will stay visible,
+output-token figures will be hidden, and agent replies will stay unchanged.”
+Then immediately show the full authoritative review below. Do not expose raw
+flags or make the person infer what changed by comparing two reviews. This
+re-review delta is required even when an earlier changed-status echo already
+acknowledged the new choices.
+
+When the person changes choices from the recommendation before seeing their
+first review, do not prepend “Review updated” to that first review. If the
+change included status guidance, the warm all-changes echo above is sufficient;
+for other changes, a brief warm acknowledgment is enough. Then begin the first
+full review with “Everything is ready for your review.”
 
 > Everything is ready for your review.
 >
@@ -624,8 +631,12 @@ Capture the heartbeat result. When it emits JSON, use the counts of `changed`,
 work, treat those counts as zero. After the heartbeat, rerun `status --json` and
 inspect `pending_retries`.
 
-For a first adoption, unreadable replacement, or exact repair, translate the
-result into this shape rather than reciting fields:
+For a first adoption, unreadable replacement, or exact repair, choose exactly
+one of the following complete variants from the frozen archive setting. Do not
+adapt the archive-enabled variant when `archive=false`; use the full
+archive-disabled variant instead.
+
+When `archive=true`, use:
 
 > ThreadBear is installed
 >
@@ -637,6 +648,19 @@ result into this shape rather than reciting fields:
 > Your choices are saved in the welcome note above. From here, you can just talk
 > to me: “stop archiving,” “put token counts at the end,” “pause,” “how are
 > you?” or “uninstall ThreadBear.”
+
+When `archive=false`, use:
+
+> ThreadBear is installed
+>
+> Everything passed: ThreadBear VERSION is installed, its quiet background
+> check is healthy, and this task is now its home. Completed tasks stayed
+> visible while ThreadBear updated X task titles in the first tidy-up, and
+> nothing needs another try.
+>
+> Your choices are saved in the welcome note above. From here, you can just talk
+> to me: “archive completed tasks after two weeks,” “put token counts at the
+> end,” “pause,” “how are you?” or “uninstall ThreadBear.”
 
 For a retained home, whether this task or another task, close with a dedicated
 refresh version because no new welcome note was posted:
@@ -678,7 +702,8 @@ tasks were ready for the archive.” is legal only when the frozen review has
 archive count, or any task being archived. Never combine the enabled zero-count
 sentence with the disabled close.
 
-Choose closeout action examples from the actual installed preferences. Every
+Choose no more than two closeout action examples from the actual installed
+preferences, then include the three always-safe examples. Every
 preference-specific example must change the current state:
 
 - when archiving is enabled, offer “stop archiving”; when disabled, offer
@@ -688,30 +713,40 @@ preference-specific example must change the current state:
 - when title maintenance is enabled and token figures are at the start, offer
   “put token counts at the end”; when they are at the end, offer “hide token
   counts”; when they are hidden, offer “put token counts at the start”;
-- when status guidance is enabled, offer “stop adding status hints to agent
-  replies”; when disabled, offer “add one-line status hints to agent replies.”
-  Explain that this guidance choice applies to newly started task sessions and
-  never promise an already-running session will change immediately;
+- a status-guidance example is optional and should normally be omitted from the
+  close. If it is unusually useful, offer the opposite of the installed state
+  and explain that the choice applies to newly started task sessions; never
+  promise an already-running session will change immediately;
 - “pause,” “how are you?”, and “uninstall ThreadBear” are always-safe examples.
 
 Never suggest an action that is already true, inactive because of another
-setting, or otherwise a no-op or contradiction.
+setting, or otherwise a no-op or contradiction. Every quoted successful-close
+template uses exactly two preference-specific examples followed by “pause,”
+“how are you?”, and “uninstall ThreadBear.”
 
 Keep closeout results flowing: combine version and health in one crafted
 sentence, use exactly one home sentence, and combine tidy-up outcomes in one
 cohesive sentence. Do not emit a sequence of clipped status fragments.
 
-The final response follows the selected status-guidance setting. When enabled,
-append one compact ThreadBear footer such as `🧵🐻 complete`; when disabled,
-omit the footer entirely. If this task already loaded a higher-priority earlier
-footer rule that conflicts with the new choice, obey that rule and disclose:
-“This task started with earlier reply guidance, so its footer may not change
-here. Your choice will apply in new task sessions.” Do not promise that the
-current reply will override guidance already loaded for this task.
+The final response follows the selected status-guidance setting. When enabled
+and no earlier task guidance conflicts, add a blank line after the completion
+prose and finish with exactly this standalone final line:
 
-The quoted completion templates intentionally omit the footer. Append it only
-after choosing the enabled branch above; never bake it into reusable completion
-copy that may be used when status guidance is disabled.
+> 🧵🐻 complete
+
+The footer must be its own final line. Never append it to a sentence, place it
+inline after an example, or put it in the same paragraph as completion prose.
+When status guidance is disabled, omit the footer entirely. If this task already
+loaded a higher-priority earlier footer rule that conflicts with the new choice,
+obey that rule and disclose: “This task started with earlier reply guidance, so
+its footer may not change here. Your choice will apply in new task sessions.”
+Do not promise that the current reply will override guidance already loaded for
+this task.
+
+The quoted completion templates intentionally omit the footer. Render it only
+as the standalone final line after choosing the enabled branch above; never
+bake it into reusable completion copy that may be used when status guidance is
+disabled.
 
 Never expose the raw disposition name. If anything failed, say what the person
 experiences, what you are checking next, and whether installation changed
