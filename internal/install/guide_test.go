@@ -107,7 +107,9 @@ func TestCodexInstallGuideHasPriorityVisibleStateMachine(t *testing.T) {
 		"Only a clear yes to the installation question advances to installation.",
 		"it contains no backstage vocabulary",
 		"every suggested action would change the frozen current setting.",
-		"copy the three-paragraph failure shape exactly and add no inventory",
+		"When official-download verification fails before mutation, copy its three-paragraph failure shape exactly and add no inventory",
+		"For any other pre-mutation stop, state its actual consumer-facing cause and next step instead",
+		"never borrow the download-failure cause.",
 		"select action phrases only from the mapping in section 7 and reject any no-op.",
 		"Never print a numeric zero or the word “zero” in a consumer-facing tidy-up",
 	} {
@@ -883,7 +885,7 @@ func TestCodexInstallGuideFinalFooterFollowsStatusGuidance(t *testing.T) {
 
 func TestCodexInstallGuideHasDistinctWarmFailureResponses(t *testing.T) {
 	guide := readInstallGuide(t)
-	preStart := strings.Index(guide, "For a failure before mutation")
+	preStart := strings.Index(guide, "For an official-download verification failure before mutation")
 	postStart := strings.Index(guide, "For a failure after installation has started")
 	postEnd := strings.Index(guide, "Never combine the pre-mutation headline")
 	if preStart == -1 || postStart <= preStart || postEnd <= postStart {

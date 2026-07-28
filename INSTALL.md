@@ -77,12 +77,15 @@ change the words inside a state but never the order.
 
 Before sending any visible message, check three things: it belongs to the
 current state above; it contains no backstage vocabulary; and every suggested
-action would change the frozen current setting. On a pre-mutation failure, copy
-the three-paragraph failure shape exactly and add no inventory of tasks, files,
-settings, adoption, or scheduling. On a successful close, select action phrases
-only from the mapping in section 7 and reject any no-op. Never print a numeric
-zero or the word “zero” in a consumer-facing tidy-up; translate it to “already
-looked right,” “none were ready,” or “nothing needs another try.”
+action would change the frozen current setting. When official-download
+verification fails before mutation, copy its three-paragraph failure shape
+exactly and add no inventory of tasks, files, settings, adoption, or scheduling.
+For any other pre-mutation stop, state its actual consumer-facing cause and next
+step instead; never borrow the download-failure cause. On a successful close,
+select action phrases only from the mapping in section 7 and reject any no-op.
+Never print a numeric zero or the word “zero” in a consumer-facing tidy-up;
+translate it to “already looked right,” “none were ready,” or “nothing needs
+another try.”
 
 ## 1. Welcome the person
 
@@ -884,7 +887,8 @@ anything; put raw diagnostics after the plain explanation only when they help.
 Never direct the person elsewhere to complete, verify, or troubleshoot the
 installation.
 
-For a failure before mutation, use this distinct no-change shape:
+For an official-download verification failure before mutation, use this
+distinct no-change shape:
 
 > ThreadBear paused before installing because it couldn’t verify the official
 > download.
