@@ -328,7 +328,7 @@ func TestInstallDefaultsAndOneConfirmation(t *testing.T) {
 	if !reflect.DeepEqual(scheduler.calls, []string{"stage", "stage", "enable", "healthy"}) {
 		t.Fatalf("calls=%v", scheduler.calls)
 	}
-	if len(tasks.reads) != 2 || store.saveConfig != 1 || store.saveState != 1 {
+	if len(tasks.reads) != 2 || store.saveConfig != 1 || store.saveState != 2 {
 		t.Fatalf("reads=%v saves=%d/%d", tasks.reads, store.saveConfig, store.saveState)
 	}
 }
@@ -1282,5 +1282,34 @@ func TestBear60RepairRejectsOtherConfigChangesBeforeMutation(t *testing.T) {
 	}
 	if store.locks != 0 || store.saveConfig != 0 || store.saveState != 0 || len(scheduler.calls) != 0 || installer.Binary.(*fakeBinary).calls != 0 || len(tasks.welcomes) != 0 {
 		t.Fatalf("repair changed unrelated state: store=%+v scheduler=%v tasks=%+v", store, scheduler.calls, tasks)
+	}
+}
+
+func TestInstallRetriesWelcomeAfterDeliveryFailureWithoutDuplicates(t *testing.T) {
+	store := &fakeStore{}
+	scheduler := &fakeScheduler{}
+	tasks := &fakeTasks{welcomeErr: errors.New("notice unavailable")}
+	installer := newInstaller(t, store, scheduler, tasks, nil)
+	first, err := installer.Install(context.Background(), InstallRequest{ControlTaskID: "home", NonInteractive: true, Confirm: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(first.Warnings) != 1 || store.state.PendingWelcomeTaskID != "home" || len(tasks.welcomes) != 0 {
+		t.Fatalf("first=%+v state=%+v tasks=%+v", first, store.state, tasks)
+	}
+	tasks.welcomeErr = nil
+	second, err := installer.Install(context.Background(), InstallRequest{NonInteractive: true, Confirm: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if second.ControlTaskDisposition != ControlTaskRetained || len(second.Warnings) != 0 || store.state.PendingWelcomeTaskID != "" || len(tasks.welcomes) != 1 {
+		t.Fatalf("second=%+v state=%+v tasks=%+v", second, store.state, tasks)
+	}
+	third, err := installer.Install(context.Background(), InstallRequest{NonInteractive: true, Confirm: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if third.ControlTaskDisposition != ControlTaskRetained || len(tasks.welcomes) != 1 {
+		t.Fatalf("third=%+v tasks=%+v", third, tasks)
 	}
 }

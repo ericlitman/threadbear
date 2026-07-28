@@ -583,7 +583,23 @@ func (a appServerControlTasks) PostWelcome(ctx context.Context, taskID, text str
 	if err != nil {
 		return err
 	}
-	return errors.Join(client.InsertNotice(ctx, taskID, text), client.Close())
+	return errors.Join(postWelcomeOnce(ctx, client, taskID, text), client.Close())
+}
+
+type welcomeControlTaskClient interface {
+	ReadPersistedAssistantMessage(context.Context, string, string) (appserver.PersistedMessageResult, error)
+	InsertNotice(context.Context, string, string) error
+}
+
+func postWelcomeOnce(ctx context.Context, client welcomeControlTaskClient, taskID, text string) error {
+	delivered, err := client.ReadPersistedAssistantMessage(ctx, taskID, text)
+	if err != nil {
+		return err
+	}
+	if delivered.Found {
+		return nil
+	}
+	return client.InsertNotice(ctx, taskID, text)
 }
 
 func (a appServerControlTasks) ArchiveControlTask(ctx context.Context, taskID string) (bool, error) {

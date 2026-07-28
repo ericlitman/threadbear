@@ -419,6 +419,9 @@ func (i Installer) Install(ctx context.Context, request InstallRequest) (Install
 	if !stateExists {
 		currentState = state.New()
 	}
+	if currentState.PendingWelcomeTaskID == currentSelection.ID {
+		currentSelection.Welcome = true
+	}
 	if selectedPreferences != nil {
 		preferences = *selectedPreferences
 	}
@@ -444,6 +447,17 @@ func (i Installer) Install(ctx context.Context, request InstallRequest) (Install
 	if err := nextConfig.Validate(); err != nil {
 		return InstallResult{}, Fail("validate_config", err)
 	}
+	stateChanged := !stateExists
+	if currentSelection.Welcome && currentState.PendingWelcomeTaskID != currentSelection.ID {
+		currentState.PendingWelcomeTaskID = currentSelection.ID
+		stateChanged = true
+	}
+	if stateChanged {
+		if err := i.Store.SaveState(currentState); err != nil {
+			return InstallResult{}, Fail("persist_state", err)
+		}
+		resources = appendUnique(resources, "state")
+	}
 	if currentSelection.Disposition == ControlTaskRepaired {
 		// BEAR-60: remove this exact repair in the first release after operator convergence.
 		repairer, ok := i.Store.(interface{ RepairControlTaskID(string) error })
@@ -461,12 +475,6 @@ func (i Installer) Install(ctx context.Context, request InstallRequest) (Install
 			return InstallResult{}, Fail("persist_config", err)
 		}
 		resources = appendUnique(resources, "config")
-	}
-	if !stateExists {
-		if err := i.Store.SaveState(currentState); err != nil {
-			return InstallResult{}, Fail("persist_state", err)
-		}
-		resources = appendUnique(resources, "state")
 	}
 	unarchived := false
 	if currentSelection.Unarchive {
@@ -504,9 +512,30 @@ func (i Installer) Install(ctx context.Context, request InstallRequest) (Install
 	if currentSelection.Welcome {
 		if err := i.ControlTasks.PostWelcome(ctx, currentSelection.ID, welcomeNotice(i.InstalledVersion, preferences)); err != nil {
 			warnings = append(warnings, fmt.Sprintf("welcome notice not posted: %v", err))
+		} else if err := i.clearPendingWelcome(currentSelection.ID); err != nil {
+			warnings = append(warnings, fmt.Sprintf("welcome notice completion not recorded: %v", err))
+		} else {
+			currentState.PendingWelcomeTaskID = ""
 		}
 	}
 	return InstallResult{Config: nextConfig, State: currentState, Paths: i.Paths, Reinstalled: configExists, Preview: currentPreview, Changed: len(resources) > 0, Resources: resources, Warnings: warnings, ControlTaskDisposition: currentSelection.Disposition, SuppliedControlTaskID: currentSelection.SuppliedID, Unarchived: unarchived}, nil
+}
+
+func (i Installer) clearPendingWelcome(taskID string) error {
+	lock, err := i.Store.AcquireLock()
+	if err != nil {
+		return err
+	}
+	defer lock.Close()
+	current, err := i.Store.LoadState()
+	if err != nil {
+		return err
+	}
+	if current.PendingWelcomeTaskID != taskID {
+		return nil
+	}
+	current.PendingWelcomeTaskID = ""
+	return i.Store.SaveState(current)
 }
 
 func validateRepairConfig(current, next config.Config, selection controlTaskSelection) error {

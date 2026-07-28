@@ -624,3 +624,33 @@ func TestProductionSchedulerEnableDoesNotKickstart(t *testing.T) {
 		t.Fatalf("production scheduler calls=%s", calls)
 	}
 }
+
+type welcomeControlTaskClientFake struct {
+	found   bool
+	reads   int
+	inserts int
+}
+
+func (c *welcomeControlTaskClientFake) ReadPersistedAssistantMessage(context.Context, string, string) (appserver.PersistedMessageResult, error) {
+	c.reads++
+	return appserver.PersistedMessageResult{Found: c.found}, nil
+}
+
+func (c *welcomeControlTaskClientFake) InsertNotice(context.Context, string, string) error {
+	c.inserts++
+	c.found = true
+	return nil
+}
+
+func TestPostWelcomeOnceUsesPersistedReadback(t *testing.T) {
+	client := &welcomeControlTaskClientFake{}
+	if err := postWelcomeOnce(context.Background(), client, "home", "welcome"); err != nil {
+		t.Fatal(err)
+	}
+	if err := postWelcomeOnce(context.Background(), client, "home", "welcome"); err != nil {
+		t.Fatal(err)
+	}
+	if client.reads != 2 || client.inserts != 1 {
+		t.Fatalf("client=%+v", client)
+	}
+}
