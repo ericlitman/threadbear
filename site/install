@@ -735,7 +735,11 @@ conversational controls. Asking a question earlier in the installation does
 not permit a shorter close. Do not adapt the archive-enabled variant when
 `archive=false`; use the full archive-disabled variant instead.
 
-When `archive=true`, use:
+The result templates below intentionally stop before the action paragraph.
+Construct that paragraph once from the frozen settings using the single action
+mapping after the templates; do not copy an action from another result variant.
+
+When `archive=true`, use this heading and result:
 
 > ThreadBear is installed
 >
@@ -743,12 +747,8 @@ When `archive=true`, use:
 > check is healthy. This task is now ThreadBear’s home, named `🧵🐻 ThreadBear
 > 🐻🧵` and pinned. In the first tidy-up, ThreadBear updated X task titles, no
 > completed tasks were ready for the archive, and nothing needs another try.
->
-> Your choices are saved in the welcome note above. From here, you can just talk
-> to me: “stop archiving,” “put token counts at the end,” “pause,” “how are
-> you?” or “uninstall ThreadBear.”
 
-When `archive=false`, use:
+When `archive=false`, use this heading and result:
 
 > ThreadBear is installed
 >
@@ -756,10 +756,6 @@ When `archive=false`, use:
 > check is healthy. This task is now ThreadBear’s home, named `🧵🐻 ThreadBear
 > 🐻🧵` and pinned. Completed tasks stayed visible while ThreadBear updated X
 > task titles in the first tidy-up, and nothing needs another try.
->
-> Your choices are saved in the welcome note above. From here, you can just talk
-> to me: “archive completed tasks after two weeks,” “put token counts at the
-> end,” “pause,” “how are you?” or “uninstall ThreadBear.”
 
 The pinned sentence in those first-install variants assumes supported pinning.
 When automatic pinning is unavailable, replace that entire sentence with this
@@ -767,18 +763,14 @@ actual outcome: “This task is now ThreadBear’s home and is named `🧵🐻
 ThreadBear 🐻🧵`, but Codex did not offer automatic pinning; you can pin it from
 the task menu.”
 
-For a retained home, whether this task or another task, close with a dedicated
-refresh version because no new welcome note was posted:
+For a retained home, whether this task or another task, use this dedicated
+refresh heading and result because no new welcome note was posted:
 
 > ThreadBear is refreshed
 >
 > Everything passed. ThreadBear VERSION is refreshed, and its quiet background
 > check is healthy. ThreadBear remains based in this task. Title maintenance
 > stayed off, completed tasks stayed visible, and nothing needs another try.
->
-> Your current settings remain in effect. From here, you can just talk to me:
-> “archive completed tasks after two weeks,” “turn title updates on and show
-> token counts at the start,” “pause,” “how are you?” or “uninstall ThreadBear.”
 
 The example above shows `retained`. For `retained`, keep exactly the one sentence
 “ThreadBear remains based in this task.” For `stayed_home`, replace that entire
@@ -812,22 +804,24 @@ tasks were ready for the archive.” is legal only when the frozen review has
 archive count, or any task being archived. Never combine the enabled zero-count
 sentence with the disabled close.
 
-Choose exactly two closeout action examples from the actual installed
-preferences, then include the three always-safe examples. Every
-preference-specific example must change the current state:
+Build the action paragraph deterministically. Select exactly one archive action
+and exactly one title/token action from this table:
 
-- when archiving is enabled, offer “stop archiving”; when disabled, offer
-  “archive completed tasks after two weeks”;
-- when title maintenance is disabled and token figures are inactive, offer
-  “turn title updates on and show token counts at the start”;
-- when title maintenance is enabled and token figures are at the start, offer
-  “put token counts at the end”; when they are at the end, offer “hide token
-  counts”; when they are hidden, offer “put token counts at the start”;
-- a status-guidance example is optional and should normally be omitted from the
-  close. If it is unusually useful, offer the opposite of the installed state
-  and explain that the choice applies to newly started task sessions; never
-  promise an already-running session will change immediately;
-- “pause,” “how are you?”, and “uninstall ThreadBear” are always-safe examples.
+| Frozen installed state | Exact action |
+|---|---|
+| Archiving enabled | “stop archiving” |
+| Archiving disabled | “archive completed tasks after two weeks” |
+| Title maintenance disabled | “turn title updates on and show token counts at the start” |
+| Titles enabled, token figures at start | “put token counts at the end” |
+| Titles enabled, token figures at end | “hide token counts” |
+| Titles enabled, token figures hidden | “put token counts at the start” |
+
+For a first adoption, begin the action paragraph: “Your choices are saved in
+the welcome note above. From here, you can just talk to me:”. For a retained
+home, begin it: “Your current settings remain in effect. From here, you can
+just talk to me:”. Append the selected archive action, the selected title/token
+action, then the three always-safe actions “pause,” “how are you?”, and
+“uninstall ThreadBear.” Do not mention status guidance in the close.
 
 Use those action phrases verbatim; do not improvise or reverse them. Before
 sending the close, compare each chosen phrase to the frozen setting. In
@@ -836,9 +830,9 @@ counts” and MUST NOT offer either “put token counts at the start” or “pu
 counts at the end.”
 
 Never suggest an action that is already true, inactive because of another
-setting, or otherwise a no-op or contradiction. Every quoted successful-close
-template uses exactly two preference-specific examples followed by “pause,”
-“how are you?”, and “uninstall ThreadBear.”
+setting, or otherwise a no-op or contradiction. Every successful close uses
+exactly two preference-specific examples followed by “pause,” “how are you?”,
+and “uninstall ThreadBear.”
 
 Keep closeout results flowing: combine version and health in one crafted
 sentence, use exactly one home sentence, and combine tidy-up outcomes in one

@@ -26,7 +26,7 @@ func TestCodexInstallGuideCarriesConversationContract(t *testing.T) {
 		"Ready for me to refresh ThreadBear with these choices?",
 		"ThreadBear is installed",
 		"ThreadBear is refreshed",
-		"Your choices are saved in the welcome note above.",
+		"Your choices are saved in\nthe welcome note above.",
 		"Your current settings remain in effect.",
 	} {
 		if !strings.Contains(guide, want) {
@@ -704,7 +704,7 @@ func TestCodexInstallGuideRendersCompletionFromEnabledFeatures(t *testing.T) {
 			t.Fatalf("first-install completion missing %q", want)
 		}
 	}
-	disabledStart := strings.Index(first, "When `archive=false`, use:")
+	disabledStart := strings.Index(first, "When `archive=false`, use this heading and result:")
 	if disabledStart == -1 {
 		t.Fatal("first-install completion is missing the archive-disabled complete variant")
 	}
@@ -713,11 +713,10 @@ func TestCodexInstallGuideRendersCompletionFromEnabledFeatures(t *testing.T) {
 		t.Fatal("archive-disabled first-install close does not preserve the cohesive disabled outcome")
 	}
 	resultStart := strings.Index(first[disabledStart:], "> Everything passed:")
-	actionsStart := strings.Index(first[disabledStart:], "> Your choices are saved")
-	if resultStart == -1 || actionsStart <= resultStart {
+	if resultStart == -1 {
 		t.Fatal("archive-disabled first-install close is missing its result paragraph")
 	}
-	disabledResult := strings.ToLower(normalizeGuideText(first[disabledStart+resultStart : disabledStart+actionsStart]))
+	disabledResult := strings.ToLower(normalizeGuideText(first[disabledStart+resultStart:]))
 	for _, forbidden := range []string{"ready for the archive", "archived y", "archive count"} {
 		if strings.Contains(disabledResult, forbidden) {
 			t.Fatalf("archive-disabled first-install result mentions an enabled archive outcome %q", forbidden)
@@ -786,76 +785,47 @@ func TestCodexInstallGuideAdaptsCloseActionsToInstalledPreferences(t *testing.T)
 	}
 	first := normalizeGuideText(guide[firstStart:refreshStart])
 	refresh := normalizeGuideText(guide[refreshStart:refreshEnd])
-	for _, want := range []string{"“stop archiving,”", "“put token counts at the end,”"} {
-		if !strings.Contains(first, want) {
-			t.Fatalf("default-enabled close missing state-changing action %q", want)
-		}
-	}
-	for _, want := range []string{
-		"“archive completed tasks after two weeks,”",
-		"“turn title updates on and show token counts at the start,”",
+	for name, resultTemplate := range map[string]string{
+		"first-install": first,
+		"refresh":       refresh,
 	} {
-		if !strings.Contains(refresh, want) {
-			t.Fatalf("disabled-preference close missing state-changing action %q", want)
-		}
-	}
-	for _, forbidden := range []string{"“stop archiving,”", "“hide token counts,”"} {
-		if strings.Contains(refresh, forbidden) {
-			t.Fatalf("disabled-preference close suggests no-op action %q", forbidden)
+		if strings.Contains(resultTemplate, "From here, you can just talk to me") {
+			t.Fatalf("%s result template hard-codes actions instead of using the single mapping", name)
 		}
 	}
 
-	rulesStart := strings.Index(guide, "Choose exactly two closeout action examples from the actual installed")
+	rulesStart := strings.Index(guide, "Build the action paragraph deterministically.")
 	rulesEnd := strings.Index(guide, "Keep closeout results flowing:")
 	if rulesStart == -1 || rulesEnd <= rulesStart {
 		t.Fatal("INSTALL.md missing adaptive close-action rules")
 	}
 	rules := normalizeGuideText(guide[rulesStart:rulesEnd])
 	for _, want := range []string{
-		"Choose exactly two closeout action examples from the actual installed preferences, then include the three always-safe examples.",
-		"when archiving is enabled, offer “stop archiving”; when disabled, offer “archive completed tasks after two weeks”",
-		"when title maintenance is disabled and token figures are inactive, offer “turn title updates on and show token counts at the start”",
-		"when title maintenance is enabled and token figures are at the start, offer “put token counts at the end”; when they are at the end, offer “hide token counts”; when they are hidden, offer “put token counts at the start”",
-		"a status-guidance example is optional and should normally be omitted from the close",
-		"the choice applies to newly started task sessions",
-		"never promise an already-running session will change immediately",
-		"“pause,” “how are you?”, and “uninstall ThreadBear” are always-safe examples.",
+		"Build the action paragraph deterministically. Select exactly one archive action and exactly one title/token action from this table:",
+		"Archiving enabled | “stop archiving”",
+		"Archiving disabled | “archive completed tasks after two weeks”",
+		"Title maintenance disabled | “turn title updates on and show token counts at the start”",
+		"Titles enabled, token figures at start | “put token counts at the end”",
+		"Titles enabled, token figures at end | “hide token counts”",
+		"Titles enabled, token figures hidden | “put token counts at the start”",
+		"For a first adoption, begin the action paragraph: “Your choices are saved in the welcome note above. From here, you can just talk to me:”",
+		"For a retained home, begin it: “Your current settings remain in effect. From here, you can just talk to me:”",
+		"Append the selected archive action, the selected title/token action, then the three always-safe actions “pause,” “how are you?”, and “uninstall ThreadBear.”",
+		"Do not mention status guidance in the close.",
 		"Use those action phrases verbatim; do not improvise or reverse them.",
 		"when token figures are at the end, the close MUST offer “hide token counts”",
 		"MUST NOT offer either “put token counts at the start” or “put token counts at the end.”",
 		"Never suggest an action that is already true, inactive because of another setting, or otherwise a no-op or contradiction.",
-		"Every quoted successful-close template uses exactly two preference-specific examples followed by “pause,” “how are you?”, and “uninstall ThreadBear.”",
+		"Every successful close uses exactly two preference-specific examples followed by “pause,” “how are you?”, and “uninstall ThreadBear.”",
 	} {
 		if !strings.Contains(rules, want) {
 			t.Fatalf("INSTALL.md missing adaptive close rule %q", want)
 		}
 	}
-	enabledStart := strings.Index(guide, "When `archive=true`, use:")
-	disabledStart := strings.Index(guide, "When `archive=false`, use:")
+	enabledStart := strings.Index(guide, "When `archive=true`, use this heading and result:")
+	disabledStart := strings.Index(guide, "When `archive=false`, use this heading and result:")
 	if enabledStart == -1 || disabledStart <= enabledStart || refreshStart <= disabledStart {
 		t.Fatal("INSTALL.md missing complete first-install close variants")
-	}
-	for name, close := range map[string]string{
-		"archive-enabled first install":  guide[enabledStart:disabledStart],
-		"archive-disabled first install": guide[disabledStart:refreshStart],
-		"refresh":                        guide[refreshStart:refreshEnd],
-	} {
-		actionsStart := strings.Index(close, "> Your ")
-		if actionsStart == -1 {
-			t.Fatalf("%s close is missing its action paragraph", name)
-		}
-		actions := close[actionsStart:]
-		if actionsEnd := strings.Index(actions, "\n\n"); actionsEnd != -1 {
-			actions = actions[:actionsEnd]
-		}
-		if got := strings.Count(actions, "“"); got != 5 {
-			t.Fatalf("%s close has %d quoted actions, want two preference actions and three safe actions", name, got)
-		}
-		for _, safe := range []string{"“pause,”", "“how are you?”", "“uninstall ThreadBear.”"} {
-			if !strings.Contains(normalizeGuideText(actions), safe) {
-				t.Fatalf("%s close is missing always-safe action %q", name, safe)
-			}
-		}
 	}
 	if !strings.Contains(refresh, "Everything passed. ThreadBear VERSION is refreshed, and its quiet background check is healthy.") {
 		t.Fatal("refresh close does not use the required version-and-health sentence")
@@ -982,7 +952,10 @@ func TestCodexInstallGuideUsesDistinctRefreshCompletionCopy(t *testing.T) {
 	if !strings.Contains(refresh, "because no new welcome note was posted") {
 		t.Fatal("retained-home completion guidance does not explain why its copy is distinct")
 	}
-	if !strings.Contains(refresh, "Your current settings remain in effect.") {
+	if !strings.Contains(
+		normalizeGuideText(guide),
+		"For a retained home, begin it: “Your current settings remain in effect. From here, you can just talk to me:”",
+	) {
 		t.Fatal("retained-home completion copy does not preserve current settings")
 	}
 	if strings.Contains(refresh, "Your choices are saved in the welcome note above.") {
