@@ -75,14 +75,14 @@ func TestManagedAssetsEnforceSelfContainedActuatorOrdering(t *testing.T) {
 		t.Fatal("managed skill is missing guided or fallback actuator sections")
 	}
 	assertOrderedContract(t, "skill guided", SkillManagedContent[guidedStart:fallbackStart],
-		"title-plan --json --batch", "title-plan --json --operation", "native mutation", "title-plan --json --report")
+		"title-plan --json --batch", "title-plan --json --operation", "`await tools.codex_app__set_thread_title({threadId: TASK_ID, title: DESIRED_TITLE})`", "title-plan --json --report")
 	for name, content := range map[string]string{"agents": AgentsManagedContent, "skill fallback": SkillManagedContent[fallbackStart:]} {
 		assertOrderedContract(t, name, content,
 			"actual `functions.exec`", "CODEX_THREAD_ID", "status --json", "returned tool result",
 			"control_task_id", "gpt-5.6-luna", "codex_delegation.source_thread_id", "exactly one `functions.exec`",
-			"title-plan --json --wait", "title-plan --json --operation", "set_thread_title",
+			"title-plan --json --wait", "title-plan --json --operation", "`await tools.codex_app__set_thread_title({threadId: TASK_ID, title: DESIRED_TITLE})`",
 			"title-plan --json --report", `{"reports":[{"operation_id":"OPERATION_ID","task_id":"TASK_ID","native_success":true}]}`,
-			"rejected_ids", "accepted_ids", "Self-archive")
+			"rejected_ids", "accepted_ids", "`await tools.codex_app__set_thread_archived({archived: true})`")
 	}
 }
 
@@ -102,6 +102,44 @@ func TestManagedAssetsSpecifyStrictReportAndZeroPlanGates(t *testing.T) {
 	}
 }
 
+func TestManagedAssetsRequireExecutableNativeCallsWithoutDiscovery(t *testing.T) {
+	guidedStart := strings.Index(SkillManagedContent, "For a guided install")
+	fallbackStart := strings.Index(SkillManagedContent, "For post-turn application")
+	if guidedStart < 0 || fallbackStart <= guidedStart {
+		t.Fatal("managed skill is missing guided or fallback actuator sections")
+	}
+	commonRequired := []string{
+		"`await tools.codex_app__set_thread_title({threadId: TASK_ID, title: DESIRED_TITLE})`",
+		"Use the named callable expressions directly; do not enumerate, inspect, or look up available tools or schemas inside that execution.",
+	}
+	for name, content := range map[string]string{
+		"agents":         AgentsManagedContent,
+		"skill guided":   SkillManagedContent[guidedStart:fallbackStart],
+		"skill fallback": SkillManagedContent[fallbackStart:],
+	} {
+		for _, required := range commonRequired {
+			if !strings.Contains(content, required) {
+				t.Fatalf("%s content missing executable native contract %q", name, required)
+			}
+		}
+		for _, forbidden := range []string{"`set_thread_title`", "`set_thread_archived`", "ALL_TOOLS", ".filter(", "list_tools", "get_tool_schema", "discover the callable", "discover the tool schema"} {
+			if strings.Contains(content, forbidden) {
+				t.Fatalf("%s content permits native-tool discovery or conceptual-only calls %q", name, forbidden)
+			}
+		}
+	}
+	for name, content := range map[string]string{"agents": AgentsManagedContent, "skill fallback": SkillManagedContent[fallbackStart:]} {
+		for _, required := range []string{
+			"`await tools.codex_app__set_thread_archived({archived: true})`",
+			"omit `threadId` deliberately so the actuator archives itself",
+			"no preliminary execution",
+		} {
+			if !strings.Contains(content, required) {
+				t.Fatalf("%s content missing executable self-archive contract %q", name, required)
+			}
+		}
+	}
+}
 func TestManagedGuidanceRequiresToolBackedControlSuppression(t *testing.T) {
 	for name, content := range map[string]string{"agents": AgentsManagedContent, "skill": SkillManagedContent} {
 		for _, required := range []string{"actual `functions.exec`", "returned tool result", "never a prose claim", "CODEX_THREAD_ID", "control_task_id", "hard no-op", "no worker"} {
