@@ -6,6 +6,10 @@
 
 - Recast Codex-guided installation as a warm ThreadBear welcome with progressive preference choices, plain-language review and consent, backstage technical details, and a friendlier settings notice.
 
+### Fixed
+
+- Converged repeated managed output-token displays to one decoration without consuming unowned numeric subject text.
+
 ## v1.3.0 - 2026-07-28
 
 ### Added
