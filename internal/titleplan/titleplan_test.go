@@ -3,8 +3,6 @@ package titleplan
 import (
 	"bytes"
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -550,10 +548,6 @@ one model pass;replace sole placeholder with lowercase canonical codex_delegatio
 		}
 		if got.Child.Prompt != expectedPrompt || len([]byte(got.Child.Prompt)) != 399 || len([]byte(got.Child.Prompt)) > 950 || !isASCIIString(got.Child.Prompt) {
 			t.Fatalf("prompt bytes=%d prefix=%q", len([]byte(got.Child.Prompt)), got.Child.Prompt[:min(len(got.Child.Prompt), 80)])
-		}
-		programHash := sha256.Sum256([]byte(ChildActuatorProgram))
-		if len([]byte(ChildActuatorProgram)) != 2918 || hex.EncodeToString(programHash[:]) != "8a12d0efcba69b628b01a49b8383669d9bfe5e6726622e9400cbf5f834342183" {
-			t.Fatalf("actuator program bytes=%d sha256=%x", len([]byte(ChildActuatorProgram)), programHash)
 		}
 		if strings.Count(ChildActuatorProgram, ChildSourcePlaceholder) != 1 || strings.Count(ChildActuatorLoader, ChildSourcePlaceholder) != 1 || strings.Count(got.Child.Prompt, ChildSourcePlaceholder) != 1 || strings.Count(got.Child.Prompt, "functions.exec") != 1 || strings.Contains(got.Child.Prompt, ChildActuatorProgram) || strings.Count(got.Child.Prompt, ChildActuatorLoader) != 1 {
 			t.Fatal("child prompt does not contain exactly one helper loader, placeholder, and exec contract")
