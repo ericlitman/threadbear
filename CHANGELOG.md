@@ -15,17 +15,8 @@
 
 ### Fixed
 
-- Made ordinary source turns reliably dispatch their title child before the terminal response.
-- Made the Luna title loader use the mounted transport-safe byte form.
-- Made the Luna title loader fail closed after the observed outer-wrapper removal.
-- Required Luna actuator children to copy the supplied loader byte-for-byte except for source UUID substitution.
-- Trimmed duplicated Luna actuator prompt instructions to lower fresh child input without changing runtime behavior.
-- Loaded the exact helper-owned Luna actuator program from the installed binary instead of carrying it in every child prompt.
-- Made the Luna actuator execute the helper-owned exact title-plan schema instead of inventing a narrower validator.
-- Replaced Node-dependent title handoff with a strict helper-owned raw-V8 child dispatch envelope.
-- Separated source guard/dispatch from child-only Luna title actuation and self-archive.
-- Made the Luna title actuator call Desktop-native title and self-archive tools directly without discovery.
-- Made the Luna native-title actuator contract self-contained with strict report acceptance and success-only self-archive.
+- Made ordinary source turns dispatch the mounted-proven helper-owned Luna/medium title actuator before the terminal response.
+- Removed superseded title-loader validation, normalization, replay, prompt, and release-note scaffolding while preserving revision revalidation, report acknowledgement, success-only self-archive, and settled no-op behavior.
 - Distinguished native mutation success, canonical persistence on the next inventory, and rendered Desktop accessibility verification instead of calling SQLite equality visible convergence.
 - Hardened Desktop-native title retries, newer-turn settlement, bounded waiting, and persistent control-task isolation.
 

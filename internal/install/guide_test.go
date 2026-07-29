@@ -64,12 +64,12 @@ func TestCodexInstallGuideCarriesRawV8DispatchAndChildContract(t *testing.T) {
 		"**Child actuator phase (child only).**",
 		"codex_delegation.source_thread_id",
 		"one model pass and exactly one `functions.exec`",
-		"compact immutable raw-V8 loader",
+		"mounted-proven raw-V8 loader",
 		"title-plan --json --actuator",
-		"indirectly evaluates only",
-		"exact set equality",
+		"without duplicating that helper's response schema",
+		"exact accepted-ID acknowledgement",
 		"title_actuation_failed",
-		"child archives itself, never the source",
+		"persistent ThreadBear control task is never used for routine title application",
 	} {
 		if !strings.Contains(normalized, normalizeGuideText(required)) {
 			t.Fatalf("INSTALL.md missing title dispatch contract %q", required)

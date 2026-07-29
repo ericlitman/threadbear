@@ -123,10 +123,10 @@ func TestManagedSourceIsExactCompactAndPhaseIsolated(t *testing.T) {
 		}
 	}
 	for _, required := range []string{
-		"**Child actuator phase (child only).**", "codex_delegation.source_thread_id", "one model pass", "exactly one `functions.exec`", "compact immutable raw-V8 loader", "indirectly evaluates only",
+		"**Child actuator phase (child only).**", "codex_delegation.source_thread_id", "one model pass", "exactly one `functions.exec`", "mounted-proven raw-V8 loader", "without duplicating that helper's response schema",
 		"title-plan --json --actuator", "title-plan --json --wait", "title-plan --json --operation", "tools.codex_app__set_thread_title", "title-plan --json --report",
-		"exact set equality", "no_op", "canonical_persisted", "native_succeeded_pending_canonical", "title_actuation_failed",
-		"tools.codex_app__set_thread_archived", "implementation inspection", "no recovery",
+		"exact accepted-ID acknowledgement", "no_op", "canonical_persisted", "native_succeeded_pending_canonical", "title_actuation_failed",
+		"tools.codex_app__set_thread_archived", "does not inspect", "no recovery",
 	} {
 		if !strings.Contains(SkillManagedContent, required) {
 			t.Fatalf("managed skill is missing child contract %q", required)
