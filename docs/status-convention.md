@@ -47,10 +47,8 @@ Title:  🙋 Release deployment → choose the release region
 
 ThreadBear preserves the durable subject, adds the concise action, and never places the footer line itself in the title.
 
-When token display is enabled, ThreadBear formats cumulative output tokens from the rollout's latest `token_count` event with stable magnitude buckets such as `1.2k`, `340k`, and `1.6m`. Start mode renders `🚨 1.6m Subject`; end mode renders `🚨 Subject · out 1.6m`. The figure is part of the managed title zone, so user edits remain the durable subject, disabling the setting removes only the figure, and a title write occurs only when the rendered bucket changes.
+When token display is enabled, ThreadBear formats cumulative output tokens from the rollout's latest `token_count` event with stable magnitude buckets such as `1.2k`, `340k`, and `1.6m`. Start mode renders `🚨 1.6m Subject`; end mode renders `🚨 Subject · 1.6m`. The figure is part of the managed title zone, so user edits remain the durable subject, disabling the setting removes only the figure, and a title write occurs only when the rendered bucket changes.
 
 ## Fresh-state bootstrap
 
 Only a brand-new state may adopt one strict leading canonical status marker as deterministic evidence. ThreadBear preserves the complete non-status remainder as user-owned text. Repeated status prefixes are not adopted, and action or token ownership is never inferred from title shape; those zones require exact persisted ThreadBear ownership.
-
-A footer-producing source may dispatch the hosted actuator only with explicit ThreadBear opt-in and supported Desktop-native tools. The deterministic helper, not the model, decides the exact title and no-op/precondition outcome.

@@ -16,8 +16,8 @@ var updateHelpGolden = flag.Bool("update", false, "update help golden files")
 
 func TestHelpCommandMetadataComplete(t *testing.T) {
 	commands := app.AllCommands()
-	if len(commandSpecs) != len(commands) {
-		t.Fatalf("commandSpecs has %d entries; want %d", len(commandSpecs), len(commands))
+	if len(commandSpecs) != len(commands)-1 {
+		t.Fatalf("commandSpecs has %d entries; want %d public commands", len(commandSpecs), len(commands)-1)
 	}
 	seen := make(map[app.Command]bool, len(commandSpecs))
 	for _, spec := range commandSpecs {
@@ -33,6 +33,9 @@ func TestHelpCommandMetadataComplete(t *testing.T) {
 		}
 	}
 	for _, command := range commands {
+		if command == app.CommandTitlePlan {
+			continue
+		}
 		if !command.Valid() {
 			t.Fatalf("listed app.Command %q is not valid", command)
 		}

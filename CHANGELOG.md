@@ -2,28 +2,16 @@
 
 ## Unreleased
 
-### Added
-
-- Added strict JSON-only `title-plan` wait, batch, and native-outcome reporting for exact revision-guarded hosted title application.
-
 ### Changed
 
-- Heartbeats now stage durable per-task title plans instead of writing through a detached App Server, allowing unrelated cycle work to commit while Desktop-native actuators repaint mounted task lists.
-- Fresh state adopts only one strict leading status marker, preserves the complete non-status remainder, and retains exact BEAR-67 action/token ownership boundaries.
-
-- Recast Codex-guided installation as a warm ThreadBear welcome with progressive preference choices, plain-language review and consent, backstage technical details, and a friendlier settings notice.
-
-### Fixed
-
-- Made ordinary source turns dispatch the mounted-proven helper-owned Luna/medium title actuator before the terminal response.
-- Removed superseded title-loader validation, normalization, replay, prompt, and release-note scaffolding while preserving revision revalidation, report acknowledgement, success-only self-archive, and settled no-op behavior.
-- Distinguished native mutation success, canonical persistence on the next inventory, and rendered Desktop accessibility verification instead of calling SQLite equality visible convergence.
-- Hardened Desktop-native title retries, newer-turn settlement, bounded waiting, and persistent control-task isolation.
+- Restored direct, checkpointed App Server title writes with revision/title revalidation, persisted applying/applied/verified stages, inventory verification, and title-before-archive ordering.
+- Drains schema-v2 pending title plans once into ordinary checkpoint operations without evidence, transcript, token, or classifier reads; missing and drifted plans return to normal comparison.
+- Retired the executable child title actuator architecture while retaining one hidden fail-closed `title-plan --json --dispatch` compatibility response.
+- Bounded managed titles to 60 UTF-16 units without splitting surrogate pairs and standardized end token suffixes as ` · VALUE`, including legacy suffix convergence.
 
 ### Fixed
 
-- Converged repeated managed output-token displays to one decoration without consuming unowned numeric subject text.
-- Replaced managed output-token counts before persisted title ellipses instead of appending another count.
+- Preserved crash recovery for applying/applied title operations, forced one direct setter call for same-title migrated refreshes, retained failed migrated plans, and saved verified title guards before same-task archives.
 
 ## v1.3.0 - 2026-07-28
 

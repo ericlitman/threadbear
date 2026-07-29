@@ -42,17 +42,6 @@ var commandSpecs = []commandSpec{
 		},
 	},
 	{
-		command: app.CommandTitlePlan, synopsis: "Emit exact pending native title mutations as strict JSON.",
-		registerFlags: func(flags *flag.FlagSet, request *app.Request) {
-			flags.StringVar(&request.TitlePlanWait, "wait", "", "wait for source `TASK_ID` to become terminal, then plan")
-			flags.StringVar(&request.TitlePlanOperation, "operation", "", "revalidate one pending `OPERATION_ID` immediately before mutation")
-			flags.BoolVar(&request.TitlePlanBatch, "batch", false, "plan all pending title mutations")
-			flags.BoolVar(&request.TitlePlanReport, "report", false, "read native mutation outcomes as strict JSON from stdin")
-			flags.BoolVar(&request.TitlePlanDispatch, "dispatch", false, "emit the guarded child title-actuator dispatch envelope")
-			flags.StringVar(&request.TitlePlanActuator, "actuator", "", "emit the helper-owned actuator program for source `TASK_ID`")
-		},
-	},
-	{
 		command:       app.CommandStatus,
 		synopsis:      "Show ThreadBear health, preferences, and recent activity.",
 		registerFlags: noCommandFlags,
@@ -126,6 +115,11 @@ var commandSpecs = []commandSpec{
 func noCommandFlags(*flag.FlagSet, *app.Request) {}
 
 func commandSpecFor(command app.Command) (commandSpec, bool) {
+	if command == app.CommandTitlePlan {
+		return commandSpec{command: command, synopsis: "Retired title actuator compatibility endpoint.", registerFlags: func(flags *flag.FlagSet, request *app.Request) {
+			flags.BoolVar(&request.TitlePlanDispatch, "dispatch", false, "return the retired fail-closed compatibility result")
+		}}, true
+	}
 	for _, spec := range commandSpecs {
 		if spec.command == command {
 			return spec, true
@@ -143,6 +137,9 @@ func newCommandFlagSet(spec commandSpec, request *app.Request) *flag.FlagSet {
 }
 
 func requestedHelp(args []string) (string, int, bool) {
+	if len(args) > 0 && app.Command(args[0]) == app.CommandTitlePlan && (containsFlag(args[1:], "-h") || containsFlag(args[1:], "--help")) {
+		return unknownCommandMessage(app.CommandTitlePlan), 2, true
+	}
 	if len(args) == 0 {
 		return renderTopLevelHelp(), 2, true
 	}
@@ -154,6 +151,9 @@ func requestedHelp(args []string) (string, int, bool) {
 			return renderTopLevelHelp(), 0, true
 		}
 		if len(args) == 2 {
+			if app.Command(args[1]) == app.CommandTitlePlan {
+				return unknownCommandMessage(app.CommandTitlePlan), 2, true
+			}
 			if spec, ok := commandSpecFor(app.Command(args[1])); ok {
 				return renderCommandHelp(spec), 0, true
 			}

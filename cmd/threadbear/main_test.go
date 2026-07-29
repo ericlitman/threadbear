@@ -11,7 +11,6 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/ericlitman/threadbear/assets"
 	"github.com/ericlitman/threadbear/internal/app"
@@ -21,7 +20,6 @@ import (
 	"github.com/ericlitman/threadbear/internal/install"
 	"github.com/ericlitman/threadbear/internal/launchagent"
 	"github.com/ericlitman/threadbear/internal/state"
-	"github.com/ericlitman/threadbear/internal/titleplan"
 	"github.com/ericlitman/threadbear/internal/tokens"
 )
 
@@ -676,38 +674,6 @@ func TestPostWelcomeOnceUsesPersistedReadback(t *testing.T) {
 	}
 }
 
-func TestParseTitlePlanRequiresStrictJSONAndOneMode(t *testing.T) {
-	waitRequest, err := parseRequest([]string{"title-plan", "--json", "--wait", "task-1"})
-	if err != nil || waitRequest.TitlePlanWait != "task-1" || waitRequest.TitlePlanBatch || waitRequest.TitlePlanReport {
-		t.Fatalf("wait request=%+v err=%v", waitRequest, err)
-	}
-	operationRequest, err := parseRequest([]string{"title-plan", "--json", "--operation", "op-1"})
-	if err != nil || operationRequest.TitlePlanOperation != "op-1" || operationRequest.TitlePlanWait != "" || operationRequest.TitlePlanBatch || operationRequest.TitlePlanReport {
-		t.Fatalf("operation request=%+v err=%v", operationRequest, err)
-	}
-	batchRequest, err := parseRequest([]string{"title-plan", "--json", "--batch"})
-	if err != nil || !batchRequest.TitlePlanBatch || batchRequest.TitlePlanWait != "" || batchRequest.TitlePlanOperation != "" || batchRequest.TitlePlanReport {
-		t.Fatalf("batch request=%+v err=%v", batchRequest, err)
-	}
-	reportRequest, err := parseRequest([]string{"title-plan", "--json", "--report"})
-	if err != nil || !reportRequest.TitlePlanReport || reportRequest.TitlePlanWait != "" || reportRequest.TitlePlanOperation != "" || reportRequest.TitlePlanBatch || reportRequest.TitlePlanDispatch {
-		t.Fatalf("report request=%+v err=%v", reportRequest, err)
-	}
-	dispatchRequest, err := parseRequest([]string{"title-plan", "--json", "--dispatch"})
-	if err != nil || !dispatchRequest.TitlePlanDispatch || dispatchRequest.TitlePlanWait != "" || dispatchRequest.TitlePlanOperation != "" || dispatchRequest.TitlePlanBatch || dispatchRequest.TitlePlanReport || dispatchRequest.TitlePlanActuator != "" {
-		t.Fatalf("dispatch request=%+v err=%v", dispatchRequest, err)
-	}
-	actuatorRequest, err := parseRequest([]string{"title-plan", "--json", "--actuator", "11111111-1111-4111-8111-111111111111"})
-	if err != nil || actuatorRequest.TitlePlanActuator != "11111111-1111-4111-8111-111111111111" || actuatorRequest.TitlePlanDispatch {
-		t.Fatalf("actuator request=%+v err=%v", actuatorRequest, err)
-	}
-	for _, args := range [][]string{{"title-plan", "--wait", "task-1"}, {"title-plan", "--json"}, {"title-plan", "--json", "--batch", "--report"}, {"title-plan", "--json", "--dispatch", "--batch"}, {"title-plan", "--json", "--dispatch", "--actuator", "11111111-1111-4111-8111-111111111111"}, {"title-plan", "--json", "--wait", " task-1 "}, {"title-plan", "--json", "--operation", " op-1 "}, {"title-plan", "--json", "--actuator", " 11111111-1111-4111-8111-111111111111"}} {
-		if _, err := parseRequest(args); err == nil {
-			t.Fatalf("parseRequest(%v) succeeded", args)
-		}
-	}
-}
-
 type hostedWaitInventoryFake struct {
 	tasks       []codex.Task
 	calls       int
@@ -753,160 +719,31 @@ func (f *hostedWaitClientFake) ReadLatestTurn(ctx context.Context, _, _ string) 
 
 func (f *hostedWaitClientFake) Close() error { f.closed = true; return nil }
 
-func TestRunTitlePlanDispatchUsesInheritedIdentityAndExactEnvelope(t *testing.T) {
-	const sourceID = "11111111-1111-4111-8111-111111111111"
-	const controlID = "22222222-2222-4222-8222-222222222222"
+func TestRetiredTitlePlanCompatibilityIsHiddenAndFailClosed(t *testing.T) {
+	request, err := parseRequest([]string{"title-plan", "--json", "--dispatch"})
+	if err != nil || !request.TitlePlanDispatch {
+		t.Fatalf("request=%+v err=%v", request, err)
+	}
+	for _, args := range [][]string{{"title-plan", "--dispatch"}, {"title-plan", "--json"}, {"title-plan", "--json", "--batch"}} {
+		if _, err := parseRequest(args); err == nil {
+			t.Fatalf("accepted %v", args)
+		}
+	}
+	if strings.Contains(renderTopLevelHelp(), "title-plan") {
+		t.Fatal("retired compatibility command is visible in help")
+	}
 	home := t.TempDir()
-	codexHome := filepath.Join(home, "codex")
+	codexHome := filepath.Join(home, ".codex")
 	if err := os.MkdirAll(codexHome, 0o700); err != nil {
 		t.Fatal(err)
 	}
 	t.Setenv("HOME", home)
 	t.Setenv("CODEX_HOME", codexHome)
-	t.Setenv("CODEX_THREAD_ID", sourceID)
-	store := state.NewStore(filepath.Join(home, ".local", "share", "threadbear"))
-	if err := store.SaveConfig(config.Default(controlID)); err != nil {
-		t.Fatal(err)
-	}
-	if err := store.SaveState(state.New()); err != nil {
-		t.Fatal(err)
-	}
 	var stdout, stderr bytes.Buffer
 	if code := run(context.Background(), []string{"title-plan", "--json", "--dispatch"}, &stdout, &stderr); code != 0 {
 		t.Fatalf("code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
 	}
-	var envelope struct {
-		Version     int    `json:"version"`
-		Allow       bool   `json:"allow"`
-		Disposition string `json:"disposition"`
-		Child       struct {
-			Model    string `json:"model"`
-			Thinking string `json:"thinking"`
-			Prompt   string `json:"prompt"`
-			Target   struct {
-				Type          string `json:"type"`
-				DirectoryName string `json:"directoryName"`
-			} `json:"target"`
-		} `json:"child"`
-	}
-	if err := json.Unmarshal(stdout.Bytes(), &envelope); err != nil {
-		t.Fatal(err)
-	}
-	if envelope.Version != 1 || !envelope.Allow || envelope.Disposition != "dispatch" || envelope.Child.Model != "gpt-5.6-luna" || envelope.Child.Thinking != "medium" || envelope.Child.Target.Type != "projectless" || envelope.Child.Target.DirectoryName != "threadbear-title-actuator" || !strings.HasPrefix(envelope.Child.Prompt, "THREADBEAR_TITLE_ACTUATOR_V1\n") {
-		t.Fatalf("envelope=%+v", envelope)
-	}
-	if strings.Contains(stdout.String(), sourceID) || strings.Contains(stdout.String(), controlID) {
-		t.Fatalf("dispatch exposed task identity: %s", stdout.String())
-	}
-	t.Setenv("CODEX_THREAD_ID", controlID)
-	stdout.Reset()
-	stderr.Reset()
-	if code := run(context.Background(), []string{"title-plan", "--json", "--dispatch"}, &stdout, &stderr); code != 0 {
-		t.Fatalf("control code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
-	}
-	if got, want := stdout.String(), "{\"version\":1,\"allow\":false,\"disposition\":\"control_task\"}\n"; got != want {
-		t.Fatalf("control envelope=%q want=%q", got, want)
-	}
-}
-
-func TestRunTitlePlanActuatorEmitsExactVersionedProgram(t *testing.T) {
-	const sourceID = "a1111111-1111-4111-8111-111111111111"
-	home := t.TempDir()
-	t.Setenv("HOME", home)
-	t.Setenv("CODEX_HOME", filepath.Join(home, "codex"))
-	var stdout, stderr bytes.Buffer
-	if code := run(context.Background(), []string{"title-plan", "--json", "--actuator", sourceID}, &stdout, &stderr); code != 0 {
-		t.Fatalf("code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
-	}
-	var envelope map[string]any
-	if err := json.Unmarshal(stdout.Bytes(), &envelope); err != nil {
-		t.Fatal(err)
-	}
-	program, ok := envelope["program"].(string)
-	if !ok || len(envelope) != 2 || envelope["version"] != float64(1) || program != strings.Replace(titleplan.ChildActuatorProgram, titleplan.ChildSourcePlaceholder, sourceID, 1) || strings.Contains(program, titleplan.ChildSourcePlaceholder) {
-		t.Fatalf("envelope=%+v", envelope)
-	}
-	stdout.Reset()
-	stderr.Reset()
-	if code := run(context.Background(), []string{"title-plan", "--json", "--actuator", strings.ToUpper(sourceID)}, &stdout, &stderr); code == 0 {
-		t.Fatalf("uppercase source succeeded: stdout=%q stderr=%q", stdout.String(), stderr.String())
-	}
-}
-
-func TestHostedTitleWaiterDeadlineBoundsOpenAndReads(t *testing.T) {
-	for _, stage := range []string{"open", "inventory", "read"} {
-		t.Run(stage, func(t *testing.T) {
-			inventory := &hostedWaitInventoryFake{tasks: []codex.Task{{TaskID: "task", RolloutPath: "rollout"}}, block: stage == "inventory"}
-			client := &hostedWaitClientFake{block: stage == "read"}
-			openHadDeadline := false
-			waiter := hostedTitleWaiter{
-				store: staticConfigLoader{value: config.Default("control")}, inventory: inventory,
-				open: func(ctx context.Context) (hostedTitleClient, error) {
-					_, openHadDeadline = ctx.Deadline()
-					if stage == "open" {
-						<-ctx.Done()
-						return nil, ctx.Err()
-					}
-					return client, nil
-				},
-				timeout: 20 * time.Millisecond, pollInterval: time.Millisecond,
-			}
-			err := waiter.Wait(context.Background(), "task")
-			if !errors.Is(err, errHostedTitleDeadline) || !openHadDeadline {
-				t.Fatalf("error=%v open deadline=%t", err, openHadDeadline)
-			}
-			if stage == "inventory" && !inventory.hadDeadline {
-				t.Fatal("inventory did not receive bounded context")
-			}
-			if stage == "read" && !client.hadDeadline {
-				t.Fatal("latest-turn read did not receive bounded context")
-			}
-		})
-	}
-}
-
-func TestHostedTitleWaiterPreservesParentCancellation(t *testing.T) {
-	inventory := &hostedWaitInventoryFake{tasks: []codex.Task{{TaskID: "task", RolloutPath: "rollout"}}}
-	client := &hostedWaitClientFake{block: true}
-	waiter := hostedTitleWaiter{store: staticConfigLoader{value: config.Default("control")}, inventory: inventory, open: func(context.Context) (hostedTitleClient, error) { return client, nil }, timeout: time.Second, pollInterval: time.Millisecond}
-	ctx, cancel := context.WithCancel(context.Background())
-	go func() {
-		time.Sleep(10 * time.Millisecond)
-		cancel()
-	}()
-	if err := waiter.Wait(ctx, "task"); !errors.Is(err, context.Canceled) {
-		t.Fatalf("error=%v", err)
-	}
-}
-
-func TestHostedTitleWaiterPreservesParentDeadline(t *testing.T) {
-	inventory := &hostedWaitInventoryFake{tasks: []codex.Task{{TaskID: "task", RolloutPath: "rollout"}}}
-	client := &hostedWaitClientFake{block: true}
-	waiter := hostedTitleWaiter{store: staticConfigLoader{value: config.Default("control")}, inventory: inventory, open: func(context.Context) (hostedTitleClient, error) { return client, nil }, timeout: time.Second, pollInterval: time.Millisecond}
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
-	defer cancel()
-	if err := waiter.Wait(ctx, "task"); !errors.Is(err, context.DeadlineExceeded) {
-		t.Fatalf("error=%v", err)
-	}
-}
-
-func TestHostedTitleWaiterReturnsReadFailure(t *testing.T) {
-	inventory := &hostedWaitInventoryFake{tasks: []codex.Task{{TaskID: "task", RolloutPath: "rollout"}}}
-	client := &hostedWaitClientFake{err: errors.New("synthetic read failure")}
-	waiter := hostedTitleWaiter{store: staticConfigLoader{value: config.Default("control")}, inventory: inventory, open: func(context.Context) (hostedTitleClient, error) { return client, nil }, timeout: time.Second, pollInterval: time.Millisecond}
-	if err := waiter.Wait(context.Background(), "task"); err == nil || err.Error() != "synthetic read failure" {
-		t.Fatalf("error=%v", err)
-	}
-}
-
-func TestHostedTitleWaiterScansInventoryOnceWhileActive(t *testing.T) {
-	inventory := &hostedWaitInventoryFake{tasks: []codex.Task{{TaskID: "task", RolloutPath: "rollout"}}}
-	client := &hostedWaitClientFake{activeReads: 2}
-	waiter := hostedTitleWaiter{store: staticConfigLoader{value: config.Default("control")}, inventory: inventory, open: func(context.Context) (hostedTitleClient, error) { return client, nil }, timeout: time.Second, pollInterval: time.Millisecond}
-	if err := waiter.Wait(context.Background(), "task"); err != nil {
-		t.Fatal(err)
-	}
-	if inventory.calls != 1 || client.reads != 3 || !inventory.hadDeadline || !client.hadDeadline || !client.closed {
-		t.Fatalf("inventory=%d reads=%d inventory deadline=%t read deadline=%t closed=%t", inventory.calls, client.reads, inventory.hadDeadline, client.hadDeadline, client.closed)
+	if got, want := stdout.String(), "{\"version\":1,\"allow\":false,\"disposition\":\"retired\"}\n"; got != want {
+		t.Fatalf("got %q want %q", got, want)
 	}
 }

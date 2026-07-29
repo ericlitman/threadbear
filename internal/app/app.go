@@ -84,12 +84,7 @@ type Request struct {
 	ArchiveControlTask bool
 	Version            string
 	TaskID             string
-	TitlePlanWait      string
-	TitlePlanOperation string
-	TitlePlanBatch     bool
-	TitlePlanReport    bool
 	TitlePlanDispatch  bool
-	TitlePlanActuator  string
 	ControlTaskID      string
 	Configure          ConfigPatch
 }
@@ -157,39 +152,11 @@ func (r Request) Validate() error {
 	if !needsTask && taskID != "" {
 		return fmt.Errorf("%w: %s does not accept a task ID", ErrInvalidRequest, r.Command)
 	}
-	if strings.TrimSpace(r.TitlePlanWait) != r.TitlePlanWait {
-		return fmt.Errorf("%w: title-plan wait task ID must not contain surrounding whitespace", ErrInvalidRequest)
-	}
-	if strings.TrimSpace(r.TitlePlanOperation) != r.TitlePlanOperation {
-		return fmt.Errorf("%w: title-plan operation ID must not contain surrounding whitespace", ErrInvalidRequest)
-	}
-	if strings.TrimSpace(r.TitlePlanActuator) != r.TitlePlanActuator {
-		return fmt.Errorf("%w: title-plan actuator source ID must not contain surrounding whitespace", ErrInvalidRequest)
-	}
 	if r.Command == CommandTitlePlan {
-		modes := 0
-		if r.TitlePlanWait != "" {
-			modes++
+		if !r.JSON || !r.TitlePlanDispatch {
+			return fmt.Errorf("%w: title-plan compatibility requires --json --dispatch", ErrInvalidRequest)
 		}
-		if r.TitlePlanOperation != "" {
-			modes++
-		}
-		if r.TitlePlanBatch {
-			modes++
-		}
-		if r.TitlePlanReport {
-			modes++
-		}
-		if r.TitlePlanDispatch {
-			modes++
-		}
-		if r.TitlePlanActuator != "" {
-			modes++
-		}
-		if !r.JSON || modes != 1 {
-			return fmt.Errorf("%w: title-plan requires --json and exactly one of --wait, --operation, --batch, --report, --dispatch, or --actuator", ErrInvalidRequest)
-		}
-	} else if r.TitlePlanWait != "" || r.TitlePlanOperation != "" || r.TitlePlanBatch || r.TitlePlanReport || r.TitlePlanDispatch || r.TitlePlanActuator != "" {
+	} else if r.TitlePlanDispatch {
 		return fmt.Errorf("%w: title-plan flags are title-plan-only", ErrInvalidRequest)
 	}
 	if strings.TrimSpace(r.ControlTaskID) != r.ControlTaskID {

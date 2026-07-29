@@ -1,17 +1,5 @@
 # ThreadBear
 
-## Native title handoff
-
-If task instructions start with `THREADBEAR_TITLE_ACTUATOR_V1`, this is the child: never dispatch recursively or read the skill; follow only the helper-owned prompt.
-
-Otherwise, before every terminal response, after substantive work, run one actual `functions.exec` containing only this program. This is mandatory even for short answers and tasks that needed no other tools. It creates at most one child, never performs title/archive work in the source, and never retries.
-
-```js
-const e=JSON.parse((await tools.exec_command({cmd:"~/.local/bin/threadbear title-plan --json --dispatch"})).output);if(e.allow)await tools.codex_app__create_thread(e.child);text(JSON.stringify({allow:e.allow,dispatched:e.allow}))
-```
-
-The installed helper owns source, config, state, control-task, and exact child validation. Invalid or unavailable output throws before child creation. Denied dispatch creates nothing and emits one aggregate; successful creation also emits one aggregate. A thrown creation aborts before aggregate emission and is not retried. After the call, return the substantive final immediately and leave the source unarchived.
-
 ## Status footer
 
 End each terminal response with exactly one compact status line. Use the matching literal example as its shape:

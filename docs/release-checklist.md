@@ -30,15 +30,15 @@ Complete this checklist for every stable ThreadBear release.
 
 The hosted smoke explicitly does not prove real Codex auth, real App Server side effects, classification heartbeat behavior, title/archive effects, or an architecture other than its runner. The required replica rehearsal covers the Codex-touching composition before tagging.
 
-## BEAR-59 Desktop title canaries
+## Direct title-write canaries
 
-Before a release that changes title planning or managed guidance, use an already-mounted Codex Desktop catalog and prove these boundaries separately without reload or restart:
+Before a release that changes title handling, use a real Codex catalog and verify:
 
-1. Read the non-control source rollout separately. Confirm exactly one 229-byte source loader calls `title-plan --json --dispatch`, passes the helper-supplied child to one `tools.codex_app__create_thread` when allowed, emits the aggregate result, and does no title, report, archive, retry, or child waiting. Confirm the helper suppresses invalid identity, disabled rename/AGENTS, and the persistent control task, and that the child sentinel prevents recursion.
-2. Read the child rollout separately. Confirm one projectless Luna/medium pass and one `functions.exec` with the exact 195-byte loader and sole delegated source substitution. The loader must obtain the program from `title-plan --json --actuator SOURCE_ID`; the loaded program must reject incomplete commands or malformed required identity/operation data, revalidate each operation immediately before the native setter, report every attempted setter, require exact accepted-ID acknowledgement, and self-archive only after accepted success.
-3. Exercise zero-plan settlement without a setter or empty report, limited to `no_op`, `canonical_persisted`, and `native_succeeded_pending_canonical`. Exercise command, drift, native, and report failures and confirm `title_actuation_failed`, no success archive, and no recovery loop.
-4. Record child native-call success, accepted helper report, canonical `read_thread` and `list_threads` persistence, and the already-mounted Desktop accessibility label as four separate facts without reload or restart. None substitutes for another.
-5. Record source and child model, effort, raw input, cached input, output, and reasoning-output tokens separately as release-canary evidence only. Confirm title actuation spend occurs only on the one Luna/medium child pass at or below the measured 24,514 raw-input ceiling, with no source-side actuator program.
-6. Run one unchanged heartbeat after the canary and verify zero classifier turns and zero title RPCs.
+1. A changed task is revalidated before `thread/name/set`, and checkpoint saves record applying, applied, and verified in order.
+2. Inventory persistence is verified before committed title ownership changes and before a same-task archive begins.
+3. Applying/applied crash recovery does not repeat a title already visible in inventory and safely retries one not yet visible.
+4. Schema-v2 pending plans drain once; valid plans use no evidence, transcript, token, or classifier reads, while missing and drifted plans return to ordinary comparison.
+5. A same-title migrated refresh performs exactly one setter call, and a failed direct write retains the compatibility plan for retry.
+6. One unchanged heartbeat performs zero classifier turns and zero title RPCs.
 
-Do not add production token telemetry, use the persistent ThreadBear master for routine work, automate accessibility/UI inspection in product code, or use private IPC, caches, daemons, or restarts.
+Do not use private IPC, caches, daemons, UI automation, restarts, or the persistent ThreadBear control task for routine title work.
