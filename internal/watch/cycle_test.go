@@ -1885,6 +1885,66 @@ func migratedPlan(task codex.Task, desired string) state.PendingTitlePlan {
 	}
 }
 
+func TestPendingTitleMigrationSettlesAlreadyAppliedPlanWithoutReads(t *testing.T) {
+	now := time.Date(2026, 8, 2, 12, 0, 0, 0, time.UTC)
+	expected := codex.Task{TaskID: "task-a", Revision: "1", Title: "Subject", Source: "vscode"}
+	current := expected
+	current.Title = "✅ Subject"
+	committed := state.New()
+	committed.BootstrapComplete = true
+	committed.LastUpdateCheck = timePointer(now)
+	committed.Tasks[expected.TaskID] = record(expected, state.StatusComplete, now)
+	plan := migratedPlan(expected, current.Title)
+	plan.ManagedTokenDisplay = "26k"
+	plan.ManagedTokenPosition = tokens.PositionEnd
+	committed.PendingTitlePlans[expected.TaskID] = plan
+	runner, deps := testRunner(t, now, []codex.Task{current}, committed)
+
+	if _, err := runner.Run(context.Background(), false); err != nil {
+		t.Fatal(err)
+	}
+	stored, _ := deps.store.store.LoadState()
+	owned := stored.Tasks[current.TaskID]
+	if len(stored.PendingTitlePlans) != 0 || owned.CapturedRevision != current.Revision || owned.CapturedTitle != current.Title || owned.LastAppliedTitle != current.Title || owned.DurableSubject != plan.DurableSubject || owned.ManagedTokenDisplay != plan.ManagedTokenDisplay || owned.ManagedTokenPosition != plan.ManagedTokenPosition {
+		t.Fatalf("state=%+v", stored)
+	}
+	if len(deps.client.latestReads) != 0 || len(deps.client.previousReads) != 0 || len(deps.tokens.calls) != 0 || len(deps.client.titles) != 0 || deps.classifier.calls != 0 {
+		t.Fatalf("latest=%v previous=%v tokens=%v titles=%v classifier=%d", deps.client.latestReads, deps.client.previousReads, deps.tokens.calls, deps.client.titles, deps.classifier.calls)
+	}
+}
+
+func TestPendingTitleMigrationSettlesAlreadyAppliedAdvancedRevisionWithoutClassifier(t *testing.T) {
+	now := time.Date(2026, 8, 2, 12, 0, 0, 0, time.UTC)
+	expected := codex.Task{TaskID: "task-a", Revision: "1", Title: "Subject", Source: "vscode", RolloutPath: "/synthetic/task-a.jsonl"}
+	current := expected
+	current.Revision = "2"
+	current.Title = "✅ Subject"
+	evidence := completedEvidence(now, "done", "no footer")
+	committed := state.New()
+	committed.BootstrapComplete = true
+	committed.LastUpdateCheck = timePointer(now)
+	previous := record(expected, state.StatusComplete, now)
+	previous.Provenance = state.ProvenanceLuna
+	previous.EvidenceFingerprint = evidenceFingerprint(expected, evidence)
+	committed.Tasks[expected.TaskID] = previous
+	plan := migratedPlan(expected, current.Title)
+	committed.PendingTitlePlans[expected.TaskID] = plan
+	runner, deps := testRunner(t, now, []codex.Task{current}, committed)
+	deps.client.latest[current.TaskID] = evidence
+
+	if _, err := runner.Run(context.Background(), false); err != nil {
+		t.Fatal(err)
+	}
+	stored, _ := deps.store.store.LoadState()
+	owned := stored.Tasks[current.TaskID]
+	if len(stored.PendingTitlePlans) != 0 || owned.CapturedRevision != current.Revision || owned.CapturedTitle != current.Title || owned.LastAppliedTitle != current.Title || owned.DurableSubject != plan.DurableSubject || owned.Status != previous.Status || owned.Provenance != previous.Provenance {
+		t.Fatalf("state=%+v", stored)
+	}
+	if len(deps.client.latestReads) != 1 || len(deps.client.previousReads) != 0 || len(deps.tokens.calls) != 1 || len(deps.client.titles) != 0 || deps.classifier.calls != 0 {
+		t.Fatalf("latest=%v previous=%v tokens=%v titles=%v classifier=%d", deps.client.latestReads, deps.client.previousReads, deps.tokens.calls, deps.client.titles, deps.classifier.calls)
+	}
+}
+
 func TestPendingTitleMigrationPromotesValidPlanWithoutClassificationReads(t *testing.T) {
 	now := time.Date(2026, 8, 2, 12, 0, 0, 0, time.UTC)
 	task := codex.Task{TaskID: "task-a", Revision: "1", Title: "Subject", Source: "vscode", RolloutPath: "/synthetic/task-a.jsonl"}

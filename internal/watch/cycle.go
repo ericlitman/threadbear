@@ -156,9 +156,10 @@ func (r *Runner) Run(ctx context.Context, dryRun bool) (output.Result, error) {
 		return output.HeartbeatResult{CycleID: "inventory", ErrorCode: "inventory_failed"}, err
 	}
 	titleStateChanged := false
+	advancedTitleSettlements := make(map[string]struct{})
 	if !checkpointExists {
 		if cfg.RenameEnabled {
-			titleStateChanged = drainInvalidPendingTitles(&committed, inventory)
+			titleStateChanged, advancedTitleSettlements = settleOrDrainPendingTitles(&committed, inventory)
 		} else if len(committed.PendingTitlePlans) > 0 {
 			committed.PendingTitlePlans = make(map[string]state.PendingTitlePlan)
 			titleStateChanged = true
@@ -376,7 +377,11 @@ func (r *Runner) Run(ctx context.Context, dryRun bool) (output.Result, error) {
 		captured.EvidenceFingerprint = evidenceFingerprint(task, evidence)
 		captured.LastSubstantiveActivity = laterActivity(captured.LastSubstantiveActivity, choice.Activity, now)
 		checkpoint.Inventory[task.TaskID] = captured
-		if choice.Resolution.Resolved {
+		previous, hadPrevious := committed.Tasks[task.TaskID]
+		_, advancedSettlement := advancedTitleSettlements[task.TaskID]
+		if advancedSettlement && hadPrevious && previous.EvidenceFingerprint != "" && previous.EvidenceFingerprint == captured.EvidenceFingerprint {
+			checkpoint.Results[task.TaskID] = state.ClassificationResult{TaskID: task.TaskID, Revision: task.Revision, Status: previous.Status, Provenance: previous.Provenance, DurableSubject: previous.DurableSubject, ManagedAction: previous.ManagedAction}
+		} else if choice.Resolution.Resolved {
 			checkpoint.Results[task.TaskID] = state.ClassificationResult{TaskID: task.TaskID, Revision: task.Revision, Status: choice.Resolution.Status, Provenance: choice.Resolution.Provenance, ManagedAction: choice.Resolution.ManagedAction}
 		} else if bootstrapTitles {
 			if adopted, subject, ok := title.AdoptSingleLeadingStatus(task.Title); ok {
@@ -1262,16 +1267,41 @@ func (r *Runner) applyOperations(ctx context.Context, cfg config.Config, client 
 	return nil
 }
 
-func drainInvalidPendingTitles(committed *state.State, inventory codex.Inventory) bool {
+func settleOrDrainPendingTitles(committed *state.State, inventory codex.Inventory) (bool, map[string]struct{}) {
 	changed := false
+	advanced := make(map[string]struct{})
 	for taskID, plan := range committed.PendingTitlePlans {
 		task, exists := findTask(inventory, taskID)
-		if !exists || task.Revision != plan.ExpectedRevision || task.Title != plan.ExpectedTitle {
+		if !exists {
+			delete(committed.PendingTitlePlans, taskID)
+			changed = true
+			continue
+		}
+		sameTitleRefresh := plan.ExpectedTitle == plan.DesiredTitle
+		if task.Title == plan.DesiredTitle && (!sameTitleRefresh || plan.NativeOutcome == state.NativeTitleSucceeded) {
+			revisionAdvanced := task.Revision != plan.ExpectedRevision
+			if record, ok := committed.Tasks[taskID]; ok {
+				if !revisionAdvanced {
+					record.CapturedRevision = task.Revision
+				}
+				record.CapturedTitle, record.LastAppliedTitle = task.Title, task.Title
+				record.DurableSubject, record.ManagedAction = plan.DurableSubject, plan.ManagedAction
+				record.ManagedTokenDisplay, record.ManagedTokenPosition = plan.ManagedTokenDisplay, plan.ManagedTokenPosition
+				committed.Tasks[taskID] = record
+			}
+			delete(committed.PendingTitlePlans, taskID)
+			changed = true
+			if revisionAdvanced {
+				advanced[taskID] = struct{}{}
+			}
+			continue
+		}
+		if task.Revision != plan.ExpectedRevision || task.Title != plan.ExpectedTitle {
 			delete(committed.PendingTitlePlans, taskID)
 			changed = true
 		}
 	}
-	return changed
+	return changed, advanced
 }
 
 func hasPromotablePendingTitle(committed state.State, inventory codex.Inventory) bool {
