@@ -4,29 +4,35 @@ import fs from "node:fs";
 const source=fs.readFileSync(new URL("../internal/titleplan/titleplan.go",import.meta.url),"utf8");
 const match=source.match(/const ChildActuatorProgram = `([\s\S]*?)`\n\nconst ChildPrompt =/);
 assert(match,"one child actuator program constant must exist");
-const program=match[1],placeholder="__THREADBEAR_SOURCE_UUID__";
+const program=match[1],placeholder="__THREADBEAR_SOURCE_UUID__",sourceID="11111111-1111-4111-8111-111111111111";
 assert.equal(program.split(placeholder).length-1,1);
 assert(source.includes("` + ChildActuatorProgram + `"),"the shipped prompt must embed the exact program constant");
 assert(/^[\x00-\x7f]*$/.test(program),"the actuator program must remain ASCII");
 const AsyncFunction=Object.getPrototypeOf(async function(){}).constructor;
-const execute=new AsyncFunction("tools","text",program.replace(placeholder,"11111111-1111-4111-8111-111111111111"));
+const execute=new AsyncFunction("tools","text",program.replace(placeholder,sourceID));
 const completed=value=>({output:JSON.stringify(value),exit_code:0});
-const plan=expectedTitle=>({operation_id:"5cc48150fdce0758b399e83cca4b014f",task_id:"22222222-2222-4222-8222-222222222222",expected_revision:"1700000000123",expected_title:expectedTitle,desired_title:"✅ Explain idempotent retry safety · out 564"});
+const plan=(expectedTitle="Explain idempotent retry safety",overrides={})=>({operation_id:"5cc48150fdce0758b399e83cca4b014f",task_id:"22222222-2222-4222-8222-222222222222",expected_revision:"1700000000123",expected_title:expectedTitle,desired_title:"✅ Explain idempotent retry safety · out 564",...overrides});
 const envelope=(mode,plans,dispositions=[])=>({version:1,mode,plans,dispositions});
+const omit=(value,key)=>Object.fromEntries(Object.entries(value).filter(([name])=>name!==key));
+const strings=value=>typeof value==="string"?[value]:Array.isArray(value)?value.flatMap(strings):value&&typeof value==="object"?Object.values(value).flatMap(strings):[];
 
 async function replay(name,options={}){
-  const expectedTitle=options.expectedTitle??"Explain idempotent retry safety";
-  const item=plan(expectedTitle);
+  const item=options.item??plan(options.expectedTitle);
   const calls={commands:[],setters:[],archives:[],text:[]};
   const wait=options.waitEnvelope??envelope("wait",[item]);
   const operation=options.operationEnvelope??envelope("operation",[item]);
   const report=options.reportEnvelope??{version:1,accepted_ids:[item.task_id],rejected_ids:[]};
+  const command=async(value,fallback,cmd)=>{
+    if(value instanceof Error)throw value;
+    if(typeof value==="function")return value(cmd);
+    return value===undefined?fallback:value;
+  };
   const tools={
     exec_command:async({cmd})=>{
       calls.commands.push(cmd);
-      if(cmd.includes("--wait"))return options.waitCommand??completed(wait);
-      if(cmd.includes("--operation"))return typeof options.operationCommand==="function"?options.operationCommand(cmd):options.operationCommand??completed(operation);
-      if(cmd.includes("--report"))return options.reportCommand??completed(report);
+      if(cmd.includes("--wait"))return command(options.waitCommand,completed(wait),cmd);
+      if(cmd.includes("--operation"))return command(options.operationCommand,completed(operation),cmd);
+      if(cmd.includes("--report"))return command(options.reportCommand,completed(report),cmd);
       throw new Error("unexpected command");
     },
     codex_app__set_thread_title:async args=>{
@@ -34,21 +40,42 @@ async function replay(name,options={}){
       if(options.setterFailure)throw new Error("native failure");
       return options.setterResult;
     },
-    codex_app__set_thread_archived:async args=>{calls.archives.push(args);return "archived"},
+    codex_app__set_thread_archived:async args=>{
+      calls.archives.push(args);
+      if(options.archiveInterruption)throw options.archiveInterruption;
+      return "archived";
+    },
   };
-  await execute(tools,value=>calls.text.push(value));
+  let thrown;
+  try{await execute(tools,value=>calls.text.push(value))}catch(error){thrown=error}
   const rendered=calls.text.join("\n");
-  for(const secret of ["11111111-1111-4111-8111-111111111111",item.operation_id,item.task_id,item.desired_title,expectedTitle]){
+  for(const secret of new Set([sourceID,...strings(wait),...strings(operation),...strings(report),...(options.secrets??[])])){
     if(secret)assert(!rendered.includes(secret),`${name} leaked private actuator data`);
   }
-  return {calls,item,result:JSON.parse(calls.text.at(-1))};
+  for(const field of ['"version"','"mode"','"plans"','"dispositions"','"expected_revision"','"expected_title"'])assert(!rendered.includes(field),`${name} leaked a helper envelope`);
+  return {calls,item,rendered,thrown,result:calls.text.length?JSON.parse(calls.text.at(-1)):undefined};
 }
 
-for(const expectedTitle of ["Explain idempotent retry safety",""]){
-  const {calls,item,result}=await replay(`success expected_title=${JSON.stringify(expectedTitle)}`,{expectedTitle,setterResult:{ignored:true}});
+async function expectFailure(name,options){
+  const replayed=await replay(name,options);
+  assert.equal(replayed.thrown,undefined,`${name} unexpectedly threw`);
+  assert.equal(replayed.result?.error,"title_actuation_failed",`${name} did not fail closed`);
+  assert.equal(replayed.calls.archives.length,0,`${name} archived on failure`);
+  return replayed;
+}
+
+for(const [name,setterResult] of [["fulfilled setter string","set"],["fulfilled setter null",null],["fulfilled setter undefined",undefined]]){
+  const {calls,item,result}=await replay(name,{setterResult});
   assert.deepEqual(result,{ok:true});
   assert.deepEqual(calls.setters,[{threadId:item.task_id,title:item.desired_title}]);
-  assert.equal(calls.commands.filter(x=>x.includes("--report")).length,1);
+  assert.equal(calls.commands.filter(value=>value.includes("--report")).length,1);
+  assert.deepEqual(calls.archives,[{archived:true}]);
+}
+
+{
+  const {calls,item,result}=await replay("empty expected_title",{expectedTitle:""});
+  assert.deepEqual(result,{ok:true});
+  assert.deepEqual(calls.setters,[{threadId:item.task_id,title:item.desired_title}]);
   assert.deepEqual(calls.archives,[{archived:true}]);
 }
 
@@ -61,66 +88,78 @@ for(const expectedTitle of ["Explain idempotent retry safety",""]){
   const {calls,result}=await replay("zero-plan success",{waitEnvelope:envelope("wait",[],dispositions)});
   assert.deepEqual(result,{ok:true});
   assert.equal(calls.setters.length,0);
-  assert.equal(calls.commands.filter(x=>x.includes("--report")).length,0);
+  assert.equal(calls.commands.filter(value=>value.includes("--report")).length,0);
   assert.deepEqual(calls.archives,[{archived:true}]);
 }
 
-{
-  const drift=envelope("operation",[],[{task_id:"22222222-2222-4222-8222-222222222222",outcome:"drifted"}]);
-  const {calls,result}=await replay("revalidation drift",{operationEnvelope:drift});
-  assert.equal(result.error,"title_actuation_failed");
-  assert.equal(calls.setters.length,0);
-  assert.equal(calls.archives.length,0);
+const malformed={
+  "non-string output":{output:{},exit_code:0},
+  "nonnumeric exit code":{output:"{}",exit_code:"0"},
+  "thrown command":new Error("command failed"),
+  "invalid JSON":{output:"{",exit_code:0},
+  "running command":{output:"{}",exit_code:0,session_id:"running"},
+  "nonzero exit code":{output:"{}",exit_code:1},
+};
+for(const stage of ["wait","operation","report"]){
+  for(const [failure,value] of Object.entries(malformed))await expectFailure(`${stage} ${failure}`,{[`${stage}Command`]:value});
 }
 
+const base=plan();
+const planEnvelope=envelope("wait",[base]);
+const disposition={task_id:"33333333-3333-4333-8333-333333333333",outcome:"no_op"};
+const report={version:1,accepted_ids:[base.task_id],rejected_ids:[]};
 for(const [name,options] of [
-  ["malformed wait completion",{waitCommand:"raw"}],
-  ["running operation completion",{operationCommand:{output:"{}",exit_code:0,session_id:"running"}}],
-  ["failed report completion",{reportCommand:{output:"{}",exit_code:1}}],
-  ["missing expected revision",{waitEnvelope:envelope("wait",[{operation_id:"5cc48150fdce0758b399e83cca4b014f",task_id:"22222222-2222-4222-8222-222222222222",expected_title:"",desired_title:"Title"}])}],
+  ["extra plan-envelope key",{waitEnvelope:{...planEnvelope,extra:true}}],
+  ["missing plan-envelope key",{waitEnvelope:omit(planEnvelope,"dispositions")}],
+  ["extra plan-item key",{waitEnvelope:envelope("wait",[{...base,extra:true}])}],
+  ["missing expected_title",{waitEnvelope:envelope("wait",[omit(base,"expected_title")])}],
+  ["extra disposition key",{waitEnvelope:envelope("wait",[],[{...disposition,extra:true}])}],
+  ["missing disposition key",{waitEnvelope:envelope("wait",[],[omit(disposition,"outcome")])}],
+  ["extra report key",{reportEnvelope:{...report,extra:true}}],
+  ["missing report key",{reportEnvelope:omit(report,"rejected_ids")}],
+  ["duplicate plan IDs",{waitEnvelope:envelope("wait",[base,{...base,operation_id:"6cc48150fdce0758b399e83cca4b014f"}])}],
+  ["duplicate disposition IDs",{waitEnvelope:envelope("wait",[],[disposition,{...disposition,outcome:"canonical_persisted"}])}],
+  ["overlapping plan/disposition IDs",{waitEnvelope:envelope("wait",[base],[{task_id:base.task_id,outcome:"no_op"}])}],
+  ["extra accepted ID",{reportEnvelope:{version:1,accepted_ids:[base.task_id,"77777777-7777-4777-8777-777777777777"],rejected_ids:[]}}],
+  ["duplicate accepted ID",{reportEnvelope:{version:1,accepted_ids:[base.task_id,base.task_id],rejected_ids:[]}}],
+  ["duplicate rejected ID",{reportEnvelope:{version:1,accepted_ids:[],rejected_ids:[base.task_id,base.task_id]}}],
+  ["overlapping accepted/rejected IDs",{reportEnvelope:{version:1,accepted_ids:[base.task_id],rejected_ids:[base.task_id]}}],
   ["string disposition",{waitEnvelope:envelope("wait",[],["no_op"])}],
-]){
-  const {calls,result}=await replay(name,options);
-  assert.equal(result.error,"title_actuation_failed");
-  assert.equal(calls.archives.length,0);
+])await expectFailure(name,options);
+
+{
+  const drift=envelope("operation",[],[{task_id:base.task_id,outcome:"drifted"}]);
+  const {calls}=await expectFailure("revalidation drift",{operationEnvelope:drift});
+  assert.equal(calls.setters.length,0);
 }
 
 {
-  const {calls,result}=await replay("setter failure",{setterFailure:true});
-  assert.equal(result.error,"title_actuation_failed");
+  const {calls}=await expectFailure("setter failure",{setterFailure:true});
   assert.equal(calls.setters.length,1);
-  const report=calls.commands.find(x=>x.includes("--report"));
-  assert(report?.includes('"native_success":false'));
-  assert(report?.includes('"error_code":"native_set_failed"'));
-  assert.equal(calls.archives.length,0);
+  const reportCommand=calls.commands.find(value=>value.includes("--report"));
+  assert(reportCommand?.includes('"native_success":false'));
+  assert(reportCommand?.includes('"error_code":"native_set_failed"'));
 }
 
-{
-  const rejected={version:1,accepted_ids:[],rejected_ids:["22222222-2222-4222-8222-222222222222"]};
-  const {calls,result}=await replay("report rejection",{reportEnvelope:rejected});
-  assert.equal(result.error,"title_actuation_failed");
-  assert.equal(calls.setters.length,1);
-  assert.equal(calls.archives.length,0);
-}
+await expectFailure("report rejection",{reportEnvelope:{version:1,accepted_ids:[],rejected_ids:[base.task_id]}});
+await expectFailure("accepted ID inequality",{reportEnvelope:{version:1,accepted_ids:[],rejected_ids:[]}});
 
 {
-  const unequal={version:1,accepted_ids:[],rejected_ids:[]};
-  const {calls,result}=await replay("accepted ID inequality",{reportEnvelope:unequal});
-  assert.equal(result.error,"title_actuation_failed");
-  assert.equal(calls.setters.length,1);
-  assert.equal(calls.archives.length,0);
-}
-
-{
-  const first=plan("First title"),second={...plan("Second title"),operation_id:"6cc48150fdce0758b399e83cca4b014f",task_id:"66666666-6666-4666-8666-666666666666"};
-  const wait=envelope("wait",[first,second]);
+  const first=plan("First title"),second=plan("Second title",{operation_id:"6cc48150fdce0758b399e83cca4b014f",task_id:"66666666-6666-4666-8666-666666666666"});
   const operationCommand=cmd=>cmd.includes(first.operation_id)?completed(envelope("operation",[first])):completed(envelope("operation",[],[{task_id:second.task_id,outcome:"drifted"}]));
-  const report={version:1,accepted_ids:[first.task_id],rejected_ids:[]};
-  const {calls,result}=await replay("report attempts before later drift",{waitEnvelope:wait,operationCommand,reportEnvelope:report});
-  assert.equal(result.error,"title_actuation_failed");
+  const {calls}=await expectFailure("report attempts before later drift",{item:first,waitEnvelope:envelope("wait",[first,second]),operationCommand,reportEnvelope:{version:1,accepted_ids:[first.task_id],rejected_ids:[]},secrets:[second.operation_id,second.task_id,second.desired_title,second.expected_title]});
   assert.equal(calls.setters.length,1);
-  assert.equal(calls.commands.filter(x=>x.includes("--report")).length,1);
-  assert.equal(calls.archives.length,0);
+  assert.equal(calls.commands.filter(value=>value.includes("--report")).length,1);
+}
+
+{
+  const interruption=new Error("expected archive interruption");
+  const {calls,result,thrown}=await replay("archive interruption after success",{archiveInterruption:interruption});
+  assert.equal(thrown,interruption);
+  assert.equal(result,undefined);
+  assert.equal(calls.setters.length,1);
+  assert.equal(calls.commands.filter(value=>value.includes("--report")).length,1);
+  assert.deepEqual(calls.archives,[{archived:true}]);
 }
 
 console.log("exact Luna title actuator V8 replay passed");
