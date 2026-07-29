@@ -15,6 +15,7 @@
 
 ### Fixed
 
+- Separated source guard/dispatch from child-only Luna title actuation and self-archive.
 - Made the Luna title actuator call Desktop-native title and self-archive tools directly without discovery.
 - Made the Luna native-title actuator contract self-contained with strict report acceptance and success-only self-archive.
 - Distinguished native mutation success, canonical persistence on the next inventory, and rendered Desktop accessibility verification instead of calling SQLite equality visible convergence.

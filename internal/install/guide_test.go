@@ -58,21 +58,42 @@ func TestCodexInstallGuideFeatureDetectsHostedTitleApplication(t *testing.T) {
 	}
 }
 
-func TestCodexInstallGuideEnforcesSelfContainedFallbackOrdering(t *testing.T) {
-	guide := normalizeGuideText(readInstallGuide(t))
-	start := strings.Index(guide, "After that heartbeat, apply the staged title bootstrap")
+func installTitleSections(t *testing.T, content string) (string, string, string) {
+	t.Helper()
+	start := strings.Index(content, "After that heartbeat, apply the staged title bootstrap")
 	if start < 0 {
-		t.Fatal("INSTALL.md is missing the hosted title application block")
+		t.Fatal("install surface is missing the hosted title application block")
 	}
-	endOffset := strings.Index(guide[start:], "Feature-detect and fail closed")
+	endOffset := strings.Index(content[start:], "Feature-detect and fail closed")
 	if endOffset < 0 {
-		t.Fatal("INSTALL.md is missing the end of the hosted title application block")
+		t.Fatal("install surface is missing the end of the hosted title application block")
 	}
-	section := guide[start : start+endOffset]
-	fallbackStart := strings.Index(section, "Before any fallback worker creation")
-	if fallbackStart < 0 {
-		t.Fatal("INSTALL.md is missing the fallback actuator contract")
+	section := content[start : start+endOffset]
+	sourceStart := strings.Index(section, "**Source phase (source only, never actuator).**")
+	childStart := strings.Index(section, "**Child actuator phase (child only).**")
+	if sourceStart < 0 || childStart <= sourceStart {
+		t.Fatal("install surface is missing ordered source and child fallback phases")
 	}
+	return section[:sourceStart], section[sourceStart:childStart], section[childStart:]
+}
+
+func installSourceDispatchProgram(t *testing.T, source string) string {
+	t.Helper()
+	start := strings.Index(source, "```js\n")
+	if start < 0 {
+		t.Fatal("install source phase is missing executable dispatch")
+	}
+	start += len("```js\n")
+	end := strings.Index(source[start:], "\n```")
+	if end < 0 {
+		t.Fatal("install source dispatch is unterminated")
+	}
+	return source[start : start+end]
+}
+
+func TestCodexInstallGuideEnforcesSourceThenChildBoundary(t *testing.T) {
+	guide := normalizeGuideText(readInstallGuide(t))
+	guided, source, child := installTitleSections(t, guide)
 	assertOrdered := func(name, content string, markers ...string) {
 		t.Helper()
 		previous := -1
@@ -87,18 +108,21 @@ func TestCodexInstallGuideEnforcesSelfContainedFallbackOrdering(t *testing.T) {
 			previous = index
 		}
 	}
-	assertOrdered("guided installer actuator", section[:fallbackStart],
+	assertOrdered("guided installer actuator", guided,
 		"title-plan --json --batch", "title-plan --json --operation",
 		"`await tools.codex_app__set_thread_title({threadId: TASK_ID, title: DESIRED_TITLE})`",
 		"title-plan --json --report")
-	assertOrdered("fallback actuator", section[fallbackStart:],
-		"actual `functions.exec`", "CODEX_THREAD_ID", "returned tool result", "control_task_id", "gpt-5.6-luna",
-		"codex_delegation.source_thread_id", "exactly one `functions.exec`", "title-plan --json --wait",
+	assertOrdered("fallback source", source,
+		"one actual `functions.exec` program", "own `CODEX_THREAD_ID`", "returned tool result", "control_task_id",
+		"CHILD_PROMPT", "await tools.codex_app__create_thread", "substantive final response immediately", "remain unarchived")
+	assertOrdered("fallback child", child,
+		"codex_delegation.source_thread_id", "one model pass", "exactly one `functions.exec`", "title-plan --json --wait",
 		"exact revalidated `task_id` and `desired_title`", "`await tools.codex_app__set_thread_title({threadId: TASK_ID, title: DESIRED_TITLE})`",
 		`{"reports":[{"operation_id":"OPERATION_ID","task_id":"TASK_ID","native_success":true}]}`,
 		"rejected_ids", "accepted_ids", "`await tools.codex_app__set_thread_archived({archived: true})`")
 }
-func TestCodexInstallSurfacesRequireExecutableNativeCallsWithoutDiscovery(t *testing.T) {
+
+func TestCodexInstallSurfacesUseExactTwoPhaseDispatch(t *testing.T) {
 	guide := readInstallGuide(t)
 	published, err := os.ReadFile("../../site/install")
 	if err != nil {
@@ -107,69 +131,78 @@ func TestCodexInstallSurfacesRequireExecutableNativeCallsWithoutDiscovery(t *tes
 	if guide != string(published) {
 		t.Fatal("INSTALL.md and site/install differ")
 	}
-	for surfaceName, content := range map[string]string{"INSTALL.md": guide, "site/install": string(published)} {
-		start := strings.Index(content, "After that heartbeat, apply the staged title bootstrap")
-		if start < 0 {
-			t.Fatalf("%s is missing the actuator contract", surfaceName)
-		}
-		end := strings.Index(content[start:], "Feature-detect and fail closed")
-		if end < 0 {
-			t.Fatalf("%s is missing the end of the actuator contract", surfaceName)
-		}
-		section := content[start : start+end]
-		fallbackStart := strings.Index(section, "Before any fallback worker creation")
-		if fallbackStart < 0 {
-			t.Fatalf("%s is missing the fallback actuator contract", surfaceName)
-		}
-		for sectionName, actuator := range map[string]string{
-			"guided":   section[:fallbackStart],
-			"fallback": section[fallbackStart:],
-		} {
-			for _, required := range []string{
-				"`await tools.codex_app__set_thread_title({threadId: TASK_ID, title: DESIRED_TITLE})`",
-				"Use the named callable expressions directly; do not enumerate, inspect, or look up available tools or schemas inside that execution.",
-			} {
-				if !strings.Contains(actuator, required) {
-					t.Fatalf("%s %s actuator contract missing %q", surfaceName, sectionName, required)
-				}
-			}
-			for _, forbidden := range []string{"`set_thread_title`", "`set_thread_archived`", "ALL_TOOLS", ".filter(", "list_tools", "get_tool_schema", "discover the callable", "discover the tool schema"} {
-				if strings.Contains(actuator, forbidden) {
-					t.Fatalf("%s %s actuator contract permits native-tool discovery or conceptual-only calls %q", surfaceName, sectionName, forbidden)
-				}
-			}
-		}
-		fallback := section[fallbackStart:]
+	const childPrompt = "ThreadBear child actuator phase. Follow only the installed child-actuator contract. Obtain the source solely from your own codex_delegation.source_thread_id."
+	for name, content := range map[string]string{"INSTALL.md": guide, "site/install": string(published)} {
+		guided, source, child := installTitleSections(t, content)
 		for _, required := range []string{
-			"`await tools.codex_app__set_thread_archived({archived: true})`",
-			"omit `threadId` deliberately so the actuator archives itself",
-			"no preliminary execution",
+			"title-plan --json --batch",
+			"title-plan --json --operation",
+			"`await tools.codex_app__set_thread_title({threadId: TASK_ID, title: DESIRED_TITLE})`",
+			"title-plan --json --report",
+			"Use the named callable expressions directly; do not enumerate, inspect, or look up available tools or schemas inside that execution.",
 		} {
-			if !strings.Contains(fallback, required) {
-				t.Fatalf("%s fallback actuator contract missing %q", surfaceName, required)
+			if !strings.Contains(guided, required) {
+				t.Fatalf("%s guided direct actuator missing %q", name, required)
 			}
 		}
-	}
-}
-func TestCodexInstallGuideDefinesFallbackOutcomesWithoutRecovery(t *testing.T) {
-	guide := normalizeGuideText(readInstallGuide(t))
-	start := strings.Index(guide, "Before any fallback worker creation")
-	if start < 0 {
-		t.Fatal("INSTALL.md is missing the fallback actuator contract")
-	}
-	end := strings.Index(guide[start:], "Feature-detect and fail closed")
-	if end < 0 {
-		t.Fatal("INSTALL.md is missing the end of the fallback actuator contract")
-	}
-	section := guide[start : start+end]
-	for _, required := range []string{
-		"boolean `native_success`", `error_code:"native_set_failed"`, "exact set equality",
-		"do not submit an empty report", "no_op", "canonical_persisted", "native_succeeded_pending_canonical",
-		"drifted", "missing", "title_actuation_failed", "no recovery loop", "one model pass",
-		"no preliminary execution", "second command", "no task transcript", "implementation inspection", "deterministic helper",
-	} {
-		if !strings.Contains(section, required) {
-			t.Fatalf("INSTALL.md fallback contract missing %q", required)
+		for _, forbidden := range []string{"codex_app__create_thread", "codex_app__set_thread_archived", "list_tools", "get_tool_schema", "discover the callable", "discover the tool schema"} {
+			if strings.Contains(guided, forbidden) {
+				t.Fatalf("%s guided direct actuator changed to forbidden behavior %q", name, forbidden)
+			}
+		}
+		for _, required := range []string{
+			"const CHILD_PROMPT = \"" + childPrompt + "\"",
+			"await tools.codex_app__create_thread({",
+			`model: "gpt-5.6-luna"`,
+			`thinking: "medium"`,
+			`target: {type: "projectless", directoryName: "threadbear-title-actuator"}`,
+			"prompt: CHILD_PROMPT",
+			"whether it returns a JSON string or object",
+			"only a thrown call is dispatch failure",
+			"never reads or reuses its own incoming `codex_delegation.source_thread_id`",
+			"do not wait for, read, message, retry, recover, or archive the child",
+			"no transcript, task metadata, title, manifest, or source ID",
+		} {
+			if !strings.Contains(source, required) {
+				t.Fatalf("%s source phase missing exact dispatch rule %q", name, required)
+			}
+		}
+		program := installSourceDispatchProgram(t, source)
+		exactDispatch := `await tools.codex_app__create_thread({ model: "gpt-5.6-luna", thinking: "medium", target: {type: "projectless", directoryName: "threadbear-title-actuator"}, prompt: CHILD_PROMPT, })`
+		compactProgram := strings.Join(strings.Fields(program), " ")
+		if !strings.Contains(compactProgram, exactDispatch) {
+			t.Fatalf("%s source dispatch does not contain the exact supported call", name)
+		}
+		previous := -1
+		for _, marker := range []string{"process.env.CODEX_THREAD_ID", "run(`${home}/.local/bin/threadbear`, [\"status\", \"--json\"], {encoding: \"utf8\"})", "JSON.parse(stdout)", "status.control_task_id", exactDispatch} {
+			index := strings.Index(compactProgram, marker)
+			if index < 0 || index <= previous {
+				t.Fatalf("%s source program is missing ordered marker %q", name, marker)
+			}
+			previous = index
+		}
+		for _, forbidden := range []string{"title-plan", "codex_app__set_thread_title", "codex_app__set_thread_archived", "--report"} {
+			if strings.Contains(program, forbidden) {
+				t.Fatalf("%s source dispatch contains child actuator work %q", name, forbidden)
+			}
+		}
+		for _, forbidden := range []string{"one model pass", "exactly one `functions.exec`"} {
+			if strings.Contains(source, forbidden) {
+				t.Fatalf("%s source phase inherits child-only ceiling %q", name, forbidden)
+			}
+		}
+		for _, required := range []string{
+			"Only the child", "boolean `native_success`", `error_code:"native_set_failed"`, "exact set equality",
+			"do not submit an empty report", "no_op", "canonical_persisted", "native_succeeded_pending_canonical",
+			"drifted", "missing", "title_actuation_failed", "no recovery loop", "no preliminary execution",
+			"second command", "implementation inspection", "deterministic helper", "child archives itself, never the source",
+			"`await tools.codex_app__set_thread_title({threadId: TASK_ID, title: DESIRED_TITLE})`",
+			"`await tools.codex_app__set_thread_archived({archived: true})`",
+			"Use the named callable expressions directly; do not enumerate, inspect, or look up available tools or schemas inside that execution.",
+		} {
+			if !strings.Contains(child, required) {
+				t.Fatalf("%s child phase missing actuator contract %q", name, required)
+			}
 		}
 	}
 }
