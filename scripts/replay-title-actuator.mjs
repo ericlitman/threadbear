@@ -8,17 +8,17 @@ const loaderMatch=source.match(/const ChildActuatorLoader = `([\s\S]*?)`\n\ncons
 assert(programMatch,"one child actuator program constant must exist");
 assert(loaderMatch,"one child actuator loader constant must exist");
 const program=programMatch[1],loader=loaderMatch[1],placeholder="__THREADBEAR_SOURCE_UUID__",sourceID="11111111-1111-4111-8111-111111111111";
-const loaderPrefix="await(async()=>{",loaderSuffix="})()";
+const expectedLoader=String.raw`const r=await tools.exec_command({cmd:"~/.local/bin/threadbear title-plan --json --actuator __THREADBEAR_SOURCE_UUID__"});await(0,eval)("(async function(){"+JSON.parse(r.output).program+"\n})()")`;
+const prompt="THREADBEAR_TITLE_ACTUATOR_V1\none model pass;replace sole placeholder with lowercase canonical codex_delegation.source_thread_id;submit otherwise byte-for-byte to one functions.exec;no other tool or prose;"+loader;
+const escapedArrowLoader=loader.replace("(async function(){","(async()=&gt;{");
+assert.equal(loader,expectedLoader);
 assert.equal(Buffer.byteLength(program),2918);
 assert.equal(createHash("sha256").update(program).digest("hex"),"8a12d0efcba69b628b01a49b8383669d9bfe5e6726622e9400cbf5f834342183");
-assert.equal(Buffer.byteLength(loader),748);
-assert(loader.startsWith(loaderPrefix));
-assert(loader.endsWith(loaderSuffix));
-const strippedLoader=loader.slice(loaderPrefix.length,-loaderSuffix.length);
-assert(strippedLoader.startsWith("do{"));
-assert(strippedLoader.endsWith("}while(0)"));
-assert(!strippedLoader.includes("return f()"));
-const loaderForms=[["intact",loader],["wrapper stripped",strippedLoader]];
+assert.equal(Buffer.byteLength(loader),195);
+assert.equal(Buffer.byteLength(prompt),399);
+assert.equal(prompt.split(placeholder).length-1,1);
+assert.equal(prompt.split("functions.exec").length-1,1);
+assert(!/[<>&]/.test(prompt));
 assert.equal(program.split(placeholder).length-1,1);
 assert.equal(loader.split(placeholder).length-1,1);
 assert(source.includes("` + ChildActuatorLoader + `"),"the shipped prompt must embed the exact loader constant");
@@ -94,15 +94,23 @@ async function expectFailure(name,options){
   return replayed;
 }
 
-for(const [form,loaderSource] of loaderForms){
-  for(const [name,setterResult] of [["fulfilled setter string","set"],["fulfilled setter null",null],["fulfilled setter undefined",undefined]]){
-    const {calls,item,result}=await replay(`${form} ${name}`,{loaderSource,setterResult});
-    assert.deepEqual(result,{ok:true});
-    assert.equal(calls.commands[0],`~/.local/bin/threadbear title-plan --json --actuator ${sourceID}`);
-    assert.deepEqual(calls.setters,[{threadId:item.task_id,title:item.desired_title}]);
-    assert.equal(calls.commands.filter(value=>value.includes("--report")).length,1);
-    assert.deepEqual(calls.archives,[{archived:true}]);
-  }
+async function expectLoaderStop(name,options){
+  const replayed=await replay(name,options);
+  assert.equal(replayed.result,undefined,`${name} emitted a loader result`);
+  assert.equal(replayed.calls.text.length,0,`${name} emitted text`);
+  assert.equal(replayed.calls.setters.length,0,`${name} called a native setter`);
+  assert.equal(replayed.calls.commands.filter(value=>value.includes("--report")).length,0,`${name} reported success`);
+  assert.equal(replayed.calls.archives.length,0,`${name} archived`);
+  return replayed;
+}
+
+for(const [name,setterResult] of [["fulfilled setter string","set"],["fulfilled setter null",null],["fulfilled setter undefined",undefined]]){
+  const {calls,item,result}=await replay(`proven loader ${name}`,{setterResult});
+  assert.deepEqual(result,{ok:true});
+  assert.equal(calls.commands[0],`~/.local/bin/threadbear title-plan --json --actuator ${sourceID}`);
+  assert.deepEqual(calls.setters,[{threadId:item.task_id,title:item.desired_title}]);
+  assert.equal(calls.commands.filter(value=>value.includes("--report")).length,1);
+  assert.deepEqual(calls.archives,[{archived:true}]);
 }
 
 {
@@ -133,25 +141,21 @@ const malformed={
   "running command":{output:"{}",exit_code:0,session_id:"running"},
   "nonzero exit code":{output:"{}",exit_code:1},
 };
-for(const [form,loaderSource] of loaderForms){
-  for(const [failure,value] of Object.entries(malformed)){
-    const name=`${form} helper ${failure}`;
-    const {calls}=await expectFailure(name,{loaderSource,helperCommand:value});
-    assert.equal(calls.commands.length,1,`${name} evaluated a program`);
-    assert.equal(calls.setters.length,0);
-  }
-  for(const [failure,helperEnvelope] of [
-    ["helper extra key",{version:1,program:boundProgram,extra:true}],
-    ["helper missing program",{version:1}],
-    ["helper wrong version",{version:2,program:boundProgram}],
-    ["helper empty program",{version:1,program:""}],
-    ["helper non-string program",{version:1,program:{}}],
-  ]){
-    const name=`${form} ${failure}`;
-    const {calls}=await expectFailure(name,{loaderSource,helperEnvelope});
-    assert.equal(calls.commands.length,1,`${name} evaluated a program`);
-    assert.equal(calls.setters.length,0);
-  }
+const escapedArrow=await expectLoaderStop("escaped arrow transport corruption",{loaderSource:escapedArrowLoader});
+assert(escapedArrow.thrown instanceof SyntaxError,"escaped arrow did not fail parsing");
+assert(escapedArrow.thrown.message.includes("&"),"escaped arrow did not expose the transport corruption");
+assert.equal(escapedArrow.calls.commands.length,1,"escaped arrow made another command");
+for(const [failure,value] of Object.entries(malformed)){
+  const {calls}=await expectLoaderStop(`helper ${failure}`,{helperCommand:value});
+  assert.equal(calls.commands.length,1,`helper ${failure} made another command`);
+}
+for(const [failure,helperEnvelope] of [
+  ["helper missing program",{version:1}],
+  ["helper empty program",{version:1,program:""}],
+  ["helper non-string program",{version:1,program:{}}],
+]){
+  const {calls}=await expectLoaderStop(failure,{helperEnvelope});
+  assert.equal(calls.commands.length,1,`${failure} made another command`);
 }
 for(const stage of ["wait","operation","report"]){
   for(const [failure,value] of Object.entries(malformed))await expectFailure(`${stage} ${failure}`,{[`${stage}Command`]:value});

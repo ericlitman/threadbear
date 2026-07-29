@@ -542,32 +542,24 @@ func TestDispatchEligibilityEnvelopeAndPrivacy(t *testing.T) {
 		if got.Child.Prompt != ChildPrompt {
 			t.Fatal("dispatch envelope did not use the deterministic helper-owned child prompt")
 		}
-		if len([]byte(got.Child.Prompt)) != 944 || len([]byte(got.Child.Prompt)) > 950 || !strings.HasPrefix(got.Child.Prompt, ChildPromptSentinel+"\n") || strings.Count(got.Child.Prompt, ChildPromptSentinel) != 1 || !isASCIIString(got.Child.Prompt) {
+		const expectedLoader = `const r=await tools.exec_command({cmd:"~/.local/bin/threadbear title-plan --json --actuator __THREADBEAR_SOURCE_UUID__"});await(0,eval)("(async function(){"+JSON.parse(r.output).program+"\n})()")`
+		const expectedPrompt = `THREADBEAR_TITLE_ACTUATOR_V1
+one model pass;replace sole placeholder with lowercase canonical codex_delegation.source_thread_id;submit otherwise byte-for-byte to one functions.exec;no other tool or prose;const r=await tools.exec_command({cmd:"~/.local/bin/threadbear title-plan --json --actuator __THREADBEAR_SOURCE_UUID__"});await(0,eval)("(async function(){"+JSON.parse(r.output).program+"\n})()")`
+		if ChildActuatorLoader != expectedLoader || len([]byte(ChildActuatorLoader)) != 195 || !isASCIIString(ChildActuatorLoader) {
+			t.Fatalf("loader bytes=%d", len([]byte(ChildActuatorLoader)))
+		}
+		if got.Child.Prompt != expectedPrompt || len([]byte(got.Child.Prompt)) != 399 || len([]byte(got.Child.Prompt)) > 950 || !isASCIIString(got.Child.Prompt) {
 			t.Fatalf("prompt bytes=%d prefix=%q", len([]byte(got.Child.Prompt)), got.Child.Prompt[:min(len(got.Child.Prompt), 80)])
 		}
 		programHash := sha256.Sum256([]byte(ChildActuatorProgram))
 		if len([]byte(ChildActuatorProgram)) != 2918 || hex.EncodeToString(programHash[:]) != "8a12d0efcba69b628b01a49b8383669d9bfe5e6726622e9400cbf5f834342183" {
 			t.Fatalf("actuator program bytes=%d sha256=%x", len([]byte(ChildActuatorProgram)), programHash)
 		}
-		const loaderPrefix, loaderSuffix = "await(async()=>{", "})()"
-		if len([]byte(ChildActuatorLoader)) != 748 || !strings.HasPrefix(ChildActuatorLoader, loaderPrefix) || !strings.HasSuffix(ChildActuatorLoader, loaderSuffix) || !isASCIIString(ChildActuatorLoader) {
-			t.Fatalf("loader bytes=%d", len([]byte(ChildActuatorLoader)))
+		if strings.Count(ChildActuatorProgram, ChildSourcePlaceholder) != 1 || strings.Count(ChildActuatorLoader, ChildSourcePlaceholder) != 1 || strings.Count(got.Child.Prompt, ChildSourcePlaceholder) != 1 || strings.Count(got.Child.Prompt, "functions.exec") != 1 || strings.Contains(got.Child.Prompt, ChildActuatorProgram) || strings.Count(got.Child.Prompt, ChildActuatorLoader) != 1 {
+			t.Fatal("child prompt does not contain exactly one helper loader, placeholder, and exec contract")
 		}
-		strippedLoader := strings.TrimSuffix(strings.TrimPrefix(ChildActuatorLoader, loaderPrefix), loaderSuffix)
-		if !strings.HasPrefix(strippedLoader, "do{") || !strings.HasSuffix(strippedLoader, "}while(0)") || strings.Contains(strippedLoader, "return f()") || strings.Count(strippedLoader, "break") != 5 {
-			t.Fatalf("wrapper-stripped loader is not one fail-closed guard: %q", strippedLoader)
-		}
-		if strings.Count(ChildActuatorProgram, ChildSourcePlaceholder) != 1 || strings.Count(ChildActuatorLoader, ChildSourcePlaceholder) != 1 || strings.Count(got.Child.Prompt, ChildSourcePlaceholder) != 1 || strings.Contains(got.Child.Prompt, ChildActuatorProgram) || strings.Count(got.Child.Prompt, ChildActuatorLoader) != 1 {
-			t.Fatal("child prompt does not contain exactly one helper loader or still embeds the actuator program")
-		}
-		for _, marker := range []string{
-			"one model pass", "copy loader exactly except sole s UUID=", "one functions.exec", "codex_delegation.source_thread_id", "no author", "inspect", "explain", "retry", "recover",
-			`k(e)!=="program,version"`, `typeof r.output!=="string"`, `typeof r.exit_code!=="number"`, `r.exit_code!==0`, `"session_id"in r`,
-			"title-plan --json --actuator", "title_actuation_failed", "(0,eval)",
-		} {
-			if !strings.Contains(got.Child.Prompt, marker) {
-				t.Fatalf("child prompt missing exact program marker %q", marker)
-			}
+		if strings.ContainsAny(got.Child.Prompt, "<>&") {
+			t.Fatal("child prompt contains a transport-sensitive character")
 		}
 		if strings.Count(ChildActuatorProgram, "tools.codex_app__set_thread_title") != 1 || strings.Count(ChildActuatorProgram, "tools.codex_app__set_thread_archived") != 1 || strings.Count(ChildActuatorProgram, "title-plan --json --report") != 1 {
 			t.Fatal("child actuator does not preserve exact native/report call sites")
