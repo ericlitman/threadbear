@@ -35,6 +35,28 @@ func TestCodexInstallGuideCarriesConversationContract(t *testing.T) {
 	}
 }
 
+func TestCodexInstallGuideFeatureDetectsHostedTitleApplication(t *testing.T) {
+	guide := normalizeGuideText(readInstallGuide(t))
+	for _, want := range []string{
+		"native title mutation by exact task ID",
+		"`functions.exec` can compose the installed helper with those native calls without returning the manifest to model context",
+		"projectless task creation with explicit `gpt-5.6-luna` / `medium`",
+		"delegated source identity",
+		"self-archive",
+		"Direct native batching is preferred",
+		"fail closed without waking ThreadBear's persistent control task",
+		"Desktop-native tools detected in step 2",
+		"Immediately before each native title mutation, re-read that target",
+		"require both `expected_revision` and `expected_title` to match",
+		"report drift without writing that target",
+		"aggregate operation/task success, failure, and drift IDs",
+	} {
+		if !strings.Contains(guide, want) {
+			t.Fatalf("INSTALL.md missing hosted title capability rule %q", want)
+		}
+	}
+}
+
 func TestCodexInstallGuideHasEnforceableWelcomeOrientation(t *testing.T) {
 	guide := readInstallGuide(t)
 	if strings.Contains(guide, "five-step orientation") {

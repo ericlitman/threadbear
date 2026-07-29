@@ -26,9 +26,8 @@ func selectTask(task codex.Task, evidence appserver.RecentEvidence, capturedAt t
 			facts.WaitingForUser = true
 		}
 	}
-	facts.RuntimeActive = evidence.ThreadStatus.Type == "active"
+	facts.RuntimeActive = evidence.Active()
 	if latest != nil {
-		facts.RuntimeActive = facts.RuntimeActive || latest.Status == "inProgress" || latest.Status == "in_progress"
 		facts.StructuredFailure = latest.Error != nil || latest.Status == "failed"
 		facts.Interrupted = latest.Status == "interrupted" || latest.Status == "cancelled" || latest.Status == "canceled"
 		facts.Footer = status.FooterInput{

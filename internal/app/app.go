@@ -16,6 +16,7 @@ type Command string
 const (
 	CommandInstall   Command = "install"
 	CommandHeartbeat Command = "heartbeat"
+	CommandTitlePlan Command = "title-plan"
 	CommandStatus    Command = "status"
 	CommandInspect   Command = "inspect"
 	CommandConfigure Command = "configure"
@@ -31,6 +32,7 @@ const (
 var allCommands = [...]Command{
 	CommandInstall,
 	CommandHeartbeat,
+	CommandTitlePlan,
 	CommandStatus,
 	CommandInspect,
 	CommandConfigure,
@@ -82,6 +84,9 @@ type Request struct {
 	ArchiveControlTask bool
 	Version            string
 	TaskID             string
+	TitlePlanWait      string
+	TitlePlanBatch     bool
+	TitlePlanReport    bool
 	ControlTaskID      string
 	Configure          ConfigPatch
 }
@@ -148,6 +153,26 @@ func (r Request) Validate() error {
 	}
 	if !needsTask && taskID != "" {
 		return fmt.Errorf("%w: %s does not accept a task ID", ErrInvalidRequest, r.Command)
+	}
+	if strings.TrimSpace(r.TitlePlanWait) != r.TitlePlanWait {
+		return fmt.Errorf("%w: title-plan wait task ID must not contain surrounding whitespace", ErrInvalidRequest)
+	}
+	if r.Command == CommandTitlePlan {
+		modes := 0
+		if r.TitlePlanWait != "" {
+			modes++
+		}
+		if r.TitlePlanBatch {
+			modes++
+		}
+		if r.TitlePlanReport {
+			modes++
+		}
+		if !r.JSON || modes != 1 {
+			return fmt.Errorf("%w: title-plan requires --json and exactly one of --wait, --batch, or --report", ErrInvalidRequest)
+		}
+	} else if r.TitlePlanWait != "" || r.TitlePlanBatch || r.TitlePlanReport {
+		return fmt.Errorf("%w: title-plan flags are title-plan-only", ErrInvalidRequest)
 	}
 	if strings.TrimSpace(r.ControlTaskID) != r.ControlTaskID {
 		return fmt.Errorf("%w: control task ID must not contain surrounding whitespace", ErrInvalidRequest)

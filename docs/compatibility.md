@@ -18,7 +18,7 @@ ThreadBear depends on compatibility-detectable local Codex capabilities for comp
 
 ## Sidebar expectations
 
-A successful persistent title update does not guarantee immediate repaint in an already-open Codex Desktop sidebar. ThreadBear verifies persistent task state, never edits `.codex-global-state.json`, never uses private cache invalidation, and never clicks through the UI. The sidebar may converge after later task activity or a supported app refresh.
+Detached App Server title writes persist but cannot invalidate an already-mounted Desktop catalog, so the heartbeat no longer performs them. Exact plans are applied only through capability-detected Codex-hosted native title tools with explicit opt-in. Native success, next-inventory canonical persistence, and operator-observed rendered accessibility are three distinct outcomes. ThreadBear never edits private caches, uses private IPC/UI automation/daemons, or requires a restart.
 
 ## LaunchAgent timing and environment
 

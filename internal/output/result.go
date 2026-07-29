@@ -29,6 +29,86 @@ type Result interface {
 	result()
 }
 
+type TitlePlanItem struct {
+	OperationID      string `json:"operation_id"`
+	TaskID           string `json:"task_id"`
+	ExpectedRevision string `json:"expected_revision"`
+	ExpectedTitle    string `json:"expected_title"`
+	DesiredTitle     string `json:"desired_title"`
+}
+type TitlePlanDisposition struct {
+	TaskID  string `json:"task_id"`
+	Outcome string `json:"outcome"`
+}
+type TitlePlanResult struct {
+	Version      int                    `json:"version"`
+	Mode         string                 `json:"mode"`
+	Plans        []TitlePlanItem        `json:"plans"`
+	Dispositions []TitlePlanDisposition `json:"dispositions"`
+}
+
+func (TitlePlanResult) result()     {}
+func (TitlePlanResult) Empty() bool { return false }
+func (r TitlePlanResult) Human() string {
+	data, _ := json.Marshal(r.normalized())
+	return string(data)
+}
+func (r TitlePlanResult) normalized() TitlePlanResult {
+	if r.Version == 0 {
+		r.Version = CurrentResultVersion
+	}
+	r.Plans = slices.Clone(r.Plans)
+	r.Dispositions = slices.Clone(r.Dispositions)
+	sort.Slice(r.Plans, func(i, j int) bool {
+		if r.Plans[i].TaskID != r.Plans[j].TaskID {
+			return r.Plans[i].TaskID < r.Plans[j].TaskID
+		}
+		return r.Plans[i].OperationID < r.Plans[j].OperationID
+	})
+	sort.Slice(r.Dispositions, func(i, j int) bool {
+		if r.Dispositions[i].TaskID != r.Dispositions[j].TaskID {
+			return r.Dispositions[i].TaskID < r.Dispositions[j].TaskID
+		}
+		return r.Dispositions[i].Outcome < r.Dispositions[j].Outcome
+	})
+	if r.Plans == nil {
+		r.Plans = []TitlePlanItem{}
+	}
+	if r.Dispositions == nil {
+		r.Dispositions = []TitlePlanDisposition{}
+	}
+	return r
+}
+
+type TitleReportResult struct {
+	Version     int      `json:"version"`
+	AcceptedIDs []string `json:"accepted_ids"`
+	RejectedIDs []string `json:"rejected_ids"`
+}
+
+func (TitleReportResult) result()     {}
+func (TitleReportResult) Empty() bool { return false }
+func (r TitleReportResult) Human() string {
+	data, _ := json.Marshal(r.normalized())
+	return string(data)
+}
+func (r TitleReportResult) normalized() TitleReportResult {
+	if r.Version == 0 {
+		r.Version = CurrentResultVersion
+	}
+	r.AcceptedIDs = slices.Clone(r.AcceptedIDs)
+	r.RejectedIDs = slices.Clone(r.RejectedIDs)
+	slices.Sort(r.AcceptedIDs)
+	slices.Sort(r.RejectedIDs)
+	if r.AcceptedIDs == nil {
+		r.AcceptedIDs = []string{}
+	}
+	if r.RejectedIDs == nil {
+		r.RejectedIDs = []string{}
+	}
+	return r
+}
+
 type TaskChange struct {
 	TaskID string           `json:"task_id"`
 	State  state.TaskStatus `json:"state"`
@@ -123,6 +203,8 @@ type StatusResult struct {
 	ControlTaskID          string         `json:"control_task_id"`
 	Preferences            Preferences    `json:"preferences"`
 	PendingRetries         int            `json:"pending_retries"`
+	PendingTitlePlans      int            `json:"pending_title_plans"`
+	NativeTitleSuccesses   int            `json:"native_title_successes"`
 	LastUpdateCheck        *time.Time     `json:"last_update_check,omitempty"`
 	LastUpdateFailure      *state.Failure `json:"last_update_failure,omitempty"`
 	LastReconcileFailure   *state.Failure `json:"last_reconcile_failure,omitempty"`
@@ -141,7 +223,7 @@ func (r StatusResult) Human() string {
 	if health == "unavailable" {
 		health = "scheduler adapter unavailable (pending install unit)"
 	}
-	return fmt.Sprintf("ThreadBear %s · LaunchAgent %s · heartbeat %s · control task %s · heartbeat interval %ds · archive %t/%dd · rename %t · auto-update %t · token display %s · AGENTS %t · classifier %s/%s/%dB · retries %d · update check %s · update failure %s · reconcile failure %s", r.InstalledVersion, health, formatTime(r.LastCompletedHeartbeat), r.ControlTaskID, r.Preferences.HeartbeatSeconds, r.Preferences.ArchiveEnabled, r.Preferences.ArchiveAfterDays, r.Preferences.RenameEnabled, r.Preferences.AutoUpdateEnabled, r.Preferences.TokenDisplay, r.Preferences.AgentsEnabled, r.Preferences.ClassifierModel, r.Preferences.ClassifierEffort, r.Preferences.ClassifierContextBudgetBytes, r.PendingRetries, formatTime(r.LastUpdateCheck), formatFailure(r.LastUpdateFailure), formatFailure(r.LastReconcileFailure))
+	return fmt.Sprintf("ThreadBear %s · LaunchAgent %s · heartbeat %s · control task %s · heartbeat interval %ds · archive %t/%dd · rename %t · auto-update %t · token display %s · AGENTS %t · classifier %s/%s/%dB · retries %d · title plans %d (%d native-success pending canonical persistence) · update check %s · update failure %s · reconcile failure %s", r.InstalledVersion, health, formatTime(r.LastCompletedHeartbeat), r.ControlTaskID, r.Preferences.HeartbeatSeconds, r.Preferences.ArchiveEnabled, r.Preferences.ArchiveAfterDays, r.Preferences.RenameEnabled, r.Preferences.AutoUpdateEnabled, r.Preferences.TokenDisplay, r.Preferences.AgentsEnabled, r.Preferences.ClassifierModel, r.Preferences.ClassifierEffort, r.Preferences.ClassifierContextBudgetBytes, r.PendingRetries, r.PendingTitlePlans, r.NativeTitleSuccesses, formatTime(r.LastUpdateCheck), formatFailure(r.LastUpdateFailure), formatFailure(r.LastReconcileFailure))
 }
 
 func formatFailure(failure *state.Failure) string {
@@ -152,18 +234,21 @@ func formatFailure(failure *state.Failure) string {
 }
 
 type InspectResult struct {
-	Version              int              `json:"version"`
-	TaskID               string           `json:"task_id"`
-	CapturedRevision     string           `json:"captured_revision"`
-	State                state.TaskStatus `json:"state"`
-	Provenance           state.Provenance `json:"provenance"`
-	ManagedAction        string           `json:"managed_action,omitempty"`
-	Retry                *RetryResult     `json:"retry,omitempty"`
-	ArchiveEligible      bool             `json:"archive_eligible"`
-	TokenDisplayPosition tokens.Position  `json:"token_display_position"`
-	ManagedTokenPosition tokens.Position  `json:"managed_token_position"`
-	ManagedTokenDisplay  string           `json:"managed_token_display"`
-	TokenUsageFound      bool             `json:"token_usage_found"`
+	Version              int                      `json:"version"`
+	TaskID               string                   `json:"task_id"`
+	CapturedRevision     string                   `json:"captured_revision"`
+	State                state.TaskStatus         `json:"state"`
+	Provenance           state.Provenance         `json:"provenance"`
+	ManagedAction        string                   `json:"managed_action,omitempty"`
+	Retry                *RetryResult             `json:"retry,omitempty"`
+	ArchiveEligible      bool                     `json:"archive_eligible"`
+	TokenDisplayPosition tokens.Position          `json:"token_display_position"`
+	ManagedTokenPosition tokens.Position          `json:"managed_token_position"`
+	ManagedTokenDisplay  string                   `json:"managed_token_display"`
+	TokenUsageFound      bool                     `json:"token_usage_found"`
+	PendingTitlePlan     bool                     `json:"pending_title_plan"`
+	NativeTitleOutcome   state.NativeTitleOutcome `json:"native_title_outcome,omitempty"`
+	CanonicalPersistence string                   `json:"canonical_persistence,omitempty"`
 }
 
 func (InspectResult) result()     {}
@@ -182,7 +267,7 @@ func (r InspectResult) Human() string {
 	if r.Retry != nil {
 		retry = fmt.Sprintf("%s/%s", r.Retry.Operation, r.Retry.ErrorCode)
 	}
-	return fmt.Sprintf("%s %s · revision %s · provenance %s · next: %s · token configured %s · token applied %s/%s · token usage found %t · retry %s · archive eligible %t", r.State.Emoji(), r.TaskID, r.CapturedRevision, r.Provenance, action, r.TokenDisplayPosition, r.ManagedTokenPosition, display, r.TokenUsageFound, retry, r.ArchiveEligible)
+	return fmt.Sprintf("%s %s · revision %s · provenance %s · next: %s · token configured %s · token applied %s/%s · token usage found %t · retry %s · title pending %t/%s/%s · archive eligible %t", r.State.Emoji(), r.TaskID, r.CapturedRevision, r.Provenance, action, r.TokenDisplayPosition, r.ManagedTokenPosition, display, r.TokenUsageFound, retry, r.PendingTitlePlan, r.NativeTitleOutcome, r.CanonicalPersistence, r.ArchiveEligible)
 }
 
 func (r InspectResult) normalized() InspectResult {
@@ -426,6 +511,16 @@ func Write(writer io.Writer, format Format, value Result) error {
 
 func dereferenceResult(value Result) (Result, error) {
 	switch result := value.(type) {
+	case *TitlePlanResult:
+		if result == nil {
+			return nil, errors.New("result is required")
+		}
+		return *result, nil
+	case *TitleReportResult:
+		if result == nil {
+			return nil, errors.New("result is required")
+		}
+		return *result, nil
 	case *HeartbeatResult:
 		if result == nil {
 			return nil, errors.New("result is required")
@@ -484,6 +579,10 @@ func dereferenceResult(value Result) (Result, error) {
 func withVersion(value Result) Result {
 	switch result := value.(type) {
 	case HeartbeatResult:
+		return result.normalized()
+	case TitlePlanResult:
+		return result.normalized()
+	case TitleReportResult:
 		return result.normalized()
 	case StatusResult:
 		if result.Version == 0 {
@@ -649,11 +748,75 @@ func validateResult(value Result) error {
 				return err
 			}
 		}
+	case TitlePlanResult:
+		if result.Mode != "wait" && result.Mode != "batch" {
+			return errors.New("title-plan result has invalid mode")
+		}
+		seenPlans := make(map[string]struct{}, len(result.Plans))
+		for _, plan := range result.Plans {
+			if err := checkID("title-plan operation_id", plan.OperationID); err != nil {
+				return err
+			}
+			if err := checkID("title-plan task_id", plan.TaskID); err != nil {
+				return err
+			}
+			if err := checkID("title-plan expected_revision", plan.ExpectedRevision); err != nil {
+				return err
+			}
+			if plan.DesiredTitle == "" {
+				return errors.New("title-plan desired_title is required")
+			}
+			if plan.OperationID != state.TitleOperationID(plan.TaskID, plan.ExpectedRevision, plan.ExpectedTitle, plan.DesiredTitle) {
+				return errors.New("title-plan operation_id is invalid")
+			}
+			if _, exists := seenPlans[plan.TaskID]; exists {
+				return errors.New("title-plan contains duplicate task plans")
+			}
+			seenPlans[plan.TaskID] = struct{}{}
+		}
+		seenDispositions := make(map[string]struct{}, len(result.Dispositions))
+		for _, disposition := range result.Dispositions {
+			if err := checkID("title-plan disposition task_id", disposition.TaskID); err != nil {
+				return err
+			}
+			if _, exists := seenPlans[disposition.TaskID]; exists {
+				return errors.New("title-plan task appears in plans and dispositions")
+			}
+			if _, exists := seenDispositions[disposition.TaskID]; exists {
+				return errors.New("title-plan contains duplicate dispositions")
+			}
+			seenDispositions[disposition.TaskID] = struct{}{}
+			switch disposition.Outcome {
+			case "canonical_persisted", "drifted", "missing", "native_succeeded_pending_canonical", "no_op":
+			default:
+				return errors.New("title-plan disposition has invalid outcome")
+			}
+		}
+	case TitleReportResult:
+		seen := make(map[string]bool, len(result.AcceptedIDs)+len(result.RejectedIDs))
+		for _, taskID := range result.AcceptedIDs {
+			if err := checkID("title-report accepted task_id", taskID); err != nil {
+				return err
+			}
+			if seen[taskID] {
+				return errors.New("title-report contains duplicate task IDs")
+			}
+			seen[taskID] = true
+		}
+		for _, taskID := range result.RejectedIDs {
+			if err := checkID("title-report rejected task_id", taskID); err != nil {
+				return err
+			}
+			if seen[taskID] {
+				return errors.New("title-report contains duplicate task IDs")
+			}
+			seen[taskID] = true
+		}
 	case StatusResult:
 		if result.LaunchAgentStatus != "" && result.LaunchAgentStatus != "healthy" && result.LaunchAgentStatus != "unhealthy" && result.LaunchAgentStatus != "unavailable" {
 			return errors.New("status result has invalid launch_agent_status")
 		}
-		if result.InstalledVersion == "" || result.ControlTaskID == "" || result.Preferences.HeartbeatSeconds <= 0 || result.Preferences.ArchiveAfterDays <= 0 || result.Preferences.ClassifierModel == "" || result.Preferences.ClassifierEffort == "" || result.Preferences.ClassifierContextBudgetBytes <= 0 || result.PendingRetries < 0 {
+		if result.InstalledVersion == "" || result.ControlTaskID == "" || result.Preferences.HeartbeatSeconds <= 0 || result.Preferences.ArchiveAfterDays <= 0 || result.Preferences.ClassifierModel == "" || result.Preferences.ClassifierEffort == "" || result.Preferences.ClassifierContextBudgetBytes <= 0 || result.PendingRetries < 0 || result.PendingTitlePlans < 0 || result.NativeTitleSuccesses < 0 || result.NativeTitleSuccesses > result.PendingTitlePlans {
 			return errors.New("status result is incomplete")
 		}
 		if err := checkFailure("last_update_failure", result.LastUpdateFailure); err != nil {
@@ -682,6 +845,13 @@ func validateResult(value Result) error {
 			}
 		} else if result.ManagedTokenPosition != tokens.PositionStart && result.ManagedTokenPosition != tokens.PositionEnd {
 			return errors.New("inspect result has a display without a managed token position")
+		}
+		if result.PendingTitlePlan {
+			if !result.NativeTitleOutcome.Valid() || result.CanonicalPersistence == "" {
+				return errors.New("inspect pending title state is incomplete")
+			}
+		} else if result.NativeTitleOutcome != "" || result.CanonicalPersistence != "" {
+			return errors.New("inspect has title state without a pending plan")
 		}
 		if result.Retry != nil {
 			if err := checkID("retry task_id", result.Retry.TaskID); err != nil {
@@ -812,6 +982,10 @@ func validateResult(value Result) error {
 func resultVersion(value Result) int {
 	switch result := value.(type) {
 	case HeartbeatResult:
+		return result.Version
+	case TitlePlanResult:
+		return result.Version
+	case TitleReportResult:
 		return result.Version
 	case StatusResult:
 		return result.Version
