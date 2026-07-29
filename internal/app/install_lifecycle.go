@@ -97,6 +97,11 @@ func uninstallErrorResult(err error) output.ErrorResult {
 		result.Step = "wait_for_heartbeat"
 		result.Cause = err.Error()
 	}
+	if errors.Is(err, install.ErrTitleCleanup) {
+		result.ErrorCode = "title_cleanup_failed"
+		result.Step = "clean_titles"
+		result.Cause = err.Error()
+	}
 	return result
 }
 
@@ -123,7 +128,7 @@ func UninstallHandler(factory UninstallFactory) Handler {
 		return output.LifecycleResult{
 			Command: "uninstall", Changed: result.Changed,
 			Resources:           result.Resources,
-			ArchivedControlTask: result.ArchivedControlTask, DeletedState: result.DeletedState,
+			ArchivedControlTask: result.ArchivedControlTask, DeletedState: result.DeletedState, CleanedTitles: result.CleanedTitles,
 		}, nil
 	}
 }

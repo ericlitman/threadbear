@@ -76,13 +76,74 @@ func Reconcile(record state.TaskRecord, nextStatus state.TaskStatus, suggestedSu
 
 func managedCapturedTitle(record state.TaskRecord) bool {
 	lastApplied := record.LastAppliedTitle
-	if lastApplied == "" {
-		return false
+	return lastApplied != "" && (record.CapturedTitle == lastApplied || record.CapturedTitle == PersistedTitle(lastApplied))
+}
+
+func PersistedTitle(value string) string {
+	if utf16Units(value) <= 60 {
+		return value
 	}
-	if record.CapturedTitle == lastApplied {
-		return true
+	return truncateUTF16(value, 59) + "…"
+}
+
+func Cleanup(record state.TaskRecord, current string) (string, bool) {
+	if record.LastAppliedTitle == "" {
+		return current, false
 	}
-	return utf16Units(lastApplied) > 60 && record.CapturedTitle == truncateUTF16(lastApplied, 59)+"…"
+	target := cleanupRetainedTitle(record)
+	if current == target || current == PersistedTitle(target) {
+		return current, false
+	}
+	if current == record.LastAppliedTitle || current == PersistedTitle(record.LastAppliedTitle) {
+		return target, target != current
+	}
+	cleaned := stripCleanupStatus(current, record.LastAppliedTitle)
+	cleaned = stripCleanupToken(cleaned, record.ManagedTokenDisplay, record.ManagedTokenPosition)
+	return cleaned, cleaned != current
+}
+
+func cleanupRetainedTitle(record state.TaskRecord) string {
+	subject := record.DurableSubject
+	if subject == "" {
+		subject = ownedSubject(record)
+	}
+	if record.ManagedAction != "" && subject != "" {
+		return subject + " → " + record.ManagedAction
+	}
+	return subject
+}
+
+func stripCleanupStatus(value, owned string) string {
+	for _, emoji := range []string{"⏳", "🚨", "🙋", "🤖", "➡️", "✅", "❔"} {
+		prefix := emoji + " "
+		if owned == emoji && value == emoji {
+			return ""
+		}
+		if strings.HasPrefix(owned, prefix) && strings.HasPrefix(value, prefix) {
+			return strings.TrimPrefix(value, prefix)
+		}
+	}
+	return value
+}
+
+func stripCleanupToken(value, managed string, position tokens.Position) string {
+	if managed == "" {
+		return value
+	}
+	switch position {
+	case tokens.PositionStart:
+		prefix := managed + " "
+		if strings.HasPrefix(value, prefix) {
+			return strings.TrimPrefix(value, prefix)
+		}
+	case tokens.PositionEnd:
+		for _, suffix := range []string{" · out " + managed, " · " + managed} {
+			if strings.HasSuffix(value, suffix) {
+				return strings.TrimSuffix(value, suffix)
+			}
+		}
+	}
+	return value
 }
 
 func AdoptSingleLeadingStatus(value string) (state.TaskStatus, string, bool) {

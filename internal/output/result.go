@@ -278,6 +278,7 @@ type LifecycleResult struct {
 	Unarchived             bool     `json:"unarchived"`
 	ArchivedControlTask    bool     `json:"archived_control_task"`
 	DeletedState           bool     `json:"deleted_state"`
+	CleanedTitles          int      `json:"cleaned_titles"`
 	Preview                []string `json:"preview"`
 }
 
@@ -285,6 +286,9 @@ func (LifecycleResult) result()     {}
 func (LifecycleResult) Empty() bool { return false }
 func (r LifecycleResult) Human() string {
 	if r.Command == "uninstall" {
+		if r.CleanedTitles > 0 {
+			return fmt.Sprintf("ThreadBear cleaned %d managed task title(s) and is uninstalled. Take care out there.", r.CleanedTitles)
+		}
 		return "ThreadBear is uninstalled. Take care out there."
 	}
 	resources := "none"

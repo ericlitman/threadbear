@@ -40,6 +40,7 @@ type fakeStore struct {
 	exists       bool
 	configExists bool
 	stateExists  bool
+	loadStateErr error
 	saveStateErr error
 	locks        int
 	saveConfig   int
@@ -76,6 +77,9 @@ func (s *fakeStore) SaveConfig(v config.Config) error {
 	return nil
 }
 func (s *fakeStore) LoadState() (state.State, error) {
+	if s.loadStateErr != nil {
+		return state.State{}, s.loadStateErr
+	}
 	if !s.stateExists && s.state.SchemaVersion == 0 {
 		return state.State{}, fs.ErrNotExist
 	}

@@ -17,12 +17,17 @@ const (
 )
 
 var ErrHeartbeatInFlight = errors.New("heartbeat in flight")
+var ErrTitleCleanup = errors.New("managed title cleanup failed")
 
 type ChoicePrompter interface {
 	ShowMessage(string) error
 	ShowPreview(Preview) error
 	Confirm(defaultYes bool) (bool, error)
 	Choose(string, bool) (bool, error)
+}
+
+type TitleCleaner interface {
+	CleanActiveTitles(context.Context, string, state.State) (int, error)
 }
 
 type UninstallRequest struct {
@@ -37,6 +42,7 @@ type UninstallResult struct {
 	Preview             Preview
 	Changed             bool
 	Resources           []string
+	CleanedTitles       int
 }
 
 type Uninstaller struct {
@@ -44,6 +50,7 @@ type Uninstaller struct {
 	Store        Store
 	Scheduler    Scheduler
 	ControlTasks ControlTasks
+	TitleCleaner TitleCleaner
 	Prompter     ChoicePrompter
 	Previewer    func(Preview) error
 }
@@ -83,6 +90,7 @@ func (u Uninstaller) Uninstall(ctx context.Context, request UninstallRequest) (U
 		"remove binary: " + u.Paths.Binary,
 		agentsPreview,
 		skillPreview,
+		"clean ThreadBear marks from active managed task titles: true",
 		fmt.Sprintf("archive control task: %t", archiveControlTask),
 		fmt.Sprintf("persistent state %s: delete=true", u.Paths.StateDirectory),
 	}}
@@ -144,8 +152,19 @@ func (u Uninstaller) Uninstall(ctx context.Context, request UninstallRequest) (U
 		lockHeld = false
 		return UninstallResult{Preview: preview, Changed: false, Resources: []string{}}, nil
 	}
+	var committed state.State
+	hasOwnershipState := false
+	if hadState {
+		committed, err = u.Store.LoadState()
+		if err == nil {
+			hasOwnershipState = true
+		} else if !errors.Is(err, fs.ErrNotExist) {
+			return UninstallResult{}, fmt.Errorf("load managed task ownership state: %w", err)
+		}
+	}
+	cleanupSelected := hasOwnershipState && len(committed.Tasks) > 0
 	var controlTaskID string
-	if archiveControlTask {
+	if archiveControlTask || cleanupSelected {
 		value, err := u.Store.LoadConfig()
 		if err != nil {
 			return UninstallResult{}, fmt.Errorf("load control task identity: %w", err)
@@ -160,6 +179,19 @@ func (u Uninstaller) Uninstall(ctx context.Context, request UninstallRequest) (U
 	}
 	if err := rejectSymlinkComponents(u.Paths.Binary); err != nil {
 		return UninstallResult{}, err
+	}
+	cleanedTitles := 0
+	if cleanupSelected {
+		if u.TitleCleaner == nil {
+			return UninstallResult{}, fmt.Errorf("%w: title cleaner is required", ErrTitleCleanup)
+		}
+		cleanedTitles, err = u.TitleCleaner.CleanActiveTitles(ctx, controlTaskID, committed)
+		if err != nil {
+			return UninstallResult{}, fmt.Errorf("%w: %v", ErrTitleCleanup, err)
+		}
+		if cleanedTitles > 0 {
+			resources = append(resources, "titles")
+		}
 	}
 	if err := u.Scheduler.Remove(ctx); err != nil {
 		return UninstallResult{}, fmt.Errorf("remove scheduler: %w", err)
@@ -209,7 +241,7 @@ func (u Uninstaller) Uninstall(ctx context.Context, request UninstallRequest) (U
 	if hadState {
 		resources = append(resources, "state")
 	}
-	return UninstallResult{ArchivedControlTask: archivedControlTask, DeletedState: hadState, Preview: preview, Changed: len(resources) > 0, Resources: resources}, nil
+	return UninstallResult{ArchivedControlTask: archivedControlTask, DeletedState: hadState, Preview: preview, Changed: len(resources) > 0, Resources: resources, CleanedTitles: cleanedTitles}, nil
 }
 
 func acquireUninstallLock(ctx context.Context, store Store, wait, retryInterval time.Duration) (Lock, error) {

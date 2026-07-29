@@ -15,7 +15,7 @@ Commands:
   restore    Restore one task archived by ThreadBear.
   self-test  Check that ThreadBear's runtime surfaces are ready.
   update     Install the latest or an exact verified release.
-  uninstall  Preview and remove ThreadBear's managed runtime.
+  uninstall  Clean managed task titles, then remove ThreadBear.
   version    Show the installed ThreadBear version and website.
 
 Run `threadbear help <command>` for command details.
@@ -149,7 +149,7 @@ Flags:
   --json           write stable JSON command results; help stays human-readable (default: false)
   --version N.N.N  install exact release N.N.N without a leading v instead of the latest (default: "")
 
-ThreadBear uninstall — Preview and remove ThreadBear's managed runtime.
+ThreadBear uninstall — Clean managed task titles, then remove ThreadBear.
 
 Usage:
   threadbear uninstall [flags]
