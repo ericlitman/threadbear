@@ -1865,6 +1865,32 @@ func TestHeartbeatManagedRepairFailureDegradesUnresolvedTasksWithoutAborting(t *
 	}
 }
 
+func TestAppServerUnavailableDoesNotStageTitleOrConsumeBootstrap(t *testing.T) {
+	now := time.Date(2026, 7, 29, 11, 0, 0, 0, time.UTC)
+	task := codex.Task{TaskID: "bootstrap", Revision: "1", Title: "✅ Existing subject", Source: "vscode"}
+	committed := state.New()
+	committed.LastUpdateCheck = timePointer(now)
+	runner, deps := testRunner(t, now, []codex.Task{task}, committed)
+	runner.deps.AppServer = nil
+
+	value, err := runner.Run(context.Background(), false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	result := value.(output.HeartbeatResult)
+	stored, err := deps.store.store.LoadState()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stored.BootstrapComplete || len(stored.PendingTitlePlans) != 0 {
+		t.Fatalf("bootstrap=%t pending=%+v", stored.BootstrapComplete, stored.PendingTitlePlans)
+	}
+	record := stored.Tasks[task.TaskID]
+	if record.Retry == nil || record.Retry.Operation != "evidence" || record.Retry.ErrorCode != "app_server_unavailable" {
+		t.Fatalf("retry=%+v result=%+v", record.Retry, result)
+	}
+}
+
 func TestFreshStateAdoptsStrictLeadingStatusWithoutClassifierOrOwnershipInference(t *testing.T) {
 	now := time.Date(2026, 7, 29, 12, 0, 0, 0, time.UTC)
 	task := codex.Task{TaskID: "bootstrap", Revision: "1", Title: "✅ 26k User subject → user action", Source: "vscode"}

@@ -1211,7 +1211,7 @@ func (r *Runner) prepareOperations(cfg config.Config, records map[string]state.T
 		record := records[taskID]
 		classification, classified := checkpoint.Results[taskID]
 		diagnostic := checkpoint.Diagnostics[taskID]
-		if cfg.RenameEnabled && classified && !(diagnostic.Operation == "evidence" && diagnostic.ErrorCode == "evidence_read_failed") {
+		if cfg.RenameEnabled && classified && !incompleteEvidence(diagnostic) {
 			key := "title:" + taskID
 			titleRecord := record
 			existing, exists := checkpoint.Operations[key]
@@ -1229,7 +1229,7 @@ func (r *Runner) prepareOperations(cfg config.Config, records map[string]state.T
 			} else if !exists || existing.Stage != state.StageVerified {
 				delete(checkpoint.Operations, key)
 			}
-		} else if diagnostic.Operation == "evidence" && diagnostic.ErrorCode == "evidence_read_failed" {
+		} else if incompleteEvidence(diagnostic) {
 			delete(checkpoint.Operations, "title:"+taskID)
 		}
 		_, titlePending := pendingTitles[taskID]
@@ -1400,9 +1400,16 @@ func settlePendingTitle(committed *state.State, inventory codex.Inventory, taskI
 	return false
 }
 
+func incompleteEvidence(diagnostic state.CycleDiagnostic) bool {
+	if diagnostic.Operation != "evidence" {
+		return false
+	}
+	return diagnostic.ErrorCode == "evidence_read_failed" || diagnostic.ErrorCode == "app_server_unavailable"
+}
+
 func bootstrapCheckpointComplete(checkpoint state.CycleCheckpoint) bool {
 	for _, diagnostic := range checkpoint.Diagnostics {
-		if diagnostic.Operation == "evidence" && diagnostic.ErrorCode == "evidence_read_failed" {
+		if incompleteEvidence(diagnostic) {
 			return false
 		}
 	}
