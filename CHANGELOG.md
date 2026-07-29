@@ -15,6 +15,7 @@
 
 ### Fixed
 
+- Made the Luna title loader use the mounted transport-safe byte form.
 - Made the Luna title loader fail closed after the observed outer-wrapper removal.
 - Required Luna actuator children to copy the supplied loader byte-for-byte except for source UUID substitution.
 - Trimmed duplicated Luna actuator prompt instructions to lower fresh child input without changing runtime behavior.
