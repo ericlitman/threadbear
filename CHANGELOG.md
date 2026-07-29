@@ -15,6 +15,7 @@
 
 ### Fixed
 
+- Made the Luna native-title actuator contract self-contained with strict report acceptance and success-only self-archive.
 - Distinguished native mutation success, canonical persistence on the next inventory, and rendered Desktop accessibility verification instead of calling SQLite equality visible convergence.
 - Hardened Desktop-native title retries, newer-turn settlement, bounded waiting, and persistent control-task isolation.
 

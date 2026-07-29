@@ -34,10 +34,11 @@ The hosted smoke explicitly does not prove real Codex auth, real App Server side
 
 Before a release that changes title planning or managed guidance, use an already-mounted Codex Desktop catalog and prove these boundaries separately without reload or restart:
 
-1. One post-turn source dispatches exactly one projectless `gpt-5.6-luna` / `medium` actuator through delegated source identity. Its single `functions.exec` obtains the exact `title-plan --wait` manifest, applies the native title first, reports aggregate native success, and self-archives. Treat the worker's resulting `interrupted` state as expected.
-2. One guided-install `title-plan --batch` applies multiple exact titles directly through native calls in one `functions.exec`; retry only failed or drifted IDs and do not create one worker per title.
-3. For both cases, record canonical persistence separately from the already-mounted Desktop accessibility label. SQLite, `list_threads`, or native success does not satisfy rendered proof.
-4. Record actuator model, effort, raw input, cached input, output, and reasoning-output tokens as release-canary evidence only. Require one Luna/medium model pass near the measured 23,790 raw-input baseline, allowing bounded manifest growth.
-5. Run one unchanged heartbeat after the canary and verify zero classifier turns and zero title RPCs.
+1. Prove the non-control source made an actual `functions.exec` identity/status guard call before dispatch; a prose claim does not count. Confirm it creates exactly one projectless `gpt-5.6-luna` / `medium` actuator through delegated source identity and that the persistent control task creates no worker.
+2. Read the actuator turn and confirm one model pass and one `functions.exec`: exact `title-plan --wait`, per-operation `title-plan --operation`, fulfilled native `set_thread_title`, one strict report with boolean `native_success`, exact accepted-ID set equality, then self-archive. Treat the resulting `interrupted` state as expected. Confirm no implementation inspection, second command, retry, transcript, or title manifest entered model context.
+3. Exercise the zero-plan success path without an empty report. Exercise a drift or native/report failure and confirm the actuator remains visible with one stable `title_actuation_failed` error and no recovery loop.
+4. Record native-call success, accepted helper report, canonical `read_thread` and `list_threads` persistence, and the already-mounted Desktop accessibility label as four separate facts without reload or restart. None substitutes for another.
+5. Record actuator model, effort, raw input, cached input, output, and reasoning-output tokens as release-canary evidence only. Require one Luna/medium model pass near the measured 23,790 raw-input baseline, allowing bounded contract growth.
+6. Run one unchanged heartbeat after the canary and verify zero classifier turns and zero title RPCs.
 
 Do not add production token telemetry, use the persistent ThreadBear master for routine work, automate accessibility/UI inspection in product code, or use private IPC, caches, daemons, or restarts.
