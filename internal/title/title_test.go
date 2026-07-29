@@ -225,6 +225,121 @@ func TestReconcileConvergesLegacyOwnedTokenDuplicates(t *testing.T) {
 	}
 }
 
+func TestReconcileConvergesOwnedTokenDuplicatesAcrossPositionMigration(t *testing.T) {
+	for _, test := range []struct {
+		name    string
+		record  state.TaskRecord
+		display tokens.Display
+		want    string
+		subject string
+	}{
+		{
+			name: "start to end",
+			record: state.TaskRecord{
+				CapturedTitle:        "➡️ 1.1m 1.1m 1.1m Stabilize Linear CLI … · out 1.1m",
+				DurableSubject:       "1.1m 1.1m 1.1m Stabilize Linear CLI …",
+				LastAppliedTitle:     "➡️ 1.1m 1.1m 1.1m Stabilize Linear CLI … · out 1.1m",
+				ManagedTokenDisplay:  "1.1m",
+				ManagedTokenPosition: tokens.PositionEnd,
+			},
+			display: tokens.Display{Position: tokens.PositionEnd, Value: "1.1m"},
+			want:    "➡️ Stabilize Linear CLI … · out 1.1m",
+			subject: "Stabilize Linear CLI …",
+		},
+		{
+			name: "end to start",
+			record: state.TaskRecord{
+				CapturedTitle:        "➡️ 1.1m Stabilize Linear CLI … · out 1.1m · out 1.1m · out 1.1m",
+				DurableSubject:       "Stabilize Linear CLI … · out 1.1m · out 1.1m · out 1.1m",
+				LastAppliedTitle:     "➡️ 1.1m Stabilize Linear CLI … · out 1.1m · out 1.1m · out 1.1m",
+				ManagedTokenDisplay:  "1.1m",
+				ManagedTokenPosition: tokens.PositionStart,
+			},
+			display: tokens.Display{Position: tokens.PositionStart, Value: "1.1m"},
+			want:    "➡️ 1.1m Stabilize Linear CLI …",
+			subject: "Stabilize Linear CLI …",
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			first, err := Reconcile(test.record, state.StatusNextSteps, "", "", test.display)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if first.Title != test.want || first.DurableSubject != test.subject {
+				t.Fatalf("first = %+v", first)
+			}
+			second, err := Reconcile(state.TaskRecord{
+				CapturedTitle: first.Title, DurableSubject: first.DurableSubject, LastAppliedTitle: first.Title,
+				ManagedTokenDisplay: first.ManagedTokenDisplay, ManagedTokenPosition: first.ManagedTokenPosition,
+			}, state.StatusNextSteps, "", "", test.display)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if second != first {
+				t.Fatalf("first=%+v second=%+v", first, second)
+			}
+		})
+	}
+}
+
+func TestReconcilePreservesSingleMatchingTokenTextAtOppositeBoundary(t *testing.T) {
+	for _, test := range []struct {
+		name    string
+		record  state.TaskRecord
+		display tokens.Display
+	}{
+		{
+			name: "single start subject with end ownership",
+			record: state.TaskRecord{
+				CapturedTitle:        "✅ 26k Release service · out 26k",
+				DurableSubject:       "26k Release service",
+				LastAppliedTitle:     "✅ 26k Release service · out 26k",
+				ManagedTokenDisplay:  "26k",
+				ManagedTokenPosition: tokens.PositionEnd,
+			},
+			display: tokens.Display{Position: tokens.PositionEnd, Value: "26k"},
+		},
+		{
+			name: "single end subject with start ownership",
+			record: state.TaskRecord{
+				CapturedTitle:        "✅ 26k Release service · out 26k",
+				DurableSubject:       "Release service · out 26k",
+				LastAppliedTitle:     "✅ 26k Release service · out 26k",
+				ManagedTokenDisplay:  "26k",
+				ManagedTokenPosition: tokens.PositionStart,
+			},
+			display: tokens.Display{Position: tokens.PositionStart, Value: "26k"},
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			got, err := Reconcile(test.record, state.StatusComplete, "", "", test.display)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got.Title != test.record.CapturedTitle || got.DurableSubject != test.record.DurableSubject {
+				t.Fatalf("Reconcile() = %+v", got)
+			}
+		})
+	}
+}
+
+func TestReconcilePreservesOppositeBoundaryCopiesAfterUserEdit(t *testing.T) {
+	record := state.TaskRecord{
+		CapturedTitle:        "✅ 26k 26k User subject · out 26k",
+		DurableSubject:       "Old subject",
+		LastAppliedTitle:     "✅ Old subject · out 26k",
+		ManagedTokenDisplay:  "26k",
+		ManagedTokenPosition: tokens.PositionEnd,
+	}
+	got, err := Reconcile(record, state.StatusComplete, "", "", tokens.Display{Position: tokens.PositionEnd, Value: "26k"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Title != record.CapturedTitle || got.DurableSubject != "26k 26k User subject" {
+		t.Fatalf("Reconcile() = %+v", got)
+	}
+}
+
 func TestReconcileCleansContaminatedOwnedSubjectAcrossPositions(t *testing.T) {
 	record := state.TaskRecord{
 		CapturedTitle:        "✅ 26k 26k 26k Execute BEAR-59",

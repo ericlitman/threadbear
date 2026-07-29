@@ -48,6 +48,16 @@ func Reconcile(record state.TaskRecord, nextStatus state.TaskStatus, suggestedSu
 			if ownedCopies > 1 || !hasDurableSubject && observedCopies > 1 {
 				subject = stripOwnedTokenCopies(subject, record.ManagedTokenDisplay, record.ManagedTokenPosition)
 			}
+			oppositePosition := tokens.PositionOff
+			switch record.ManagedTokenPosition {
+			case tokens.PositionStart:
+				oppositePosition = tokens.PositionEnd
+			case tokens.PositionEnd:
+				oppositePosition = tokens.PositionStart
+			}
+			if ownedTokenCopies(subject, record.ManagedTokenDisplay, oppositePosition) > 1 {
+				subject = stripOwnedTokenCopies(subject, record.ManagedTokenDisplay, oppositePosition)
+			}
 			if display.Value != record.ManagedTokenDisplay || display.Position != record.ManagedTokenPosition {
 				observed := stripStatusPrefixes(current)
 				if ownedTokenCopies(observed, display.Value, record.ManagedTokenPosition) > 1 {

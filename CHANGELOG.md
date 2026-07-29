@@ -22,7 +22,7 @@
 
 ### Fixed
 
-- Converged repeated managed output-token displays to one decoration without consuming unowned numeric subject text.
+- Converged repeated managed output-token displays across position changes without consuming a single unowned numeric subject prefix or suffix.
 - Replaced managed output-token counts before persisted title ellipses instead of appending another count.
 
 ## v1.3.0 - 2026-07-28
