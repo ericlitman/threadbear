@@ -111,13 +111,15 @@ func TestWaitModeWaitsThenPlansAndReturnsNoOp(t *testing.T) {
 	}
 	waiter, heartbeat, planner := &fakeWaiter{}, &fakeHeartbeat{}, &fakePlanner{}
 	service := Service{Store: store, Inventory: &fakeInventory{}, Heartbeat: heartbeat, Planner: planner, Waiter: waiter, Now: time.Now}
-	result, err := service.Plan(context.Background(), "source", "", false, false, false)
-	if err != nil {
-		t.Fatal(err)
-	}
-	planned := result.(output.TitlePlanResult)
-	if waiter.taskID != "source" || heartbeat.calls != 0 || len(planner.taskIDs) != 1 || planner.taskIDs[0] != "source" || planned.Mode != "wait" || len(planned.Dispositions) != 1 || planned.Dispositions[0].Outcome != "no_op" {
-		t.Fatalf("waiter=%q heartbeat=%d planner=%v result=%+v", waiter.taskID, heartbeat.calls, planner.taskIDs, planned)
+	for cycle := 0; cycle < 2; cycle++ {
+		result, err := service.Plan(context.Background(), "source", "", false, false, false)
+		if err != nil {
+			t.Fatal(err)
+		}
+		planned := result.(output.TitlePlanResult)
+		if waiter.taskID != "source" || heartbeat.calls != 0 || len(planner.taskIDs) != cycle+1 || planner.taskIDs[cycle] != "source" || planned.Mode != "wait" || len(planned.Dispositions) != 1 || planned.Dispositions[0].Outcome != "no_op" {
+			t.Fatalf("cycle=%d waiter=%q heartbeat=%d planner=%v result=%+v", cycle, waiter.taskID, heartbeat.calls, planner.taskIDs, planned)
+		}
 	}
 }
 
