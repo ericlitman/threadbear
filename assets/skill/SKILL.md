@@ -62,10 +62,46 @@ ThreadBear's LaunchAgent is the deterministic planner. It owns status resolution
 
 For a guided install with explicit ThreadBear opt-in and Desktop-native task tools, run `~/.local/bin/threadbear title-plan --json --batch` and native title calls inside one `functions.exec` program. Use the named callable expressions directly; do not enumerate, inspect, or look up available tools or schemas inside that execution. Parse the manifest tool-to-tool. For each target, first run `~/.local/bin/threadbear title-plan --json --operation "$OPERATION_ID"`; only when ThreadBear returns that same exact operation, set `TASK_ID` and `DESIRED_TITLE` from its exact `task_id` and `desired_title`, then immediately call `await tools.codex_app__set_thread_title({threadId: TASK_ID, title: DESIRED_TITLE})`; do not trust the earlier batch snapshot or native `updatedAt` values as exact revision guards. The helper-to-setter interval remains non-atomic because the supported setter has no compare-and-set parameter. After checking all targets, report aggregate success, failure, and drift IDs through `title-plan --json --report`, and return only those aggregate IDs to the model. Retry only failed or drifted IDs. Do not expose the manifest as prompt text and do not create one worker per target.
 
-For post-turn application, the source must make one actual `functions.exec` call that parses the current process's `CODEX_THREAD_ID` and strict `~/.local/bin/threadbear status --json`; only the returned tool result proves the check, never a prose claim. Missing, noncanonical, or invalid identity/status, or equality with `control_task_id`, is a hard no-op with no worker. Otherwise create exactly one projectless `gpt-5.6-luna` / `medium` actuator, use only `codex_delegation.source_thread_id` as its source ID, and provide no task transcript or title manifest.
+For post-turn application, use these two phases in order. The one-model-pass/one-`functions.exec` actuator ceiling applies only to the child actuator phase, never to the source task or its substantive work.
 
-The actuator gets one model pass and exactly one `functions.exec`, with no preliminary execution, no second command, implementation inspection, retry, or recovery conversation. Use the named callable expressions directly; do not enumerate, inspect, or look up available tools or schemas inside that execution. Inside it, run `~/.local/bin/threadbear title-plan --json --wait "$SOURCE_ID"`; for every plan run `~/.local/bin/threadbear title-plan --json --operation "$OPERATION_ID"` and, only when the same operation is returned, set `TASK_ID` and `DESIRED_TITLE` from its exact helper-returned `task_id` and `desired_title`, then immediately call `await tools.codex_app__set_thread_title({threadId: TASK_ID, title: DESIRED_TITLE})`. A fulfilled setter means `native_success:true`; a thrown setter error means `native_success:false` plus stable `error_code:"native_set_failed"`. Do not validate another native response shape.
+**Source phase (source only, never actuator).** After substantive work, make one actual `functions.exec` program dedicated to the handoff. It first parses the current process's own `CODEX_THREAD_ID` and strict `~/.local/bin/threadbear status --json`; only the returned tool result proves the guard, never a prose claim. Missing, noncanonical, or invalid identity/status, or equality with `control_task_id`, is a hard no-op with no child. The source program contains only this self-identity/control guard and, when allowed, the exact child creation below. It performs no title planning, native mutation, reporting, archive operation, or actuator branch.
 
-Submit attempted native outcomes once through `~/.local/bin/threadbear title-plan --json --report` using exactly `{"reports":[{"operation_id":"OPERATION_ID","task_id":"TASK_ID","native_success":true}]}`; each object requires exact `operation_id`, `task_id`, and boolean `native_success`, and failures require nonempty `error_code`. Acceptance means `rejected_ids` is empty and `accepted_ids` has exact set equality with submitted task IDs. Self-archive inside that same `functions.exec` with `await tools.codex_app__set_thread_archived({archived: true})` only after accepted reporting and all native calls succeeded; omit `threadId` deliberately so the actuator archives itself. With no plans, skip the empty report and self-archive only when every disposition is `no_op`, `canonical_persisted`, or `native_succeeded_pending_canonical`. Any `drifted`, `missing`, malformed, unexpected, rejected, or native-failure result leaves one stable `title_actuation_failed` error and an unarchived actuator without inspection or retry. Successful self-archive normally leaves it `interrupted`, so require no final message. The deterministic helper owns every title and semantic decision; the actuator never classifies, synthesizes, normalizes, or revises a title.
+Run this exact source program; its returned `{allow:false}` or `{allow:true}` is the only post-turn handoff result:
+
+```js
+const {execFile} = await import("node:child_process")
+const {promisify} = await import("node:util")
+const run = promisify(execFile)
+const canonicalId = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
+const CHILD_PROMPT = "ThreadBear child actuator phase. Follow only the installed child-actuator contract. Obtain the source solely from your own codex_delegation.source_thread_id."
+const guard = await (async () => {
+  const sourceId = process.env.CODEX_THREAD_ID ?? ""
+  const home = process.env.HOME ?? ""
+  if (!home || !canonicalId.test(sourceId)) return {allow: false}
+  try {
+    const {stdout} = await run(`${home}/.local/bin/threadbear`, ["status", "--json"], {encoding: "utf8"})
+    const status = JSON.parse(stdout)
+    if (!status || Array.isArray(status) || !canonicalId.test(status.control_task_id) || sourceId === status.control_task_id) return {allow: false}
+  } catch {
+    return {allow: false}
+  }
+  return {allow: true}
+})()
+if (guard.allow) {
+  await tools.codex_app__create_thread({
+    model: "gpt-5.6-luna",
+    thinking: "medium",
+    target: {type: "projectless", directoryName: "threadbear-title-actuator"},
+    prompt: CHILD_PROMPT,
+  })
+}
+guard
+```
+
+A fulfilled creation promise means dispatch succeeded whether it returns a JSON string or object; only a thrown call is dispatch failure. Do not discover tools or inspect another creation response shape. The source never reads or reuses its own incoming `codex_delegation.source_thread_id`. After successful dispatch, return the substantive final response immediately and remain unarchived; do not wait for, read, message, retry, recover, or archive the child. The fixed prompt contains no transcript, task metadata, title, manifest, or source ID.
+
+**Child actuator phase (child only).** The child obtains the source solely from its own `codex_delegation.source_thread_id`. Only the child gets one model pass and exactly one `functions.exec`, with no preliminary execution, no second command, implementation inspection, retry, or recovery conversation. Use the named callable expressions directly; do not enumerate, inspect, or look up available tools or schemas inside that execution. Inside it, run `~/.local/bin/threadbear title-plan --json --wait "$SOURCE_ID"`; for every plan run `~/.local/bin/threadbear title-plan --json --operation "$OPERATION_ID"` and, only when the same operation is returned, set `TASK_ID` and `DESIRED_TITLE` from its exact helper-returned `task_id` and `desired_title`, then immediately call `await tools.codex_app__set_thread_title({threadId: TASK_ID, title: DESIRED_TITLE})`. A fulfilled setter means `native_success:true`; a thrown setter error means `native_success:false` plus stable `error_code:"native_set_failed"`. Do not validate another native response shape.
+
+Submit attempted native outcomes once through `~/.local/bin/threadbear title-plan --json --report` using exactly `{"reports":[{"operation_id":"OPERATION_ID","task_id":"TASK_ID","native_success":true}]}`; each object requires exact `operation_id`, `task_id`, and boolean `native_success`, and failures require nonempty `error_code`. Acceptance means `rejected_ids` is empty and `accepted_ids` has exact set equality with submitted task IDs. Self-archive inside that same child `functions.exec` with `await tools.codex_app__set_thread_archived({archived: true})` only after accepted reporting and all native calls succeeded; omit `threadId` deliberately so the child archives itself, never the source. With no plans, skip the empty report and self-archive only when every disposition is `no_op`, `canonical_persisted`, or `native_succeeded_pending_canonical`. Any `drifted`, `missing`, malformed, unexpected, rejected, or native-failure result leaves one stable `title_actuation_failed` error and an unarchived child without inspection or retry. Successful self-archive normally leaves it `interrupted`, so require no final message. The deterministic helper owns every title and semantic decision; the child never classifies, synthesizes, normalizes, or revises a title.
 
 The persistent ThreadBear control task remains the user-facing master for help, configuration, install/update/uninstall, notices, user decisions, and exceptional recovery. Never route routine classification or title application into its history. Feature-detect supported native tools and fail closed; never use private IPC, Desktop caches, UI driving, a daemon, or a restart.
