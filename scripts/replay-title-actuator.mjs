@@ -141,7 +141,10 @@ const malformed={
   "running command":{output:"{}",exit_code:0,session_id:"running"},
   "nonzero exit code":{output:"{}",exit_code:1},
 };
-await expectLoaderStop("escaped arrow transport corruption",{loaderSource:escapedArrowLoader});
+const escapedArrow=await expectLoaderStop("escaped arrow transport corruption",{loaderSource:escapedArrowLoader});
+assert(escapedArrow.thrown instanceof SyntaxError,"escaped arrow did not fail parsing");
+assert(escapedArrow.thrown.message.includes("&"),"escaped arrow did not expose the transport corruption");
+assert.equal(escapedArrow.calls.commands.length,1,"escaped arrow made another command");
 for(const [failure,value] of Object.entries(malformed)){
   const {calls}=await expectLoaderStop(`helper ${failure}`,{helperCommand:value});
   assert.equal(calls.commands.length,1,`helper ${failure} made another command`);
