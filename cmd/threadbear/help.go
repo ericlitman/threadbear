@@ -48,6 +48,7 @@ var commandSpecs = []commandSpec{
 			flags.StringVar(&request.TitlePlanOperation, "operation", "", "revalidate one pending `OPERATION_ID` immediately before mutation")
 			flags.BoolVar(&request.TitlePlanBatch, "batch", false, "plan all pending title mutations")
 			flags.BoolVar(&request.TitlePlanReport, "report", false, "read native mutation outcomes as strict JSON from stdin")
+			flags.BoolVar(&request.TitlePlanDispatch, "dispatch", false, "emit the guarded child title-actuator dispatch envelope")
 		},
 	},
 	{

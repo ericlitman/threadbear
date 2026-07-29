@@ -322,3 +322,22 @@ func TestTitlePlanAndReportResultsRejectInvalidShapes(t *testing.T) {
 		}
 	}
 }
+
+func TestTitleDispatchEnvelopeHasExactVersionedShapes(t *testing.T) {
+	var noOp bytes.Buffer
+	if err := Write(&noOp, FormatJSON, TitleDispatchResult{Disposition: "rename_disabled"}); err != nil {
+		t.Fatal(err)
+	}
+	if got, want := noOp.String(), "{\"version\":1,\"allow\":false,\"disposition\":\"rename_disabled\"}\n"; got != want {
+		t.Fatalf("no-op=%q want=%q", got, want)
+	}
+	allowed := TitleDispatchResult{Allow: true, Disposition: "dispatch", Child: &TitleDispatchChild{Model: "gpt-5.6-luna", Thinking: "medium", Target: TitleDispatchTarget{Type: "projectless", DirectoryName: "threadbear-title-actuator"}, Prompt: "THREADBEAR_TITLE_ACTUATOR_V1\nact"}}
+	var machine bytes.Buffer
+	if err := Write(&machine, FormatJSON, allowed); err != nil {
+		t.Fatal(err)
+	}
+	want := "{\"version\":1,\"allow\":true,\"disposition\":\"dispatch\",\"child\":{\"model\":\"gpt-5.6-luna\",\"thinking\":\"medium\",\"target\":{\"type\":\"projectless\",\"directoryName\":\"threadbear-title-actuator\"},\"prompt\":\"THREADBEAR_TITLE_ACTUATOR_V1\\nact\"}}\n"
+	if machine.String() != want {
+		t.Fatalf("allowed=%q want=%q", machine.String(), want)
+	}
+}

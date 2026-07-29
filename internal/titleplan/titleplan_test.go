@@ -3,7 +3,10 @@ package titleplan
 import (
 	"bytes"
 	"context"
+	"encoding/json"
+	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -35,7 +38,7 @@ func TestBatchReportAndCanonicalSettlementRemainDistinct(t *testing.T) {
 	now := time.Unix(2, 0)
 	heartbeat := &fakeHeartbeat{}
 	service := Service{Store: store, Inventory: inventory, Heartbeat: heartbeat, Now: func() time.Time { return now }}
-	planned, err := service.Plan(context.Background(), "", "", true, false)
+	planned, err := service.Plan(context.Background(), "", "", true, false, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -44,7 +47,7 @@ func TestBatchReportAndCanonicalSettlementRemainDistinct(t *testing.T) {
 		t.Fatalf("manifest = %+v", manifest)
 	}
 	service.Reports = bytes.NewBufferString(`{"reports":[{"operation_id":"` + operationID + `","task_id":"task","native_success":true}]}`)
-	reported, err := service.Plan(context.Background(), "", "", false, true)
+	reported, err := service.Plan(context.Background(), "", "", false, true, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -55,7 +58,7 @@ func TestBatchReportAndCanonicalSettlementRemainDistinct(t *testing.T) {
 	if afterReport.Generation != committed.Generation+1 || afterReport.PendingTitlePlans["task"].NativeOutcome != state.NativeTitleSucceeded || afterReport.Tasks["task"].LastAppliedTitle != "" {
 		t.Fatalf("native report claimed canonical persistence: %+v", afterReport)
 	}
-	pendingCanonical, err := service.Plan(context.Background(), "", "", true, false)
+	pendingCanonical, err := service.Plan(context.Background(), "", "", true, false, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -64,7 +67,7 @@ func TestBatchReportAndCanonicalSettlementRemainDistinct(t *testing.T) {
 		t.Fatalf("pending canonical = %+v", pendingResult)
 	}
 	inventory.tasks[0].Revision, inventory.tasks[0].Title = "2", "✅ Subject"
-	settled, err := service.Plan(context.Background(), "", "", true, false)
+	settled, err := service.Plan(context.Background(), "", "", true, false, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -106,7 +109,7 @@ func TestWaitModeWaitsThenPlansAndReturnsNoOp(t *testing.T) {
 	}
 	waiter, heartbeat, planner := &fakeWaiter{}, &fakeHeartbeat{}, &fakePlanner{}
 	service := Service{Store: store, Inventory: &fakeInventory{}, Heartbeat: heartbeat, Planner: planner, Waiter: waiter, Now: time.Now}
-	result, err := service.Plan(context.Background(), "source", "", false, false)
+	result, err := service.Plan(context.Background(), "source", "", false, false, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -130,7 +133,7 @@ func TestSameTitleRefreshRequiresNativeSuccessBeforeSettlement(t *testing.T) {
 	}
 	inventory := &fakeInventory{tasks: []codex.Task{{TaskID: "task", Revision: "1", Title: "✅ Subject"}}}
 	service := Service{Store: store, Inventory: inventory, Heartbeat: &fakeHeartbeat{}, Now: time.Now}
-	planned, err := service.Plan(context.Background(), "", "", true, false)
+	planned, err := service.Plan(context.Background(), "", "", true, false, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -138,10 +141,10 @@ func TestSameTitleRefreshRequiresNativeSuccessBeforeSettlement(t *testing.T) {
 		t.Fatalf("same-title plan settled before native report: %+v", got)
 	}
 	service.Reports = bytes.NewBufferString(`{"reports":[{"operation_id":"` + operationID + `","task_id":"task","native_success":true}]}`)
-	if _, err := service.Plan(context.Background(), "", "", false, true); err != nil {
+	if _, err := service.Plan(context.Background(), "", "", false, true, false); err != nil {
 		t.Fatal(err)
 	}
-	settled, err := service.Plan(context.Background(), "", "", true, false)
+	settled, err := service.Plan(context.Background(), "", "", true, false, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -164,7 +167,7 @@ func TestReportRejectsDuplicateTaskWithoutMutatingPlan(t *testing.T) {
 	}
 	report := `{"reports":[{"operation_id":"` + operationID + `","task_id":"task","native_success":true},{"operation_id":"` + operationID + `","task_id":"task","native_success":true}]}`
 	service := Service{Store: store, Reports: bytes.NewBufferString(report), Now: time.Now}
-	result, err := service.Plan(context.Background(), "", "", false, true)
+	result, err := service.Plan(context.Background(), "", "", false, true, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -199,9 +202,9 @@ func TestDisabledWaitAndBatchDoNotStageOrExposeTitles(t *testing.T) {
 			var result output.Result
 			var err error
 			if mode == "wait" {
-				result, err = service.Plan(context.Background(), "task", "", false, false)
+				result, err = service.Plan(context.Background(), "task", "", false, false, false)
 			} else {
-				result, err = service.Plan(context.Background(), "", "", true, false)
+				result, err = service.Plan(context.Background(), "", "", true, false, false)
 			}
 			if err != nil {
 				t.Fatal(err)
@@ -248,9 +251,9 @@ func TestTitleSettlementAndReportRefuseUnrelatedAppliedArchiveCycle(t *testing.T
 			}
 			var err error
 			if mode == "report" {
-				_, err = service.Plan(context.Background(), "", "", false, true)
+				_, err = service.Plan(context.Background(), "", "", false, true, false)
 			} else {
-				_, err = service.Plan(context.Background(), "", "", true, false)
+				_, err = service.Plan(context.Background(), "", "", true, false, false)
 			}
 			if err == nil {
 				t.Fatal("title operation did not refuse an in-flight cycle")
@@ -290,7 +293,7 @@ func TestNativeReportOutcomesAreMonotonicAndIdempotent(t *testing.T) {
 			body += `false,"error_code":"` + code + `"}]}`
 		}
 		service := Service{Store: store, Reports: bytes.NewBufferString(body), Now: func() time.Time { return now }}
-		result, err := service.Plan(context.Background(), "", "", false, true)
+		result, err := service.Plan(context.Background(), "", "", false, true, false)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -343,7 +346,7 @@ func TestOperationRevalidationRejectsStaleRevision(t *testing.T) {
 	}
 	inventory := &fakeInventory{tasks: []codex.Task{{TaskID: "task", Revision: "1000", Title: "Subject"}}}
 	service := Service{Store: store, Inventory: inventory, Now: time.Now}
-	result, err := service.Plan(context.Background(), "", operationID, false, false)
+	result, err := service.Plan(context.Background(), "", operationID, false, false, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -352,7 +355,7 @@ func TestOperationRevalidationRejectsStaleRevision(t *testing.T) {
 		t.Fatalf("revalidated plan = %+v", planned)
 	}
 	inventory.tasks[0].Revision = "1001"
-	result, err = service.Plan(context.Background(), "", operationID, false, false)
+	result, err = service.Plan(context.Background(), "", operationID, false, false, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -382,7 +385,7 @@ func TestNativeSuccessRetriesAfterCanonicalDeadline(t *testing.T) {
 	inventory := &fakeInventory{tasks: []codex.Task{{TaskID: "task", Revision: "1", Title: "Subject"}}}
 	now := reportedAt.Add(state.NativeTitleCanonicalTimeout - time.Second)
 	service := Service{Store: store, Inventory: inventory, Heartbeat: &fakeHeartbeat{}, Now: func() time.Time { return now }}
-	result, err := service.Plan(context.Background(), "", "", true, false)
+	result, err := service.Plan(context.Background(), "", "", true, false, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -390,7 +393,7 @@ func TestNativeSuccessRetriesAfterCanonicalDeadline(t *testing.T) {
 		t.Fatalf("pre-deadline result = %+v", got)
 	}
 	now = reportedAt.Add(state.NativeTitleCanonicalTimeout)
-	result, err = service.Plan(context.Background(), "", "", true, false)
+	result, err = service.Plan(context.Background(), "", "", true, false, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -419,7 +422,7 @@ func TestReportRejectsMissingNativeSuccess(t *testing.T) {
 	}
 	body := `{"reports":[{"operation_id":"` + operationID + `","task_id":"task","error_code":"native_failed"}]}`
 	service := Service{Store: store, Reports: bytes.NewBufferString(body), Now: time.Now}
-	result, err := service.Plan(context.Background(), "", "", false, true)
+	result, err := service.Plan(context.Background(), "", "", false, true, false)
 	if err == nil {
 		t.Fatal("missing native_success was accepted")
 	}
@@ -442,7 +445,7 @@ func TestControlTaskWaitIsNoOp(t *testing.T) {
 	}
 	waiter, planner := &fakeWaiter{}, &fakePlanner{}
 	service := Service{Store: store, Inventory: &fakeInventory{}, Planner: planner, Waiter: waiter, Now: time.Now}
-	result, err := service.Plan(context.Background(), "control", "", false, false)
+	result, err := service.Plan(context.Background(), "control", "", false, false, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -466,12 +469,187 @@ func TestOperationRevalidationRejectsSameSecondNativeMismatch(t *testing.T) {
 	}
 	inventory := &fakeInventory{tasks: []codex.Task{{TaskID: "task", Revision: "1700000000789", Title: "Subject"}}}
 	service := Service{Store: store, Inventory: inventory, Now: time.Now}
-	result, err := service.Plan(context.Background(), "", operationID, false, false)
+	result, err := service.Plan(context.Background(), "", operationID, false, false, false)
 	if err != nil {
 		t.Fatal(err)
 	}
 	got := result.(output.TitlePlanResult)
 	if len(got.Plans) != 0 || len(got.Dispositions) != 1 || got.Dispositions[0].Outcome != "drifted" {
 		t.Fatalf("same-second millisecond drift = %+v", got)
+	}
+}
+
+type dispatchStoreOverride struct {
+	*state.Store
+	config *config.Config
+	state  *state.State
+}
+
+func (s dispatchStoreOverride) LoadConfig() (config.Config, error) {
+	if s.config != nil {
+		return *s.config, nil
+	}
+	return s.Store.LoadConfig()
+}
+
+func (s dispatchStoreOverride) LoadState() (state.State, error) {
+	if s.state != nil {
+		return *s.state, nil
+	}
+	return s.Store.LoadState()
+}
+
+func TestDispatchEligibilityEnvelopeAndPrivacy(t *testing.T) {
+	const sourceID = "11111111-1111-4111-8111-111111111111"
+	const controlID = "22222222-2222-4222-8222-222222222222"
+	newStore := func(t *testing.T, configure func(*config.Config)) *state.Store {
+		t.Helper()
+		store := state.NewStore(filepath.Join(t.TempDir(), "state"))
+		cfg := config.Default(controlID)
+		if configure != nil {
+			configure(&cfg)
+		}
+		if err := store.SaveConfig(cfg); err != nil {
+			t.Fatal(err)
+		}
+		committed := state.New()
+		if err := store.SaveState(committed); err != nil {
+			t.Fatal(err)
+		}
+		return store
+	}
+	t.Run("allowed", func(t *testing.T) {
+		t.Setenv("CODEX_THREAD_ID", sourceID)
+		result, err := (Service{Store: newStore(t, nil)}).Plan(context.Background(), "", "", false, false, true)
+		if err != nil {
+			t.Fatal(err)
+		}
+		got := result.(output.TitleDispatchResult)
+		if !got.Allow || got.Disposition != "dispatch" || got.Child == nil || got.Child.Model != "gpt-5.6-luna" || got.Child.Thinking != "medium" || got.Child.Target.Type != "projectless" || got.Child.Target.DirectoryName != "threadbear-title-actuator" {
+			t.Fatalf("dispatch = %+v", got)
+		}
+		if got.Child.Prompt != ChildPrompt {
+			t.Fatal("dispatch envelope did not use the deterministic helper-owned child prompt")
+		}
+		if len([]byte(got.Child.Prompt)) > 6000 || !strings.HasPrefix(got.Child.Prompt, ChildPromptSentinel+"\n") || strings.Count(got.Child.Prompt, ChildPromptSentinel) != 1 {
+			t.Fatalf("prompt bytes=%d prefix=%q", len([]byte(got.Child.Prompt)), got.Child.Prompt[:min(len(got.Child.Prompt), 80)])
+		}
+		for _, marker := range []string{
+			"child-only ThreadBear title actuator", "Obtain SOURCE_ID only from your own codex_delegation.source_thread_id", "one model pass", "exactly one functions.exec",
+			`title-plan --json --wait "$SOURCE_ID"`, `title-plan --json --operation "$OPERATION_ID"`, "exact revalidated plan",
+			"tools.codex_app__set_thread_title", `await tools.codex_app__set_thread_title({threadId: TASK_ID, title: DESIRED_TITLE})`,
+			"title-plan --json --report", `{"reports":[{"operation_id":"OPERATION_ID","task_id":"TASK_ID","native_success":true}]}`,
+			"accepted_ids has exact set equality with submitted task IDs", "no_op", "canonical_persisted", "native_succeeded_pending_canonical",
+			"title_actuation_failed", "no retry", "tools.codex_app__set_thread_archived", `await tools.codex_app__set_thread_archived({archived: true})`,
+			"Successful self-archive is expected to interrupt execution", "do not recover from that interruption",
+		} {
+			if !strings.Contains(got.Child.Prompt, marker) {
+				t.Fatalf("child prompt missing contract marker %q", marker)
+			}
+		}
+		for _, prohibition := range []string{
+			"Do not read a skill, discover tools, inspect schemas or implementation, inspect files, use network access, or take a preliminary execution or recovery turn.",
+			"stops with no retry, inspection, second command, or recovery turn",
+		} {
+			if !strings.Contains(got.Child.Prompt, prohibition) {
+				t.Fatalf("child prompt missing prohibition %q", prohibition)
+			}
+		}
+		for _, forbidden := range []string{"list_tools", "get_tool_schema", "ALL_TOOLS", "tools.codex_app__list", "tools.codex_app__read"} {
+			if strings.Contains(got.Child.Prompt, forbidden) {
+				t.Fatalf("child prompt contains discovery or inspection primitive %q", forbidden)
+			}
+		}
+		encoded, err := json.Marshal(got)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, private := range []string{sourceID, controlID, `"source_thread_id":`, `"transcript":`, `"task_metadata":`, `"desired_title":`, `"manifest":`} {
+			if bytes.Contains(encoded, []byte(private)) {
+				t.Fatalf("dispatch envelope exposed %q: %s", private, encoded)
+			}
+		}
+	})
+	for _, test := range []struct {
+		name        string
+		source      string
+		configure   func(*config.Config)
+		disposition string
+	}{
+		{name: "missing source", disposition: "source_missing"},
+		{name: "noncanonical source", source: "11111111-1111-4111-8111-11111111111A", disposition: "source_invalid"},
+		{name: "control task", source: controlID, disposition: "control_task"},
+		{name: "rename disabled", source: sourceID, configure: func(cfg *config.Config) { cfg.RenameEnabled = false }, disposition: "rename_disabled"},
+		{name: "agents disabled", source: sourceID, configure: func(cfg *config.Config) { cfg.AgentsEnabled = false }, disposition: "agents_disabled"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			t.Setenv("CODEX_THREAD_ID", test.source)
+			result, err := (Service{Store: newStore(t, test.configure)}).Plan(context.Background(), "", "", false, false, true)
+			if err != nil {
+				t.Fatal(err)
+			}
+			got := result.(output.TitleDispatchResult)
+			if got.Allow || got.Disposition != test.disposition || got.Child != nil {
+				t.Fatalf("dispatch = %+v", got)
+			}
+		})
+	}
+}
+
+func TestDispatchFailsClosedForUnavailableOrInvalidInstalledState(t *testing.T) {
+	const sourceID = "11111111-1111-4111-8111-111111111111"
+	const controlID = "22222222-2222-4222-8222-222222222222"
+	t.Setenv("CODEX_THREAD_ID", sourceID)
+	missing := state.NewStore(filepath.Join(t.TempDir(), "missing"))
+	result, err := (Service{Store: missing}).Plan(context.Background(), "", "", false, false, true)
+	if err != nil || result.(output.TitleDispatchResult).Disposition != "config_unavailable" {
+		t.Fatalf("missing config result=%+v err=%v", result, err)
+	}
+	store := state.NewStore(filepath.Join(t.TempDir(), "state"))
+	if err := store.SaveConfig(config.Default(controlID)); err != nil {
+		t.Fatal(err)
+	}
+	result, err = (Service{Store: store}).Plan(context.Background(), "", "", false, false, true)
+	if err != nil || result.(output.TitleDispatchResult).Disposition != "state_unavailable" {
+		t.Fatalf("missing state result=%+v err=%v", result, err)
+	}
+	if err := store.SaveState(state.New()); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(store.Directory(), "state.json"), []byte(`{"schema_version":99}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	result, err = (Service{Store: store}).Plan(context.Background(), "", "", false, false, true)
+	if err != nil || result.(output.TitleDispatchResult).Disposition != "state_unavailable" {
+		t.Fatalf("invalid state result=%+v err=%v", result, err)
+	}
+	invalidConfig := state.NewStore(filepath.Join(t.TempDir(), "invalid-config"))
+	if err := invalidConfig.SaveConfig(config.Default(controlID)); err != nil {
+		t.Fatal(err)
+	}
+	if err := invalidConfig.SaveState(state.New()); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(invalidConfig.Directory(), "config.json"), []byte(`{"schema_version":99}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	result, err = (Service{Store: invalidConfig}).Plan(context.Background(), "", "", false, false, true)
+	if err != nil || result.(output.TitleDispatchResult).Disposition != "config_unavailable" {
+		t.Fatalf("invalid config result=%+v err=%v", result, err)
+	}
+	base := state.NewStore(filepath.Join(t.TempDir(), "overrides"))
+	validConfig := config.Default(controlID)
+	validState := state.New()
+	invalidConfigValue := validConfig
+	invalidConfigValue.SchemaVersion = 99
+	result, err = (Service{Store: dispatchStoreOverride{Store: base, config: &invalidConfigValue, state: &validState}}).Plan(context.Background(), "", "", false, false, true)
+	if err != nil || result.(output.TitleDispatchResult).Disposition != "config_invalid" {
+		t.Fatalf("strict config result=%+v err=%v", result, err)
+	}
+	invalidStateValue := validState
+	invalidStateValue.SchemaVersion = 99
+	result, err = (Service{Store: dispatchStoreOverride{Store: base, config: &validConfig, state: &invalidStateValue}}).Plan(context.Background(), "", "", false, false, true)
+	if err != nil || result.(output.TitleDispatchResult).Disposition != "state_invalid" {
+		t.Fatalf("strict state result=%+v err=%v", result, err)
 	}
 }
