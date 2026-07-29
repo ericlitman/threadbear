@@ -66,10 +66,7 @@ const ChildActuatorProgram = `const result=await(async()=>{const s="__THREADBEAR
 const ChildActuatorLoader = `await(async()=>{const s="__THREADBEAR_SOURCE_UUID__",o=x=>x!==null&&typeof x==="object"&&!Array.isArray(x),k=x=>Object.keys(x).sort().join(","),f=()=>text(JSON.stringify({ok:false,error:"title_actuation_failed"}));if(!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(s))return f();let r,e;try{r=await tools.exec_command({cmd:"~/.local/bin/threadbear title-plan --json --actuator "+s})}catch{return f()}if(!o(r)||typeof r.output!=="string"||typeof r.exit_code!=="number"||r.exit_code!==0||"session_id"in r)return f();try{e=JSON.parse(r.output)}catch{return f()}if(!o(e)||k(e)!=="program,version"||e.version!==1||typeof e.program!=="string"||e.program==="")return f();await(0,eval)("(async()=>{"+e.program+"\n})()")})()`
 
 const ChildPrompt = ChildPromptSentinel + `
-Child-only title actuator. In one model pass, read and validate only your own lowercase canonical codex_delegation.source_thread_id. Replace the sole JSON-string placeholder assigned to s in the exact loader below with that UUID, then run it unchanged once in exactly one functions.exec. Author, revise, or infer nothing; do not inspect, discover, explain, retry, or recover. The loader calls the installed helper once, validates its exact versioned program envelope and completed-success command result, then indirectly evaluates only that program. The helper program enforces every exact wait, operation, disposition, report, setter, and success-only self-archive rule.
-BEGIN THREADBEAR LOADER
-` + ChildActuatorLoader + `
-END THREADBEAR LOADER`
+one model pass;replace loader's sole JSON-string s placeholder:=your lowercase canonical codex_delegation.source_thread_id;functions.exec once;no author/inspect/explain/retry/recover;` + ChildActuatorLoader + ``
 
 func (s Service) Actuator(sourceID string) (output.Result, error) {
 	if !canonicalUUID(sourceID) || strings.Count(ChildActuatorProgram, ChildSourcePlaceholder) != 1 {
