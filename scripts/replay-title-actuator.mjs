@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import {createHash} from "node:crypto";
 import fs from "node:fs";
 
 const source=fs.readFileSync(new URL("../internal/titleplan/titleplan.go",import.meta.url),"utf8");
@@ -7,6 +8,17 @@ const loaderMatch=source.match(/const ChildActuatorLoader = `([\s\S]*?)`\n\ncons
 assert(programMatch,"one child actuator program constant must exist");
 assert(loaderMatch,"one child actuator loader constant must exist");
 const program=programMatch[1],loader=loaderMatch[1],placeholder="__THREADBEAR_SOURCE_UUID__",sourceID="11111111-1111-4111-8111-111111111111";
+const loaderPrefix="await(async()=>{",loaderSuffix="})()";
+assert.equal(Buffer.byteLength(program),2918);
+assert.equal(createHash("sha256").update(program).digest("hex"),"8a12d0efcba69b628b01a49b8383669d9bfe5e6726622e9400cbf5f834342183");
+assert.equal(Buffer.byteLength(loader),748);
+assert(loader.startsWith(loaderPrefix));
+assert(loader.endsWith(loaderSuffix));
+const strippedLoader=loader.slice(loaderPrefix.length,-loaderSuffix.length);
+assert(strippedLoader.startsWith("do{"));
+assert(strippedLoader.endsWith("}while(0)"));
+assert(!strippedLoader.includes("return f()"));
+const loaderForms=[["intact",loader],["wrapper stripped",strippedLoader]];
 assert.equal(program.split(placeholder).length-1,1);
 assert.equal(loader.split(placeholder).length-1,1);
 assert(source.includes("` + ChildActuatorLoader + `"),"the shipped prompt must embed the exact loader constant");
@@ -17,7 +29,6 @@ const boundProgram=program.replace(placeholder,sourceID);
 assert(!boundProgram.includes(placeholder));
 assert.equal(boundProgram.split(sourceID).length-1,1);
 const AsyncFunction=Object.getPrototypeOf(async function(){}).constructor;
-const execute=new AsyncFunction(loader.replace(placeholder,sourceID));
 const completed=value=>({output:JSON.stringify(value),exit_code:0});
 const plan=(expectedTitle="Explain idempotent retry safety",overrides={})=>({operation_id:"5cc48150fdce0758b399e83cca4b014f",task_id:"22222222-2222-4222-8222-222222222222",expected_revision:"1700000000123",expected_title:expectedTitle,desired_title:"✅ Explain idempotent retry safety · out 564",...overrides});
 const envelope=(mode,plans,dispositions=[])=>({version:1,mode,plans,dispositions});
@@ -25,6 +36,7 @@ const omit=(value,key)=>Object.fromEntries(Object.entries(value).filter(([name])
 const strings=value=>typeof value==="string"?[value]:Array.isArray(value)?value.flatMap(strings):value&&typeof value==="object"?Object.values(value).flatMap(strings):[];
 
 async function replay(name,options={}){
+  const execute=new AsyncFunction((options.loaderSource??loader).replace(placeholder,sourceID));
   const item=options.item??plan(options.expectedTitle);
   const calls={commands:[],setters:[],archives:[],text:[]};
   const wait=options.waitEnvelope??envelope("wait",[item]);
@@ -77,17 +89,20 @@ async function expectFailure(name,options){
   const replayed=await replay(name,options);
   assert.equal(replayed.thrown,undefined,`${name} unexpectedly threw`);
   assert.equal(replayed.result?.error,"title_actuation_failed",`${name} did not fail closed`);
+  assert.equal(replayed.calls.text.length,1,`${name} emitted more than one result`);
   assert.equal(replayed.calls.archives.length,0,`${name} archived on failure`);
   return replayed;
 }
 
-for(const [name,setterResult] of [["fulfilled setter string","set"],["fulfilled setter null",null],["fulfilled setter undefined",undefined]]){
-  const {calls,item,result}=await replay(name,{setterResult});
-  assert.deepEqual(result,{ok:true});
-  assert.equal(calls.commands[0],`~/.local/bin/threadbear title-plan --json --actuator ${sourceID}`);
-  assert.deepEqual(calls.setters,[{threadId:item.task_id,title:item.desired_title}]);
-  assert.equal(calls.commands.filter(value=>value.includes("--report")).length,1);
-  assert.deepEqual(calls.archives,[{archived:true}]);
+for(const [form,loaderSource] of loaderForms){
+  for(const [name,setterResult] of [["fulfilled setter string","set"],["fulfilled setter null",null],["fulfilled setter undefined",undefined]]){
+    const {calls,item,result}=await replay(`${form} ${name}`,{loaderSource,setterResult});
+    assert.deepEqual(result,{ok:true});
+    assert.equal(calls.commands[0],`~/.local/bin/threadbear title-plan --json --actuator ${sourceID}`);
+    assert.deepEqual(calls.setters,[{threadId:item.task_id,title:item.desired_title}]);
+    assert.equal(calls.commands.filter(value=>value.includes("--report")).length,1);
+    assert.deepEqual(calls.archives,[{archived:true}]);
+  }
 }
 
 {
@@ -118,21 +133,25 @@ const malformed={
   "running command":{output:"{}",exit_code:0,session_id:"running"},
   "nonzero exit code":{output:"{}",exit_code:1},
 };
-for(const [failure,value] of Object.entries(malformed)){
-  const {calls}=await expectFailure(`helper ${failure}`,{helperCommand:value});
-  assert.equal(calls.commands.length,1,`helper ${failure} evaluated a program`);
-  assert.equal(calls.setters.length,0);
-}
-for(const [name,helperEnvelope] of [
-  ["helper extra key",{version:1,program:boundProgram,extra:true}],
-  ["helper missing program",{version:1}],
-  ["helper wrong version",{version:2,program:boundProgram}],
-  ["helper empty program",{version:1,program:""}],
-  ["helper non-string program",{version:1,program:{}}],
-]){
-  const {calls}=await expectFailure(name,{helperEnvelope});
-  assert.equal(calls.commands.length,1,`${name} evaluated a program`);
-  assert.equal(calls.setters.length,0);
+for(const [form,loaderSource] of loaderForms){
+  for(const [failure,value] of Object.entries(malformed)){
+    const name=`${form} helper ${failure}`;
+    const {calls}=await expectFailure(name,{loaderSource,helperCommand:value});
+    assert.equal(calls.commands.length,1,`${name} evaluated a program`);
+    assert.equal(calls.setters.length,0);
+  }
+  for(const [failure,helperEnvelope] of [
+    ["helper extra key",{version:1,program:boundProgram,extra:true}],
+    ["helper missing program",{version:1}],
+    ["helper wrong version",{version:2,program:boundProgram}],
+    ["helper empty program",{version:1,program:""}],
+    ["helper non-string program",{version:1,program:{}}],
+  ]){
+    const name=`${form} ${failure}`;
+    const {calls}=await expectFailure(name,{loaderSource,helperEnvelope});
+    assert.equal(calls.commands.length,1,`${name} evaluated a program`);
+    assert.equal(calls.setters.length,0);
+  }
 }
 for(const stage of ["wait","operation","report"]){
   for(const [failure,value] of Object.entries(malformed))await expectFailure(`${stage} ${failure}`,{[`${stage}Command`]:value});
