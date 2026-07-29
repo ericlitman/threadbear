@@ -16,6 +16,7 @@
 ### Fixed
 
 - Distinguished native mutation success, canonical persistence on the next inventory, and rendered Desktop accessibility verification instead of calling SQLite equality visible convergence.
+- Hardened Desktop-native title retries, newer-turn settlement, bounded waiting, and persistent control-task isolation.
 
 ### Fixed
 
