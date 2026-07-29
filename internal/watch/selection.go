@@ -1,6 +1,10 @@
 package watch
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
+	"sort"
 	"strings"
 	"time"
 
@@ -9,6 +13,37 @@ import (
 	"github.com/ericlitman/threadbear/internal/state"
 	"github.com/ericlitman/threadbear/internal/status"
 )
+
+func evidenceFingerprint(task codex.Task, evidence appserver.RecentEvidence) string {
+	flags := append([]string(nil), evidence.ThreadStatus.ActiveFlags...)
+	sort.Strings(flags)
+	payload := struct {
+		ThreadType   string   `json:"thread_type"`
+		ThreadSource string   `json:"thread_source"`
+		Flags        []string `json:"flags"`
+		LatestID     string   `json:"latest_id"`
+		LatestStatus string   `json:"latest_status"`
+		LatestError  bool     `json:"latest_error"`
+		ErrorMessage string   `json:"error_message"`
+		ErrorInfo    string   `json:"error_info"`
+		UserMessage  string   `json:"user_message"`
+		AgentMessage string   `json:"agent_message"`
+	}{ThreadType: evidence.ThreadStatus.Type, ThreadSource: task.ThreadSource, Flags: flags}
+	if evidence.Latest != nil {
+		payload.LatestID = evidence.Latest.ID
+		payload.LatestStatus = evidence.Latest.Status
+		payload.UserMessage = evidence.Latest.UserMessage
+		payload.AgentMessage = evidence.Latest.AgentMessage
+		if evidence.Latest.Error != nil {
+			payload.LatestError = true
+			payload.ErrorMessage = evidence.Latest.Error.Message
+			payload.ErrorInfo = string(evidence.Latest.Error.CodexErrorInfo)
+		}
+	}
+	data, _ := json.Marshal(payload)
+	sum := sha256.Sum256(data)
+	return hex.EncodeToString(sum[:])
+}
 
 type selectedTask struct {
 	Task       codex.Task

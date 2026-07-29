@@ -749,7 +749,7 @@ func validateResult(value Result) error {
 			}
 		}
 	case TitlePlanResult:
-		if result.Mode != "wait" && result.Mode != "batch" {
+		if result.Mode != "wait" && result.Mode != "batch" && result.Mode != "operation" {
 			return errors.New("title-plan result has invalid mode")
 		}
 		seenPlans := make(map[string]struct{}, len(result.Plans))
