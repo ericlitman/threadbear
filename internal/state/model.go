@@ -12,8 +12,9 @@ import (
 )
 
 const (
-	CurrentStateSchemaVersion = 2
-	CurrentCycleSchemaVersion = 2
+	CurrentStateSchemaVersion   = 2
+	CurrentCycleSchemaVersion   = 2
+	NativeTitleCanonicalTimeout = 2 * time.Minute
 )
 
 var ErrUnsupportedSchema = errors.New("unsupported state schema")
@@ -96,6 +97,7 @@ type TaskRecord struct {
 	Provenance              Provenance      `json:"provenance"`
 	StateStartedAt          time.Time       `json:"state_started_at"`
 	LastSubstantiveActivity time.Time       `json:"last_substantive_activity"`
+	EvidenceFingerprint     string          `json:"evidence_fingerprint,omitempty"`
 	DurableSubject          string          `json:"durable_subject,omitempty"`
 	ManagedAction           string          `json:"managed_action,omitempty"`
 	LastAppliedTitle        string          `json:"last_applied_title,omitempty"`
@@ -287,6 +289,9 @@ func (t TaskRecord) Validate() error {
 	if t.StateStartedAt.IsZero() || t.LastSubstantiveActivity.IsZero() {
 		return errors.New("state and activity timestamps are required")
 	}
+	if t.EvidenceFingerprint != "" && !canonicalIdentifier(t.EvidenceFingerprint) {
+		return errors.New("evidence fingerprint is invalid")
+	}
 	if (t.ManagedTokenDisplay == "") != (t.ManagedTokenPosition == "") {
 		return errors.New("managed token display and position must be set together")
 	}
@@ -323,6 +328,7 @@ type CapturedTask struct {
 	RolloutPath             string    `json:"rollout_path,omitempty"`
 	Archived                bool      `json:"archived"`
 	LastSubstantiveActivity time.Time `json:"last_substantive_activity"`
+	EvidenceFingerprint     string    `json:"evidence_fingerprint,omitempty"`
 }
 
 type ClassificationResult struct {
@@ -410,7 +416,7 @@ func (c CycleCheckpoint) Validate() error {
 		return errors.New("cycle collections must not be null")
 	}
 	for key, task := range c.Inventory {
-		if !canonicalIdentifier(key) || task.TaskID != key || !canonicalIdentifier(task.Revision) || task.LastSubstantiveActivity.IsZero() {
+		if !canonicalIdentifier(key) || task.TaskID != key || !canonicalIdentifier(task.Revision) || task.LastSubstantiveActivity.IsZero() || task.EvidenceFingerprint != "" && !canonicalIdentifier(task.EvidenceFingerprint) {
 			return fmt.Errorf("captured task %q is invalid", key)
 		}
 	}

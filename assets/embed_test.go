@@ -53,11 +53,43 @@ func TestManagedSkillConversationalContract(t *testing.T) {
 	}
 }
 
-func TestManagedAssetsDescribeHostedTitleActuatorContract(t *testing.T) {
+func assertOrderedContract(t *testing.T, name, content string, markers ...string) {
+	t.Helper()
+	previous := -1
+	for _, marker := range markers {
+		index := strings.Index(content, marker)
+		if index < 0 {
+			t.Fatalf("%s content missing %q", name, marker)
+		}
+		if index <= previous {
+			t.Fatalf("%s content puts %q out of order", name, marker)
+		}
+		previous = index
+	}
+}
+
+func TestManagedAssetsEnforceHelperRevalidationOrdering(t *testing.T) {
+	assertOrderedContract(t, "agents", AgentsManagedContent,
+		"CODEX_THREAD_ID", "status --json", "gpt-5.6-luna", "codex_delegation.source_thread_id",
+		"title-plan --json --wait", "title-plan --json --operation", "native task-title mutation",
+		"title-plan --json --report", "self-archive")
+	guidedStart := strings.Index(SkillManagedContent, "For a guided install")
+	fallbackStart := strings.Index(SkillManagedContent, "For post-turn application")
+	if guidedStart < 0 || fallbackStart <= guidedStart {
+		t.Fatal("managed skill is missing guided or fallback actuator sections")
+	}
+	assertOrderedContract(t, "skill guided", SkillManagedContent[guidedStart:fallbackStart],
+		"title-plan --json --batch", "title-plan --json --operation", "native mutation", "title-plan --json --report")
+	assertOrderedContract(t, "skill fallback", SkillManagedContent[fallbackStart:],
+		"CODEX_THREAD_ID", "control_task_id", "gpt-5.6-luna", "codex_delegation.source_thread_id",
+		"title-plan --json --wait", "title-plan --json --operation", "exact title", "aggregate outcomes", "self-archives")
+}
+
+func TestManagedGuidanceSuppressesControlTaskDispatch(t *testing.T) {
 	for name, content := range map[string]string{"agents": AgentsManagedContent, "skill": SkillManagedContent} {
-		for _, required := range []string{"title-plan", "functions.exec", "gpt-5.6-luna", "medium", "codex_delegation", "self-archiv", "persistent ThreadBear control task", "re-read", "expected_revision", "expected_title", "report drift without writing", "aggregate"} {
+		for _, required := range []string{"CODEX_THREAD_ID", "control_task_id", "hard no-op", "no worker"} {
 			if !strings.Contains(content, required) {
-				t.Fatalf("%s content missing %q", name, required)
+				t.Fatalf("%s content missing control isolation rule %q", name, required)
 			}
 		}
 	}

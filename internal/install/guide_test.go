@@ -44,16 +44,42 @@ func TestCodexInstallGuideFeatureDetectsHostedTitleApplication(t *testing.T) {
 		"delegated source identity",
 		"self-archive",
 		"Direct native batching is preferred",
-		"fail closed without waking ThreadBear's persistent control task",
+		"`CODEX_THREAD_ID` and strict `threadbear status --json`",
+		"equality with `control_task_id`, fails closed with no worker",
 		"Desktop-native tools detected in step 2",
-		"Immediately before each native title mutation, re-read that target",
-		"require both `expected_revision` and `expected_title` to match",
-		"report drift without writing that target",
+		"title-plan --json --operation",
+		"never use native `updatedAt` values as exact revision guards",
+		"non-atomic because the supported setter has no compare-and-set parameter",
 		"aggregate operation/task success, failure, and drift IDs",
 	} {
 		if !strings.Contains(guide, want) {
 			t.Fatalf("INSTALL.md missing hosted title capability rule %q", want)
 		}
+	}
+}
+
+func TestCodexInstallGuideEnforcesHelperRevalidationOrdering(t *testing.T) {
+	guide := normalizeGuideText(readInstallGuide(t))
+	start := strings.Index(guide, "After that heartbeat, apply the staged title bootstrap")
+	if start < 0 {
+		t.Fatal("INSTALL.md is missing the hosted title application block")
+	}
+	endOffset := strings.Index(guide[start:], "Feature-detect and fail closed")
+	if endOffset < 0 {
+		t.Fatal("INSTALL.md is missing the end of the hosted title application block")
+	}
+	end := start + endOffset
+	section := guide[start:end]
+	previous := -1
+	for _, marker := range []string{"title-plan --json --batch", "title-plan --json --operation", "native title mutation", "title-plan --json --report", "CODEX_THREAD_ID", "control_task_id", "gpt-5.6-luna", "aggregate outcomes", "self-archives"} {
+		index := strings.Index(section, marker)
+		if index < 0 {
+			t.Fatalf("INSTALL.md actuator block missing %q", marker)
+		}
+		if index <= previous {
+			t.Fatalf("INSTALL.md actuator block puts %q out of order", marker)
+		}
+		previous = index
 	}
 }
 

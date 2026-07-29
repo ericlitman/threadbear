@@ -62,11 +62,12 @@ Usage:
   threadbear title-plan [flags]
 
 Flags:
-  -h, --help      show this help and let the bear rest
-  --batch         plan all pending title mutations (default: false)
-  --json          write stable JSON command results; help stays human-readable (default: false)
-  --report        read native mutation outcomes as strict JSON from stdin (default: false)
-  --wait TASK_ID  wait for source TASK_ID to become terminal, then plan (default: "")
+  -h, --help                show this help and let the bear rest
+  --batch                   plan all pending title mutations (default: false)
+  --json                    write stable JSON command results; help stays human-readable (default: false)
+  --operation OPERATION_ID  revalidate one pending OPERATION_ID immediately before mutation (default: "")
+  --report                  read native mutation outcomes as strict JSON from stdin (default: false)
+  --wait TASK_ID            wait for source TASK_ID to become terminal, then plan (default: "")
 
 ThreadBear status — Show ThreadBear health, preferences, and recent activity.
 

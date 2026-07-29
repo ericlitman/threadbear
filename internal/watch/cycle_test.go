@@ -2163,3 +2163,109 @@ func TestDisabledRenameCancelsMigratedRefreshAndAllowsArchive(t *testing.T) {
 		t.Fatalf("result=%+v state=%+v archives=%v titles=%v", result, after, deps.client.archives, deps.client.titles)
 	}
 }
+
+func TestPendingTitleSettlementPreservesNewerTurnWithoutNativeRevision(t *testing.T) {
+	now := time.Date(2026, 8, 1, 12, 0, 0, 0, time.UTC)
+	oldTask := codex.Task{TaskID: "task", Revision: "1000", Title: "Subject", Source: "vscode"}
+	current := codex.Task{TaskID: "task", Revision: "1002", Title: "✅ Subject", Source: "vscode"}
+	priorEvidence := appserver.RecentEvidence{ThreadStatus: appserver.ThreadStatus{Type: "idle"}, Latest: &appserver.EvidenceTurn{ID: "turn-1", Status: "completed", UserMessage: "old", AgentMessage: "no footer"}}
+	currentEvidence := appserver.RecentEvidence{ThreadStatus: appserver.ThreadStatus{Type: "idle"}, Latest: &appserver.EvidenceTurn{ID: "turn-2", Status: "completed", UserMessage: "new", AgentMessage: "no footer"}}
+	sameSecond := now.Unix()
+	priorEvidence.RecencyAt, currentEvidence.RecencyAt = &sameSecond, &sameSecond
+	committed := state.New()
+	committed.BootstrapComplete = true
+	committed.LastUpdateCheck = timePointer(now)
+	previous := record(oldTask, state.StatusComplete, now.Add(-time.Hour))
+	previous.Provenance = state.ProvenanceLuna
+	previous.EvidenceFingerprint = evidenceFingerprint(oldTask, priorEvidence)
+	committed.Tasks[current.TaskID] = previous
+	reportedAt := now.Add(-time.Minute)
+	operationID := state.TitleOperationID(current.TaskID, oldTask.Revision, oldTask.Title, current.Title)
+	committed.PendingTitlePlans[current.TaskID] = state.PendingTitlePlan{OperationID: operationID, TaskID: current.TaskID, ExpectedRevision: oldTask.Revision, ExpectedTitle: oldTask.Title, DesiredTitle: current.Title, DurableSubject: "Subject", NativeOutcome: state.NativeTitleSucceeded, NativeReportedAt: &reportedAt}
+	runner, deps := testRunner(t, now, []codex.Task{current}, committed)
+	deps.client.latest[current.TaskID] = currentEvidence
+	deps.classifier.results[current.TaskID] = status.Classification{TaskID: current.TaskID, Revision: current.Revision, Status: state.StatusNeedsInput, Provenance: state.ProvenanceLuna, DurableSubject: "Subject", ManagedAction: "answer the new question"}
+	if _, err := runner.Run(context.Background(), false); err != nil {
+		t.Fatal(err)
+	}
+	after, _ := deps.store.store.LoadState()
+	stored := after.Tasks[current.TaskID]
+	if deps.classifier.calls != 1 || stored.CapturedRevision != current.Revision || stored.Status != state.StatusNeedsInput {
+		t.Fatalf("classifier=%d record=%+v", deps.classifier.calls, stored)
+	}
+	if plan, ok := after.PendingTitlePlans[current.TaskID]; ok {
+		if plan.OperationID == operationID || plan.ManagedAction != "answer the new question" {
+			t.Fatalf("pending plan did not reflect newer turn: %+v", plan)
+		}
+	}
+	if len(deps.client.titles) != 0 {
+		t.Fatalf("detached title calls=%v", deps.client.titles)
+	}
+}
+
+func TestNativeTitleOnlyRevisionUsesZeroModel(t *testing.T) {
+	now := time.Date(2026, 8, 1, 13, 0, 0, 0, time.UTC)
+	oldTask := codex.Task{TaskID: "task", Revision: "2000", Title: "Subject", Source: "vscode"}
+	current := codex.Task{TaskID: "task", Revision: "2001", Title: "✅ Subject", Source: "vscode"}
+	evidence := appserver.RecentEvidence{ThreadStatus: appserver.ThreadStatus{Type: "idle"}, Latest: &appserver.EvidenceTurn{ID: "turn-1", Status: "completed", UserMessage: "done", AgentMessage: "no footer"}}
+	seconds := now.Unix()
+	evidence.RecencyAt = &seconds
+	committed := state.New()
+	committed.BootstrapComplete = true
+	committed.LastUpdateCheck = timePointer(now)
+	previous := record(oldTask, state.StatusComplete, now.Add(-time.Hour))
+	previous.Provenance = state.ProvenanceLuna
+	previous.EvidenceFingerprint = evidenceFingerprint(oldTask, evidence)
+	committed.Tasks[current.TaskID] = previous
+	reportedAt := now.Add(-time.Minute)
+	operationID := state.TitleOperationID(current.TaskID, oldTask.Revision, oldTask.Title, current.Title)
+	committed.PendingTitlePlans[current.TaskID] = state.PendingTitlePlan{OperationID: operationID, TaskID: current.TaskID, ExpectedRevision: oldTask.Revision, ExpectedTitle: oldTask.Title, DesiredTitle: current.Title, DurableSubject: "Subject", NativeOutcome: state.NativeTitleSucceeded, NativeReportedAt: &reportedAt}
+	runner, deps := testRunner(t, now, []codex.Task{current}, committed)
+	deps.client.latest[current.TaskID] = evidence
+	if _, err := runner.Run(context.Background(), false); err != nil {
+		t.Fatal(err)
+	}
+	after, _ := deps.store.store.LoadState()
+	stored := after.Tasks[current.TaskID]
+	if deps.classifier.calls != 0 || stored.CapturedRevision != current.Revision || stored.Status != previous.Status || stored.Provenance != previous.Provenance || stored.EvidenceFingerprint != previous.EvidenceFingerprint || len(after.PendingTitlePlans) != 0 {
+		t.Fatalf("classifier=%d record=%+v pending=%+v", deps.classifier.calls, stored, after.PendingTitlePlans)
+	}
+	if len(deps.client.latestReads) != 1 || len(deps.client.titles) != 0 {
+		t.Fatalf("latest=%v titles=%v", deps.client.latestReads, deps.client.titles)
+	}
+	if _, err := runner.Run(context.Background(), false); err != nil {
+		t.Fatal(err)
+	}
+	if deps.classifier.calls != 0 || len(deps.client.latestReads) != 1 || len(deps.client.titles) != 0 {
+		t.Fatalf("unchanged classifier=%d latest=%v titles=%v", deps.classifier.calls, deps.client.latestReads, deps.client.titles)
+	}
+}
+
+func TestCanonicalRetryRemainsPendingUntilDeadline(t *testing.T) {
+	now := time.Date(2026, 8, 1, 14, 0, 0, 0, time.UTC)
+	task := codex.Task{TaskID: "task", Revision: "1", Title: "Subject", Source: "vscode"}
+	committed := state.New()
+	committed.BootstrapComplete = true
+	committed.LastUpdateCheck = timePointer(now)
+	committed.Tasks[task.TaskID] = record(task, state.StatusComplete, now.Add(-time.Hour))
+	reportedAt := now.Add(-state.NativeTitleCanonicalTimeout + time.Second)
+	operationID := state.TitleOperationID(task.TaskID, task.Revision, task.Title, "✅ Subject")
+	committed.PendingTitlePlans[task.TaskID] = state.PendingTitlePlan{OperationID: operationID, TaskID: task.TaskID, ExpectedRevision: task.Revision, ExpectedTitle: task.Title, DesiredTitle: "✅ Subject", DurableSubject: "Subject", NativeOutcome: state.NativeTitleSucceeded, NativeReportedAt: &reportedAt}
+	runner, deps := testRunner(t, now, []codex.Task{task}, committed)
+	if _, err := runner.Run(context.Background(), false); err != nil {
+		t.Fatal(err)
+	}
+	before, _ := deps.store.store.LoadState()
+	if before.PendingTitlePlans[task.TaskID].NativeOutcome != state.NativeTitleSucceeded {
+		t.Fatalf("pre-deadline plan = %+v", before.PendingTitlePlans[task.TaskID])
+	}
+	deps.clock.now = reportedAt.Add(state.NativeTitleCanonicalTimeout)
+	if _, err := runner.Run(context.Background(), false); err != nil {
+		t.Fatal(err)
+	}
+	after, _ := deps.store.store.LoadState()
+	plan := after.PendingTitlePlans[task.TaskID]
+	if plan.OperationID != operationID || plan.NativeOutcome != state.NativeTitleFailed || plan.NativeErrorCode != "canonical_not_persisted" || deps.classifier.calls != 0 {
+		t.Fatalf("retry plan=%+v classifier=%d", plan, deps.classifier.calls)
+	}
+}

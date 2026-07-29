@@ -48,7 +48,7 @@ type Service struct {
 type NativeReport struct {
 	OperationID   string `json:"operation_id"`
 	TaskID        string `json:"task_id"`
-	NativeSuccess bool   `json:"native_success"`
+	NativeSuccess *bool  `json:"native_success"`
 	ErrorCode     string `json:"error_code,omitempty"`
 }
 type reportEnvelope struct {
@@ -57,9 +57,12 @@ type reportEnvelope struct {
 
 var errCycleInProgress = errors.New("cycle_in_progress")
 
-func (s Service) Plan(ctx context.Context, taskID string, batch, report bool) (output.Result, error) {
+func (s Service) Plan(ctx context.Context, taskID, operationID string, batch, report bool) (output.Result, error) {
 	modes := 0
 	if taskID != "" {
+		modes++
+	}
+	if operationID != "" {
 		modes++
 	}
 	if batch {
@@ -68,7 +71,7 @@ func (s Service) Plan(ctx context.Context, taskID string, batch, report bool) (o
 	if report {
 		modes++
 	}
-	if strings.TrimSpace(taskID) != taskID || modes != 1 {
+	if strings.TrimSpace(taskID) != taskID || strings.TrimSpace(operationID) != operationID || modes != 1 {
 		return output.ErrorResult{Operation: "title-plan", ErrorCode: "invalid_request"}, errors.New("title-plan requires exactly one strict mode")
 	}
 	if report {
@@ -83,6 +86,8 @@ func (s Service) Plan(ctx context.Context, taskID string, batch, report bool) (o
 	mode := "batch"
 	if taskID != "" {
 		mode = "wait"
+	} else if operationID != "" {
+		mode = "operation"
 	}
 	cfg, err := s.Store.LoadConfig()
 	if err != nil {
@@ -90,6 +95,9 @@ func (s Service) Plan(ctx context.Context, taskID string, batch, report bool) (o
 	}
 	if !cfg.RenameEnabled {
 		return s.disabled(mode, taskID)
+	}
+	if taskID != "" && taskID == cfg.ControlTaskID {
+		return output.TitlePlanResult{Mode: mode, Plans: []output.TitlePlanItem{}, Dispositions: disabledDispositions(taskID)}, nil
 	}
 	if taskID != "" {
 		if s.Waiter == nil || s.Planner == nil {
@@ -108,7 +116,7 @@ func (s Service) Plan(ctx context.Context, taskID string, batch, report bool) (o
 		if _, err := s.Heartbeat.Run(ctx, false); err != nil {
 			return output.ErrorResult{Operation: "title-plan", ErrorCode: "planning_failed"}, err
 		}
-	} else {
+	} else if operationID == "" {
 		return output.ErrorResult{Operation: "title-plan", ErrorCode: "invalid_request"}, errors.New("title-plan mode is invalid")
 	}
 	lock, err := s.Store.AcquireLock()
@@ -140,13 +148,18 @@ func (s Service) Plan(ctx context.Context, taskID string, batch, report bool) (o
 	}
 	result := output.TitlePlanResult{Mode: mode, Plans: []output.TitlePlanItem{}, Dispositions: []output.TitlePlanDisposition{}}
 	ids := make([]string, 0, len(committed.PendingTitlePlans))
-	for id := range committed.PendingTitlePlans {
-		if taskID == "" || id == taskID {
-			ids = append(ids, id)
+	for id, plan := range committed.PendingTitlePlans {
+		if taskID != "" && id != taskID {
+			continue
 		}
+		if operationID != "" && plan.OperationID != operationID {
+			continue
+		}
+		ids = append(ids, id)
 	}
 	sort.Strings(ids)
 	changed := false
+	now := s.Now().UTC()
 	for _, id := range ids {
 		plan, task := committed.PendingTitlePlans[id], byID[id]
 		sameTitleRefresh := plan.ExpectedTitle == plan.DesiredTitle
@@ -163,10 +176,15 @@ func (s Service) Plan(ctx context.Context, taskID string, batch, report bool) (o
 			delete(committed.PendingTitlePlans, id)
 			result.Dispositions = append(result.Dispositions, output.TitlePlanDisposition{TaskID: id, Outcome: "drifted"})
 			changed = true
+		case plan.NativeOutcome == state.NativeTitleSucceeded && plan.NativeReportedAt != nil && !now.Before(plan.NativeReportedAt.Add(state.NativeTitleCanonicalTimeout)):
+			plan.NativeOutcome, plan.NativeErrorCode, plan.NativeReportedAt = state.NativeTitleFailed, "canonical_not_persisted", &now
+			committed.PendingTitlePlans[id] = plan
+			result.Plans = append(result.Plans, titlePlanItem(plan))
+			changed = true
 		case plan.NativeOutcome == state.NativeTitleSucceeded:
 			result.Dispositions = append(result.Dispositions, output.TitlePlanDisposition{TaskID: id, Outcome: "native_succeeded_pending_canonical"})
 		default:
-			result.Plans = append(result.Plans, output.TitlePlanItem{OperationID: plan.OperationID, TaskID: id, ExpectedRevision: plan.ExpectedRevision, ExpectedTitle: plan.ExpectedTitle, DesiredTitle: plan.DesiredTitle})
+			result.Plans = append(result.Plans, titlePlanItem(plan))
 		}
 	}
 	if taskID != "" && len(ids) == 0 {
@@ -179,6 +197,10 @@ func (s Service) Plan(ctx context.Context, taskID string, batch, report bool) (o
 		}
 	}
 	return result, nil
+}
+
+func titlePlanItem(plan state.PendingTitlePlan) output.TitlePlanItem {
+	return output.TitlePlanItem{OperationID: plan.OperationID, TaskID: plan.TaskID, ExpectedRevision: plan.ExpectedRevision, ExpectedTitle: plan.ExpectedTitle, DesiredTitle: plan.DesiredTitle}
 }
 
 func disabledDispositions(taskID string) []output.TitlePlanDisposition {
@@ -247,6 +269,11 @@ func (s Service) report() (output.Result, error) {
 	if envelope.Reports == nil {
 		return output.ErrorResult{Operation: "title-plan", ErrorCode: "invalid_report"}, errors.New("reports must be an array")
 	}
+	for _, report := range envelope.Reports {
+		if report.NativeSuccess == nil {
+			return output.ErrorResult{Operation: "title-plan", ErrorCode: "invalid_report"}, errors.New("native_success is required")
+		}
+	}
 	if err := decoder.Decode(&struct{}{}); !errors.Is(err, io.EOF) {
 		return output.ErrorResult{Operation: "title-plan", ErrorCode: "invalid_report"}, errors.New("report must contain one JSON value")
 	}
@@ -280,7 +307,8 @@ func (s Service) report() (output.Result, error) {
 	for _, report := range envelope.Reports {
 		plan, ok := committed.PendingTitlePlans[report.TaskID]
 		validID := report.TaskID != "" && strings.TrimSpace(report.TaskID) == report.TaskID
-		validOutcome := report.NativeSuccess != (report.ErrorCode != "")
+		succeeded := *report.NativeSuccess
+		validOutcome := succeeded != (report.ErrorCode != "")
 		if counts[report.TaskID] != 1 || !validID || !ok || plan.OperationID != report.OperationID || !validOutcome {
 			if validID {
 				if _, seen := seenRejected[report.TaskID]; !seen {
@@ -291,20 +319,20 @@ func (s Service) report() (output.Result, error) {
 			continue
 		}
 		if plan.NativeOutcome == state.NativeTitleSucceeded {
-			if report.NativeSuccess {
+			if succeeded {
 				result.AcceptedIDs = append(result.AcceptedIDs, report.TaskID)
 			} else {
 				result.RejectedIDs = append(result.RejectedIDs, report.TaskID)
 			}
 			continue
 		}
-		if plan.NativeOutcome == state.NativeTitleFailed && !report.NativeSuccess && plan.NativeErrorCode == report.ErrorCode {
+		if plan.NativeOutcome == state.NativeTitleFailed && !succeeded && plan.NativeErrorCode == report.ErrorCode {
 			result.AcceptedIDs = append(result.AcceptedIDs, report.TaskID)
 			continue
 		}
 		candidate := plan
 		candidate.NativeReportedAt = &now
-		if report.NativeSuccess {
+		if succeeded {
 			candidate.NativeOutcome, candidate.NativeErrorCode = state.NativeTitleSucceeded, ""
 		} else {
 			candidate.NativeOutcome, candidate.NativeErrorCode = state.NativeTitleFailed, report.ErrorCode
@@ -330,7 +358,10 @@ func (s Service) report() (output.Result, error) {
 
 func applyCanonical(committed *state.State, plan state.PendingTitlePlan, task codex.Task) {
 	if record, ok := committed.Tasks[plan.TaskID]; ok {
-		record.CapturedRevision, record.CapturedTitle, record.LastAppliedTitle = task.Revision, task.Title, task.Title
+		if task.Revision == plan.ExpectedRevision {
+			record.CapturedRevision = task.Revision
+		}
+		record.CapturedTitle, record.LastAppliedTitle = task.Title, task.Title
 		record.DurableSubject, record.ManagedAction = plan.DurableSubject, plan.ManagedAction
 		record.ManagedTokenDisplay, record.ManagedTokenPosition = plan.ManagedTokenDisplay, plan.ManagedTokenPosition
 		committed.Tasks[plan.TaskID] = record

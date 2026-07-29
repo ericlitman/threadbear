@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/ericlitman/threadbear/assets"
 	"github.com/ericlitman/threadbear/internal/app"
@@ -679,17 +680,144 @@ func TestParseTitlePlanRequiresStrictJSONAndOneMode(t *testing.T) {
 	if err != nil || waitRequest.TitlePlanWait != "task-1" || waitRequest.TitlePlanBatch || waitRequest.TitlePlanReport {
 		t.Fatalf("wait request=%+v err=%v", waitRequest, err)
 	}
+	operationRequest, err := parseRequest([]string{"title-plan", "--json", "--operation", "op-1"})
+	if err != nil || operationRequest.TitlePlanOperation != "op-1" || operationRequest.TitlePlanWait != "" || operationRequest.TitlePlanBatch || operationRequest.TitlePlanReport {
+		t.Fatalf("operation request=%+v err=%v", operationRequest, err)
+	}
 	batchRequest, err := parseRequest([]string{"title-plan", "--json", "--batch"})
-	if err != nil || !batchRequest.TitlePlanBatch || batchRequest.TitlePlanWait != "" || batchRequest.TitlePlanReport {
+	if err != nil || !batchRequest.TitlePlanBatch || batchRequest.TitlePlanWait != "" || batchRequest.TitlePlanOperation != "" || batchRequest.TitlePlanReport {
 		t.Fatalf("batch request=%+v err=%v", batchRequest, err)
 	}
 	reportRequest, err := parseRequest([]string{"title-plan", "--json", "--report"})
-	if err != nil || !reportRequest.TitlePlanReport || reportRequest.TitlePlanWait != "" || reportRequest.TitlePlanBatch {
+	if err != nil || !reportRequest.TitlePlanReport || reportRequest.TitlePlanWait != "" || reportRequest.TitlePlanOperation != "" || reportRequest.TitlePlanBatch {
 		t.Fatalf("report request=%+v err=%v", reportRequest, err)
 	}
-	for _, args := range [][]string{{"title-plan", "--wait", "task-1"}, {"title-plan", "--json"}, {"title-plan", "--json", "--batch", "--report"}, {"title-plan", "--json", "--wait", " task-1 "}} {
+	for _, args := range [][]string{{"title-plan", "--wait", "task-1"}, {"title-plan", "--json"}, {"title-plan", "--json", "--batch", "--report"}, {"title-plan", "--json", "--wait", " task-1 "}, {"title-plan", "--json", "--operation", " op-1 "}} {
 		if _, err := parseRequest(args); err == nil {
 			t.Fatalf("parseRequest(%v) succeeded", args)
 		}
+	}
+}
+
+type hostedWaitInventoryFake struct {
+	tasks       []codex.Task
+	calls       int
+	err         error
+	block       bool
+	hadDeadline bool
+}
+
+func (f *hostedWaitInventoryFake) Inventory(ctx context.Context, _ string) (codex.Inventory, error) {
+	f.calls++
+	_, f.hadDeadline = ctx.Deadline()
+	if f.block {
+		<-ctx.Done()
+		return codex.Inventory{}, ctx.Err()
+	}
+	return codex.Inventory{Tasks: append([]codex.Task(nil), f.tasks...)}, f.err
+}
+
+type hostedWaitClientFake struct {
+	reads       int
+	activeReads int
+	err         error
+	block       bool
+	hadDeadline bool
+	closed      bool
+}
+
+func (f *hostedWaitClientFake) ReadLatestTurn(ctx context.Context, _, _ string) (appserver.RecentEvidence, error) {
+	f.reads++
+	_, f.hadDeadline = ctx.Deadline()
+	if f.block {
+		<-ctx.Done()
+		return appserver.RecentEvidence{}, ctx.Err()
+	}
+	if f.err != nil {
+		return appserver.RecentEvidence{}, f.err
+	}
+	if f.reads <= f.activeReads {
+		return appserver.RecentEvidence{ThreadStatus: appserver.ThreadStatus{Type: "active"}}, nil
+	}
+	return appserver.RecentEvidence{ThreadStatus: appserver.ThreadStatus{Type: "idle"}}, nil
+}
+
+func (f *hostedWaitClientFake) Close() error { f.closed = true; return nil }
+
+func TestHostedTitleWaiterDeadlineBoundsOpenAndReads(t *testing.T) {
+	for _, stage := range []string{"open", "inventory", "read"} {
+		t.Run(stage, func(t *testing.T) {
+			inventory := &hostedWaitInventoryFake{tasks: []codex.Task{{TaskID: "task", RolloutPath: "rollout"}}, block: stage == "inventory"}
+			client := &hostedWaitClientFake{block: stage == "read"}
+			openHadDeadline := false
+			waiter := hostedTitleWaiter{
+				store: staticConfigLoader{value: config.Default("control")}, inventory: inventory,
+				open: func(ctx context.Context) (hostedTitleClient, error) {
+					_, openHadDeadline = ctx.Deadline()
+					if stage == "open" {
+						<-ctx.Done()
+						return nil, ctx.Err()
+					}
+					return client, nil
+				},
+				timeout: 20 * time.Millisecond, pollInterval: time.Millisecond,
+			}
+			err := waiter.Wait(context.Background(), "task")
+			if !errors.Is(err, errHostedTitleDeadline) || !openHadDeadline {
+				t.Fatalf("error=%v open deadline=%t", err, openHadDeadline)
+			}
+			if stage == "inventory" && !inventory.hadDeadline {
+				t.Fatal("inventory did not receive bounded context")
+			}
+			if stage == "read" && !client.hadDeadline {
+				t.Fatal("latest-turn read did not receive bounded context")
+			}
+		})
+	}
+}
+
+func TestHostedTitleWaiterPreservesParentCancellation(t *testing.T) {
+	inventory := &hostedWaitInventoryFake{tasks: []codex.Task{{TaskID: "task", RolloutPath: "rollout"}}}
+	client := &hostedWaitClientFake{block: true}
+	waiter := hostedTitleWaiter{store: staticConfigLoader{value: config.Default("control")}, inventory: inventory, open: func(context.Context) (hostedTitleClient, error) { return client, nil }, timeout: time.Second, pollInterval: time.Millisecond}
+	ctx, cancel := context.WithCancel(context.Background())
+	go func() {
+		time.Sleep(10 * time.Millisecond)
+		cancel()
+	}()
+	if err := waiter.Wait(ctx, "task"); !errors.Is(err, context.Canceled) {
+		t.Fatalf("error=%v", err)
+	}
+}
+
+func TestHostedTitleWaiterPreservesParentDeadline(t *testing.T) {
+	inventory := &hostedWaitInventoryFake{tasks: []codex.Task{{TaskID: "task", RolloutPath: "rollout"}}}
+	client := &hostedWaitClientFake{block: true}
+	waiter := hostedTitleWaiter{store: staticConfigLoader{value: config.Default("control")}, inventory: inventory, open: func(context.Context) (hostedTitleClient, error) { return client, nil }, timeout: time.Second, pollInterval: time.Millisecond}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
+	defer cancel()
+	if err := waiter.Wait(ctx, "task"); !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("error=%v", err)
+	}
+}
+
+func TestHostedTitleWaiterReturnsReadFailure(t *testing.T) {
+	inventory := &hostedWaitInventoryFake{tasks: []codex.Task{{TaskID: "task", RolloutPath: "rollout"}}}
+	client := &hostedWaitClientFake{err: errors.New("synthetic read failure")}
+	waiter := hostedTitleWaiter{store: staticConfigLoader{value: config.Default("control")}, inventory: inventory, open: func(context.Context) (hostedTitleClient, error) { return client, nil }, timeout: time.Second, pollInterval: time.Millisecond}
+	if err := waiter.Wait(context.Background(), "task"); err == nil || err.Error() != "synthetic read failure" {
+		t.Fatalf("error=%v", err)
+	}
+}
+
+func TestHostedTitleWaiterScansInventoryOnceWhileActive(t *testing.T) {
+	inventory := &hostedWaitInventoryFake{tasks: []codex.Task{{TaskID: "task", RolloutPath: "rollout"}}}
+	client := &hostedWaitClientFake{activeReads: 2}
+	waiter := hostedTitleWaiter{store: staticConfigLoader{value: config.Default("control")}, inventory: inventory, open: func(context.Context) (hostedTitleClient, error) { return client, nil }, timeout: time.Second, pollInterval: time.Millisecond}
+	if err := waiter.Wait(context.Background(), "task"); err != nil {
+		t.Fatal(err)
+	}
+	if inventory.calls != 1 || client.reads != 3 || !inventory.hadDeadline || !client.hadDeadline || !client.closed {
+		t.Fatalf("inventory=%d reads=%d inventory deadline=%t read deadline=%t closed=%t", inventory.calls, client.reads, inventory.hadDeadline, client.hadDeadline, client.closed)
 	}
 }

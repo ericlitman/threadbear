@@ -198,7 +198,7 @@ func newOperatorService(installedVersion string, stdout, stderr io.Writer, forma
 		uninstaller.Prompter = prompter
 		return uninstaller, prompter.Close, nil
 	}
-	titlePlanner := titleplan.Service{Store: store, Inventory: inventory, Heartbeat: runner, Planner: runner, Reports: os.Stdin, Now: time.Now, Waiter: hostedTitleWaiter{store: store, inventory: inventory, runtime: appServers}}
+	titlePlanner := titleplan.Service{Store: store, Inventory: inventory, Heartbeat: runner, Planner: runner, Reports: os.Stdin, Now: time.Now, Waiter: hostedTitleWaiter{store: store, inventory: inventory, open: func(ctx context.Context) (hostedTitleClient, error) { return appServers.open(ctx) }}}
 	service := app.NewWithOperatorCommands(installedVersion, app.OperatorDependencies{
 		Store: store, Inventory: inventory, Clock: clock, LaunchAgent: launch, TitlePlanner: titlePlanner,
 		ManagedAgents: managed, Unarchiver: appServerUnarchiver{runtime: appServers}, Heartbeat: runner,
@@ -336,52 +336,77 @@ func (f appServerFactory) Open(ctx context.Context) (watch.AppServer, error) {
 	return f.runtime.open(ctx)
 }
 
-type hostedTitleWaiter struct {
-	store     interface{ LoadConfig() (config.Config, error) }
-	inventory watch.InventoryReader
-	runtime   appServerRuntime
+type hostedTitleClient interface {
+	ReadLatestTurn(context.Context, string, string) (appserver.RecentEvidence, error)
+	Close() error
 }
 
+type hostedTitleWaiter struct {
+	store        interface{ LoadConfig() (config.Config, error) }
+	inventory    watch.InventoryReader
+	open         func(context.Context) (hostedTitleClient, error)
+	timeout      time.Duration
+	pollInterval time.Duration
+}
+
+var errHostedTitleDeadline = errors.New("source task did not become terminal before the title-plan deadline")
+
 func (w hostedTitleWaiter) Wait(ctx context.Context, taskID string) error {
+	timeout := w.timeout
+	if timeout <= 0 {
+		timeout = 2 * time.Minute
+	}
+	pollInterval := w.pollInterval
+	if pollInterval <= 0 {
+		pollInterval = 500 * time.Millisecond
+	}
+	waitCtx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+	normalize := func(err error) error {
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+		if errors.Is(waitCtx.Err(), context.DeadlineExceeded) {
+			return errHostedTitleDeadline
+		}
+		return err
+	}
 	cfg, err := w.store.LoadConfig()
 	if err != nil {
-		return err
+		return normalize(err)
 	}
-	client, err := w.runtime.open(ctx)
+	client, err := w.open(waitCtx)
 	if err != nil {
-		return err
+		return normalize(err)
 	}
 	defer client.Close()
-	deadline, ticker := time.NewTimer(2*time.Minute), time.NewTicker(500*time.Millisecond)
-	defer deadline.Stop()
+	observed, err := w.inventory.Inventory(waitCtx, cfg.ControlTaskID)
+	if err != nil {
+		return normalize(err)
+	}
+	var task *codex.Task
+	for index := range observed.Tasks {
+		if observed.Tasks[index].TaskID == taskID {
+			task = &observed.Tasks[index]
+			break
+		}
+	}
+	if task == nil {
+		return errors.New("source task is not in the active inventory")
+	}
+	ticker := time.NewTicker(pollInterval)
 	defer ticker.Stop()
 	for {
-		observed, err := w.inventory.Inventory(ctx, cfg.ControlTaskID)
-		if err != nil {
-			return err
-		}
-		var task *codex.Task
-		for index := range observed.Tasks {
-			if observed.Tasks[index].TaskID == taskID {
-				task = &observed.Tasks[index]
-				break
-			}
-		}
-		if task == nil {
-			return errors.New("source task is not in the active inventory")
-		}
-		evidence, err := client.ReadLatestTurn(ctx, taskID, task.RolloutPath)
-		if err != nil {
-			return err
+		evidence, readErr := client.ReadLatestTurn(waitCtx, taskID, task.RolloutPath)
+		if readErr != nil {
+			return normalize(readErr)
 		}
 		if !evidence.Active() {
 			return nil
 		}
 		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		case <-deadline.C:
-			return errors.New("source task did not become terminal before the title-plan deadline")
+		case <-waitCtx.Done():
+			return normalize(waitCtx.Err())
 		case <-ticker.C:
 		}
 	}
