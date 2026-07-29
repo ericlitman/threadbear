@@ -547,7 +547,7 @@ func TestDispatchEligibilityEnvelopeAndPrivacy(t *testing.T) {
 			t.Fatal("child prompt does not contain exactly one helper loader or still embeds the actuator program")
 		}
 		for _, marker := range []string{
-			"one model pass", "loader's sole JSON-string s placeholder:=", "functions.exec once", "codex_delegation.source_thread_id", "no author", "inspect", "explain", "retry", "recover",
+			"one model pass", "copy loader byte-for-byte except sole s UUID=", "one functions.exec", "codex_delegation.source_thread_id", "no author", "inspect", "explain", "retry", "recover",
 			`k(e)!=="program,version"`, `typeof r.output!=="string"`, `typeof r.exit_code!=="number"`, `r.exit_code!==0`, `"session_id"in r`,
 			"title-plan --json --actuator", "title_actuation_failed", "(0,eval)",
 		} {
