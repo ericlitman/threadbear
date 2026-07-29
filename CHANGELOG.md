@@ -15,6 +15,7 @@
 
 ### Fixed
 
+- Required Luna actuator children to copy the supplied loader byte-for-byte except for source UUID substitution.
 - Trimmed duplicated Luna actuator prompt instructions to lower fresh child input without changing runtime behavior.
 - Loaded the exact helper-owned Luna actuator program from the installed binary instead of carrying it in every child prompt.
 - Made the Luna actuator execute the helper-owned exact title-plan schema instead of inventing a narrower validator.
