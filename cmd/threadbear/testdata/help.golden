@@ -64,6 +64,7 @@ Usage:
 Flags:
   -h, --help                show this help and let the bear rest
   --batch                   plan all pending title mutations (default: false)
+  --dispatch                emit the guarded child title-actuator dispatch envelope (default: false)
   --json                    write stable JSON command results; help stays human-readable (default: false)
   --operation OPERATION_ID  revalidate one pending OPERATION_ID immediately before mutation (default: "")
   --report                  read native mutation outcomes as strict JSON from stdin (default: false)

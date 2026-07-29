@@ -689,10 +689,14 @@ func TestParseTitlePlanRequiresStrictJSONAndOneMode(t *testing.T) {
 		t.Fatalf("batch request=%+v err=%v", batchRequest, err)
 	}
 	reportRequest, err := parseRequest([]string{"title-plan", "--json", "--report"})
-	if err != nil || !reportRequest.TitlePlanReport || reportRequest.TitlePlanWait != "" || reportRequest.TitlePlanOperation != "" || reportRequest.TitlePlanBatch {
+	if err != nil || !reportRequest.TitlePlanReport || reportRequest.TitlePlanWait != "" || reportRequest.TitlePlanOperation != "" || reportRequest.TitlePlanBatch || reportRequest.TitlePlanDispatch {
 		t.Fatalf("report request=%+v err=%v", reportRequest, err)
 	}
-	for _, args := range [][]string{{"title-plan", "--wait", "task-1"}, {"title-plan", "--json"}, {"title-plan", "--json", "--batch", "--report"}, {"title-plan", "--json", "--wait", " task-1 "}, {"title-plan", "--json", "--operation", " op-1 "}} {
+	dispatchRequest, err := parseRequest([]string{"title-plan", "--json", "--dispatch"})
+	if err != nil || !dispatchRequest.TitlePlanDispatch || dispatchRequest.TitlePlanWait != "" || dispatchRequest.TitlePlanOperation != "" || dispatchRequest.TitlePlanBatch || dispatchRequest.TitlePlanReport {
+		t.Fatalf("dispatch request=%+v err=%v", dispatchRequest, err)
+	}
+	for _, args := range [][]string{{"title-plan", "--wait", "task-1"}, {"title-plan", "--json"}, {"title-plan", "--json", "--batch", "--report"}, {"title-plan", "--json", "--dispatch", "--batch"}, {"title-plan", "--json", "--wait", " task-1 "}, {"title-plan", "--json", "--operation", " op-1 "}} {
 		if _, err := parseRequest(args); err == nil {
 			t.Fatalf("parseRequest(%v) succeeded", args)
 		}
@@ -743,6 +747,62 @@ func (f *hostedWaitClientFake) ReadLatestTurn(ctx context.Context, _, _ string) 
 }
 
 func (f *hostedWaitClientFake) Close() error { f.closed = true; return nil }
+
+func TestRunTitlePlanDispatchUsesInheritedIdentityAndExactEnvelope(t *testing.T) {
+	const sourceID = "11111111-1111-4111-8111-111111111111"
+	const controlID = "22222222-2222-4222-8222-222222222222"
+	home := t.TempDir()
+	codexHome := filepath.Join(home, "codex")
+	if err := os.MkdirAll(codexHome, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("HOME", home)
+	t.Setenv("CODEX_HOME", codexHome)
+	t.Setenv("CODEX_THREAD_ID", sourceID)
+	store := state.NewStore(filepath.Join(home, ".local", "share", "threadbear"))
+	if err := store.SaveConfig(config.Default(controlID)); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.SaveState(state.New()); err != nil {
+		t.Fatal(err)
+	}
+	var stdout, stderr bytes.Buffer
+	if code := run(context.Background(), []string{"title-plan", "--json", "--dispatch"}, &stdout, &stderr); code != 0 {
+		t.Fatalf("code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+	var envelope struct {
+		Version     int    `json:"version"`
+		Allow       bool   `json:"allow"`
+		Disposition string `json:"disposition"`
+		Child       struct {
+			Model    string `json:"model"`
+			Thinking string `json:"thinking"`
+			Prompt   string `json:"prompt"`
+			Target   struct {
+				Type          string `json:"type"`
+				DirectoryName string `json:"directoryName"`
+			} `json:"target"`
+		} `json:"child"`
+	}
+	if err := json.Unmarshal(stdout.Bytes(), &envelope); err != nil {
+		t.Fatal(err)
+	}
+	if envelope.Version != 1 || !envelope.Allow || envelope.Disposition != "dispatch" || envelope.Child.Model != "gpt-5.6-luna" || envelope.Child.Thinking != "medium" || envelope.Child.Target.Type != "projectless" || envelope.Child.Target.DirectoryName != "threadbear-title-actuator" || !strings.HasPrefix(envelope.Child.Prompt, "THREADBEAR_TITLE_ACTUATOR_V1\n") {
+		t.Fatalf("envelope=%+v", envelope)
+	}
+	if strings.Contains(stdout.String(), sourceID) || strings.Contains(stdout.String(), controlID) {
+		t.Fatalf("dispatch exposed task identity: %s", stdout.String())
+	}
+	t.Setenv("CODEX_THREAD_ID", controlID)
+	stdout.Reset()
+	stderr.Reset()
+	if code := run(context.Background(), []string{"title-plan", "--json", "--dispatch"}, &stdout, &stderr); code != 0 {
+		t.Fatalf("control code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+	if got, want := stdout.String(), "{\"version\":1,\"allow\":false,\"disposition\":\"control_task\"}\n"; got != want {
+		t.Fatalf("control envelope=%q want=%q", got, want)
+	}
+}
 
 func TestHostedTitleWaiterDeadlineBoundsOpenAndReads(t *testing.T) {
 	for _, stage := range []string{"open", "inventory", "read"} {

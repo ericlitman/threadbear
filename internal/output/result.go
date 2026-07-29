@@ -29,6 +29,30 @@ type Result interface {
 	result()
 }
 
+type TitleDispatchTarget struct {
+	Type          string `json:"type"`
+	DirectoryName string `json:"directoryName"`
+}
+type TitleDispatchChild struct {
+	Model    string              `json:"model"`
+	Thinking string              `json:"thinking"`
+	Target   TitleDispatchTarget `json:"target"`
+	Prompt   string              `json:"prompt"`
+}
+type TitleDispatchResult struct {
+	Version     int                 `json:"version"`
+	Allow       bool                `json:"allow"`
+	Disposition string              `json:"disposition"`
+	Child       *TitleDispatchChild `json:"child,omitempty"`
+}
+
+func (TitleDispatchResult) result()     {}
+func (TitleDispatchResult) Empty() bool { return false }
+func (r TitleDispatchResult) Human() string {
+	data, _ := json.Marshal(r)
+	return string(data)
+}
+
 type TitlePlanItem struct {
 	OperationID      string `json:"operation_id"`
 	TaskID           string `json:"task_id"`
@@ -511,6 +535,11 @@ func Write(writer io.Writer, format Format, value Result) error {
 
 func dereferenceResult(value Result) (Result, error) {
 	switch result := value.(type) {
+	case *TitleDispatchResult:
+		if result == nil {
+			return nil, errors.New("result is required")
+		}
+		return *result, nil
 	case *TitlePlanResult:
 		if result == nil {
 			return nil, errors.New("result is required")
@@ -578,6 +607,11 @@ func dereferenceResult(value Result) (Result, error) {
 
 func withVersion(value Result) Result {
 	switch result := value.(type) {
+	case TitleDispatchResult:
+		if result.Version == 0 {
+			result.Version = CurrentResultVersion
+		}
+		return result
 	case HeartbeatResult:
 		return result.normalized()
 	case TitlePlanResult:
@@ -712,6 +746,14 @@ func validateResult(value Result) error {
 		return nil
 	}
 	switch result := value.(type) {
+	case TitleDispatchResult:
+		if result.Allow {
+			if result.Disposition != "dispatch" || result.Child == nil || result.Child.Model != "gpt-5.6-luna" || result.Child.Thinking != "medium" || result.Child.Target.Type != "projectless" || result.Child.Target.DirectoryName != "threadbear-title-actuator" || len([]byte(result.Child.Prompt)) > 6000 || !strings.HasPrefix(result.Child.Prompt, "THREADBEAR_TITLE_ACTUATOR_V1\n") {
+				return errors.New("title dispatch allow envelope is invalid")
+			}
+		} else if result.Child != nil || !validTitleDispatchDisposition(result.Disposition) {
+			return errors.New("title dispatch no-op envelope is invalid")
+		}
 	case HeartbeatResult:
 		if !result.Empty() && result.CycleID == "" {
 			return errors.New("changed heartbeat requires cycle_id")
@@ -981,6 +1023,8 @@ func validateResult(value Result) error {
 
 func resultVersion(value Result) int {
 	switch result := value.(type) {
+	case TitleDispatchResult:
+		return result.Version
 	case HeartbeatResult:
 		return result.Version
 	case TitlePlanResult:
@@ -1007,6 +1051,15 @@ func resultVersion(value Result) int {
 		return result.Version
 	default:
 		return 0
+	}
+}
+
+func validTitleDispatchDisposition(value string) bool {
+	switch value {
+	case "source_missing", "source_invalid", "config_unavailable", "config_invalid", "state_unavailable", "state_invalid", "control_task", "rename_disabled", "agents_disabled":
+		return true
+	default:
+		return false
 	}
 }
 

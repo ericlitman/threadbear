@@ -6,6 +6,7 @@ import (
 	"errors"
 	"io"
 	"io/fs"
+	"os"
 	"sort"
 	"strings"
 	"time"
@@ -57,7 +58,18 @@ type reportEnvelope struct {
 
 var errCycleInProgress = errors.New("cycle_in_progress")
 
-func (s Service) Plan(ctx context.Context, taskID, operationID string, batch, report bool) (output.Result, error) {
+const ChildPromptSentinel = "THREADBEAR_TITLE_ACTUATOR_V1"
+
+const ChildPrompt = ChildPromptSentinel + `
+You are the child-only ThreadBear title actuator. This sentinel suppresses source dispatch and recursion. Do not read a skill, discover tools, inspect schemas or implementation, inspect files, use network access, or take a preliminary execution or recovery turn.
+Use one model pass and exactly one functions.exec. Obtain SOURCE_ID only from your own codex_delegation.source_thread_id; never use the parent prompt, transcript, task metadata, a supplied source ID, or the persistent ThreadBear control task. If SOURCE_ID is missing or noncanonical, return one stable title_actuation_failed error and stop without retry.
+Inside that single functions.exec, use only tools.exec_command plus the fully qualified native tools tools.codex_app__set_thread_title and tools.codex_app__set_thread_archived. Run ~/.local/bin/threadbear title-plan --json --wait "$SOURCE_ID" and parse its strict JSON internally without returning plans, titles, task metadata, or a manifest to model context.
+For every initial plan, set OPERATION_ID from operation_id and run ~/.local/bin/threadbear title-plan --json --operation "$OPERATION_ID". Continue only when the revalidation result is strict and its plans array contains exactly one plan with the same operation_id. Set TASK_ID and DESIRED_TITLE only from that exact revalidated plan, then immediately call await tools.codex_app__set_thread_title({threadId: TASK_ID, title: DESIRED_TITLE}). A fulfilled call is native_success:true regardless of response shape. A thrown call is native_success:false with error_code:"native_set_failed". Do not inspect a fulfilled response, use native updatedAt as a revision guard, retry, classify, synthesize, normalize, or revise a title. The helper-to-setter interval is non-atomic.
+After every plan is checked, submit only operations for which the native setter was attempted. Pipe exactly one JSON value to ~/.local/bin/threadbear title-plan --json --report with shape {"reports":[{"operation_id":"OPERATION_ID","task_id":"TASK_ID","native_success":true}]}. Every report requires exact operation_id, task_id, and boolean native_success; a failed setter also requires nonempty error_code. Accept reporting only when rejected_ids is empty and accepted_ids has exact set equality with submitted task IDs.
+If initial plans is empty, skip the empty report and accept only when every disposition is no_op, canonical_persisted, or native_succeeded_pending_canonical. Any drifted, missing, malformed, unexpected, rejected, setter-failure, report-failure, or unequal-set result returns one stable title_actuation_failed error, leaves the child visible and unarchived, and stops with no retry, inspection, second command, or recovery turn.
+Only after accepted reporting and every native_success is true, or after an accepted zero-plan gate, call await tools.codex_app__set_thread_archived({archived: true}) in the same functions.exec. Omit threadId so the child archives itself, never the source. Successful self-archive is expected to interrupt execution; require no final message and do not recover from that interruption.`
+
+func (s Service) Plan(ctx context.Context, taskID, operationID string, batch, report, dispatch bool) (output.Result, error) {
 	modes := 0
 	if taskID != "" {
 		modes++
@@ -71,8 +83,14 @@ func (s Service) Plan(ctx context.Context, taskID, operationID string, batch, re
 	if report {
 		modes++
 	}
+	if dispatch {
+		modes++
+	}
 	if strings.TrimSpace(taskID) != taskID || strings.TrimSpace(operationID) != operationID || modes != 1 {
 		return output.ErrorResult{Operation: "title-plan", ErrorCode: "invalid_request"}, errors.New("title-plan requires exactly one strict mode")
+	}
+	if dispatch {
+		return s.dispatch(), nil
 	}
 	if report {
 		if s.Store == nil || s.Now == nil {
@@ -197,6 +215,78 @@ func (s Service) Plan(ctx context.Context, taskID, operationID string, batch, re
 		}
 	}
 	return result, nil
+}
+
+func (s Service) dispatch() output.TitleDispatchResult {
+	noOp := func(disposition string) output.TitleDispatchResult {
+		return output.TitleDispatchResult{Allow: false, Disposition: disposition}
+	}
+	sourceID := os.Getenv("CODEX_THREAD_ID")
+	if sourceID == "" {
+		return noOp("source_missing")
+	}
+	if !canonicalUUID(sourceID) {
+		return noOp("source_invalid")
+	}
+	if s.Store == nil {
+		return noOp("config_unavailable")
+	}
+	cfg, err := s.Store.LoadConfig()
+	if err != nil {
+		return noOp("config_unavailable")
+	}
+	if err := cfg.Validate(); err != nil || !canonicalUUID(cfg.ControlTaskID) {
+		return noOp("config_invalid")
+	}
+	committed, err := s.Store.LoadState()
+	if err != nil {
+		return noOp("state_unavailable")
+	}
+	if err := committed.Validate(); err != nil {
+		return noOp("state_invalid")
+	}
+	if sourceID == cfg.ControlTaskID {
+		return noOp("control_task")
+	}
+	if !cfg.RenameEnabled {
+		return noOp("rename_disabled")
+	}
+	if !cfg.AgentsEnabled {
+		return noOp("agents_disabled")
+	}
+	return output.TitleDispatchResult{
+		Allow:       true,
+		Disposition: "dispatch",
+		Child: &output.TitleDispatchChild{
+			Model:    "gpt-5.6-luna",
+			Thinking: "medium",
+			Target: output.TitleDispatchTarget{
+				Type:          "projectless",
+				DirectoryName: "threadbear-title-actuator",
+			},
+			Prompt: ChildPrompt,
+		},
+	}
+}
+
+func canonicalUUID(value string) bool {
+	if len(value) != 36 {
+		return false
+	}
+	for index, char := range value {
+		if index == 8 || index == 13 || index == 18 || index == 23 {
+			if char != '-' {
+				return false
+			}
+			continue
+		}
+		if char < '0' || char > '9' {
+			if char < 'a' || char > 'f' {
+				return false
+			}
+		}
+	}
+	return true
 }
 
 func titlePlanItem(plan state.PendingTitlePlan) output.TitlePlanItem {

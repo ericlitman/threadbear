@@ -15,6 +15,7 @@
 
 ### Fixed
 
+- Replaced Node-dependent title handoff with a strict helper-owned raw-V8 child dispatch envelope.
 - Separated source guard/dispatch from child-only Luna title actuation and self-archive.
 - Made the Luna title actuator call Desktop-native title and self-archive tools directly without discovery.
 - Made the Luna native-title actuator contract self-contained with strict report acceptance and success-only self-archive.

@@ -1,6 +1,11 @@
 package assets
 
 import (
+	"encoding/json"
+	"errors"
+	"os"
+	"path/filepath"
+	"sort"
 	"strings"
 	"testing"
 )
@@ -46,164 +51,298 @@ func TestManagedSkillConversationalContract(t *testing.T) {
 			t.Errorf("managed skill content is missing %q", text)
 		}
 	}
-	card := strings.Index(SkillManagedContent, "lead with a short friendly capability card")
-	help := strings.Index(SkillManagedContent, "`~/.local/bin/threadbear help`")
-	if card < 0 || help < 0 || card > help {
-		t.Fatal("managed skill does not put the capability card before command help")
-	}
 }
 
-func assertOrderedContract(t *testing.T, name, content string, markers ...string) {
-	t.Helper()
-	previous := -1
-	for _, marker := range markers {
-		index := strings.Index(content, marker)
-		if index < 0 {
-			t.Fatalf("%s content missing %q", name, marker)
+func javascriptBlocks(content string) []string {
+	blocks := []string{}
+	for {
+		start := strings.Index(content, "```js\n")
+		if start < 0 {
+			return blocks
 		}
-		if index <= previous {
-			t.Fatalf("%s content puts %q out of order", name, marker)
+		content = content[start+len("```js\n"):]
+		end := strings.Index(content, "\n```")
+		if end < 0 {
+			return blocks
 		}
-		previous = index
+		blocks = append(blocks, content[:end])
+		content = content[end+len("\n```"):]
 	}
 }
 
-func managedPostTurnPhases(t *testing.T, name, content string) (string, string) {
+func sourceProgram(t *testing.T, content string) string {
 	t.Helper()
-	sourceStart := strings.Index(content, "**Source phase (source only, never actuator).**")
-	childStart := strings.Index(content, "**Child actuator phase (child only).**")
-	if sourceStart < 0 || childStart <= sourceStart {
-		t.Fatalf("%s is missing ordered source and child phases", name)
+	blocks := javascriptBlocks(content)
+	if len(blocks) != 1 {
+		t.Fatalf("managed source has %d JavaScript blocks", len(blocks))
 	}
-	return content[sourceStart:childStart], content[childStart:]
+	return blocks[0]
 }
 
-func sourceDispatchProgram(t *testing.T, name, source string) string {
-	t.Helper()
-	start := strings.Index(source, "```js\n")
-	if start < 0 {
-		t.Fatalf("%s source phase is missing executable dispatch", name)
+func TestManagedSourceIsRawV8StrictAndPhaseIsolated(t *testing.T) {
+	if len([]byte(AgentsManagedContent)) > 3500 {
+		t.Fatalf("managed AGENTS bytes=%d", len([]byte(AgentsManagedContent)))
 	}
-	start += len("```js\n")
-	end := strings.Index(source[start:], "\n```")
-	if end < 0 {
-		t.Fatalf("%s source phase has an unterminated dispatch", name)
+	for _, forbidden := range []string{"title-plan --json --wait", "title-plan --json --operation", "title-plan --json --report", "codex_app__set_thread_title", "codex_app__set_thread_archived", "accepted_ids", "native_success"} {
+		if strings.Contains(AgentsManagedContent, forbidden) {
+			t.Fatalf("managed AGENTS duplicates child contract %q", forbidden)
+		}
 	}
-	return source[start : start+end]
-}
-
-func TestManagedAssetsEnforceSourceThenChildBoundary(t *testing.T) {
-	guidedStart := strings.Index(SkillManagedContent, "For a guided install")
-	postTurnStart := strings.Index(SkillManagedContent, "For post-turn application")
-	if guidedStart < 0 || postTurnStart <= guidedStart {
-		t.Fatal("managed skill is missing guided or post-turn sections")
+	if !strings.Contains(AgentsManagedContent, "THREADBEAR_TITLE_ACTUATOR_V1") || !strings.Contains(AgentsManagedContent, "never dispatch recursively") {
+		t.Fatal("managed AGENTS is missing child-sentinel suppression")
 	}
-	assertOrderedContract(t, "skill guided", SkillManagedContent[guidedStart:postTurnStart],
-		"title-plan --json --batch", "title-plan --json --operation", "`await tools.codex_app__set_thread_title({threadId: TASK_ID, title: DESIRED_TITLE})`", "title-plan --json --report")
-	for name, content := range map[string]string{"agents": AgentsManagedContent, "skill": SkillManagedContent[postTurnStart:]} {
-		source, child := managedPostTurnPhases(t, name, content)
-		assertOrderedContract(t, name+" source", source,
-			"one actual `functions.exec` program", "own `CODEX_THREAD_ID`", "status --json", "control_task_id",
-			"CHILD_PROMPT", "await tools.codex_app__create_thread", "substantive final response immediately", "remain unarchived")
-		assertOrderedContract(t, name+" child", child,
-			"codex_delegation.source_thread_id", "one model pass", "exactly one `functions.exec`",
-			"title-plan --json --wait", "title-plan --json --operation", "`await tools.codex_app__set_thread_title({threadId: TASK_ID, title: DESIRED_TITLE})`",
-			"title-plan --json --report", `{"reports":[{"operation_id":"OPERATION_ID","task_id":"TASK_ID","native_success":true}]}`,
-			"rejected_ids", "accepted_ids", "`await tools.codex_app__set_thread_archived({archived: true})`")
+	install, err := os.ReadFile(filepath.Join("..", "INSTALL.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	published, err := os.ReadFile(filepath.Join("..", "site", "install"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantProgram := sourceProgram(t, AgentsManagedContent)
+	for name, managed := range map[string]string{"agents": AgentsManagedContent, "skill": SkillManagedContent, "INSTALL.md": string(install), "site/install": string(published)} {
+		for _, program := range javascriptBlocks(managed) {
+			if program != wantProgram {
+				t.Fatalf("%s source program differs from the acceptance-tested managed source", name)
+			}
+			for _, forbidden := range []string{"import(", "process", "require(", "node:", "ALL_TOOLS", "fetch(", "XMLHttpRequest", "Deno.", "Bun."} {
+				if strings.Contains(program, forbidden) {
+					t.Fatalf("%s executable JavaScript contains %q", name, forbidden)
+				}
+			}
+			for _, required := range []string{"tools.exec_command", "title-plan --json --dispatch", "tools.codex_app__create_thread(e.child)", "THREADBEAR_TITLE_ACTUATOR_V1\\n", "c.prompt.length>6000", "Object.keys", "JSON.parse", `typeof r.output!=="string"`, `typeof r.exit_code!=="number"`, `r.exit_code!==0`, `"session_id"in r`, "text(JSON.stringify(result))"} {
+				if !strings.Contains(program, required) {
+					t.Fatalf("%s executable JavaScript is missing %q", name, required)
+				}
+			}
+			if strings.Count(program, "tools.codex_app__create_thread") != 1 || strings.Contains(program, "create_thread(e)") {
+				t.Fatalf("%s does not pass the child directly exactly once", name)
+			}
+			if strings.Count(program, "text(") != 1 || strings.Count(program, "JSON.stringify(result)") != 1 {
+				t.Fatalf("%s does not explicitly emit exactly one aggregate", name)
+			}
+		}
+	}
+	for _, required := range []string{
+		"**Child actuator phase (child only).**", "codex_delegation.source_thread_id", "one model pass", "exactly one `functions.exec`",
+		"title-plan --json --wait", "title-plan --json --operation", "tools.codex_app__set_thread_title", "title-plan --json --report",
+		"exact set equality", "no_op", "canonical_persisted", "native_succeeded_pending_canonical", "title_actuation_failed",
+		"tools.codex_app__set_thread_archived", "implementation inspection", "no recovery",
+	} {
+		if !strings.Contains(SkillManagedContent, required) {
+			t.Fatalf("managed skill is missing child contract %q", required)
+		}
 	}
 }
 
 func TestManagedSkillKeepsGuidedDirectBatchingContract(t *testing.T) {
 	guidedStart := strings.Index(SkillManagedContent, "For a guided install")
 	postTurnStart := strings.Index(SkillManagedContent, "For post-turn application")
+	if guidedStart < 0 || postTurnStart <= guidedStart {
+		t.Fatal("managed skill is missing guided or post-turn sections")
+	}
 	guided := SkillManagedContent[guidedStart:postTurnStart]
+	if !strings.Contains(guided, "Use the named callable expressions directly; do not enumerate, inspect, or look up available tools or schemas inside that execution.") {
+		t.Fatal("guided actuator is missing the no-discovery contract")
+	}
+	previous := -1
 	for _, required := range []string{
 		"title-plan --json --batch",
 		"title-plan --json --operation",
 		"`await tools.codex_app__set_thread_title({threadId: TASK_ID, title: DESIRED_TITLE})`",
 		"title-plan --json --report",
-		"Use the named callable expressions directly; do not enumerate, inspect, or look up available tools or schemas inside that execution.",
 	} {
-		if !strings.Contains(guided, required) {
-			t.Fatalf("managed skill guided actuator missing %q", required)
+		index := strings.Index(guided, required)
+		if index < 0 {
+			t.Fatalf("guided actuator missing %q", required)
 		}
+		if index <= previous {
+			t.Fatalf("guided actuator puts %q out of order", required)
+		}
+		previous = index
 	}
-	for _, forbidden := range []string{"codex_app__create_thread", "codex_app__set_thread_archived", "list_tools", "get_tool_schema", "discover the callable", "discover the tool schema"} {
+	for _, forbidden := range []string{
+		"codex_app__create_thread", "codex_app__set_thread_archived", "title-plan --json --dispatch", "title-plan --json --wait",
+		"THREADBEAR_TITLE_ACTUATOR_V1", "codex_delegation.source_thread_id", "projectless", "gpt-5.6-luna", "child actuator",
+		"ALL_TOOLS", ".filter(", "list_tools", "get_tool_schema", "discover the callable", "discover the tool schema",
+		"Object.keys(tools)", "Reflect.ownKeys(tools)", "tools.list", "implementation inspection",
+	} {
 		if strings.Contains(guided, forbidden) {
-			t.Fatalf("managed skill guided actuator changed to forbidden behavior %q", forbidden)
+			t.Fatalf("guided actuator contains forbidden discovery, child, or archive behavior %q", forbidden)
 		}
 	}
 }
 
-func TestManagedSourcePhaseUsesExactChildDispatch(t *testing.T) {
-	const childPrompt = "ThreadBear child actuator phase. Follow only the installed child-actuator contract. Obtain the source solely from your own codex_delegation.source_thread_id."
-	for name, content := range map[string]string{"agents": AgentsManagedContent, "skill": SkillManagedContent} {
-		source, _ := managedPostTurnPhases(t, name, content)
-		for _, required := range []string{
-			"const CHILD_PROMPT = \"" + childPrompt + "\"",
-			"await tools.codex_app__create_thread({",
-			`model: "gpt-5.6-luna"`,
-			`thinking: "medium"`,
-			`target: {type: "projectless", directoryName: "threadbear-title-actuator"}`,
-			"prompt: CHILD_PROMPT",
-			"whether it returns a JSON string or object",
-			"only a thrown call is dispatch failure",
-			"never reads or reuses its own incoming `codex_delegation.source_thread_id`",
-			"do not wait for, read, message, retry, recover, or archive the child",
-			"no transcript, task metadata, title, manifest, or source ID",
-		} {
-			if !strings.Contains(source, required) {
-				t.Fatalf("%s source phase missing exact dispatch rule %q", name, required)
+type sourceAggregate struct {
+	Allow      bool   `json:"allow"`
+	Dispatched bool   `json:"dispatched"`
+	Error      string `json:"error,omitempty"`
+}
+
+func sourceDecision(helper any, create func(map[string]any) (any, error)) sourceAggregate {
+	unavailable := sourceAggregate{Error: "dispatch_unavailable"}
+	command, ok := helper.(map[string]any)
+	if !ok {
+		return unavailable
+	}
+	encoded, outputOK := command["output"].(string)
+	exitCode, exitOK := command["exit_code"].(float64)
+	if !outputOK || !exitOK || exitCode != 0 {
+		return unavailable
+	}
+	if _, running := command["session_id"]; running {
+		return unavailable
+	}
+	var envelope map[string]any
+	if encoded == "" || json.Unmarshal([]byte(encoded), &envelope) != nil {
+		return unavailable
+	}
+	allow, allowOK := envelope["allow"].(bool)
+	disposition, dispositionOK := envelope["disposition"].(string)
+	version, versionOK := envelope["version"].(float64)
+	if !allowOK || !dispositionOK || !versionOK || version != 1 {
+		return unavailable
+	}
+	if !allow {
+		allowed := map[string]bool{"source_missing": true, "source_invalid": true, "config_unavailable": true, "config_invalid": true, "state_unavailable": true, "state_invalid": true, "control_task": true, "rename_disabled": true, "agents_disabled": true}
+		if exactMapKeys(envelope, "allow", "disposition", "version") && allowed[disposition] {
+			return sourceAggregate{}
+		}
+		return unavailable
+	}
+	child, childOK := envelope["child"].(map[string]any)
+	if !exactMapKeys(envelope, "allow", "child", "disposition", "version") || disposition != "dispatch" || !childOK {
+		return unavailable
+	}
+	target, targetOK := child["target"].(map[string]any)
+	prompt, promptOK := child["prompt"].(string)
+	if !exactMapKeys(child, "model", "prompt", "target", "thinking") || child["model"] != "gpt-5.6-luna" || child["thinking"] != "medium" ||
+		!promptOK || len(prompt) > 6000 || !isASCII(prompt) || !strings.HasPrefix(prompt, "THREADBEAR_TITLE_ACTUATOR_V1\n") || !targetOK ||
+		!exactMapKeys(target, "directoryName", "type") || target["type"] != "projectless" || target["directoryName"] != "threadbear-title-actuator" {
+		return unavailable
+	}
+	if _, err := create(child); err != nil {
+		return sourceAggregate{Allow: true, Error: "dispatch_failed"}
+	}
+	return sourceAggregate{Allow: true, Dispatched: true}
+}
+
+func exactMapKeys(value map[string]any, keys ...string) bool {
+	actual := make([]string, 0, len(value))
+	for key := range value {
+		actual = append(actual, key)
+	}
+	sort.Strings(actual)
+	sort.Strings(keys)
+	return strings.Join(actual, ",") == strings.Join(keys, ",")
+}
+
+func isASCII(value string) bool {
+	for _, char := range value {
+		if char > 127 {
+			return false
+		}
+	}
+	return true
+}
+
+func TestManagedSourceAggregatesAndFulfilledCreateShapes(t *testing.T) {
+	program := sourceProgram(t, AgentsManagedContent)
+	for _, marker := range []string{
+		`if(!o(r)||typeof r.output!=="string"||typeof r.exit_code!=="number"||r.exit_code!==0||"session_id"in r)return f()`,
+		`if(!e.allow)return k(e)==="allow,disposition,version"&&n.has(e.disposition)?{allow:false,dispatched:false}:f()`,
+		`await tools.codex_app__create_thread(e.child);return{allow:true,dispatched:true}`,
+		`catch{return{allow:true,dispatched:false,error:"dispatch_failed"}}`,
+		`f=()=>({allow:false,dispatched:false,error:"dispatch_unavailable"})`,
+		`text(JSON.stringify(result))`,
+	} {
+		if !strings.Contains(program, marker) {
+			t.Fatalf("source program is missing aggregate decision marker %q", marker)
+		}
+	}
+	envelope := map[string]any{
+		"version":     1,
+		"allow":       true,
+		"disposition": "dispatch",
+		"child": map[string]any{
+			"model":    "gpt-5.6-luna",
+			"thinking": "medium",
+			"target":   map[string]any{"type": "projectless", "directoryName": "threadbear-title-actuator"},
+			"prompt":   "THREADBEAR_TITLE_ACTUATOR_V1\nprivate child contract",
+		},
+	}
+	encoded, err := json.Marshal(envelope)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, test := range []struct {
+		name    string
+		helper  any
+		created any
+	}{
+		{name: "completed helper and fulfilled string creation", helper: map[string]any{"output": string(encoded), "exit_code": float64(0)}, created: "created"},
+		{name: "completed helper and fulfilled object creation", helper: map[string]any{"output": string(encoded), "exit_code": float64(0)}, created: map[string]any{"id": "child"}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			calls := 0
+			got := sourceDecision(test.helper, func(child map[string]any) (any, error) {
+				calls++
+				if child["prompt"] != envelope["child"].(map[string]any)["prompt"] {
+					t.Fatal("model did not pass the validated child envelope directly")
+				}
+				return test.created, nil
+			})
+			assertSourceAggregate(t, got, `{"allow":true,"dispatched":true}`)
+			if calls != 1 {
+				t.Fatalf("create calls=%d, want 1", calls)
 			}
+		})
+	}
+	t.Run("no-op does not create", func(t *testing.T) {
+		calls := 0
+		got := sourceDecision(map[string]any{"output": `{"version":1,"allow":false,"disposition":"control_task"}`, "exit_code": float64(0)}, func(map[string]any) (any, error) {
+			calls++
+			return nil, errors.New("must not be called")
+		})
+		assertSourceAggregate(t, got, `{"allow":false,"dispatched":false}`)
+		if calls != 0 {
+			t.Fatalf("create calls=%d, want 0", calls)
 		}
-		program := sourceDispatchProgram(t, name, source)
-		exactDispatch := `await tools.codex_app__create_thread({ model: "gpt-5.6-luna", thinking: "medium", target: {type: "projectless", directoryName: "threadbear-title-actuator"}, prompt: CHILD_PROMPT, })`
-		compactProgram := strings.Join(strings.Fields(program), " ")
-		if !strings.Contains(compactProgram, exactDispatch) {
-			t.Fatalf("%s source dispatch does not contain the exact supported call", name)
-		}
-		assertOrderedContract(t, name+" source program", compactProgram, "process.env.CODEX_THREAD_ID", "run(`${home}/.local/bin/threadbear`, [\"status\", \"--json\"], {encoding: \"utf8\"})", "JSON.parse(stdout)", "status.control_task_id", exactDispatch)
-		for _, forbidden := range []string{"title-plan", "codex_app__set_thread_title", "codex_app__set_thread_archived", "--report"} {
-			if strings.Contains(program, forbidden) {
-				t.Fatalf("%s source dispatch contains child actuator work %q", name, forbidden)
-			}
-		}
-		for _, forbidden := range []string{"one model pass", "exactly one `functions.exec`"} {
-			if strings.Contains(source, forbidden) {
-				t.Fatalf("%s source phase inherits child-only ceiling %q", name, forbidden)
-			}
-		}
+	})
+	t.Run("thrown create is stable failure", func(t *testing.T) {
+		got := sourceDecision(map[string]any{"output": string(encoded), "exit_code": float64(0)}, func(map[string]any) (any, error) { return nil, errors.New("failed") })
+		assertSourceAggregate(t, got, `{"allow":true,"dispatched":false,"error":"dispatch_failed"}`)
+	})
+	for _, test := range []struct {
+		name   string
+		helper any
+	}{
+		{name: "raw string", helper: string(encoded)},
+		{name: "failed command", helper: map[string]any{"output": string(encoded), "exit_code": float64(1)}},
+		{name: "running command", helper: map[string]any{"output": string(encoded), "exit_code": float64(0), "session_id": "session-1"}},
+		{name: "missing output", helper: map[string]any{"exit_code": float64(0)}},
+		{name: "nonnumeric exit code", helper: map[string]any{"output": string(encoded), "exit_code": "0"}},
+		{name: "invalid envelope", helper: map[string]any{"output": `{"allow":true}`, "exit_code": float64(0)}},
+	} {
+		t.Run(test.name+" is stable unavailable", func(t *testing.T) {
+			got := sourceDecision(test.helper, func(map[string]any) (any, error) { return nil, nil })
+			assertSourceAggregate(t, got, `{"allow":false,"dispatched":false,"error":"dispatch_unavailable"}`)
+		})
 	}
 }
 
-func TestManagedChildPhaseKeepsActuatorGates(t *testing.T) {
-	for name, content := range map[string]string{"agents": AgentsManagedContent, "skill": SkillManagedContent} {
-		_, child := managedPostTurnPhases(t, name, content)
-		for _, required := range []string{
-			"Only the child", "boolean `native_success`", `error_code:"native_set_failed"`, "exact set equality",
-			"skip the empty report", "no_op", "canonical_persisted", "native_succeeded_pending_canonical",
-			"drifted", "missing", "title_actuation_failed", "unarchived", "no second command",
-			"implementation inspection", "deterministic helper", "child archives itself, never the source",
-			"Use the named callable expressions directly; do not enumerate, inspect, or look up available tools or schemas inside that execution.",
-		} {
-			if !strings.Contains(child, required) {
-				t.Fatalf("%s child phase missing actuator contract %q", name, required)
-			}
-		}
-		for _, forbidden := range []string{"`set_thread_title`", "`set_thread_archived`", "ALL_TOOLS", ".filter(", "list_tools", "get_tool_schema", "discover the callable", "discover the tool schema"} {
-			if strings.Contains(child, forbidden) {
-				t.Fatalf("%s child phase permits native-tool discovery or conceptual-only calls %q", name, forbidden)
-			}
-		}
+func assertSourceAggregate(t *testing.T, got sourceAggregate, want string) {
+	t.Helper()
+	encoded, err := json.Marshal(got)
+	if err != nil {
+		t.Fatal(err)
 	}
-}
-
-func TestManagedGuidanceRequiresToolBackedControlSuppression(t *testing.T) {
-	for name, content := range map[string]string{"agents": AgentsManagedContent, "skill": SkillManagedContent} {
-		for _, required := range []string{"actual `functions.exec`", "returned tool result", "never a prose claim", "CODEX_THREAD_ID", "control_task_id", "hard no-op", "no child"} {
-			if !strings.Contains(content, required) {
-				t.Fatalf("%s content missing control isolation rule %q", name, required)
-			}
+	if string(encoded) != want {
+		t.Fatalf("aggregate=%s want=%s", encoded, want)
+	}
+	for _, forbidden := range []string{"prompt", "THREADBEAR_TITLE_ACTUATOR_V1", "private child contract", "child", "disposition", "version"} {
+		if strings.Contains(string(encoded), forbidden) {
+			t.Fatalf("aggregate exposed %q: %s", forbidden, encoded)
 		}
 	}
 }

@@ -14,44 +14,12 @@ Never write the literal placeholder words `STATUS`, `OWNER`, or `ACTION` in the 
 
 Report the turn's actual disposition; do not invent or recommend work to populate this line. Use `complete` unless the substantive response already ends with one clear, concrete, warranted next step. Generic offers, speculative possibilities, and mentions of recorded work do not qualify.
 
-When ThreadBear is explicitly enabled for this task and Desktop-native task tools are available, use these two phases in order before the final response. The one-model-pass/one-`functions.exec` actuator ceiling applies only to the child actuator phase below, never to the source task or its substantive work.
+## Native title handoff
 
-**Source phase (source only, never actuator).** After completing the substantive work, make one actual `functions.exec` program dedicated to the post-turn handoff. In that program, first parse the current process's own `CODEX_THREAD_ID` and strict `~/.local/bin/threadbear status --json`; only the returned tool result proves the guard, never a prose claim. Missing, noncanonical, or unparseable identity/status, or `CODEX_THREAD_ID` equal to `control_task_id`, is a hard no-op with no child. The source program contains only this self-identity/control guard and, when allowed, the exact child creation below. It performs no title planning, native mutation, reporting, archive operation, or actuator branch.
+If task instructions start with `THREADBEAR_TITLE_ACTUATOR_V1`, this is the child: never dispatch recursively or read the skill; follow only the helper-owned prompt.
 
-Run this exact source program; its returned `{allow:false}` or `{allow:true}` is the only post-turn handoff result:
+Otherwise, after substantive work, run one actual `functions.exec` containing only this program. It creates at most one child, never performs title/archive work in the source, and never retries. Return the substantive final immediately and leave the source unarchived.
 
 ```js
-const {execFile} = await import("node:child_process")
-const {promisify} = await import("node:util")
-const run = promisify(execFile)
-const canonicalId = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
-const CHILD_PROMPT = "ThreadBear child actuator phase. Follow only the installed child-actuator contract. Obtain the source solely from your own codex_delegation.source_thread_id."
-const guard = await (async () => {
-  const sourceId = process.env.CODEX_THREAD_ID ?? ""
-  const home = process.env.HOME ?? ""
-  if (!home || !canonicalId.test(sourceId)) return {allow: false}
-  try {
-    const {stdout} = await run(`${home}/.local/bin/threadbear`, ["status", "--json"], {encoding: "utf8"})
-    const status = JSON.parse(stdout)
-    if (!status || Array.isArray(status) || !canonicalId.test(status.control_task_id) || sourceId === status.control_task_id) return {allow: false}
-  } catch {
-    return {allow: false}
-  }
-  return {allow: true}
-})()
-if (guard.allow) {
-  await tools.codex_app__create_thread({
-    model: "gpt-5.6-luna",
-    thinking: "medium",
-    target: {type: "projectless", directoryName: "threadbear-title-actuator"},
-    prompt: CHILD_PROMPT,
-  })
-}
-guard
+const result=await(async()=>{const o=x=>x!==null&&typeof x==="object"&&!Array.isArray(x),k=x=>Object.keys(x).sort().join(","),n=new Set(["source_missing","source_invalid","config_unavailable","config_invalid","state_unavailable","state_invalid","control_task","rename_disabled","agents_disabled"]),f=()=>({allow:false,dispatched:false,error:"dispatch_unavailable"});let r,e;try{r=await tools.exec_command({cmd:"~/.local/bin/threadbear title-plan --json --dispatch"})}catch{return f()}if(!o(r)||typeof r.output!=="string"||typeof r.exit_code!=="number"||r.exit_code!==0||"session_id"in r)return f();try{e=JSON.parse(r.output)}catch{return f()}if(!o(e)||e.version!==1||typeof e.allow!=="boolean"||typeof e.disposition!=="string")return f();if(!e.allow)return k(e)==="allow,disposition,version"&&n.has(e.disposition)?{allow:false,dispatched:false}:f();const c=e.child;if(k(e)!=="allow,child,disposition,version"||e.disposition!=="dispatch"||!o(c)||k(c)!=="model,prompt,target,thinking"||c.model!=="gpt-5.6-luna"||c.thinking!=="medium"||typeof c.prompt!=="string"||c.prompt.length>6000||!/^[\x00-\x7f]*$/.test(c.prompt)||!c.prompt.startsWith("THREADBEAR_TITLE_ACTUATOR_V1\n")||!o(c.target)||k(c.target)!=="directoryName,type"||c.target.type!=="projectless"||c.target.directoryName!=="threadbear-title-actuator")return f();try{await tools.codex_app__create_thread(e.child);return{allow:true,dispatched:true}}catch{return{allow:true,dispatched:false,error:"dispatch_failed"}}})();text(JSON.stringify(result))
 ```
-
-A fulfilled creation promise means dispatch succeeded whether it returns a JSON string or object; only a thrown call is dispatch failure. Do not discover tools or inspect another creation response shape. The source never reads or reuses its own incoming `codex_delegation.source_thread_id`. After successful dispatch, return the substantive final response immediately and remain unarchived; do not wait for, read, message, retry, recover, or archive the child. The source passes no transcript, task metadata, title, manifest, or source ID in the child prompt.
-
-**Child actuator phase (child only).** The child obtains the actual source task solely from its own `codex_delegation.source_thread_id`. Only the child gets one model pass and exactly one `functions.exec`, with no preliminary execution, no second command, implementation inspection, retry, or recovery conversation. Use the named callable expressions directly; do not enumerate, inspect, or look up available tools or schemas inside that execution. Inside that execution, run `~/.local/bin/threadbear title-plan --json --wait "$SOURCE_ID"` and parse the JSON without returning plans or titles to model context. For each plan, set `OPERATION_ID` from `operation_id`, run `~/.local/bin/threadbear title-plan --json --operation "$OPERATION_ID"`, and only when the returned `plans` array contains that same exact operation set `TASK_ID` and `DESIRED_TITLE` from its exact `task_id` and `desired_title`, then immediately call `await tools.codex_app__set_thread_title({threadId: TASK_ID, title: DESIRED_TITLE})`. A fulfilled setter is `native_success:true`; a thrown setter error is `native_success:false` with stable `error_code:"native_set_failed"`. Never validate another setter response shape or use native `updatedAt` as a revision guard. The helper-to-setter interval is non-atomic because the setter has no compare-and-set parameter.
-
-After checking every plan, submit only operations for which the native setter was attempted. Pipe exactly one JSON value to `~/.local/bin/threadbear title-plan --json --report` with this strict shape: `{"reports":[{"operation_id":"OPERATION_ID","task_id":"TASK_ID","native_success":true}]}`. Every report object requires exact `operation_id`, `task_id`, and boolean `native_success`; a failed native call also requires nonempty `error_code`. Reporting is accepted only when `rejected_ids` is empty and `accepted_ids` has exact set equality with the submitted task IDs. Self-archive inside the same child `functions.exec` with `await tools.codex_app__set_thread_archived({archived: true})` only after accepted reporting and every `native_success` is true; omit `threadId` deliberately so the child archives itself, never the source. If initial `plans` is empty, skip the empty report and self-archive only when every disposition is `no_op`, `canonical_persisted`, or `native_succeeded_pending_canonical`. Any `drifted`, `missing`, malformed, unexpected, rejected, or native-failure result leaves the child visible and unarchived with one stable `title_actuation_failed` error and no retry or inspection. A successful self-archive is expected to interrupt the child, so no final message is required. The deterministic helper owns all title and semantic decisions; never classify, synthesize, normalize, or revise a title. If native tools, explicit opt-in, or the source guard are absent, emit the footer normally and leave the durable plan pending; never wake the persistent ThreadBear control task for routine title work.

@@ -88,6 +88,7 @@ type Request struct {
 	TitlePlanOperation string
 	TitlePlanBatch     bool
 	TitlePlanReport    bool
+	TitlePlanDispatch  bool
 	ControlTaskID      string
 	Configure          ConfigPatch
 }
@@ -175,10 +176,13 @@ func (r Request) Validate() error {
 		if r.TitlePlanReport {
 			modes++
 		}
-		if !r.JSON || modes != 1 {
-			return fmt.Errorf("%w: title-plan requires --json and exactly one of --wait, --operation, --batch, or --report", ErrInvalidRequest)
+		if r.TitlePlanDispatch {
+			modes++
 		}
-	} else if r.TitlePlanWait != "" || r.TitlePlanOperation != "" || r.TitlePlanBatch || r.TitlePlanReport {
+		if !r.JSON || modes != 1 {
+			return fmt.Errorf("%w: title-plan requires --json and exactly one of --wait, --operation, --batch, --report, or --dispatch", ErrInvalidRequest)
+		}
+	} else if r.TitlePlanWait != "" || r.TitlePlanOperation != "" || r.TitlePlanBatch || r.TitlePlanReport || r.TitlePlanDispatch {
 		return fmt.Errorf("%w: title-plan flags are title-plan-only", ErrInvalidRequest)
 	}
 	if strings.TrimSpace(r.ControlTaskID) != r.ControlTaskID {
