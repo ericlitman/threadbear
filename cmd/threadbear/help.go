@@ -49,6 +49,7 @@ var commandSpecs = []commandSpec{
 			flags.BoolVar(&request.TitlePlanBatch, "batch", false, "plan all pending title mutations")
 			flags.BoolVar(&request.TitlePlanReport, "report", false, "read native mutation outcomes as strict JSON from stdin")
 			flags.BoolVar(&request.TitlePlanDispatch, "dispatch", false, "emit the guarded child title-actuator dispatch envelope")
+			flags.StringVar(&request.TitlePlanActuator, "actuator", "", "emit the helper-owned actuator program for source `TASK_ID`")
 		},
 	},
 	{

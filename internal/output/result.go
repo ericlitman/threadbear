@@ -53,6 +53,18 @@ func (r TitleDispatchResult) Human() string {
 	return string(data)
 }
 
+type TitleActuatorResult struct {
+	Version int    `json:"version"`
+	Program string `json:"program"`
+}
+
+func (TitleActuatorResult) result()     {}
+func (TitleActuatorResult) Empty() bool { return false }
+func (r TitleActuatorResult) Human() string {
+	data, _ := json.Marshal(r)
+	return string(data)
+}
+
 type TitlePlanItem struct {
 	OperationID      string `json:"operation_id"`
 	TaskID           string `json:"task_id"`
@@ -540,6 +552,11 @@ func dereferenceResult(value Result) (Result, error) {
 			return nil, errors.New("result is required")
 		}
 		return *result, nil
+	case *TitleActuatorResult:
+		if result == nil {
+			return nil, errors.New("result is required")
+		}
+		return *result, nil
 	case *TitlePlanResult:
 		if result == nil {
 			return nil, errors.New("result is required")
@@ -608,6 +625,11 @@ func dereferenceResult(value Result) (Result, error) {
 func withVersion(value Result) Result {
 	switch result := value.(type) {
 	case TitleDispatchResult:
+		if result.Version == 0 {
+			result.Version = CurrentResultVersion
+		}
+		return result
+	case TitleActuatorResult:
 		if result.Version == 0 {
 			result.Version = CurrentResultVersion
 		}
@@ -753,6 +775,10 @@ func validateResult(value Result) error {
 			}
 		} else if result.Child != nil || !validTitleDispatchDisposition(result.Disposition) {
 			return errors.New("title dispatch no-op envelope is invalid")
+		}
+	case TitleActuatorResult:
+		if result.Program == "" {
+			return errors.New("title actuator program is required")
 		}
 	case HeartbeatResult:
 		if !result.Empty() && result.CycleID == "" {
@@ -1024,6 +1050,8 @@ func validateResult(value Result) error {
 func resultVersion(value Result) int {
 	switch result := value.(type) {
 	case TitleDispatchResult:
+		return result.Version
+	case TitleActuatorResult:
 		return result.Version
 	case HeartbeatResult:
 		return result.Version

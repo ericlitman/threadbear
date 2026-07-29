@@ -89,6 +89,7 @@ type Request struct {
 	TitlePlanBatch     bool
 	TitlePlanReport    bool
 	TitlePlanDispatch  bool
+	TitlePlanActuator  string
 	ControlTaskID      string
 	Configure          ConfigPatch
 }
@@ -162,6 +163,9 @@ func (r Request) Validate() error {
 	if strings.TrimSpace(r.TitlePlanOperation) != r.TitlePlanOperation {
 		return fmt.Errorf("%w: title-plan operation ID must not contain surrounding whitespace", ErrInvalidRequest)
 	}
+	if strings.TrimSpace(r.TitlePlanActuator) != r.TitlePlanActuator {
+		return fmt.Errorf("%w: title-plan actuator source ID must not contain surrounding whitespace", ErrInvalidRequest)
+	}
 	if r.Command == CommandTitlePlan {
 		modes := 0
 		if r.TitlePlanWait != "" {
@@ -179,10 +183,13 @@ func (r Request) Validate() error {
 		if r.TitlePlanDispatch {
 			modes++
 		}
-		if !r.JSON || modes != 1 {
-			return fmt.Errorf("%w: title-plan requires --json and exactly one of --wait, --operation, --batch, --report, or --dispatch", ErrInvalidRequest)
+		if r.TitlePlanActuator != "" {
+			modes++
 		}
-	} else if r.TitlePlanWait != "" || r.TitlePlanOperation != "" || r.TitlePlanBatch || r.TitlePlanReport || r.TitlePlanDispatch {
+		if !r.JSON || modes != 1 {
+			return fmt.Errorf("%w: title-plan requires --json and exactly one of --wait, --operation, --batch, --report, --dispatch, or --actuator", ErrInvalidRequest)
+		}
+	} else if r.TitlePlanWait != "" || r.TitlePlanOperation != "" || r.TitlePlanBatch || r.TitlePlanReport || r.TitlePlanDispatch || r.TitlePlanActuator != "" {
 		return fmt.Errorf("%w: title-plan flags are title-plan-only", ErrInvalidRequest)
 	}
 	if strings.TrimSpace(r.ControlTaskID) != r.ControlTaskID {

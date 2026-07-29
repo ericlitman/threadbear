@@ -47,6 +47,7 @@ type Unarchiver interface {
 
 type TitlePlanner interface {
 	Plan(context.Context, string, string, bool, bool, bool) (output.Result, error)
+	Actuator(string) (output.Result, error)
 }
 
 type OperatorDependencies struct {
@@ -71,6 +72,9 @@ func NewWithOperatorCommands(version string, deps OperatorDependencies) *Service
 	service.handlers[CommandHeartbeat] = OperatorHeartbeatHandler(version, deps.Store, deps.Inventory, deps.Clock, deps.Heartbeat)
 	if deps.TitlePlanner != nil {
 		service.handlers[CommandTitlePlan] = func(ctx context.Context, request Request) (output.Result, error) {
+			if request.TitlePlanActuator != "" {
+				return deps.TitlePlanner.Actuator(request.TitlePlanActuator)
+			}
 			return deps.TitlePlanner.Plan(ctx, request.TitlePlanWait, request.TitlePlanOperation, request.TitlePlanBatch, request.TitlePlanReport, request.TitlePlanDispatch)
 		}
 	}

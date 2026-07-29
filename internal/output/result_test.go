@@ -323,6 +323,20 @@ func TestTitlePlanAndReportResultsRejectInvalidShapes(t *testing.T) {
 	}
 }
 
+func TestTitleActuatorEnvelopeHasExactVersionedShape(t *testing.T) {
+	var encoded bytes.Buffer
+	if err := Write(&encoded, FormatJSON, TitleActuatorResult{Program: "program"}); err != nil {
+		t.Fatal(err)
+	}
+	if got, want := encoded.String(), "{\"version\":1,\"program\":\"program\"}\n"; got != want {
+		t.Fatalf("actuator=%q want=%q", got, want)
+	}
+	encoded.Reset()
+	if err := Write(&encoded, FormatJSON, TitleActuatorResult{}); err == nil {
+		t.Fatal("empty actuator program was accepted")
+	}
+}
+
 func TestTitleDispatchEnvelopeHasExactVersionedShapes(t *testing.T) {
 	var noOp bytes.Buffer
 	if err := Write(&noOp, FormatJSON, TitleDispatchResult{Disposition: "rename_disabled"}); err != nil {
