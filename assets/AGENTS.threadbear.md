@@ -10,7 +10,7 @@ Otherwise, before every terminal response, after substantive work, run one actua
 const e=JSON.parse((await tools.exec_command({cmd:"~/.local/bin/threadbear title-plan --json --dispatch"})).output);if(e.allow)await tools.codex_app__create_thread(e.child);text(JSON.stringify({allow:e.allow,dispatched:e.allow}))
 ```
 
-The installed helper owns source, config, state, control-task, and exact child validation. Invalid or unavailable output throws before child creation, denied dispatch creates nothing, and a thrown creation is not retried. After the call, return the substantive final immediately and leave the source unarchived.
+The installed helper owns source, config, state, control-task, and exact child validation. Invalid or unavailable output throws before child creation. Denied dispatch creates nothing and emits one aggregate; successful creation also emits one aggregate. A thrown creation aborts before aggregate emission and is not retried. After the call, return the substantive final immediately and leave the source unarchived.
 
 ## Status footer
 

@@ -60,7 +60,7 @@ func TestCodexInstallGuideCarriesRawV8DispatchAndChildContract(t *testing.T) {
 		"supplies the exact projectless Luna/medium child",
 		"trusts the installed helper's JSON envelope",
 		"Invalid or unavailable output throws before child creation",
-		"denied dispatch creates nothing",
+		"Denied dispatch creates nothing",
 		"**Child actuator phase (child only).**",
 		"codex_delegation.source_thread_id",
 		"one model pass and exactly one `functions.exec`",
