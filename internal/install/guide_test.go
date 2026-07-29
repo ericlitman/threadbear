@@ -69,25 +69,88 @@ func TestCodexInstallGuideEnforcesSelfContainedFallbackOrdering(t *testing.T) {
 		t.Fatal("INSTALL.md is missing the end of the hosted title application block")
 	}
 	section := guide[start : start+endOffset]
-	previous := -1
-	for _, marker := range []string{
-		"title-plan --json --batch", "title-plan --json --operation", "native title mutation", "title-plan --json --report",
+	fallbackStart := strings.Index(section, "Before any fallback worker creation")
+	if fallbackStart < 0 {
+		t.Fatal("INSTALL.md is missing the fallback actuator contract")
+	}
+	assertOrdered := func(name, content string, markers ...string) {
+		t.Helper()
+		previous := -1
+		for _, marker := range markers {
+			index := strings.Index(content, marker)
+			if index < 0 {
+				t.Fatalf("%s missing %q", name, marker)
+			}
+			if index <= previous {
+				t.Fatalf("%s puts %q out of order", name, marker)
+			}
+			previous = index
+		}
+	}
+	assertOrdered("guided installer actuator", section[:fallbackStart],
+		"title-plan --json --batch", "title-plan --json --operation",
+		"`await tools.codex_app__set_thread_title({threadId: TASK_ID, title: DESIRED_TITLE})`",
+		"title-plan --json --report")
+	assertOrdered("fallback actuator", section[fallbackStart:],
 		"actual `functions.exec`", "CODEX_THREAD_ID", "returned tool result", "control_task_id", "gpt-5.6-luna",
 		"codex_delegation.source_thread_id", "exactly one `functions.exec`", "title-plan --json --wait",
-		"set_thread_title", `{"reports":[{"operation_id":"OPERATION_ID","task_id":"TASK_ID","native_success":true}]}`,
-		"rejected_ids", "accepted_ids", "Self-archive",
-	} {
-		index := strings.Index(section, marker)
-		if index < 0 {
-			t.Fatalf("INSTALL.md actuator block missing %q", marker)
+		"exact revalidated `task_id` and `desired_title`", "`await tools.codex_app__set_thread_title({threadId: TASK_ID, title: DESIRED_TITLE})`",
+		`{"reports":[{"operation_id":"OPERATION_ID","task_id":"TASK_ID","native_success":true}]}`,
+		"rejected_ids", "accepted_ids", "`await tools.codex_app__set_thread_archived({archived: true})`")
+}
+func TestCodexInstallSurfacesRequireExecutableNativeCallsWithoutDiscovery(t *testing.T) {
+	guide := readInstallGuide(t)
+	published, err := os.ReadFile("../../site/install")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if guide != string(published) {
+		t.Fatal("INSTALL.md and site/install differ")
+	}
+	for surfaceName, content := range map[string]string{"INSTALL.md": guide, "site/install": string(published)} {
+		start := strings.Index(content, "After that heartbeat, apply the staged title bootstrap")
+		if start < 0 {
+			t.Fatalf("%s is missing the actuator contract", surfaceName)
 		}
-		if index <= previous {
-			t.Fatalf("INSTALL.md actuator block puts %q out of order", marker)
+		end := strings.Index(content[start:], "Feature-detect and fail closed")
+		if end < 0 {
+			t.Fatalf("%s is missing the end of the actuator contract", surfaceName)
 		}
-		previous = index
+		section := content[start : start+end]
+		fallbackStart := strings.Index(section, "Before any fallback worker creation")
+		if fallbackStart < 0 {
+			t.Fatalf("%s is missing the fallback actuator contract", surfaceName)
+		}
+		for sectionName, actuator := range map[string]string{
+			"guided":   section[:fallbackStart],
+			"fallback": section[fallbackStart:],
+		} {
+			for _, required := range []string{
+				"`await tools.codex_app__set_thread_title({threadId: TASK_ID, title: DESIRED_TITLE})`",
+				"Use the named callable expressions directly; do not enumerate, inspect, or look up available tools or schemas inside that execution.",
+			} {
+				if !strings.Contains(actuator, required) {
+					t.Fatalf("%s %s actuator contract missing %q", surfaceName, sectionName, required)
+				}
+			}
+			for _, forbidden := range []string{"`set_thread_title`", "`set_thread_archived`", "ALL_TOOLS", ".filter(", "list_tools", "get_tool_schema", "discover the callable", "discover the tool schema"} {
+				if strings.Contains(actuator, forbidden) {
+					t.Fatalf("%s %s actuator contract permits native-tool discovery or conceptual-only calls %q", surfaceName, sectionName, forbidden)
+				}
+			}
+		}
+		fallback := section[fallbackStart:]
+		for _, required := range []string{
+			"`await tools.codex_app__set_thread_archived({archived: true})`",
+			"omit `threadId` deliberately so the actuator archives itself",
+			"no preliminary execution",
+		} {
+			if !strings.Contains(fallback, required) {
+				t.Fatalf("%s fallback actuator contract missing %q", surfaceName, required)
+			}
+		}
 	}
 }
-
 func TestCodexInstallGuideDefinesFallbackOutcomesWithoutRecovery(t *testing.T) {
 	guide := normalizeGuideText(readInstallGuide(t))
 	start := strings.Index(guide, "Before any fallback worker creation")
@@ -103,7 +166,7 @@ func TestCodexInstallGuideDefinesFallbackOutcomesWithoutRecovery(t *testing.T) {
 		"boolean `native_success`", `error_code:"native_set_failed"`, "exact set equality",
 		"do not submit an empty report", "no_op", "canonical_persisted", "native_succeeded_pending_canonical",
 		"drifted", "missing", "title_actuation_failed", "no recovery loop", "one model pass",
-		"no second command", "no task transcript", "implementation inspection", "deterministic helper",
+		"no preliminary execution", "second command", "no task transcript", "implementation inspection", "deterministic helper",
 	} {
 		if !strings.Contains(section, required) {
 			t.Fatalf("INSTALL.md fallback contract missing %q", required)
