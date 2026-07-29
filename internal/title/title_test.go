@@ -323,6 +323,16 @@ func TestReconcilePreservesMatchingNumericTextWithExistingOwnership(t *testing.T
 		want    string
 	}{
 		{
+			name: "explicit single token subject with incomplete ownership",
+			record: state.TaskRecord{
+				CapturedTitle:    "✅ 26k Release service",
+				DurableSubject:   "26k Release service",
+				LastAppliedTitle: "✅ 26k Release service",
+			},
+			display: tokens.Display{Position: tokens.PositionStart, Value: "26k"},
+			want:    "✅ 26k 26k Release service",
+		},
+		{
 			name: "authoritative subject with incomplete ownership",
 			record: state.TaskRecord{
 				CapturedTitle:    "✅ 26k 26k Release service",

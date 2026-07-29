@@ -31,6 +31,7 @@ func Reconcile(record state.TaskRecord, nextStatus state.TaskStatus, suggestedSu
 	current := record.CapturedTitle
 	subject := ""
 	if record.LastAppliedTitle != "" && current == record.LastAppliedTitle {
+		hasDurableSubject := strings.TrimSpace(record.DurableSubject) != ""
 		subject = strings.TrimSpace(record.DurableSubject)
 		if subject == "" {
 			subject = ownedSubject(record)
@@ -38,7 +39,7 @@ func Reconcile(record state.TaskRecord, nextStatus state.TaskStatus, suggestedSu
 		if record.ManagedTokenDisplay == "" {
 			copies := ownedTokenCopies(subject, display.Value, display.Position)
 			authoritative := subject != "" && stripStatusPrefixes(renderTitle(nextStatus, subject, strings.TrimSpace(record.ManagedAction), display)) == stripStatusPrefixes(record.LastAppliedTitle)
-			if copies > 1 || !authoritative {
+			if copies > 1 || !hasDurableSubject && !authoritative {
 				subject = stripOwnedTokenCopies(subject, display.Value, display.Position)
 			}
 		} else {
