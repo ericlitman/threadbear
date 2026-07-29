@@ -11,6 +11,7 @@ import (
 	"strings"
 	"testing"
 	"time"
+	"unicode/utf16"
 
 	appservice "github.com/ericlitman/threadbear/internal/app"
 	"github.com/ericlitman/threadbear/internal/codex"
@@ -396,8 +397,39 @@ func TestHeartbeatRepositionsTokenDisplayWithoutReclassification(t *testing.T) {
 	current, _ := deps.index.task(task.TaskID)
 	stored, _ := deps.store.store.LoadState()
 	plan := stored.PendingTitlePlans[task.TaskID]
-	if current.Title != task.Title || plan.DesiredTitle != "➡️ Release service → review rollout · out 1.6m" || deps.classifier.calls != 0 || len(deps.client.latestReads) != 0 {
+	if current.Title != task.Title || plan.DesiredTitle != "➡️ Release service → review rollout · 1.6m" || deps.classifier.calls != 0 || len(deps.client.latestReads) != 0 {
 		t.Fatalf("title=%q plan=%+v classifier=%d latest_reads=%v", current.Title, plan, deps.classifier.calls, deps.client.latestReads)
+	}
+}
+
+func TestPrepareTitleOperationBoundsVisibleTitleAndRetainsFullOwnership(t *testing.T) {
+	const oldDisplay = "26k"
+	fullSubject := oldDisplay + " " + oldDisplay + " " + strings.Repeat("Long retained subject ", 4)
+	fullAction := strings.Repeat("review retained action ", 3)
+	lastApplied := "➡️ " + fullSubject + " → " + fullAction + " · out " + oldDisplay
+	current := string(utf16.Decode(utf16.Encode([]rune(lastApplied))[:59])) + "…"
+	record := state.TaskRecord{
+		TaskID: "title", CapturedRevision: "2", CapturedTitle: current, LastAppliedTitle: lastApplied,
+		Status: state.StatusNextSteps, DurableSubject: fullSubject, ManagedAction: fullAction,
+		ManagedTokenDisplay: oldDisplay, ManagedTokenPosition: tokens.PositionEnd,
+		TokenUsageFound: true, OutputTokens: 30_123,
+	}
+	cfg := config.Default("control")
+	cfg.TokenDisplay = tokens.PositionEnd
+	operation, ok, err := (&Runner{}).prepareTitleOperation(cfg, record.TaskID, record, state.ClassificationResult{ManagedAction: fullAction})
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantSubject := strings.TrimPrefix(fullSubject, oldDisplay+" "+oldDisplay+" ")
+	if !ok || len(utf16.Encode([]rune(operation.DesiredTitle))) > 60 || !strings.HasSuffix(operation.DesiredTitle, " · 30k") || operation.DurableSubject != strings.TrimSpace(wantSubject) || operation.ManagedAction != strings.TrimSpace(fullAction) {
+		t.Fatalf("operation = %+v", operation)
+	}
+	settled := record
+	settled.CapturedTitle, settled.LastAppliedTitle = operation.DesiredTitle, operation.DesiredTitle
+	settled.DurableSubject, settled.ManagedAction = operation.DurableSubject, operation.ManagedAction
+	settled.ManagedTokenDisplay, settled.ManagedTokenPosition = operation.ManagedTokenDisplay, operation.ManagedTokenPosition
+	if next, due, err := (&Runner{}).prepareTitleOperation(cfg, record.TaskID, settled, state.ClassificationResult{ManagedAction: fullAction}); err != nil || due {
+		t.Fatalf("settled operation=%+v due=%t err=%v", next, due, err)
 	}
 }
 
@@ -434,7 +466,7 @@ func TestHeartbeatCleansRepeatedOwnedPrefixWhenMovingDisplayToEnd(t *testing.T) 
 		t.Fatal(err)
 	}
 	plan := stored.PendingTitlePlans[task.TaskID]
-	if current.Title != task.Title || plan.DesiredTitle != "✅ Execute BEAR-59 · out 26k" || plan.DurableSubject != "Execute BEAR-59" || plan.ManagedTokenDisplay != "26k" || plan.ManagedTokenPosition != tokens.PositionEnd || len(deps.client.titles) != 0 {
+	if current.Title != task.Title || plan.DesiredTitle != "✅ 26k 26k Execute BEAR-59 · 26k" || plan.DurableSubject != "26k 26k Execute BEAR-59" || plan.ManagedTokenDisplay != "26k" || plan.ManagedTokenPosition != tokens.PositionEnd || len(deps.client.titles) != 0 {
 		t.Fatalf("title=%q plan=%+v writes=%v", current.Title, plan, deps.client.titles)
 	}
 
@@ -993,8 +1025,27 @@ func TestLegacyCycleRecoveryReconstructsManagedActionAndTokenOwnership(t *testin
 	if recovered.DurableSubject != "Release service" || recovered.ManagedAction != "review rollout" || recovered.ManagedTokenDisplay != "1.6m" || recovered.ManagedTokenPosition != tokens.PositionEnd {
 		t.Fatalf("recovered semantic ownership = %+v", recovered)
 	}
-	if len(stored.PendingTitlePlans) != 0 || len(deps.client.titles) != 0 {
+	if stored.PendingTitlePlans[current.TaskID].DesiredTitle != "➡️ Release service → review rollout · 1.6m" || len(deps.client.titles) != 0 {
 		t.Fatalf("pending=%+v writes=%v", stored.PendingTitlePlans, deps.client.titles)
+	}
+}
+
+func TestLegacyTitleOwnershipReconstructsLongUnboundedOperation(t *testing.T) {
+	subject := strings.TrimSpace(strings.Repeat("Long legacy subject ", 5))
+	action := strings.TrimSpace(strings.Repeat("review legacy action ", 3))
+	record := state.TaskRecord{
+		TaskID: "title", CapturedRevision: "1", CapturedTitle: "➡️ Old title", LastAppliedTitle: "➡️ Old title",
+		DurableSubject: subject, ManagedAction: "old action",
+	}
+	classification := state.ClassificationResult{TaskID: "title", Revision: "1", Status: state.StatusNextSteps, Provenance: state.ProvenanceFooter, ManagedAction: action}
+	desired := "➡️ " + subject + " → " + action + " · 1.6m"
+	operation := state.CycleOperation{Kind: state.OperationTitle, Stage: state.StageApplying, TaskID: "title", ExpectedRevision: "1", ExpectedTitle: record.CapturedTitle, DesiredTitle: desired}
+	got, err := reconstructTitleOwnership(record, classification, operation)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Title != desired || got.DurableSubject != subject || got.ManagedAction != action || got.ManagedTokenDisplay != "1.6m" || got.ManagedTokenPosition != tokens.PositionEnd {
+		t.Fatalf("ownership = %+v", got)
 	}
 }
 
@@ -1014,7 +1065,8 @@ func TestLegacyTitleOwnershipRecognizesOnlyExactOperationTokenZones(t *testing.T
 	}{
 		{name: "none", desired: base},
 		{name: "start", desired: "➡️ 26k Release service → review rollout", display: "26k", position: tokens.PositionStart},
-		{name: "end", desired: base + " · out 1.6m", display: "1.6m", position: tokens.PositionEnd},
+		{name: "end legacy", desired: base + " · out 1.6m", display: "1.6m", position: tokens.PositionEnd},
+		{name: "end canonical", desired: base + " · 1.6m", display: "1.6m", position: tokens.PositionEnd},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			operation := state.CycleOperation{Kind: state.OperationTitle, Stage: state.StageApplying, TaskID: "title", ExpectedRevision: "1", ExpectedTitle: record.CapturedTitle, DesiredTitle: test.desired}
@@ -1074,7 +1126,7 @@ func TestLegacyCycleRecoveryStagesCurrentTokenPlanAfterDrift(t *testing.T) {
 		{name: "rename disabled", disableRename: true},
 		{name: "display disabled", position: tokens.PositionOff, desired: "➡️ Release service → review rollout"},
 		{name: "position changed", position: tokens.PositionStart, outputTokens: 1_600_123, found: true, desired: "➡️ 1.6m Release service → review rollout", display: "1.6m", displayAt: tokens.PositionStart, tokenReadCount: 1},
-		{name: "value changed", position: tokens.PositionEnd, outputTokens: 2_400_000, found: true, desired: "➡️ Release service → review rollout · out 2.4m", display: "2.4m", displayAt: tokens.PositionEnd, tokenReadCount: 1},
+		{name: "value changed", position: tokens.PositionEnd, outputTokens: 2_400_000, found: true, desired: "➡️ Release service → review rollout · 2.4m", display: "2.4m", displayAt: tokens.PositionEnd, tokenReadCount: 1},
 		{name: "snapshot disappeared", position: tokens.PositionEnd, desired: "➡️ Release service → review rollout", tokenReadCount: 1},
 	} {
 		t.Run(test.name, func(t *testing.T) {

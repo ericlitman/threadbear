@@ -1105,7 +1105,14 @@ func reconstructTitleOwnership(record state.TaskRecord, classification state.Cla
 	if err != nil {
 		return title.Result{}, err
 	}
-	display, ok := legacyOperationTokenDisplay(rendered.Title, operation.DesiredTitle, classification.Status)
+	baseTitle := classification.Status.Emoji()
+	if rendered.DurableSubject != "" {
+		baseTitle += " " + rendered.DurableSubject
+		if rendered.ManagedAction != "" {
+			baseTitle += " → " + rendered.ManagedAction
+		}
+	}
+	display, ok := legacyOperationTokenDisplay(baseTitle, operation.DesiredTitle, classification.Status)
 	if !ok {
 		return title.Result{}, errors.New("legacy title ownership does not reproduce desired title")
 	}
@@ -1130,11 +1137,13 @@ func legacyOperationTokenDisplay(baseTitle, desiredTitle string, status state.Ta
 			}
 		}
 	}
-	endPrefix := baseTitle + " · out "
-	if strings.HasPrefix(desiredTitle, endPrefix) {
-		value := strings.TrimPrefix(desiredTitle, endPrefix)
-		if strictTokenDisplay(value) {
-			return tokens.Display{Position: tokens.PositionEnd, Value: value}, true
+	for _, separator := range []string{" · out ", " · "} {
+		endPrefix := baseTitle + separator
+		if strings.HasPrefix(desiredTitle, endPrefix) {
+			value := strings.TrimPrefix(desiredTitle, endPrefix)
+			if strictTokenDisplay(value) {
+				return tokens.Display{Position: tokens.PositionEnd, Value: value}, true
+			}
 		}
 	}
 	return tokens.Display{}, false

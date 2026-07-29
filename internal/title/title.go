@@ -3,6 +3,9 @@ package title
 import (
 	"errors"
 	"strings"
+	"unicode"
+	"unicode/utf16"
+	"unicode/utf8"
 
 	"github.com/ericlitman/threadbear/internal/state"
 	"github.com/ericlitman/threadbear/internal/tokens"
@@ -30,46 +33,23 @@ func Reconcile(record state.TaskRecord, nextStatus state.TaskStatus, suggestedSu
 	}
 	current := record.CapturedTitle
 	subject := ""
-	if record.LastAppliedTitle != "" && current == record.LastAppliedTitle {
-		hasDurableSubject := strings.TrimSpace(record.DurableSubject) != ""
+	if managedCapturedTitle(record) {
 		subject = strings.TrimSpace(record.DurableSubject)
 		if subject == "" {
 			subject = ownedSubject(record)
 		}
-		if record.ManagedTokenDisplay == "" {
-			copies := ownedTokenCopies(subject, display.Value, display.Position)
-			authoritative := subject != "" && stripStatusPrefixes(renderTitle(nextStatus, subject, strings.TrimSpace(record.ManagedAction), display)) == stripStatusPrefixes(record.LastAppliedTitle)
-			if copies > 1 || !hasDurableSubject && !authoritative {
-				subject = stripOwnedTokenCopies(subject, display.Value, display.Position)
-			}
-		} else {
-			ownedCopies := ownedTokenCopies(subject, record.ManagedTokenDisplay, record.ManagedTokenPosition)
-			observedCopies := ownedTokenCopies(stripStatusPrefixes(current), record.ManagedTokenDisplay, record.ManagedTokenPosition)
-			if ownedCopies > 1 || !hasDurableSubject && observedCopies > 1 {
-				subject = stripOwnedTokenCopies(subject, record.ManagedTokenDisplay, record.ManagedTokenPosition)
-			}
-			if display.Value != record.ManagedTokenDisplay || display.Position != record.ManagedTokenPosition {
-				observed := stripStatusPrefixes(current)
-				if ownedTokenCopies(observed, display.Value, record.ManagedTokenPosition) > 1 {
-					subject = stripOwnedTokenCopies(subject, display.Value, record.ManagedTokenPosition)
-				}
-				if ownedTokenCopies(observed, display.Value, display.Position) > 1 {
-					subject = stripOwnedTokenCopies(subject, display.Value, display.Position)
-				}
-			}
+		oppositePosition := tokens.PositionOff
+		switch record.ManagedTokenPosition {
+		case tokens.PositionStart:
+			oppositePosition = tokens.PositionEnd
+		case tokens.PositionEnd:
+			oppositePosition = tokens.PositionStart
+		}
+		if ownedTokenCopies(subject, record.ManagedTokenDisplay, oppositePosition) > 1 {
+			subject = stripOwnedTokenCopies(subject, record.ManagedTokenDisplay, oppositePosition)
 		}
 	} else {
 		subject = stripOwnedToken(stripStatusPrefixes(current), record.ManagedTokenDisplay, record.ManagedTokenPosition)
-	}
-	oppositePosition := tokens.PositionOff
-	switch record.ManagedTokenPosition {
-	case tokens.PositionStart:
-		oppositePosition = tokens.PositionEnd
-	case tokens.PositionEnd:
-		oppositePosition = tokens.PositionStart
-	}
-	if ownedTokenCopies(subject, record.ManagedTokenDisplay, oppositePosition) > 1 {
-		subject = stripOwnedTokenCopies(subject, record.ManagedTokenDisplay, oppositePosition)
 	}
 	if subject == "" {
 		subject = stripStatusPrefixes(suggestedSubject)
@@ -85,14 +65,24 @@ func Reconcile(record state.TaskRecord, nextStatus state.TaskStatus, suggestedSu
 	if subject == "" {
 		action = ""
 	}
-	title := renderTitle(nextStatus, subject, action, display)
 	return Result{
-		Title:                title,
+		Title:                renderTitle(nextStatus, subject, action, display),
 		DurableSubject:       subject,
 		ManagedAction:        action,
 		ManagedTokenDisplay:  display.Value,
 		ManagedTokenPosition: display.Position,
 	}, nil
+}
+
+func managedCapturedTitle(record state.TaskRecord) bool {
+	lastApplied := record.LastAppliedTitle
+	if lastApplied == "" {
+		return false
+	}
+	if record.CapturedTitle == lastApplied {
+		return true
+	}
+	return utf16Units(lastApplied) > 60 && record.CapturedTitle == truncateUTF16(lastApplied, 59)+"…"
 }
 
 func AdoptSingleLeadingStatus(value string) (state.TaskStatus, string, bool) {
@@ -128,9 +118,51 @@ func renderTitle(status state.TaskStatus, subject, action string, display tokens
 		}
 	}
 	if display.Position == tokens.PositionEnd {
-		title += " · out " + display.Value
+		return boundTitle(title, " · "+display.Value)
 	}
-	return title
+	return boundTitle(title, "")
+}
+
+func boundTitle(title, suffix string) string {
+	if utf16Units(title+suffix) <= 60 {
+		return title + suffix
+	}
+	if suffix == "" {
+		return truncateUTF16(title, 59) + "…"
+	}
+	prefixUnits := 59 - utf16Units(suffix)
+	if prefixUnits < 0 {
+		prefixUnits = 0
+	}
+	return truncateUTF16(title, prefixUnits) + "…" + suffix
+}
+
+func truncateUTF16(value string, limit int) string {
+	if limit <= 0 {
+		return ""
+	}
+	units := 0
+	end := 0
+	for offset, valueRune := range value {
+		runeUnits := utf16.RuneLen(valueRune)
+		if runeUnits < 0 || units+runeUnits > limit {
+			break
+		}
+		units += runeUnits
+		end = offset + utf8.RuneLen(valueRune)
+	}
+	return value[:end]
+}
+
+func utf16Units(value string) int {
+	units := 0
+	for _, valueRune := range value {
+		runeUnits := utf16.RuneLen(valueRune)
+		if runeUnits > 0 {
+			units += runeUnits
+		}
+	}
+	return units
 }
 
 func ownedSubject(record state.TaskRecord) string {
@@ -156,24 +188,42 @@ func normalizeDisplay(display tokens.Display) (tokens.Display, error) {
 
 func stripOwnedToken(value, managed string, position tokens.Position) string {
 	managed = strings.TrimSpace(managed)
+	value = strings.TrimSpace(value)
 	if managed == "" {
-		return strings.TrimSpace(value)
+		return value
 	}
 	switch position {
 	case tokens.PositionStart:
-		value = strings.TrimPrefix(value, managed+" ")
+		if strings.HasPrefix(value, managed) {
+			remainder := strings.TrimPrefix(value, managed)
+			if remainder == "" {
+				value = ""
+			} else if first, _ := utf8.DecodeRuneInString(remainder); unicode.IsSpace(first) {
+				value = strings.TrimLeftFunc(remainder, unicode.IsSpace)
+			}
+		}
 	case tokens.PositionEnd:
 		const persistedEllipsis = " ·…"
 		if strings.HasSuffix(value, persistedEllipsis) {
 			withoutEllipsis := strings.TrimSuffix(value, persistedEllipsis)
-			if strings.HasSuffix(withoutEllipsis, " · out "+managed) {
-				value = strings.TrimSuffix(withoutEllipsis, " · out "+managed) + persistedEllipsis
+			stripped := stripOwnedEndToken(withoutEllipsis, managed)
+			if stripped != withoutEllipsis {
+				value = stripped + persistedEllipsis
 				break
 			}
 		}
-		value = strings.TrimSuffix(value, " · out "+managed)
+		value = stripOwnedEndToken(value, managed)
 	}
 	return strings.TrimSpace(value)
+}
+
+func stripOwnedEndToken(value, managed string) string {
+	for _, suffix := range []string{" · out " + managed, " · " + managed} {
+		if strings.HasSuffix(value, suffix) {
+			return strings.TrimSuffix(value, suffix)
+		}
+	}
+	return value
 }
 
 func stripOwnedTokenCopies(value, managed string, position tokens.Position) string {
