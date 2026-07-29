@@ -323,20 +323,42 @@ func TestReconcilePreservesSingleMatchingTokenTextAtOppositeBoundary(t *testing.
 	}
 }
 
-func TestReconcilePreservesOppositeBoundaryCopiesAfterUserEdit(t *testing.T) {
-	record := state.TaskRecord{
-		CapturedTitle:        "✅ 26k 26k User subject · out 26k",
-		DurableSubject:       "Old subject",
-		LastAppliedTitle:     "✅ Old subject · out 26k",
-		ManagedTokenDisplay:  "26k",
-		ManagedTokenPosition: tokens.PositionEnd,
-	}
-	got, err := Reconcile(record, state.StatusComplete, "", "", tokens.Display{Position: tokens.PositionEnd, Value: "26k"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got.Title != record.CapturedTitle || got.DurableSubject != "26k 26k User subject" {
-		t.Fatalf("Reconcile() = %+v", got)
+func TestReconcileNormalizesOppositeBoundaryCopiesAfterUserEdit(t *testing.T) {
+	for _, test := range []struct {
+		name     string
+		captured string
+		want     string
+		subject  string
+	}{
+		{
+			name:     "repeated managed value",
+			captured: "✅ 26k 26k User subject · custom · out 26k",
+			want:     "✅ User subject · custom · out 26k",
+			subject:  "User subject · custom",
+		},
+		{
+			name:     "single matching value",
+			captured: "✅ 26k User subject · custom · out 26k",
+			want:     "✅ 26k User subject · custom · out 26k",
+			subject:  "26k User subject · custom",
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			record := state.TaskRecord{
+				CapturedTitle:        test.captured,
+				DurableSubject:       "Old subject",
+				LastAppliedTitle:     "✅ Old subject · out 26k",
+				ManagedTokenDisplay:  "26k",
+				ManagedTokenPosition: tokens.PositionEnd,
+			}
+			got, err := Reconcile(record, state.StatusComplete, "", "", tokens.Display{Position: tokens.PositionEnd, Value: "26k"})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got.Title != test.want || got.DurableSubject != test.subject {
+				t.Fatalf("Reconcile() = %+v", got)
+			}
+		})
 	}
 }
 
