@@ -63,6 +63,7 @@ Usage:
 
 Flags:
   -h, --help                show this help and let the bear rest
+  --actuator TASK_ID        emit the helper-owned actuator program for source TASK_ID (default: "")
   --batch                   plan all pending title mutations (default: false)
   --dispatch                emit the guarded child title-actuator dispatch envelope (default: false)
   --json                    write stable JSON command results; help stays human-readable (default: false)

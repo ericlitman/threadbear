@@ -543,15 +543,13 @@ func TestDispatchEligibilityEnvelopeAndPrivacy(t *testing.T) {
 		if len([]byte(got.Child.Prompt)) > 6000 || !strings.HasPrefix(got.Child.Prompt, ChildPromptSentinel+"\n") || strings.Count(got.Child.Prompt, ChildPromptSentinel) != 1 || !isASCIIString(got.Child.Prompt) {
 			t.Fatalf("prompt bytes=%d prefix=%q", len([]byte(got.Child.Prompt)), got.Child.Prompt[:min(len(got.Child.Prompt), 80)])
 		}
-		if strings.Count(ChildActuatorProgram, ChildSourcePlaceholder) != 1 || strings.Count(got.Child.Prompt, ChildActuatorProgram) != 1 {
-			t.Fatal("child prompt does not contain one exact helper-owned actuator program and placeholder")
+		if strings.Count(ChildActuatorProgram, ChildSourcePlaceholder) != 1 || strings.Count(ChildActuatorLoader, ChildSourcePlaceholder) != 1 || strings.Contains(got.Child.Prompt, ChildActuatorProgram) || strings.Count(got.Child.Prompt, ChildActuatorLoader) != 1 {
+			t.Fatal("child prompt does not contain exactly one helper loader or still embeds the actuator program")
 		}
 		for _, marker := range []string{
-			"one model pass", "exactly one functions.exec", "codex_delegation.source_thread_id", "Author, revise, or infer nothing", "empty expected_title",
-			`k(x)!=="dispositions,mode,plans,version"`, `k(x)==="desired_title,expected_revision,expected_title,operation_id,task_id"`, `k(x)==="outcome,task_id"`, `k(x)!=="accepted_ids,rejected_ids,version"`,
-			`typeof r.output!=="string"`, `typeof r.exit_code!=="number"`, `r.exit_code!==0`, `"session_id"in r`,
-			"title-plan --json --wait", "title-plan --json --operation", "title-plan --json --report", "title_actuation_failed",
-			"native_set_failed", "canonical_persisted", "native_succeeded_pending_canonical", "no_op",
+			"one model pass", "exactly one functions.exec", "codex_delegation.source_thread_id", "Author, revise, or infer nothing", "success-only self-archive",
+			`k(e)!=="program,version"`, `typeof r.output!=="string"`, `typeof r.exit_code!=="number"`, `r.exit_code!==0`, `"session_id"in r`,
+			"title-plan --json --actuator", "title_actuation_failed", "(0,eval)",
 		} {
 			if !strings.Contains(got.Child.Prompt, marker) {
 				t.Fatalf("child prompt missing exact program marker %q", marker)
@@ -598,6 +596,24 @@ func TestDispatchEligibilityEnvelopeAndPrivacy(t *testing.T) {
 				t.Fatalf("dispatch = %+v", got)
 			}
 		})
+	}
+}
+
+func TestActuatorProgramUsesExactSourceSubstitution(t *testing.T) {
+	const sourceID = "11111111-1111-4111-8111-111111111111"
+	result, err := (Service{}).Actuator(sourceID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := result.(output.TitleActuatorResult)
+	want := strings.Replace(ChildActuatorProgram, ChildSourcePlaceholder, sourceID, 1)
+	if got.Program != want || strings.Contains(got.Program, ChildSourcePlaceholder) || strings.Count(got.Program, sourceID) != 1 {
+		t.Fatal("actuator helper did not emit the exact source-bound production program")
+	}
+	for _, invalid := range []string{"", "11111111-1111-4111-8111-11111111111A", " 11111111-1111-4111-8111-111111111111"} {
+		if _, err := (Service{}).Actuator(invalid); err == nil {
+			t.Fatalf("Actuator(%q) succeeded", invalid)
+		}
 	}
 }
 

@@ -15,6 +15,7 @@
 
 ### Fixed
 
+- Loaded the exact helper-owned Luna actuator program from the installed binary instead of carrying it in every child prompt.
 - Made the Luna actuator execute the helper-owned exact title-plan schema instead of inventing a narrower validator.
 - Replaced Node-dependent title handoff with a strict helper-owned raw-V8 child dispatch envelope.
 - Separated source guard/dispatch from child-only Luna title actuation and self-archive.

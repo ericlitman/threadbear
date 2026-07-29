@@ -21,6 +21,7 @@ import (
 	"github.com/ericlitman/threadbear/internal/install"
 	"github.com/ericlitman/threadbear/internal/launchagent"
 	"github.com/ericlitman/threadbear/internal/state"
+	"github.com/ericlitman/threadbear/internal/titleplan"
 	"github.com/ericlitman/threadbear/internal/tokens"
 )
 
@@ -693,10 +694,14 @@ func TestParseTitlePlanRequiresStrictJSONAndOneMode(t *testing.T) {
 		t.Fatalf("report request=%+v err=%v", reportRequest, err)
 	}
 	dispatchRequest, err := parseRequest([]string{"title-plan", "--json", "--dispatch"})
-	if err != nil || !dispatchRequest.TitlePlanDispatch || dispatchRequest.TitlePlanWait != "" || dispatchRequest.TitlePlanOperation != "" || dispatchRequest.TitlePlanBatch || dispatchRequest.TitlePlanReport {
+	if err != nil || !dispatchRequest.TitlePlanDispatch || dispatchRequest.TitlePlanWait != "" || dispatchRequest.TitlePlanOperation != "" || dispatchRequest.TitlePlanBatch || dispatchRequest.TitlePlanReport || dispatchRequest.TitlePlanActuator != "" {
 		t.Fatalf("dispatch request=%+v err=%v", dispatchRequest, err)
 	}
-	for _, args := range [][]string{{"title-plan", "--wait", "task-1"}, {"title-plan", "--json"}, {"title-plan", "--json", "--batch", "--report"}, {"title-plan", "--json", "--dispatch", "--batch"}, {"title-plan", "--json", "--wait", " task-1 "}, {"title-plan", "--json", "--operation", " op-1 "}} {
+	actuatorRequest, err := parseRequest([]string{"title-plan", "--json", "--actuator", "11111111-1111-4111-8111-111111111111"})
+	if err != nil || actuatorRequest.TitlePlanActuator != "11111111-1111-4111-8111-111111111111" || actuatorRequest.TitlePlanDispatch {
+		t.Fatalf("actuator request=%+v err=%v", actuatorRequest, err)
+	}
+	for _, args := range [][]string{{"title-plan", "--wait", "task-1"}, {"title-plan", "--json"}, {"title-plan", "--json", "--batch", "--report"}, {"title-plan", "--json", "--dispatch", "--batch"}, {"title-plan", "--json", "--dispatch", "--actuator", "11111111-1111-4111-8111-111111111111"}, {"title-plan", "--json", "--wait", " task-1 "}, {"title-plan", "--json", "--operation", " op-1 "}, {"title-plan", "--json", "--actuator", " 11111111-1111-4111-8111-111111111111"}} {
 		if _, err := parseRequest(args); err == nil {
 			t.Fatalf("parseRequest(%v) succeeded", args)
 		}
@@ -801,6 +806,30 @@ func TestRunTitlePlanDispatchUsesInheritedIdentityAndExactEnvelope(t *testing.T)
 	}
 	if got, want := stdout.String(), "{\"version\":1,\"allow\":false,\"disposition\":\"control_task\"}\n"; got != want {
 		t.Fatalf("control envelope=%q want=%q", got, want)
+	}
+}
+
+func TestRunTitlePlanActuatorEmitsExactVersionedProgram(t *testing.T) {
+	const sourceID = "a1111111-1111-4111-8111-111111111111"
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("CODEX_HOME", filepath.Join(home, "codex"))
+	var stdout, stderr bytes.Buffer
+	if code := run(context.Background(), []string{"title-plan", "--json", "--actuator", sourceID}, &stdout, &stderr); code != 0 {
+		t.Fatalf("code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+	var envelope map[string]any
+	if err := json.Unmarshal(stdout.Bytes(), &envelope); err != nil {
+		t.Fatal(err)
+	}
+	program, ok := envelope["program"].(string)
+	if !ok || len(envelope) != 2 || envelope["version"] != float64(1) || program != strings.Replace(titleplan.ChildActuatorProgram, titleplan.ChildSourcePlaceholder, sourceID, 1) || strings.Contains(program, titleplan.ChildSourcePlaceholder) {
+		t.Fatalf("envelope=%+v", envelope)
+	}
+	stdout.Reset()
+	stderr.Reset()
+	if code := run(context.Background(), []string{"title-plan", "--json", "--actuator", strings.ToUpper(sourceID)}, &stdout, &stderr); code == 0 {
+		t.Fatalf("uppercase source succeeded: stdout=%q stderr=%q", stdout.String(), stderr.String())
 	}
 }
 

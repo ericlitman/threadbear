@@ -2,14 +2,22 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 
 const source=fs.readFileSync(new URL("../internal/titleplan/titleplan.go",import.meta.url),"utf8");
-const match=source.match(/const ChildActuatorProgram = `([\s\S]*?)`\n\nconst ChildPrompt =/);
-assert(match,"one child actuator program constant must exist");
-const program=match[1],placeholder="__THREADBEAR_SOURCE_UUID__",sourceID="11111111-1111-4111-8111-111111111111";
+const programMatch=source.match(/const ChildActuatorProgram = `([\s\S]*?)`\n\nconst ChildActuatorLoader =/);
+const loaderMatch=source.match(/const ChildActuatorLoader = `([\s\S]*?)`\n\nconst ChildPrompt =/);
+assert(programMatch,"one child actuator program constant must exist");
+assert(loaderMatch,"one child actuator loader constant must exist");
+const program=programMatch[1],loader=loaderMatch[1],placeholder="__THREADBEAR_SOURCE_UUID__",sourceID="11111111-1111-4111-8111-111111111111";
 assert.equal(program.split(placeholder).length-1,1);
-assert(source.includes("` + ChildActuatorProgram + `"),"the shipped prompt must embed the exact program constant");
+assert.equal(loader.split(placeholder).length-1,1);
+assert(source.includes("` + ChildActuatorLoader + `"),"the shipped prompt must embed the exact loader constant");
+assert(!source.includes("` + ChildActuatorProgram + `"),"the shipped prompt must not embed the actuator program");
 assert(/^[\x00-\x7f]*$/.test(program),"the actuator program must remain ASCII");
+assert(/^[\x00-\x7f]*$/.test(loader),"the actuator loader must remain ASCII");
+const boundProgram=program.replace(placeholder,sourceID);
+assert(!boundProgram.includes(placeholder));
+assert.equal(boundProgram.split(sourceID).length-1,1);
 const AsyncFunction=Object.getPrototypeOf(async function(){}).constructor;
-const execute=new AsyncFunction("tools","text",program.replace(placeholder,sourceID));
+const execute=new AsyncFunction(loader.replace(placeholder,sourceID));
 const completed=value=>({output:JSON.stringify(value),exit_code:0});
 const plan=(expectedTitle="Explain idempotent retry safety",overrides={})=>({operation_id:"5cc48150fdce0758b399e83cca4b014f",task_id:"22222222-2222-4222-8222-222222222222",expected_revision:"1700000000123",expected_title:expectedTitle,desired_title:"✅ Explain idempotent retry safety · out 564",...overrides});
 const envelope=(mode,plans,dispositions=[])=>({version:1,mode,plans,dispositions});
@@ -22,6 +30,7 @@ async function replay(name,options={}){
   const wait=options.waitEnvelope??envelope("wait",[item]);
   const operation=options.operationEnvelope??envelope("operation",[item]);
   const report=options.reportEnvelope??{version:1,accepted_ids:[item.task_id],rejected_ids:[]};
+  const helper=options.helperEnvelope??{version:1,program:options.helperProgram??boundProgram};
   const command=async(value,fallback,cmd)=>{
     if(value instanceof Error)throw value;
     if(typeof value==="function")return value(cmd);
@@ -30,6 +39,7 @@ async function replay(name,options={}){
   const tools={
     exec_command:async({cmd})=>{
       calls.commands.push(cmd);
+      if(cmd.includes("--actuator"))return command(options.helperCommand,completed(helper),cmd);
       if(cmd.includes("--wait"))return command(options.waitCommand,completed(wait),cmd);
       if(cmd.includes("--operation"))return command(options.operationCommand,completed(operation),cmd);
       if(cmd.includes("--report"))return command(options.reportCommand,completed(report),cmd);
@@ -46,13 +56,20 @@ async function replay(name,options={}){
       return "archived";
     },
   };
+  const hadTools=Object.prototype.hasOwnProperty.call(globalThis,"tools"),previousTools=globalThis.tools;
+  const hadText=Object.prototype.hasOwnProperty.call(globalThis,"text"),previousText=globalThis.text;
+  globalThis.tools=tools;
+  globalThis.text=value=>calls.text.push(value);
   let thrown;
-  try{await execute(tools,value=>calls.text.push(value))}catch(error){thrown=error}
+  try{await execute()}catch(error){thrown=error}finally{
+    if(hadTools)globalThis.tools=previousTools;else delete globalThis.tools;
+    if(hadText)globalThis.text=previousText;else delete globalThis.text;
+  }
   const rendered=calls.text.join("\n");
   for(const secret of new Set([sourceID,...strings(wait),...strings(operation),...strings(report),...(options.secrets??[])])){
     if(secret)assert(!rendered.includes(secret),`${name} leaked private actuator data`);
   }
-  for(const field of ['"version"','"mode"','"plans"','"dispositions"','"expected_revision"','"expected_title"'])assert(!rendered.includes(field),`${name} leaked a helper envelope`);
+  for(const field of ['"program"','"version"','"mode"','"plans"','"dispositions"','"expected_revision"','"expected_title"'])assert(!rendered.includes(field),`${name} leaked a helper envelope`);
   return {calls,item,rendered,thrown,result:calls.text.length?JSON.parse(calls.text.at(-1)):undefined};
 }
 
@@ -67,6 +84,7 @@ async function expectFailure(name,options){
 for(const [name,setterResult] of [["fulfilled setter string","set"],["fulfilled setter null",null],["fulfilled setter undefined",undefined]]){
   const {calls,item,result}=await replay(name,{setterResult});
   assert.deepEqual(result,{ok:true});
+  assert.equal(calls.commands[0],`~/.local/bin/threadbear title-plan --json --actuator ${sourceID}`);
   assert.deepEqual(calls.setters,[{threadId:item.task_id,title:item.desired_title}]);
   assert.equal(calls.commands.filter(value=>value.includes("--report")).length,1);
   assert.deepEqual(calls.archives,[{archived:true}]);
@@ -100,6 +118,22 @@ const malformed={
   "running command":{output:"{}",exit_code:0,session_id:"running"},
   "nonzero exit code":{output:"{}",exit_code:1},
 };
+for(const [failure,value] of Object.entries(malformed)){
+  const {calls}=await expectFailure(`helper ${failure}`,{helperCommand:value});
+  assert.equal(calls.commands.length,1,`helper ${failure} evaluated a program`);
+  assert.equal(calls.setters.length,0);
+}
+for(const [name,helperEnvelope] of [
+  ["helper extra key",{version:1,program:boundProgram,extra:true}],
+  ["helper missing program",{version:1}],
+  ["helper wrong version",{version:2,program:boundProgram}],
+  ["helper empty program",{version:1,program:""}],
+  ["helper non-string program",{version:1,program:{}}],
+]){
+  const {calls}=await expectFailure(name,{helperEnvelope});
+  assert.equal(calls.commands.length,1,`${name} evaluated a program`);
+  assert.equal(calls.setters.length,0);
+}
 for(const stage of ["wait","operation","report"]){
   for(const [failure,value] of Object.entries(malformed))await expectFailure(`${stage} ${failure}`,{[`${stage}Command`]:value});
 }
@@ -162,4 +196,4 @@ await expectFailure("accepted ID inequality",{reportEnvelope:{version:1,accepted
   assert.deepEqual(calls.archives,[{archived:true}]);
 }
 
-console.log("exact Luna title actuator V8 replay passed");
+console.log("runtime-loaded Luna title actuator V8 replay passed");
