@@ -158,6 +158,73 @@ func TestReconcilePreservesUnownedCanonicalLookingTokenText(t *testing.T) {
 	}
 }
 
+func TestReconcileReplacesManagedEndDisplayBeforePersistedEllipsis(t *testing.T) {
+	const captured = "❔ BEAR-59 — validate post-turn title actuator · out 670k ·…"
+	record := state.TaskRecord{
+		CapturedTitle:        captured,
+		DurableSubject:       "BEAR-59 — validate post-turn title actuator",
+		LastAppliedTitle:     "❔ BEAR-59 — validate post-turn title actuator · out 670k",
+		ManagedTokenDisplay:  "670k",
+		ManagedTokenPosition: tokens.PositionEnd,
+	}
+	first, err := Reconcile(record, state.StatusUnknown, "", "", tokens.Display{Position: tokens.PositionEnd, Value: "700k"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first.Title != "❔ BEAR-59 — validate post-turn title actuator ·… · out 700k" || first.DurableSubject != "BEAR-59 — validate post-turn title actuator ·…" {
+		t.Fatalf("first = %+v", first)
+	}
+	second, err := Reconcile(state.TaskRecord{
+		CapturedTitle: first.Title, DurableSubject: first.DurableSubject, LastAppliedTitle: first.Title,
+		ManagedTokenDisplay: first.ManagedTokenDisplay, ManagedTokenPosition: first.ManagedTokenPosition,
+	}, state.StatusUnknown, "", "", tokens.Display{Position: tokens.PositionEnd, Value: "700k"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if second != first {
+		t.Fatalf("first=%+v second=%+v", first, second)
+	}
+}
+
+func TestReconcileConvergesLegacyOwnedTokenDuplicates(t *testing.T) {
+	for _, test := range []struct {
+		name     string
+		captured string
+		position tokens.Position
+		want     string
+		subject  string
+	}{
+		{name: "start", captured: "✅ 670k 670k Release service", position: tokens.PositionStart, want: "✅ 700k Release service", subject: "Release service"},
+		{name: "end", captured: "✅ Release service · out 670k · out 670k", position: tokens.PositionEnd, want: "✅ Release service · out 700k", subject: "Release service"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			record := state.TaskRecord{
+				CapturedTitle:        test.captured,
+				LastAppliedTitle:     test.captured,
+				ManagedTokenDisplay:  "670k",
+				ManagedTokenPosition: test.position,
+			}
+			first, err := Reconcile(record, state.StatusComplete, "", "", tokens.Display{Position: test.position, Value: "700k"})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if first.Title != test.want || first.DurableSubject != test.subject {
+				t.Fatalf("first = %+v", first)
+			}
+			second, err := Reconcile(state.TaskRecord{
+				CapturedTitle: first.Title, DurableSubject: first.DurableSubject, LastAppliedTitle: first.Title,
+				ManagedTokenDisplay: first.ManagedTokenDisplay, ManagedTokenPosition: first.ManagedTokenPosition,
+			}, state.StatusComplete, "", "", tokens.Display{Position: test.position, Value: "700k"})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if second != first {
+				t.Fatalf("first=%+v second=%+v", first, second)
+			}
+		})
+	}
+}
+
 func TestReconcileCleansContaminatedOwnedSubjectAcrossPositions(t *testing.T) {
 	record := state.TaskRecord{
 		CapturedTitle:        "✅ 26k 26k 26k Execute BEAR-59",

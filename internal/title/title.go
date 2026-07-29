@@ -43,7 +43,9 @@ func Reconcile(record state.TaskRecord, nextStatus state.TaskStatus, suggestedSu
 				subject = stripOwnedTokenCopies(subject, display.Value, display.Position)
 			}
 		} else {
-			if ownedTokenCopies(subject, record.ManagedTokenDisplay, record.ManagedTokenPosition) > 1 {
+			ownedCopies := ownedTokenCopies(subject, record.ManagedTokenDisplay, record.ManagedTokenPosition)
+			observedCopies := ownedTokenCopies(stripStatusPrefixes(current), record.ManagedTokenDisplay, record.ManagedTokenPosition)
+			if ownedCopies > 1 || !hasDurableSubject && observedCopies > 1 {
 				subject = stripOwnedTokenCopies(subject, record.ManagedTokenDisplay, record.ManagedTokenPosition)
 			}
 			if display.Value != record.ManagedTokenDisplay || display.Position != record.ManagedTokenPosition {
@@ -151,6 +153,14 @@ func stripOwnedToken(value, managed string, position tokens.Position) string {
 	case tokens.PositionStart:
 		value = strings.TrimPrefix(value, managed+" ")
 	case tokens.PositionEnd:
+		const persistedEllipsis = " ·…"
+		if strings.HasSuffix(value, persistedEllipsis) {
+			withoutEllipsis := strings.TrimSuffix(value, persistedEllipsis)
+			if strings.HasSuffix(withoutEllipsis, " · out "+managed) {
+				value = strings.TrimSuffix(withoutEllipsis, " · out "+managed) + persistedEllipsis
+				break
+			}
+		}
 		value = strings.TrimSuffix(value, " · out "+managed)
 	}
 	return strings.TrimSpace(value)
@@ -167,24 +177,14 @@ func stripOwnedTokenCopies(value, managed string, position tokens.Position) stri
 }
 
 func ownedTokenCopies(value, managed string, position tokens.Position) int {
-	managed = strings.TrimSpace(managed)
-	if managed == "" {
-		return 0
-	}
 	count := 0
 	value = strings.TrimSpace(value)
 	for {
-		previous := value
-		switch position {
-		case tokens.PositionStart:
-			value = strings.TrimPrefix(value, managed+" ")
-		case tokens.PositionEnd:
-			value = strings.TrimSuffix(value, " · out "+managed)
-		}
-		value = strings.TrimSpace(value)
-		if value == previous {
+		stripped := stripOwnedToken(value, managed, position)
+		if stripped == value {
 			return count
 		}
+		value = stripped
 		count++
 	}
 }
