@@ -58,7 +58,7 @@ func TestCodexInstallGuideFeatureDetectsHostedTitleApplication(t *testing.T) {
 	}
 }
 
-func TestCodexInstallGuideEnforcesHelperRevalidationOrdering(t *testing.T) {
+func TestCodexInstallGuideEnforcesSelfContainedFallbackOrdering(t *testing.T) {
 	guide := normalizeGuideText(readInstallGuide(t))
 	start := strings.Index(guide, "After that heartbeat, apply the staged title bootstrap")
 	if start < 0 {
@@ -68,10 +68,15 @@ func TestCodexInstallGuideEnforcesHelperRevalidationOrdering(t *testing.T) {
 	if endOffset < 0 {
 		t.Fatal("INSTALL.md is missing the end of the hosted title application block")
 	}
-	end := start + endOffset
-	section := guide[start:end]
+	section := guide[start : start+endOffset]
 	previous := -1
-	for _, marker := range []string{"title-plan --json --batch", "title-plan --json --operation", "native title mutation", "title-plan --json --report", "CODEX_THREAD_ID", "control_task_id", "gpt-5.6-luna", "aggregate outcomes", "self-archives"} {
+	for _, marker := range []string{
+		"title-plan --json --batch", "title-plan --json --operation", "native title mutation", "title-plan --json --report",
+		"actual `functions.exec`", "CODEX_THREAD_ID", "returned tool result", "control_task_id", "gpt-5.6-luna",
+		"codex_delegation.source_thread_id", "exactly one `functions.exec`", "title-plan --json --wait",
+		"set_thread_title", `{"reports":[{"operation_id":"OPERATION_ID","task_id":"TASK_ID","native_success":true}]}`,
+		"rejected_ids", "accepted_ids", "Self-archive",
+	} {
 		index := strings.Index(section, marker)
 		if index < 0 {
 			t.Fatalf("INSTALL.md actuator block missing %q", marker)
@@ -80,6 +85,29 @@ func TestCodexInstallGuideEnforcesHelperRevalidationOrdering(t *testing.T) {
 			t.Fatalf("INSTALL.md actuator block puts %q out of order", marker)
 		}
 		previous = index
+	}
+}
+
+func TestCodexInstallGuideDefinesFallbackOutcomesWithoutRecovery(t *testing.T) {
+	guide := normalizeGuideText(readInstallGuide(t))
+	start := strings.Index(guide, "Before any fallback worker creation")
+	if start < 0 {
+		t.Fatal("INSTALL.md is missing the fallback actuator contract")
+	}
+	end := strings.Index(guide[start:], "Feature-detect and fail closed")
+	if end < 0 {
+		t.Fatal("INSTALL.md is missing the end of the fallback actuator contract")
+	}
+	section := guide[start : start+end]
+	for _, required := range []string{
+		"boolean `native_success`", `error_code:"native_set_failed"`, "exact set equality",
+		"do not submit an empty report", "no_op", "canonical_persisted", "native_succeeded_pending_canonical",
+		"drifted", "missing", "title_actuation_failed", "no recovery loop", "one model pass",
+		"no second command", "no task transcript", "implementation inspection", "deterministic helper",
+	} {
+		if !strings.Contains(section, required) {
+			t.Fatalf("INSTALL.md fallback contract missing %q", required)
+		}
 	}
 }
 

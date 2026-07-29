@@ -68,11 +68,7 @@ func assertOrderedContract(t *testing.T, name, content string, markers ...string
 	}
 }
 
-func TestManagedAssetsEnforceHelperRevalidationOrdering(t *testing.T) {
-	assertOrderedContract(t, "agents", AgentsManagedContent,
-		"CODEX_THREAD_ID", "status --json", "gpt-5.6-luna", "codex_delegation.source_thread_id",
-		"title-plan --json --wait", "title-plan --json --operation", "native task-title mutation",
-		"title-plan --json --report", "self-archive")
+func TestManagedAssetsEnforceSelfContainedActuatorOrdering(t *testing.T) {
 	guidedStart := strings.Index(SkillManagedContent, "For a guided install")
 	fallbackStart := strings.Index(SkillManagedContent, "For post-turn application")
 	if guidedStart < 0 || fallbackStart <= guidedStart {
@@ -80,14 +76,35 @@ func TestManagedAssetsEnforceHelperRevalidationOrdering(t *testing.T) {
 	}
 	assertOrderedContract(t, "skill guided", SkillManagedContent[guidedStart:fallbackStart],
 		"title-plan --json --batch", "title-plan --json --operation", "native mutation", "title-plan --json --report")
-	assertOrderedContract(t, "skill fallback", SkillManagedContent[fallbackStart:],
-		"CODEX_THREAD_ID", "control_task_id", "gpt-5.6-luna", "codex_delegation.source_thread_id",
-		"title-plan --json --wait", "title-plan --json --operation", "exact title", "aggregate outcomes", "self-archives")
+	for name, content := range map[string]string{"agents": AgentsManagedContent, "skill fallback": SkillManagedContent[fallbackStart:]} {
+		assertOrderedContract(t, name, content,
+			"actual `functions.exec`", "CODEX_THREAD_ID", "status --json", "returned tool result",
+			"control_task_id", "gpt-5.6-luna", "codex_delegation.source_thread_id", "exactly one `functions.exec`",
+			"title-plan --json --wait", "title-plan --json --operation", "set_thread_title",
+			"title-plan --json --report", `{"reports":[{"operation_id":"OPERATION_ID","task_id":"TASK_ID","native_success":true}]}`,
+			"rejected_ids", "accepted_ids", "Self-archive")
+	}
 }
 
-func TestManagedGuidanceSuppressesControlTaskDispatch(t *testing.T) {
+func TestManagedAssetsSpecifyStrictReportAndZeroPlanGates(t *testing.T) {
+	fallbackStart := strings.Index(SkillManagedContent, "For post-turn application")
+	for name, content := range map[string]string{"agents": AgentsManagedContent, "skill fallback": SkillManagedContent[fallbackStart:]} {
+		for _, required := range []string{
+			"boolean `native_success`", `error_code:"native_set_failed"`, "exact set equality",
+			"skip the empty report", "no_op", "canonical_persisted", "native_succeeded_pending_canonical",
+			"drifted", "missing", "title_actuation_failed", "unarchived", "one model pass",
+			"no second command", "no task transcript", "implementation inspection", "deterministic helper",
+		} {
+			if !strings.Contains(content, required) {
+				t.Fatalf("%s content missing actuator contract %q", name, required)
+			}
+		}
+	}
+}
+
+func TestManagedGuidanceRequiresToolBackedControlSuppression(t *testing.T) {
 	for name, content := range map[string]string{"agents": AgentsManagedContent, "skill": SkillManagedContent} {
-		for _, required := range []string{"CODEX_THREAD_ID", "control_task_id", "hard no-op", "no worker"} {
+		for _, required := range []string{"actual `functions.exec`", "returned tool result", "never a prose claim", "CODEX_THREAD_ID", "control_task_id", "hard no-op", "no worker"} {
 			if !strings.Contains(content, required) {
 				t.Fatalf("%s content missing control isolation rule %q", name, required)
 			}
