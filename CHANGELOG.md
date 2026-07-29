@@ -15,6 +15,7 @@
 
 ### Fixed
 
+- Made ordinary source turns reliably dispatch their title child before the terminal response.
 - Made the Luna title loader use the mounted transport-safe byte form.
 - Made the Luna title loader fail closed after the observed outer-wrapper removal.
 - Required Luna actuator children to copy the supplied loader byte-for-byte except for source UUID substitution.

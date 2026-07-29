@@ -55,12 +55,12 @@ func TestCodexInstallGuideCarriesRawV8DispatchAndChildContract(t *testing.T) {
 		"title-plan --json --dispatch",
 		"tools.exec_command",
 		"tools.codex_app__create_thread",
-		"strict installed config/state plus rename and AGENTS opt-in",
-		"never carries source identity, transcript, task metadata, title, or manifest",
-		"completed successful command object with string `output`, numeric `exit_code` equal to zero, and no `session_id`",
-		"explicitly emits exactly one JSON aggregate through `text(JSON.stringify(result))`",
-		"never emits the helper envelope or prompt",
-		"fulfilled creation promise is dispatched whether it returns a string or object",
+		"mandatory even for short answers and tasks that needed no other tools",
+		"owns strict installed config/state plus rename and AGENTS opt-in validation",
+		"supplies the exact projectless Luna/medium child",
+		"trusts the installed helper's JSON envelope",
+		"Invalid or unavailable output throws before child creation",
+		"denied dispatch creates nothing",
 		"**Child actuator phase (child only).**",
 		"codex_delegation.source_thread_id",
 		"one model pass and exactly one `functions.exec`",
@@ -122,7 +122,8 @@ func TestCodexInstallGuideLocksGuidedBatchingOrderAndIsolation(t *testing.T) {
 	}
 }
 
-func TestCodexInstallGuideSourceProgramRejectsNodeOnlyPrimitives(t *testing.T) {
+func TestCodexInstallGuideCarriesExactCompactSourceProgram(t *testing.T) {
+	const wantProgram = `const e=JSON.parse((await tools.exec_command({cmd:"~/.local/bin/threadbear title-plan --json --dispatch"})).output);if(e.allow)await tools.codex_app__create_thread(e.child);text(JSON.stringify({allow:e.allow,dispatched:e.allow}))`
 	guide := readInstallGuide(t)
 	start := strings.Index(guide, "**Source phase (source only, never actuator).**")
 	child := strings.Index(guide[start:], "**Child actuator phase (child only).**")
@@ -136,18 +137,16 @@ func TestCodexInstallGuideSourceProgramRejectsNodeOnlyPrimitives(t *testing.T) {
 	}
 	program := source[fence+len("```js\n"):]
 	program = program[:strings.Index(program, "\n```")]
-	for _, forbidden := range []string{"import(", "process", "require(", "node:", "ALL_TOOLS", "fetch(", "XMLHttpRequest", "codex_app__set_thread_title", "codex_app__set_thread_archived", "title-plan --json --wait", "title-plan --json --report"} {
+	if program != wantProgram || len([]byte(program)) != 229 {
+		t.Fatalf("INSTALL.md source program bytes=%d", len([]byte(program)))
+	}
+	if strings.Count(program, "title-plan --json --dispatch") != 1 || strings.Count(program, "tools.codex_app__create_thread(e.child)") != 1 || strings.ContainsAny(program, "<>&") {
+		t.Fatal("INSTALL.md source program violates exact one-call transport-safe contract")
+	}
+	for _, forbidden := range []string{"try{", "catch{", "Object.keys", "THREADBEAR_TITLE_ACTUATOR_V1", "codex_app__set_thread_title", "codex_app__set_thread_archived", "title-plan --json --wait", "title-plan --json --report"} {
 		if strings.Contains(program, forbidden) {
 			t.Fatalf("INSTALL.md source program contains %q", forbidden)
 		}
-	}
-	for _, required := range []string{"tools.exec_command", "title-plan --json --dispatch", "JSON.parse", "Object.keys", "THREADBEAR_TITLE_ACTUATOR_V1\\n", "tools.codex_app__create_thread(e.child)", `typeof r.output!=="string"`, `typeof r.exit_code!=="number"`, `r.exit_code!==0`, `"session_id"in r`, "text(JSON.stringify(result))"} {
-		if !strings.Contains(program, required) {
-			t.Fatalf("INSTALL.md source program is missing %q", required)
-		}
-	}
-	if strings.Count(program, "text(") != 1 || strings.Count(program, "JSON.stringify(result)") != 1 {
-		t.Fatal("INSTALL.md source program does not explicitly emit exactly one aggregate")
 	}
 }
 
