@@ -35,8 +35,31 @@ func Reconcile(record state.TaskRecord, nextStatus state.TaskStatus, suggestedSu
 		if subject == "" {
 			subject = ownedSubject(record)
 		}
+		if record.ManagedTokenDisplay == "" {
+			copies := ownedTokenCopies(subject, display.Value, display.Position)
+			authoritative := subject != "" && stripStatusPrefixes(renderTitle(nextStatus, subject, strings.TrimSpace(record.ManagedAction), display)) == stripStatusPrefixes(record.LastAppliedTitle)
+			if copies > 1 || !authoritative {
+				subject = stripOwnedTokenCopies(subject, display.Value, display.Position)
+			}
+		} else {
+			if ownedTokenCopies(subject, record.ManagedTokenDisplay, record.ManagedTokenPosition) > 1 {
+				subject = stripOwnedTokenCopies(subject, record.ManagedTokenDisplay, record.ManagedTokenPosition)
+			}
+			if display.Value != record.ManagedTokenDisplay || display.Position != record.ManagedTokenPosition {
+				observed := stripStatusPrefixes(current)
+				if ownedTokenCopies(observed, display.Value, record.ManagedTokenPosition) > 1 {
+					subject = stripOwnedTokenCopies(subject, display.Value, record.ManagedTokenPosition)
+				}
+				if ownedTokenCopies(observed, display.Value, display.Position) > 1 {
+					subject = stripOwnedTokenCopies(subject, display.Value, display.Position)
+				}
+			}
+		}
 	} else {
 		subject = stripOwnedToken(stripStatusPrefixes(current), record.ManagedTokenDisplay, record.ManagedTokenPosition)
+		if record.LastAppliedTitle == "" && record.ManagedTokenDisplay == "" && hasCanonicalStatusPrefix(current) {
+			subject = stripOwnedTokenCopies(subject, display.Value, display.Position)
+		}
 	}
 	if subject == "" {
 		subject = stripStatusPrefixes(suggestedSubject)
@@ -49,7 +72,21 @@ func Reconcile(record state.TaskRecord, nextStatus state.TaskStatus, suggestedSu
 		display = tokens.Display{}
 	}
 	action := strings.TrimSpace(nextAction)
-	title := nextStatus.Emoji()
+	if subject == "" {
+		action = ""
+	}
+	title := renderTitle(nextStatus, subject, action, display)
+	return Result{
+		Title:                title,
+		DurableSubject:       subject,
+		ManagedAction:        action,
+		ManagedTokenDisplay:  display.Value,
+		ManagedTokenPosition: display.Position,
+	}, nil
+}
+
+func renderTitle(status state.TaskStatus, subject, action string, display tokens.Display) string {
+	title := status.Emoji()
 	if display.Position == tokens.PositionStart {
 		title += " " + display.Value
 	}
@@ -58,19 +95,11 @@ func Reconcile(record state.TaskRecord, nextStatus state.TaskStatus, suggestedSu
 		if action != "" {
 			title += " → " + action
 		}
-	} else {
-		action = ""
 	}
 	if display.Position == tokens.PositionEnd {
 		title += " · out " + display.Value
 	}
-	return Result{
-		Title:                title,
-		DurableSubject:       subject,
-		ManagedAction:        action,
-		ManagedTokenDisplay:  display.Value,
-		ManagedTokenPosition: display.Position,
-	}, nil
+	return title
 }
 
 func ownedSubject(record state.TaskRecord) string {
@@ -106,6 +135,49 @@ func stripOwnedToken(value, managed string, position tokens.Position) string {
 		value = strings.TrimSuffix(value, " · out "+managed)
 	}
 	return strings.TrimSpace(value)
+}
+
+func stripOwnedTokenCopies(value, managed string, position tokens.Position) string {
+	for {
+		stripped := stripOwnedToken(value, managed, position)
+		if stripped == strings.TrimSpace(value) {
+			return stripped
+		}
+		value = stripped
+	}
+}
+
+func ownedTokenCopies(value, managed string, position tokens.Position) int {
+	managed = strings.TrimSpace(managed)
+	if managed == "" {
+		return 0
+	}
+	count := 0
+	value = strings.TrimSpace(value)
+	for {
+		previous := value
+		switch position {
+		case tokens.PositionStart:
+			value = strings.TrimPrefix(value, managed+" ")
+		case tokens.PositionEnd:
+			value = strings.TrimSuffix(value, " · out "+managed)
+		}
+		value = strings.TrimSpace(value)
+		if value == previous {
+			return count
+		}
+		count++
+	}
+}
+
+func hasCanonicalStatusPrefix(value string) bool {
+	value = strings.TrimSpace(value)
+	for _, emoji := range []string{"⏳", "🚨", "🙋", "🤖", "➡️", "✅", "❔"} {
+		if value == emoji || strings.HasPrefix(value, emoji+" ") {
+			return true
+		}
+	}
+	return false
 }
 
 func isStatusOnly(value string) bool {

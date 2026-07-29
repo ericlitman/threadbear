@@ -397,6 +397,55 @@ func TestHeartbeatRepositionsTokenDisplayWithoutReclassification(t *testing.T) {
 	}
 }
 
+func TestHeartbeatCleansRepeatedOwnedPrefixWhenMovingDisplayToEnd(t *testing.T) {
+	now := time.Date(2026, 7, 26, 12, 0, 0, 0, time.UTC)
+	task := codex.Task{TaskID: "task-a", Revision: "1", Title: "✅ 26k 26k 26k Execute BEAR-59", Source: "vscode", RolloutPath: "/synthetic/task-a.jsonl"}
+	committed := state.New()
+	committed.LastUpdateCheck = timePointer(now)
+	previous := record(task, state.StatusComplete, now)
+	previous.DurableSubject = "26k 26k Execute BEAR-59"
+	previous.ManagedTokenDisplay = "20k"
+	previous.ManagedTokenPosition = tokens.PositionStart
+	previous.TokenDisplayPosition = tokens.PositionStart
+	previous.TokenUsageFound = true
+	previous.OutputTokens = 26_123
+	previous.TokenRolloutPath = task.RolloutPath
+	previous.TokenReadOffset = 120
+	previous.TokenRolloutSize = 120
+	committed.Tasks[task.TaskID] = previous
+	runner, deps := testRunner(t, now, []codex.Task{task}, committed)
+	cfg := config.Default("control")
+	cfg.TokenDisplay = tokens.PositionEnd
+	deps.store.configOverride = &cfg
+	deps.tokens.snapshots[task.RolloutPath] = tokens.Snapshot{
+		RolloutPath: task.RolloutPath, Offset: 120, Size: 120, OutputTokens: 26_123, TotalTokens: 433_000_000, Found: true,
+	}
+
+	if _, err := runner.Run(context.Background(), false); err != nil {
+		t.Fatal(err)
+	}
+	current, _ := deps.index.task(task.TaskID)
+	if current.Title != "✅ Execute BEAR-59 · out 26k" || len(deps.client.titles) != 1 {
+		t.Fatalf("title=%q writes=%v", current.Title, deps.client.titles)
+	}
+	stored, err := deps.store.store.LoadState()
+	if err != nil {
+		t.Fatal(err)
+	}
+	owned := stored.Tasks[task.TaskID]
+	if owned.DurableSubject != "Execute BEAR-59" || owned.ManagedTokenDisplay != "26k" || owned.ManagedTokenPosition != tokens.PositionEnd {
+		t.Fatalf("ownership=%+v", owned)
+	}
+
+	if _, err := runner.Run(context.Background(), false); err != nil {
+		t.Fatal(err)
+	}
+	current, _ = deps.index.task(task.TaskID)
+	if current.Title != "✅ Execute BEAR-59 · out 26k" || len(deps.client.titles) != 1 {
+		t.Fatalf("second title=%q writes=%v", current.Title, deps.client.titles)
+	}
+}
+
 func TestHeartbeatUnreadableTokenTailRemovesFigureWithoutRetryNoise(t *testing.T) {
 	now := time.Date(2026, 7, 26, 12, 0, 0, 0, time.UTC)
 	task := codex.Task{TaskID: "task-a", Revision: "2", Title: "🚨 1.6m Release service", Source: "vscode", RolloutPath: "/synthetic/unreadable.jsonl"}
