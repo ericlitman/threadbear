@@ -98,7 +98,7 @@ var commandSpecs = []commandSpec{
 	},
 	{
 		command:  app.CommandUninstall,
-		synopsis: "Preview and remove ThreadBear's managed runtime.",
+		synopsis: "Clean managed task titles, then remove ThreadBear.",
 		registerFlags: func(flags *flag.FlagSet, request *app.Request) {
 			registerLifecycleFlags(flags, request)
 			flags.BoolVar(&request.ArchiveControlTask, "archive-control-task", false, "archive the control task")

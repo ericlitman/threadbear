@@ -849,3 +849,74 @@ func TestAdoptSingleLeadingStatusPreservesCompleteRemainder(t *testing.T) {
 		}
 	}
 }
+
+func TestCleanupRestoresExactRetainedTitleAndRecognizesSettledResult(t *testing.T) {
+	record := state.TaskRecord{
+		LastAppliedTitle:     "➡️ Release service → review the complete rollout · 1.6m",
+		DurableSubject:       "Release service",
+		ManagedAction:        "review the complete rollout",
+		ManagedTokenDisplay:  "1.6m",
+		ManagedTokenPosition: tokens.PositionEnd,
+	}
+	got, changed := Cleanup(record, record.LastAppliedTitle)
+	if !changed || got != "Release service → review the complete rollout" {
+		t.Fatalf("cleanup = %q, %t", got, changed)
+	}
+	persisted := PersistedTitle(got)
+	got, changed = Cleanup(record, persisted)
+	if changed || got != persisted {
+		t.Fatalf("settled cleanup = %q, %t", got, changed)
+	}
+}
+
+func TestCleanupRecognizesOwnedTokenBoundaries(t *testing.T) {
+	for _, test := range []struct {
+		name     string
+		current  string
+		position tokens.Position
+		want     string
+	}{
+		{name: "start", current: "✅ 26k 🧪 26k tasks end in 26k", position: tokens.PositionStart, want: "🧪 26k tasks end in 26k"},
+		{name: "canonical end", current: "✅ 🧪 26k tasks end in 26k · 26k", position: tokens.PositionEnd, want: "🧪 26k tasks end in 26k"},
+		{name: "legacy end", current: "✅ 🧪 26k tasks end in 26k · out 26k", position: tokens.PositionEnd, want: "🧪 26k tasks end in 26k"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			record := state.TaskRecord{LastAppliedTitle: test.current, ManagedTokenDisplay: "26k", ManagedTokenPosition: test.position}
+			got, changed := Cleanup(record, test.current)
+			if !changed || got != test.want {
+				t.Fatalf("cleanup = %q, %t", got, changed)
+			}
+		})
+	}
+}
+
+func TestCleanupPreservesDivergentUserTextOutsideExactOwnership(t *testing.T) {
+	record := state.TaskRecord{
+		LastAppliedTitle:     "✅ Old subject · 26k",
+		DurableSubject:       "Old subject",
+		ManagedTokenDisplay:  "26k",
+		ManagedTokenPosition: tokens.PositionEnd,
+	}
+	for _, test := range []struct {
+		current string
+		want    string
+	}{
+		{current: "✅ 🧪 26k new subject 26k · 26k", want: "🧪 26k new subject 26k"},
+		{current: "🧪 ✅ 26k new subject · 26k", want: "🧪 ✅ 26k new subject"},
+		{current: "🚨 user changed every boundary · 26k", want: "🚨 user changed every boundary"},
+		{current: "✅ user replaced the recorded value · 27k", want: "user replaced the recorded value · 27k"},
+	} {
+		got, changed := Cleanup(record, test.current)
+		if got != test.want || changed != (test.want != test.current) {
+			t.Fatalf("cleanup(%q) = %q, %t", test.current, got, changed)
+		}
+	}
+}
+
+func TestCleanupRequiresRecordedTitleOwnership(t *testing.T) {
+	current := "✅ User title · 26k"
+	got, changed := Cleanup(state.TaskRecord{ManagedTokenDisplay: "26k", ManagedTokenPosition: tokens.PositionEnd}, current)
+	if changed || got != current {
+		t.Fatalf("cleanup = %q, %t", got, changed)
+	}
+}

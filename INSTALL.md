@@ -1019,7 +1019,7 @@ configuration change could otherwise drift between review and consent.
 ~/.local/bin/threadbear uninstall
 ```
 
-Interactive uninstall thanks the person, defaults control-task archival and final confirmation to yes, removes the binary, LaunchAgent, managed blocks, and persistent ThreadBear state, and leaves unrelated task titles and archives alone. Noninteractive form:
+Interactive uninstall thanks the person, defaults control-task archival and final confirmation to yes, first removes ThreadBear-owned status icons and recorded token counts from active managed task titles, then removes the binary, LaunchAgent, managed blocks, and persistent ThreadBear state. Archived tasks and unrelated title text stay untouched; any unsettled title cleanup stops removal so uninstall can be retried safely. Noninteractive form:
 
 ```sh
 ~/.local/bin/threadbear uninstall --noninteractive --confirm --archive-control-task

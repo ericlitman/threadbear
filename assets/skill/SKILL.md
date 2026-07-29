@@ -33,7 +33,7 @@ Use lifecycle commands only for an explicit user request. Before a mutating life
 After the help capability card:
 
 1. Confirm that the user intends to remove ThreadBear and consult `~/.local/bin/threadbear help uninstall`.
-2. Preview that uninstall removes ThreadBear state, binary, LaunchAgent, and managed AGENTS/skill blocks while leaving task titles and existing archives alone.
+2. Preview that uninstall first cleans ThreadBear-owned status icons and recorded token counts from active managed task titles, then removes ThreadBear state, binary, LaunchAgent, and managed AGENTS/skill blocks. Existing archives and unrelated title text stay untouched; a cleanup failure leaves ThreadBear installed so the user can retry safely.
 3. Before asking about archival, say that archiving the ThreadBear control task closes this very chat the user is typing in. Ask whether to archive it; add `--archive-control-task` only after an explicit yes.
 4. Say: "Thanks for using ThreadBear. I'd love any feedback on why this wasn't for you. Drop me an email at eric@litman.org if you're open to sharing. Now, on to the uninstall!" Then show the exact command and archive choice and obtain final approval.
 5. Run `~/.local/bin/threadbear uninstall --noninteractive --confirm`, adding `--archive-control-task` only for that explicit yes. Report the result and what remains; if archival was declined, this chat remains unarchived.

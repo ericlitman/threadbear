@@ -3,6 +3,7 @@ package install
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -208,7 +209,7 @@ func TestNoninteractiveUninstallPreviewsExactlyOnceBeforeMutation(t *testing.T) 
 	previews := 0
 	u := Uninstaller{Paths: paths, Store: store, Scheduler: scheduler, ControlTasks: tasks, Previewer: func(preview Preview) error {
 		previews++
-		if store.locks != 0 || len(scheduler.calls) != 0 || len(preview.Lines) != 6 {
+		if store.locks != 0 || len(scheduler.calls) != 0 || len(preview.Lines) != 7 {
 			t.Fatalf("late or incomplete preview store=%+v calls=%v preview=%+v", store, scheduler.calls, preview)
 		}
 		return nil
@@ -374,5 +375,87 @@ func TestUninstallRechecksArtifactsUnderLock(t *testing.T) {
 	}
 	if result.Changed || store.lockHeld || !reflect.DeepEqual(scheduler.calls, []string{"loaded", "loaded"}) {
 		t.Fatalf("result=%+v store=%+v calls=%v", result, store, scheduler.calls)
+	}
+}
+
+type fakeTitleCleaner struct {
+	cleaned int
+	err     error
+	calls   int
+	events  *[]string
+	store   *fakeStore
+	before  func() error
+}
+
+func (c *fakeTitleCleaner) CleanActiveTitles(context.Context, string, state.State) (int, error) {
+	c.calls++
+	if c.events != nil {
+		*c.events = append(*c.events, "titles")
+	}
+	if c.store != nil && !c.store.lockHeld {
+		return 0, errors.New("cleanup ran outside uninstall lock")
+	}
+	if c.before != nil {
+		if err := c.before(); err != nil {
+			return 0, err
+		}
+	}
+	return c.cleaned, c.err
+}
+
+func TestUninstallCleansTitlesBeforeDestructiveRemoval(t *testing.T) {
+	paths, store, scheduler, tasks := installedFixture(t)
+	store.state.Tasks["task-a"] = state.TaskRecord{TaskID: "task-a"}
+	events := []string{}
+	cleaner := &fakeTitleCleaner{cleaned: 1, events: &events, store: store, before: func() error {
+		if !reflect.DeepEqual(scheduler.calls, []string{"loaded", "loaded"}) || len(tasks.archived) != 0 {
+			return fmt.Errorf("destructive dependency ran before cleanup: scheduler=%v archived=%v", scheduler.calls, tasks.archived)
+		}
+		for _, path := range []string{paths.Binary, paths.Agents, paths.Skill, paths.StateDirectory} {
+			if _, err := os.Stat(path); err != nil {
+				return fmt.Errorf("%s removed before cleanup: %w", path, err)
+			}
+		}
+		return nil
+	}}
+	result, err := (Uninstaller{Paths: paths, Store: store, Scheduler: scheduler, ControlTasks: tasks, TitleCleaner: cleaner}).Uninstall(context.Background(), UninstallRequest{NonInteractive: true, Confirm: true, ArchiveControlTask: true})
+	if err != nil || result.CleanedTitles != 1 || !containsResource(result.Resources, "titles") || cleaner.calls != 1 {
+		t.Fatalf("result=%+v err=%v cleaner=%+v", result, err, cleaner)
+	}
+	if !reflect.DeepEqual(events, []string{"titles"}) || !reflect.DeepEqual(scheduler.calls, []string{"loaded", "loaded", "remove"}) || len(tasks.archived) != 1 {
+		t.Fatalf("events=%v scheduler=%v archived=%v", events, scheduler.calls, tasks.archived)
+	}
+}
+
+func TestUninstallTitleCleanupFailureAbortsBeforeRemovalAndRetainsState(t *testing.T) {
+	paths, store, scheduler, tasks := installedFixture(t)
+	store.state.Tasks["task-a"] = state.TaskRecord{TaskID: "task-a"}
+	cleaner := &fakeTitleCleaner{cleaned: 1, err: errors.New("after cleaning 1 title(s), task task-b write failed"), store: store}
+	_, err := (Uninstaller{Paths: paths, Store: store, Scheduler: scheduler, ControlTasks: tasks, TitleCleaner: cleaner}).Uninstall(context.Background(), UninstallRequest{NonInteractive: true, Confirm: true, ArchiveControlTask: true})
+	if !errors.Is(err, ErrTitleCleanup) || !strings.Contains(err.Error(), "after cleaning 1 title(s)") {
+		t.Fatalf("error=%v", err)
+	}
+	if !reflect.DeepEqual(scheduler.calls, []string{"loaded", "loaded"}) || len(tasks.archived) != 0 {
+		t.Fatalf("scheduler=%v archived=%v", scheduler.calls, tasks.archived)
+	}
+	for _, path := range []string{paths.Binary, paths.Agents, paths.Skill, paths.StateDirectory} {
+		if _, statErr := os.Stat(path); statErr != nil {
+			t.Fatalf("removed %s after cleanup failure: %v", path, statErr)
+		}
+	}
+}
+
+func TestUninstallUnreadableOwnershipStateFailsClosed(t *testing.T) {
+	paths, store, scheduler, tasks := installedFixture(t)
+	store.loadStateErr = errors.New("corrupt state")
+	_, err := (Uninstaller{Paths: paths, Store: store, Scheduler: scheduler, ControlTasks: tasks}).Uninstall(context.Background(), UninstallRequest{NonInteractive: true, Confirm: true})
+	if err == nil || !strings.Contains(err.Error(), "load managed task ownership state") {
+		t.Fatalf("error=%v", err)
+	}
+	if !reflect.DeepEqual(scheduler.calls, []string{"loaded", "loaded"}) {
+		t.Fatalf("scheduler=%v", scheduler.calls)
+	}
+	if _, statErr := os.Stat(paths.Binary); statErr != nil {
+		t.Fatalf("binary removed: %v", statErr)
 	}
 }

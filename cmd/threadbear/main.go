@@ -184,10 +184,15 @@ func newOperatorService(installedVersion string, stdout, stderr io.Writer, forma
 		return installer, prompter.Close, nil
 	}
 	uninstallFactory := func(interactive bool) (install.Uninstaller, func() error, error) {
-		uninstaller := install.Uninstaller{Paths: paths, Store: diskStore, Scheduler: scheduler, ControlTasks: appServerControlTasks{open: appServers.open}}
+		uninstaller := install.Uninstaller{
+			Paths: paths, Store: diskStore, Scheduler: scheduler, ControlTasks: appServerControlTasks{open: appServers.open},
+			TitleCleaner: activeTitleCleaner{inventory: inventory, open: func(ctx context.Context) (titleCleanupClient, error) {
+				return appServers.open(ctx)
+			}},
+		}
 		if !interactive {
 			uninstaller.Previewer = func(preview install.Preview) error {
-				return output.Write(stderr, format, output.PreviewResult{Command: "uninstall", Effects: []string{"agents", "binary", "control_task", "launchagent", "skill", "state"}, Details: preview.Lines})
+				return output.Write(stderr, format, output.PreviewResult{Command: "uninstall", Effects: []string{"agents", "binary", "control_task", "launchagent", "skill", "state", "titles"}, Details: preview.Lines})
 			}
 			return uninstaller, func() error { return nil }, nil
 		}

@@ -52,3 +52,11 @@ func TestInstallErrorResultGuidesMissingControlTaskID(t *testing.T) {
 		t.Fatalf("result=%+v", result)
 	}
 }
+
+func TestUninstallErrorResultNamesRetriableTitleCleanupFailure(t *testing.T) {
+	err := fmt.Errorf("%w: after cleaning 1 title(s), task task-b drifted", install.ErrTitleCleanup)
+	result := uninstallErrorResult(err)
+	if result.ErrorCode != "title_cleanup_failed" || result.Step != "clean_titles" || result.Cause != err.Error() {
+		t.Fatalf("result=%+v", result)
+	}
+}
