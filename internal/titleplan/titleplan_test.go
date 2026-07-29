@@ -3,6 +3,8 @@ package titleplan
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -540,14 +542,26 @@ func TestDispatchEligibilityEnvelopeAndPrivacy(t *testing.T) {
 		if got.Child.Prompt != ChildPrompt {
 			t.Fatal("dispatch envelope did not use the deterministic helper-owned child prompt")
 		}
-		if len([]byte(got.Child.Prompt)) > 950 || !strings.HasPrefix(got.Child.Prompt, ChildPromptSentinel+"\n") || strings.Count(got.Child.Prompt, ChildPromptSentinel) != 1 || !isASCIIString(got.Child.Prompt) {
+		if len([]byte(got.Child.Prompt)) != 944 || len([]byte(got.Child.Prompt)) > 950 || !strings.HasPrefix(got.Child.Prompt, ChildPromptSentinel+"\n") || strings.Count(got.Child.Prompt, ChildPromptSentinel) != 1 || !isASCIIString(got.Child.Prompt) {
 			t.Fatalf("prompt bytes=%d prefix=%q", len([]byte(got.Child.Prompt)), got.Child.Prompt[:min(len(got.Child.Prompt), 80)])
+		}
+		programHash := sha256.Sum256([]byte(ChildActuatorProgram))
+		if len([]byte(ChildActuatorProgram)) != 2918 || hex.EncodeToString(programHash[:]) != "8a12d0efcba69b628b01a49b8383669d9bfe5e6726622e9400cbf5f834342183" {
+			t.Fatalf("actuator program bytes=%d sha256=%x", len([]byte(ChildActuatorProgram)), programHash)
+		}
+		const loaderPrefix, loaderSuffix = "await(async()=>{", "})()"
+		if len([]byte(ChildActuatorLoader)) != 748 || !strings.HasPrefix(ChildActuatorLoader, loaderPrefix) || !strings.HasSuffix(ChildActuatorLoader, loaderSuffix) || !isASCIIString(ChildActuatorLoader) {
+			t.Fatalf("loader bytes=%d", len([]byte(ChildActuatorLoader)))
+		}
+		strippedLoader := strings.TrimSuffix(strings.TrimPrefix(ChildActuatorLoader, loaderPrefix), loaderSuffix)
+		if !strings.HasPrefix(strippedLoader, "do{") || !strings.HasSuffix(strippedLoader, "}while(0)") || strings.Contains(strippedLoader, "return f()") || strings.Count(strippedLoader, "break") != 5 {
+			t.Fatalf("wrapper-stripped loader is not one fail-closed guard: %q", strippedLoader)
 		}
 		if strings.Count(ChildActuatorProgram, ChildSourcePlaceholder) != 1 || strings.Count(ChildActuatorLoader, ChildSourcePlaceholder) != 1 || strings.Count(got.Child.Prompt, ChildSourcePlaceholder) != 1 || strings.Contains(got.Child.Prompt, ChildActuatorProgram) || strings.Count(got.Child.Prompt, ChildActuatorLoader) != 1 {
 			t.Fatal("child prompt does not contain exactly one helper loader or still embeds the actuator program")
 		}
 		for _, marker := range []string{
-			"one model pass", "copy loader byte-for-byte except sole s UUID=", "one functions.exec", "codex_delegation.source_thread_id", "no author", "inspect", "explain", "retry", "recover",
+			"one model pass", "copy loader exactly except sole s UUID=", "one functions.exec", "codex_delegation.source_thread_id", "no author", "inspect", "explain", "retry", "recover",
 			`k(e)!=="program,version"`, `typeof r.output!=="string"`, `typeof r.exit_code!=="number"`, `r.exit_code!==0`, `"session_id"in r`,
 			"title-plan --json --actuator", "title_actuation_failed", "(0,eval)",
 		} {
