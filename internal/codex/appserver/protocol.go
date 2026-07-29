@@ -107,6 +107,10 @@ type RecentEvidence struct {
 	Previous     *EvidenceTurn
 }
 
+func (e RecentEvidence) Active() bool {
+	return e.ThreadStatus.Type == "active" || e.Latest != nil && (e.Latest.Status == "inProgress" || e.Latest.Status == "in_progress")
+}
+
 func evidenceFromTurns(status ThreadStatus, recencyAt *int64, turns []Turn) RecentEvidence {
 	result := RecentEvidence{ThreadStatus: status, RecencyAt: recencyAt}
 	if len(turns) == 0 {

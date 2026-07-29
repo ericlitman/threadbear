@@ -52,3 +52,13 @@ func TestManagedSkillConversationalContract(t *testing.T) {
 		t.Fatal("managed skill does not put the capability card before command help")
 	}
 }
+
+func TestManagedAssetsDescribeHostedTitleActuatorContract(t *testing.T) {
+	for name, content := range map[string]string{"agents": AgentsManagedContent, "skill": SkillManagedContent} {
+		for _, required := range []string{"title-plan", "functions.exec", "gpt-5.6-luna", "medium", "codex_delegation", "self-archiv", "persistent ThreadBear control task", "re-read", "expected_revision", "expected_title", "report drift without writing", "aggregate"} {
+			if !strings.Contains(content, required) {
+				t.Fatalf("%s content missing %q", name, required)
+			}
+		}
+	}
+}

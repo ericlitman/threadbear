@@ -673,3 +673,23 @@ func TestPostWelcomeOnceUsesPersistedReadback(t *testing.T) {
 		t.Fatalf("client=%+v", client)
 	}
 }
+
+func TestParseTitlePlanRequiresStrictJSONAndOneMode(t *testing.T) {
+	waitRequest, err := parseRequest([]string{"title-plan", "--json", "--wait", "task-1"})
+	if err != nil || waitRequest.TitlePlanWait != "task-1" || waitRequest.TitlePlanBatch || waitRequest.TitlePlanReport {
+		t.Fatalf("wait request=%+v err=%v", waitRequest, err)
+	}
+	batchRequest, err := parseRequest([]string{"title-plan", "--json", "--batch"})
+	if err != nil || !batchRequest.TitlePlanBatch || batchRequest.TitlePlanWait != "" || batchRequest.TitlePlanReport {
+		t.Fatalf("batch request=%+v err=%v", batchRequest, err)
+	}
+	reportRequest, err := parseRequest([]string{"title-plan", "--json", "--report"})
+	if err != nil || !reportRequest.TitlePlanReport || reportRequest.TitlePlanWait != "" || reportRequest.TitlePlanBatch {
+		t.Fatalf("report request=%+v err=%v", reportRequest, err)
+	}
+	for _, args := range [][]string{{"title-plan", "--wait", "task-1"}, {"title-plan", "--json"}, {"title-plan", "--json", "--batch", "--report"}, {"title-plan", "--json", "--wait", " task-1 "}} {
+		if _, err := parseRequest(args); err == nil {
+			t.Fatalf("parseRequest(%v) succeeded", args)
+		}
+	}
+}

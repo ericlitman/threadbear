@@ -201,7 +201,8 @@ opening turn above; do not repeat it as a separate progress message.
 Before downloading, installing, renaming, pinning, or changing any managed resource, feature-detect the available Codex task tooling:
 
 1. Resolve the canonical ID of the **calling task**, meaning this exact task in which the person asked you to follow the guide. Record it as `CONTROL_TASK_ID`. Do not ask the person to copy an ID if the task tooling can resolve it.
-2. Prove that the task tooling supports renaming this task, using a capability/read-only check that does not rename it yet.
+2. Prove that the task tooling supports native title mutation by exact task ID and that `functions.exec` can compose the installed helper with those native calls without returning the manifest to model context. Use a capability/read-only check that does not rename anything yet.
+3. Separately detect the fallback surfaces: projectless task creation with explicit `gpt-5.6-luna` / `medium`, delegated source identity, and self-archive. Direct native batching is preferred and does not require creating a worker. If neither direct batching nor the complete fallback surface is available, record that title convergence will remain pending and fail closed without waking ThreadBear's persistent control task.
 
 If canonical calling-task ID resolution is unavailable, ambiguous, or
 noncanonical, or if task rename is unsupported, stop without mutation and say:
@@ -733,6 +734,10 @@ Inspect `last_completed_heartbeat` in `status --json`. If it is `null`, run exac
 ```
 
 That heartbeat is mandatory when the field is null, not optional. Do not request a second user approval beyond normal command-tool approval. Do not run more than one explicit heartbeat during installation verification. If it fails, report and troubleshoot the failure in this same task.
+
+After that heartbeat, apply the staged title bootstrap through the Desktop-native tools detected in step 2. Use one `functions.exec` program that runs `~/.local/bin/threadbear title-plan --json --batch` and parses the strict JSON internally. Immediately before each native title mutation, re-read that target and require both `expected_revision` and `expected_title` to match; report drift without writing that target. After all targets have been checked, pipe only aggregate operation/task success, failure, and drift IDs to `~/.local/bin/threadbear title-plan --json --report`. Do not place exact titles or the manifest in model context. Re-run `title-plan --json --batch` only for failed or drifted IDs. If direct native batching is unavailable, create exactly one projectless `gpt-5.6-luna` / `medium` actuator, supply source identity only through `codex_delegation`, and enforce the same per-target re-read and preconditions inside its one `functions.exec` before self-archiving. Accept its resulting `interrupted` state as expected. Leave a failed worker unarchived and inspectable. Never use the persistent ThreadBear control task for this routine work.
+
+Feature-detect and fail closed when native task-title/archive tools or explicit ThreadBear opt-in are absent. A pending plan is truthful degraded state; SQLite, `list_threads`, or native-call success alone is not rendered accessibility verification. Do not use private IPC, cache edits, UI automation, a daemon, restart, or model-authored title semantics.
 
 Capture the heartbeat result. When it emits JSON, use the counts of `changed`,
 `archived_ids`, and `retries`; when it emits no record because there was no

@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"sync"
 	"syscall"
+	"time"
 
 	"github.com/ericlitman/threadbear/internal/config"
 )
@@ -78,8 +79,8 @@ func (s *Store) LoadState() (State, error) {
 	if err != nil {
 		return State{}, err
 	}
-	var value State
-	if err := decodeVersioned(data, CurrentStateSchemaVersion, &value); err != nil {
+	value, err := decodeState(data)
+	if err != nil {
 		return State{}, fmt.Errorf("decode state: %w", err)
 	}
 	if err := value.Validate(); err != nil {
@@ -288,6 +289,70 @@ func syncDirectory(path string) error {
 		return err
 	}
 	return errors.Join(directory.Sync(), directory.Close())
+}
+
+type stateV1 struct {
+	SchemaVersion           int                      `json:"schema_version"`
+	Generation              uint64                   `json:"generation"`
+	LastCompletedHeartbeat  *time.Time               `json:"last_completed_heartbeat,omitempty"`
+	LastUpdateCheck         *time.Time               `json:"last_update_check,omitempty"`
+	LastAnnouncedVersion    string                   `json:"last_announced_version,omitempty"`
+	LastReconciledVersion   string                   `json:"last_reconciled_version,omitempty"`
+	PendingWelcomeTaskID    string                   `json:"pending_welcome_task_id,omitempty"`
+	LastUpdateFailure       *Failure                 `json:"last_update_failure,omitempty"`
+	LastReconcileFailure    *Failure                 `json:"last_reconcile_failure,omitempty"`
+	Tasks                   map[string]TaskRecord    `json:"tasks"`
+	Archives                map[string]ArchiveRecord `json:"archives"`
+	DeliveredNoticeVersions []string                 `json:"delivered_notice_versions"`
+}
+
+func decodeState(data []byte) (State, error) {
+	var envelope struct {
+		SchemaVersion *int `json:"schema_version"`
+	}
+	if err := decodeJSON(data, &envelope, false); err != nil {
+		return State{}, err
+	}
+	found := 0
+	if envelope.SchemaVersion != nil {
+		found = *envelope.SchemaVersion
+	}
+	switch found {
+	case CurrentStateSchemaVersion:
+		var value State
+		if err := decodeJSON(data, &value, true); err != nil {
+			return State{}, err
+		}
+		return value, nil
+	case 1:
+		var legacy stateV1
+		if err := decodeJSON(data, &legacy, true); err != nil {
+			return State{}, err
+		}
+		value := State{
+			SchemaVersion: CurrentStateSchemaVersion, Generation: legacy.Generation, BootstrapComplete: true,
+			LastCompletedHeartbeat: legacy.LastCompletedHeartbeat, LastUpdateCheck: legacy.LastUpdateCheck,
+			LastAnnouncedVersion: legacy.LastAnnouncedVersion, LastReconciledVersion: legacy.LastReconciledVersion,
+			PendingWelcomeTaskID: legacy.PendingWelcomeTaskID, LastUpdateFailure: legacy.LastUpdateFailure,
+			LastReconcileFailure: legacy.LastReconcileFailure, Tasks: legacy.Tasks,
+			PendingTitlePlans: make(map[string]PendingTitlePlan), Archives: legacy.Archives,
+			DeliveredNoticeVersions: legacy.DeliveredNoticeVersions,
+		}
+		for taskID, record := range value.Tasks {
+			if record.LastAppliedTitle == "" || record.LastAppliedTitle != record.CapturedTitle {
+				continue
+			}
+			value.PendingTitlePlans[taskID] = PendingTitlePlan{
+				OperationID: TitleOperationID(taskID, record.CapturedRevision, record.CapturedTitle, record.CapturedTitle),
+				TaskID:      taskID, ExpectedRevision: record.CapturedRevision, ExpectedTitle: record.CapturedTitle, DesiredTitle: record.CapturedTitle,
+				DurableSubject: record.DurableSubject, ManagedAction: record.ManagedAction,
+				ManagedTokenDisplay: record.ManagedTokenDisplay, ManagedTokenPosition: record.ManagedTokenPosition, NativeOutcome: NativeTitlePending,
+			}
+		}
+		return value, nil
+	default:
+		return State{}, fmt.Errorf("%w: got %d, want 1 or %d", ErrUnsupportedSchema, found, CurrentStateSchemaVersion)
+	}
 }
 
 func decodeVersioned(data []byte, current int, target any) error {

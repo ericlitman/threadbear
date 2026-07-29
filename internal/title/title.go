@@ -58,9 +58,6 @@ func Reconcile(record state.TaskRecord, nextStatus state.TaskStatus, suggestedSu
 		}
 	} else {
 		subject = stripOwnedToken(stripStatusPrefixes(current), record.ManagedTokenDisplay, record.ManagedTokenPosition)
-		if record.LastAppliedTitle == "" && record.ManagedTokenDisplay == "" && hasCanonicalStatusPrefix(current) {
-			subject = stripOwnedTokenCopies(subject, display.Value, display.Position)
-		}
 	}
 	if subject == "" {
 		subject = stripStatusPrefixes(suggestedSubject)
@@ -84,6 +81,27 @@ func Reconcile(record state.TaskRecord, nextStatus state.TaskStatus, suggestedSu
 		ManagedTokenDisplay:  display.Value,
 		ManagedTokenPosition: display.Position,
 	}, nil
+}
+
+func AdoptSingleLeadingStatus(value string) (state.TaskStatus, string, bool) {
+	value = strings.TrimSpace(value)
+	for _, candidate := range []struct {
+		emoji  string
+		status state.TaskStatus
+	}{
+		{"⏳", state.StatusRunning}, {"🚨", state.StatusBlocked}, {"🙋", state.StatusNeedsInput},
+		{"🤖", state.StatusAutomation}, {"➡️", state.StatusNextSteps}, {"✅", state.StatusComplete}, {"❔", state.StatusUnknown},
+	} {
+		if value != candidate.emoji && !strings.HasPrefix(value, candidate.emoji+" ") {
+			continue
+		}
+		remainder := strings.TrimSpace(strings.TrimPrefix(value, candidate.emoji))
+		if remainder != "" && hasCanonicalStatusPrefix(remainder) {
+			return "", "", false
+		}
+		return candidate.status, remainder, true
+	}
+	return "", "", false
 }
 
 func renderTitle(status state.TaskStatus, subject, action string, display tokens.Display) string {

@@ -28,6 +28,7 @@ import (
 	"github.com/ericlitman/threadbear/internal/output"
 	"github.com/ericlitman/threadbear/internal/state"
 	statusresolver "github.com/ericlitman/threadbear/internal/status"
+	"github.com/ericlitman/threadbear/internal/titleplan"
 	"github.com/ericlitman/threadbear/internal/tokens"
 	updatepkg "github.com/ericlitman/threadbear/internal/update"
 	"github.com/ericlitman/threadbear/internal/watch"
@@ -197,8 +198,9 @@ func newOperatorService(installedVersion string, stdout, stderr io.Writer, forma
 		uninstaller.Prompter = prompter
 		return uninstaller, prompter.Close, nil
 	}
+	titlePlanner := titleplan.Service{Store: store, Inventory: inventory, Heartbeat: runner, Planner: runner, Reports: os.Stdin, Now: time.Now, Waiter: hostedTitleWaiter{store: store, inventory: inventory, runtime: appServers}}
 	service := app.NewWithOperatorCommands(installedVersion, app.OperatorDependencies{
-		Store: store, Inventory: inventory, Clock: clock, LaunchAgent: launch,
+		Store: store, Inventory: inventory, Clock: clock, LaunchAgent: launch, TitlePlanner: titlePlanner,
 		ManagedAgents: managed, Unarchiver: appServerUnarchiver{runtime: appServers}, Heartbeat: runner,
 		Preview: func(preview output.PreviewResult) error {
 			if request.NonInteractive {
@@ -332,6 +334,57 @@ type appServerFactory struct{ runtime appServerRuntime }
 
 func (f appServerFactory) Open(ctx context.Context) (watch.AppServer, error) {
 	return f.runtime.open(ctx)
+}
+
+type hostedTitleWaiter struct {
+	store     interface{ LoadConfig() (config.Config, error) }
+	inventory watch.InventoryReader
+	runtime   appServerRuntime
+}
+
+func (w hostedTitleWaiter) Wait(ctx context.Context, taskID string) error {
+	cfg, err := w.store.LoadConfig()
+	if err != nil {
+		return err
+	}
+	client, err := w.runtime.open(ctx)
+	if err != nil {
+		return err
+	}
+	defer client.Close()
+	deadline, ticker := time.NewTimer(2*time.Minute), time.NewTicker(500*time.Millisecond)
+	defer deadline.Stop()
+	defer ticker.Stop()
+	for {
+		observed, err := w.inventory.Inventory(ctx, cfg.ControlTaskID)
+		if err != nil {
+			return err
+		}
+		var task *codex.Task
+		for index := range observed.Tasks {
+			if observed.Tasks[index].TaskID == taskID {
+				task = &observed.Tasks[index]
+				break
+			}
+		}
+		if task == nil {
+			return errors.New("source task is not in the active inventory")
+		}
+		evidence, err := client.ReadLatestTurn(ctx, taskID, task.RolloutPath)
+		if err != nil {
+			return err
+		}
+		if !evidence.Active() {
+			return nil
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-deadline.C:
+			return errors.New("source task did not become terminal before the title-plan deadline")
+		case <-ticker.C:
+		}
+	}
 }
 
 type heartbeatUpdateChecker struct{ checker updatepkg.Checker }

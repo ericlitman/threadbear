@@ -1032,6 +1032,47 @@ func TestDryRunPreviewsTokenDisplayRepositionWithoutMutation(t *testing.T) {
 	}
 }
 
+func TestDisabledRenameHidesMigratedPendingTitles(t *testing.T) {
+	now := time.Date(2026, 7, 31, 17, 0, 0, 0, time.UTC)
+	store := commandStore(t, now)
+	cfg, err := store.LoadConfig()
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg.RenameEnabled = false
+	if err := store.SaveConfig(cfg); err != nil {
+		t.Fatal(err)
+	}
+	committed, err := store.LoadState()
+	if err != nil {
+		t.Fatal(err)
+	}
+	record := commandRecord("task-a", now)
+	committed.Tasks[record.TaskID] = record
+	operationID := state.TitleOperationID(record.TaskID, record.CapturedRevision, record.CapturedTitle, record.CapturedTitle)
+	committed.PendingTitlePlans[record.TaskID] = state.PendingTitlePlan{OperationID: operationID, TaskID: record.TaskID, ExpectedRevision: record.CapturedRevision, ExpectedTitle: record.CapturedTitle, DesiredTitle: record.CapturedTitle, NativeOutcome: state.NativeTitlePending}
+	if err := store.SaveState(committed); err != nil {
+		t.Fatal(err)
+	}
+	inventory := &commandInventory{tasks: []codex.Task{{TaskID: record.TaskID, Revision: record.CapturedRevision, Title: record.CapturedTitle}}}
+	inspected, err := InspectHandler(store, inventory, commandClock{now})(context.Background(), Request{Command: CommandInspect, TaskID: record.TaskID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	inspect := inspected.(output.InspectResult)
+	if inspect.PendingTitlePlan || inspect.NativeTitleOutcome != "" || inspect.CanonicalPersistence != "" || !inspect.ArchiveEligible {
+		t.Fatalf("inspect=%+v", inspect)
+	}
+	statusResult, err := StatusHandler("test", store, &commandLaunchAgent{healthy: true})(context.Background(), Request{Command: CommandStatus})
+	if err != nil {
+		t.Fatal(err)
+	}
+	status := statusResult.(output.StatusResult)
+	if status.PendingTitlePlans != 0 || status.NativeTitleSuccesses != 0 {
+		t.Fatalf("status=%+v", status)
+	}
+}
+
 func commandStore(t *testing.T, now time.Time) *state.Store {
 	t.Helper()
 	store := state.NewStore(t.TempDir() + "/state")

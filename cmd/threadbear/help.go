@@ -42,6 +42,14 @@ var commandSpecs = []commandSpec{
 		},
 	},
 	{
+		command: app.CommandTitlePlan, synopsis: "Emit exact pending native title mutations as strict JSON.",
+		registerFlags: func(flags *flag.FlagSet, request *app.Request) {
+			flags.StringVar(&request.TitlePlanWait, "wait", "", "wait for source `TASK_ID` to become terminal, then plan")
+			flags.BoolVar(&request.TitlePlanBatch, "batch", false, "plan all pending title mutations")
+			flags.BoolVar(&request.TitlePlanReport, "report", false, "read native mutation outcomes as strict JSON from stdin")
+		},
+	},
+	{
 		command:       app.CommandStatus,
 		synopsis:      "Show ThreadBear health, preferences, and recent activity.",
 		registerFlags: noCommandFlags,

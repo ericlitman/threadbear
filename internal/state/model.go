@@ -1,6 +1,8 @@
 package state
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"strings"
@@ -10,7 +12,7 @@ import (
 )
 
 const (
-	CurrentStateSchemaVersion = 1
+	CurrentStateSchemaVersion = 2
 	CurrentCycleSchemaVersion = 2
 )
 
@@ -64,13 +66,14 @@ const (
 	ProvenanceAutomation      Provenance = "automation"
 	ProvenanceInterruption    Provenance = "interruption"
 	ProvenanceFooter          Provenance = "footer"
+	ProvenanceBootstrapTitle  Provenance = "bootstrap_title"
 	ProvenanceLuna            Provenance = "luna"
 	ProvenanceUnknown         Provenance = "unknown"
 )
 
 func (p Provenance) Valid() bool {
 	switch p {
-	case ProvenanceRuntime, ProvenanceStructuredError, ProvenanceAutomation, ProvenanceInterruption, ProvenanceFooter, ProvenanceLuna, ProvenanceUnknown:
+	case ProvenanceRuntime, ProvenanceStructuredError, ProvenanceAutomation, ProvenanceInterruption, ProvenanceFooter, ProvenanceBootstrapTitle, ProvenanceLuna, ProvenanceUnknown:
 		return true
 	default:
 		return false
@@ -120,25 +123,97 @@ type ArchiveRecord struct {
 	StateGeneration  uint64    `json:"state_generation"`
 }
 
+type NativeTitleOutcome string
+
+const (
+	NativeTitlePending   NativeTitleOutcome = "pending"
+	NativeTitleSucceeded NativeTitleOutcome = "succeeded"
+	NativeTitleFailed    NativeTitleOutcome = "failed"
+)
+
+func (o NativeTitleOutcome) Valid() bool {
+	switch o {
+	case NativeTitlePending, NativeTitleSucceeded, NativeTitleFailed:
+		return true
+	default:
+		return false
+	}
+}
+
+func TitleOperationID(taskID, expectedRevision, expectedTitle, desiredTitle string) string {
+	sum := sha256.Sum256([]byte(taskID + "\x00" + expectedRevision + "\x00" + expectedTitle + "\x00" + desiredTitle))
+	return hex.EncodeToString(sum[:16])
+}
+
+type PendingTitlePlan struct {
+	OperationID          string             `json:"operation_id"`
+	TaskID               string             `json:"task_id"`
+	ExpectedRevision     string             `json:"expected_revision"`
+	ExpectedTitle        string             `json:"expected_title"`
+	DesiredTitle         string             `json:"desired_title"`
+	DurableSubject       string             `json:"durable_subject,omitempty"`
+	ManagedAction        string             `json:"managed_action,omitempty"`
+	ManagedTokenDisplay  string             `json:"managed_token_display,omitempty"`
+	ManagedTokenPosition tokens.Position    `json:"managed_token_position,omitempty"`
+	NativeOutcome        NativeTitleOutcome `json:"native_outcome"`
+	NativeReportedAt     *time.Time         `json:"native_reported_at,omitempty"`
+	NativeErrorCode      string             `json:"native_error_code,omitempty"`
+}
+
+func (p PendingTitlePlan) Validate() error {
+	if !canonicalIdentifier(p.OperationID) || !canonicalIdentifier(p.TaskID) || !canonicalIdentifier(p.ExpectedRevision) || p.DesiredTitle == "" {
+		return errors.New("pending title plan identity is incomplete")
+	}
+	if p.OperationID != TitleOperationID(p.TaskID, p.ExpectedRevision, p.ExpectedTitle, p.DesiredTitle) {
+		return errors.New("pending title plan operation_id is invalid")
+	}
+	if (p.ManagedTokenDisplay == "") != (p.ManagedTokenPosition == "") {
+		return errors.New("pending title token ownership is incomplete")
+	}
+	if p.ManagedTokenDisplay != "" && p.ManagedTokenPosition != tokens.PositionStart && p.ManagedTokenPosition != tokens.PositionEnd {
+		return errors.New("pending title token position is invalid")
+	}
+	switch p.NativeOutcome {
+	case NativeTitlePending:
+		if p.NativeReportedAt != nil || p.NativeErrorCode != "" {
+			return errors.New("pending native title outcome has report metadata")
+		}
+	case NativeTitleSucceeded:
+		if p.NativeReportedAt == nil || p.NativeErrorCode != "" {
+			return errors.New("successful native title outcome is incomplete")
+		}
+	case NativeTitleFailed:
+		if p.NativeReportedAt == nil || !stableCode(p.NativeErrorCode) {
+			return errors.New("failed native title outcome is incomplete")
+		}
+	default:
+		return errors.New("native title outcome is invalid")
+	}
+	return nil
+}
+
 type State struct {
-	SchemaVersion           int                      `json:"schema_version"`
-	Generation              uint64                   `json:"generation"`
-	LastCompletedHeartbeat  *time.Time               `json:"last_completed_heartbeat,omitempty"`
-	LastUpdateCheck         *time.Time               `json:"last_update_check,omitempty"`
-	LastAnnouncedVersion    string                   `json:"last_announced_version,omitempty"`
-	LastReconciledVersion   string                   `json:"last_reconciled_version,omitempty"`
-	PendingWelcomeTaskID    string                   `json:"pending_welcome_task_id,omitempty"`
-	LastUpdateFailure       *Failure                 `json:"last_update_failure,omitempty"`
-	LastReconcileFailure    *Failure                 `json:"last_reconcile_failure,omitempty"`
-	Tasks                   map[string]TaskRecord    `json:"tasks"`
-	Archives                map[string]ArchiveRecord `json:"archives"`
-	DeliveredNoticeVersions []string                 `json:"delivered_notice_versions"`
+	SchemaVersion           int                         `json:"schema_version"`
+	Generation              uint64                      `json:"generation"`
+	BootstrapComplete       bool                        `json:"bootstrap_complete"`
+	LastCompletedHeartbeat  *time.Time                  `json:"last_completed_heartbeat,omitempty"`
+	LastUpdateCheck         *time.Time                  `json:"last_update_check,omitempty"`
+	LastAnnouncedVersion    string                      `json:"last_announced_version,omitempty"`
+	LastReconciledVersion   string                      `json:"last_reconciled_version,omitempty"`
+	PendingWelcomeTaskID    string                      `json:"pending_welcome_task_id,omitempty"`
+	LastUpdateFailure       *Failure                    `json:"last_update_failure,omitempty"`
+	LastReconcileFailure    *Failure                    `json:"last_reconcile_failure,omitempty"`
+	Tasks                   map[string]TaskRecord       `json:"tasks"`
+	PendingTitlePlans       map[string]PendingTitlePlan `json:"pending_title_plans"`
+	Archives                map[string]ArchiveRecord    `json:"archives"`
+	DeliveredNoticeVersions []string                    `json:"delivered_notice_versions"`
 }
 
 func New() State {
 	return State{
 		SchemaVersion:           CurrentStateSchemaVersion,
 		Tasks:                   make(map[string]TaskRecord),
+		PendingTitlePlans:       make(map[string]PendingTitlePlan),
 		Archives:                make(map[string]ArchiveRecord),
 		DeliveredNoticeVersions: []string{},
 	}
@@ -148,7 +223,7 @@ func (s State) Validate() error {
 	if s.SchemaVersion != CurrentStateSchemaVersion {
 		return fmt.Errorf("%w: got %d, want %d", ErrUnsupportedSchema, s.SchemaVersion, CurrentStateSchemaVersion)
 	}
-	if s.Tasks == nil || s.Archives == nil || s.DeliveredNoticeVersions == nil {
+	if s.Tasks == nil || s.PendingTitlePlans == nil || s.Archives == nil || s.DeliveredNoticeVersions == nil {
 		return errors.New("state collections must not be null")
 	}
 	if s.LastAnnouncedVersion != "" && strings.TrimSpace(s.LastAnnouncedVersion) != s.LastAnnouncedVersion {
@@ -171,6 +246,18 @@ func (s State) Validate() error {
 		}
 		if err := task.Validate(); err != nil {
 			return fmt.Errorf("task %s: %w", key, err)
+		}
+	}
+	for key, plan := range s.PendingTitlePlans {
+		if key != plan.TaskID || !canonicalIdentifier(key) {
+			return fmt.Errorf("pending title plan key %q does not match task_id %q", key, plan.TaskID)
+		}
+		if err := plan.Validate(); err != nil {
+			return fmt.Errorf("pending title plan %s: %w", key, err)
+		}
+		task, ok := s.Tasks[key]
+		if !ok || task.CapturedRevision != plan.ExpectedRevision || task.CapturedTitle != plan.ExpectedTitle {
+			return fmt.Errorf("pending title plan %s does not match captured task", key)
 		}
 	}
 	for key, archive := range s.Archives {
@@ -269,16 +356,20 @@ const (
 )
 
 type CycleOperation struct {
-	Kind             OperationKind  `json:"kind"`
-	Stage            OperationStage `json:"stage"`
-	TaskID           string         `json:"task_id,omitempty"`
-	NoticeVersion    string         `json:"notice_version,omitempty"`
-	PreviousVersion  string         `json:"previous_version,omitempty"`
-	ExpectedRevision string         `json:"expected_revision,omitempty"`
-	ExpectedTitle    string         `json:"expected_title,omitempty"`
-	DesiredTitle     string         `json:"desired_title,omitempty"`
-	VerifiedRevision string         `json:"verified_revision,omitempty"`
-	VerifiedTitle    string         `json:"verified_title,omitempty"`
+	Kind                 OperationKind   `json:"kind"`
+	Stage                OperationStage  `json:"stage"`
+	TaskID               string          `json:"task_id,omitempty"`
+	NoticeVersion        string          `json:"notice_version,omitempty"`
+	PreviousVersion      string          `json:"previous_version,omitempty"`
+	ExpectedRevision     string          `json:"expected_revision,omitempty"`
+	ExpectedTitle        string          `json:"expected_title,omitempty"`
+	DesiredTitle         string          `json:"desired_title,omitempty"`
+	DurableSubject       string          `json:"durable_subject,omitempty"`
+	ManagedAction        string          `json:"managed_action,omitempty"`
+	ManagedTokenDisplay  string          `json:"managed_token_display,omitempty"`
+	ManagedTokenPosition tokens.Position `json:"managed_token_position,omitempty"`
+	VerifiedRevision     string          `json:"verified_revision,omitempty"`
+	VerifiedTitle        string          `json:"verified_title,omitempty"`
 }
 
 type CycleCheckpoint struct {
@@ -352,6 +443,8 @@ func (o CycleOperation) Valid() bool {
 	switch o.Kind {
 	case OperationTitle:
 		valid := canonicalIdentifier(o.TaskID) && canonicalIdentifier(o.ExpectedRevision) && o.DesiredTitle != "" && o.NoticeVersion == "" && o.PreviousVersion == ""
+		valid = valid && (o.ManagedTokenDisplay == "") == (o.ManagedTokenPosition == "")
+		valid = valid && (o.ManagedTokenDisplay == "" || o.ManagedTokenPosition == tokens.PositionStart || o.ManagedTokenPosition == tokens.PositionEnd)
 		if o.Stage == StageVerified {
 			valid = valid && canonicalIdentifier(o.VerifiedRevision) && o.VerifiedTitle != ""
 		}

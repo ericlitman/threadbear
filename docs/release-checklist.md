@@ -29,3 +29,15 @@ Complete this checklist for every stable ThreadBear release.
 4. For an already-published stable-shaped release, including one marked prerelease on GitHub, rerun `Release smoke` with manual dispatch and its `vN.N.N` tag. SemVer `-rc` tags are not supported by the bootstrap or release workflow.
 
 The hosted smoke explicitly does not prove real Codex auth, real App Server side effects, classification heartbeat behavior, title/archive effects, or an architecture other than its runner. The required replica rehearsal covers the Codex-touching composition before tagging.
+
+## BEAR-59 Desktop title canaries
+
+Before a release that changes title planning or managed guidance, use an already-mounted Codex Desktop catalog and prove these boundaries separately without reload or restart:
+
+1. One post-turn source dispatches exactly one projectless `gpt-5.6-luna` / `medium` actuator through delegated source identity. Its single `functions.exec` obtains the exact `title-plan --wait` manifest, applies the native title first, reports aggregate native success, and self-archives. Treat the worker's resulting `interrupted` state as expected.
+2. One guided-install `title-plan --batch` applies multiple exact titles directly through native calls in one `functions.exec`; retry only failed or drifted IDs and do not create one worker per title.
+3. For both cases, record canonical persistence separately from the already-mounted Desktop accessibility label. SQLite, `list_threads`, or native success does not satisfy rendered proof.
+4. Record actuator model, effort, raw input, cached input, output, and reasoning-output tokens as release-canary evidence only. Require one Luna/medium model pass near the measured 23,790 raw-input baseline, allowing bounded manifest growth.
+5. Run one unchanged heartbeat after the canary and verify zero classifier turns and zero title RPCs.
+
+Do not add production token telemetry, use the persistent ThreadBear master for routine work, automate accessibility/UI inspection in product code, or use private IPC, caches, daemons, or restarts.

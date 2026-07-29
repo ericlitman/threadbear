@@ -1,6 +1,7 @@
 package state
 
 import (
+	"encoding/json"
 	"errors"
 	"io/fs"
 	"os"
@@ -291,7 +292,7 @@ func TestLoadRejectsUnsupportedSchemas(t *testing.T) {
 		load func() error
 	}{
 		{"old state", stateFileName, `{"schema_version":0}`, func() error { _, err := store.LoadState(); return err }},
-		{"new state", stateFileName, `{"schema_version":2}`, func() error { _, err := store.LoadState(); return err }},
+		{"new state", stateFileName, `{"schema_version":3}`, func() error { _, err := store.LoadState(); return err }},
 		{"new cycle", cycleFileName, `{"schema_version":3}`, func() error { _, err := store.LoadCycle(); return err }},
 	} {
 		t.Run(test.name, func(t *testing.T) {
@@ -432,6 +433,7 @@ func validState() State {
 	now := time.Date(2026, 7, 23, 12, 0, 0, 0, time.UTC)
 	value := New()
 	value.Generation = 7
+	value.BootstrapComplete = true
 	value.LastCompletedHeartbeat = &now
 	value.Tasks["task-1"] = TaskRecord{
 		TaskID:                  "task-1",
@@ -537,5 +539,66 @@ func TestPendingWelcomeTaskIDValidation(t *testing.T) {
 	value.PendingWelcomeTaskID = " home-task "
 	if err := value.Validate(); err == nil {
 		t.Fatal("accepted noncanonical pending welcome task ID")
+	}
+}
+
+func TestLoadStateMigratesVersionOnePendingTitlePlans(t *testing.T) {
+	dir := privateTempDir(t)
+	legacy := validState()
+	legacy.SchemaVersion = 1
+	data, err := json.Marshal(legacy)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var raw map[string]any
+	if err := json.Unmarshal(data, &raw); err != nil {
+		t.Fatal(err)
+	}
+	delete(raw, "pending_title_plans")
+	delete(raw, "bootstrap_complete")
+	data, err = json.Marshal(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, stateFileName), append(data, '\n'), 0600); err != nil {
+		t.Fatal(err)
+	}
+	got, err := NewStore(dir).LoadState()
+	if err != nil {
+		t.Fatal(err)
+	}
+	plan, ok := got.PendingTitlePlans["task-1"]
+	if got.SchemaVersion != CurrentStateSchemaVersion || !got.BootstrapComplete || got.PendingTitlePlans == nil || !ok {
+		t.Fatalf("migrated state = %+v", got)
+	}
+	if plan.ExpectedTitle != "✅ Ship ThreadBear" || plan.DesiredTitle != plan.ExpectedTitle || plan.NativeOutcome != NativeTitlePending || plan.OperationID != TitleOperationID("task-1", "rev-1", plan.ExpectedTitle, plan.DesiredTitle) {
+		t.Fatalf("migration plan = %+v", plan)
+	}
+}
+
+func TestLoadStateVersionOneMigrationRemainsStrict(t *testing.T) {
+	dir := privateTempDir(t)
+	legacy := validState()
+	legacy.SchemaVersion = 1
+	data, err := json.Marshal(legacy)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var raw map[string]any
+	if err := json.Unmarshal(data, &raw); err != nil {
+		t.Fatal(err)
+	}
+	delete(raw, "pending_title_plans")
+	delete(raw, "bootstrap_complete")
+	raw["unexpected"] = true
+	data, err = json.Marshal(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, stateFileName), append(data, '\n'), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := NewStore(dir).LoadState(); err == nil {
+		t.Fatal("version-one migration accepted an unknown field")
 	}
 }

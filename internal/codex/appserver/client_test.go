@@ -728,3 +728,22 @@ func TestPinnedProcessSpecUsesAbsoluteExecutableIndependentOfEnvironmentPATH(t *
 		t.Fatal(err)
 	}
 }
+
+func TestRecentEvidenceActiveRecognizesTerminalWaitStatuses(t *testing.T) {
+	for _, test := range []struct {
+		name     string
+		evidence RecentEvidence
+		active   bool
+	}{
+		{name: "thread active", evidence: RecentEvidence{ThreadStatus: ThreadStatus{Type: "active"}}, active: true},
+		{name: "camel case turn", evidence: RecentEvidence{Latest: &EvidenceTurn{Status: "inProgress"}}, active: true},
+		{name: "snake case turn", evidence: RecentEvidence{Latest: &EvidenceTurn{Status: "in_progress"}}, active: true},
+		{name: "completed", evidence: RecentEvidence{ThreadStatus: ThreadStatus{Type: "idle"}, Latest: &EvidenceTurn{Status: "completed"}}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			if got := test.evidence.Active(); got != test.active {
+				t.Fatalf("Active()=%t want %t", got, test.active)
+			}
+		})
+	}
+}

@@ -5,18 +5,19 @@ Usage:
   threadbear help [command]
 
 Commands:
-  install    Install ThreadBear and set up its managed runtime.
-  heartbeat  Classify changed tasks and apply lifecycle work.
-  status     Show ThreadBear health, preferences, and recent activity.
-  inspect    Explain ThreadBear's saved state for one task.
-  configure  Preview or change ThreadBear preferences.
-  enable     Enable the ThreadBear LaunchAgent.
-  disable    Disable the ThreadBear LaunchAgent.
-  restore    Restore one task archived by ThreadBear.
-  self-test  Check that ThreadBear's runtime surfaces are ready.
-  update     Install the latest or an exact verified release.
-  uninstall  Preview and remove ThreadBear's managed runtime.
-  version    Show the installed ThreadBear version and website.
+  install     Install ThreadBear and set up its managed runtime.
+  heartbeat   Classify changed tasks and apply lifecycle work.
+  title-plan  Emit exact pending native title mutations as strict JSON.
+  status      Show ThreadBear health, preferences, and recent activity.
+  inspect     Explain ThreadBear's saved state for one task.
+  configure   Preview or change ThreadBear preferences.
+  enable      Enable the ThreadBear LaunchAgent.
+  disable     Disable the ThreadBear LaunchAgent.
+  restore     Restore one task archived by ThreadBear.
+  self-test   Check that ThreadBear's runtime surfaces are ready.
+  update      Install the latest or an exact verified release.
+  uninstall   Preview and remove ThreadBear's managed runtime.
+  version     Show the installed ThreadBear version and website.
 
 Run `threadbear help <command>` for command details.
 
@@ -54,6 +55,18 @@ Flags:
   -h, --help  show this help and let the bear rest
   --dry-run   inventory and analyze without models or mutations (default: false)
   --json      write stable JSON command results; help stays human-readable (default: false)
+
+ThreadBear title-plan — Emit exact pending native title mutations as strict JSON.
+
+Usage:
+  threadbear title-plan [flags]
+
+Flags:
+  -h, --help      show this help and let the bear rest
+  --batch         plan all pending title mutations (default: false)
+  --json          write stable JSON command results; help stays human-readable (default: false)
+  --report        read native mutation outcomes as strict JSON from stdin (default: false)
+  --wait TASK_ID  wait for source TASK_ID to become terminal, then plan (default: "")
 
 ThreadBear status — Show ThreadBear health, preferences, and recent activity.
 

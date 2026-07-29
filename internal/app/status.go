@@ -45,6 +45,10 @@ type Unarchiver interface {
 	Unarchive(context.Context, string) error
 }
 
+type TitlePlanner interface {
+	Plan(context.Context, string, bool, bool) (output.Result, error)
+}
+
 type OperatorDependencies struct {
 	Store         OperatorStore
 	Inventory     OperatorInventory
@@ -55,6 +59,7 @@ type OperatorDependencies struct {
 	Confirm       func() (bool, error)
 	Unarchiver    Unarchiver
 	Heartbeat     HeartbeatRunner
+	TitlePlanner  TitlePlanner
 	Install       Handler
 	SelfTest      Handler
 	Update        Updater
@@ -64,6 +69,11 @@ type OperatorDependencies struct {
 func NewWithOperatorCommands(version string, deps OperatorDependencies) *Service {
 	service := New(version)
 	service.handlers[CommandHeartbeat] = OperatorHeartbeatHandler(version, deps.Store, deps.Inventory, deps.Clock, deps.Heartbeat)
+	if deps.TitlePlanner != nil {
+		service.handlers[CommandTitlePlan] = func(ctx context.Context, request Request) (output.Result, error) {
+			return deps.TitlePlanner.Plan(ctx, request.TitlePlanWait, request.TitlePlanBatch, request.TitlePlanReport)
+		}
+	}
 	service.handlers[CommandStatus] = StatusHandler(version, deps.Store, deps.LaunchAgent)
 	service.handlers[CommandInspect] = InspectHandler(deps.Store, deps.Inventory, deps.Clock)
 	service.handlers[CommandConfigure] = ConfigureHandler(deps.Store, deps.LaunchAgent, deps.Preview, deps.Confirm, deps.ManagedAgents)
@@ -131,6 +141,16 @@ func StatusHandler(version string, store OperatorStore, launchAgent LaunchAgent)
 				pendingTaskIDs[taskID] = struct{}{}
 			}
 		}
+		nativeSuccesses := 0
+		pendingTitlePlans := 0
+		if cfg.RenameEnabled {
+			pendingTitlePlans = len(committed.PendingTitlePlans)
+			for _, plan := range committed.PendingTitlePlans {
+				if plan.NativeOutcome == state.NativeTitleSucceeded {
+					nativeSuccesses++
+				}
+			}
+		}
 		return output.StatusResult{
 			InstalledVersion:       version,
 			LaunchAgentHealthy:     healthy,
@@ -150,6 +170,8 @@ func StatusHandler(version string, store OperatorStore, launchAgent LaunchAgent)
 				ClassifierContextBudgetBytes: cfg.ClassifierContextBudgetBytes,
 			},
 			PendingRetries:       len(pendingTaskIDs),
+			PendingTitlePlans:    pendingTitlePlans,
+			NativeTitleSuccesses: nativeSuccesses,
 			LastUpdateCheck:      committed.LastUpdateCheck,
 			LastUpdateFailure:    committed.LastUpdateFailure,
 			LastReconcileFailure: committed.LastReconcileFailure,

@@ -2,9 +2,20 @@
 
 ## Unreleased
 
+### Added
+
+- Added strict JSON-only `title-plan` wait, batch, and native-outcome reporting for exact revision-guarded hosted title application.
+
 ### Changed
 
+- Heartbeats now stage durable per-task title plans instead of writing through a detached App Server, allowing unrelated cycle work to commit while Desktop-native actuators repaint mounted task lists.
+- Fresh state adopts only one strict leading status marker, preserves the complete non-status remainder, and retains exact BEAR-67 action/token ownership boundaries.
+
 - Recast Codex-guided installation as a warm ThreadBear welcome with progressive preference choices, plain-language review and consent, backstage technical details, and a friendlier settings notice.
+
+### Fixed
+
+- Distinguished native mutation success, canonical persistence on the next inventory, and rendered Desktop accessibility verification instead of calling SQLite equality visible convergence.
 
 ### Fixed
 

@@ -284,3 +284,41 @@ func TestStayedHomeResultSaysThreadBearStayedHome(t *testing.T) {
 		t.Fatalf("human=%q", human.String())
 	}
 }
+
+func TestTitlePlanAndReportResultsValidateAndSortDeterministically(t *testing.T) {
+	planA := TitlePlanItem{TaskID: "task-a", ExpectedRevision: "rev-a", ExpectedTitle: "A", DesiredTitle: "✅ A"}
+	planA.OperationID = state.TitleOperationID(planA.TaskID, planA.ExpectedRevision, planA.ExpectedTitle, planA.DesiredTitle)
+	planB := TitlePlanItem{TaskID: "task-b", ExpectedRevision: "rev-b", ExpectedTitle: "B", DesiredTitle: "✅ B"}
+	planB.OperationID = state.TitleOperationID(planB.TaskID, planB.ExpectedRevision, planB.ExpectedTitle, planB.DesiredTitle)
+	var encoded bytes.Buffer
+	result := TitlePlanResult{Mode: "batch", Plans: []TitlePlanItem{planB, planA}, Dispositions: []TitlePlanDisposition{{TaskID: "task-d", Outcome: "no_op"}, {TaskID: "task-c", Outcome: "drifted"}}}
+	if err := Write(&encoded, FormatJSON, result); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Index(encoded.String(), `"task_id":"task-a"`) > strings.Index(encoded.String(), `"task_id":"task-b"`) || strings.Index(encoded.String(), `"task_id":"task-c"`) > strings.Index(encoded.String(), `"task_id":"task-d"`) {
+		t.Fatalf("title plan output is not sorted: %s", encoded.String())
+	}
+	encoded.Reset()
+	if err := Write(&encoded, FormatJSON, TitleReportResult{AcceptedIDs: []string{"task-b", "task-a"}, RejectedIDs: []string{"task-d", "task-c"}}); err != nil {
+		t.Fatal(err)
+	}
+	if encoded.String() != `{"version":1,"accepted_ids":["task-a","task-b"],"rejected_ids":["task-c","task-d"]}`+"\n" {
+		t.Fatalf("title report output = %q", encoded.String())
+	}
+}
+
+func TestTitlePlanAndReportResultsRejectInvalidShapes(t *testing.T) {
+	valid := TitlePlanItem{TaskID: "task-a", ExpectedRevision: "rev-a", ExpectedTitle: "A", DesiredTitle: "✅ A"}
+	valid.OperationID = state.TitleOperationID(valid.TaskID, valid.ExpectedRevision, valid.ExpectedTitle, valid.DesiredTitle)
+	for _, result := range []Result{
+		TitlePlanResult{Mode: "report"},
+		TitlePlanResult{Mode: "batch", Plans: []TitlePlanItem{{OperationID: "wrong", TaskID: "task-a", ExpectedRevision: "rev-a", ExpectedTitle: "A", DesiredTitle: "✅ A"}}},
+		TitlePlanResult{Mode: "batch", Plans: []TitlePlanItem{valid}, Dispositions: []TitlePlanDisposition{{TaskID: "task-a", Outcome: "no_op"}}},
+		TitleReportResult{AcceptedIDs: []string{"task-a"}, RejectedIDs: []string{"task-a"}},
+	} {
+		var encoded bytes.Buffer
+		if err := Write(&encoded, FormatJSON, result); err == nil {
+			t.Fatalf("accepted invalid result: %+v", result)
+		}
+	}
+}

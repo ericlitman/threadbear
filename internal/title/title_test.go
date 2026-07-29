@@ -135,16 +135,16 @@ func TestReconcileStatusOnlyTitleIsFixedPointAcrossTokenPositions(t *testing.T) 
 	}
 }
 
-func TestReconcileAdoptsCanonicalGeneratedTokenDisplay(t *testing.T) {
+func TestReconcilePreservesUnownedCanonicalLookingTokenText(t *testing.T) {
 	for _, test := range []struct {
 		name     string
 		captured string
 		display  tokens.Display
 		want     string
 	}{
-		{name: "single start", captured: "✅ 26k Execute BEAR-59", display: tokens.Display{Position: tokens.PositionStart, Value: "26k"}, want: "✅ 26k Execute BEAR-59"},
-		{name: "repeated start", captured: "✅ 26k 26k 26k Execute BEAR-59", display: tokens.Display{Position: tokens.PositionStart, Value: "26k"}, want: "✅ 26k Execute BEAR-59"},
-		{name: "repeated end", captured: "✅ Execute BEAR-59 · out 26k · out 26k", display: tokens.Display{Position: tokens.PositionEnd, Value: "26k"}, want: "✅ Execute BEAR-59 · out 26k"},
+		{name: "single start", captured: "✅ 26k Execute BEAR-59", display: tokens.Display{Position: tokens.PositionStart, Value: "26k"}, want: "✅ 26k 26k Execute BEAR-59"},
+		{name: "repeated start", captured: "✅ 26k 26k 26k Execute BEAR-59", display: tokens.Display{Position: tokens.PositionStart, Value: "26k"}, want: "✅ 26k 26k 26k 26k Execute BEAR-59"},
+		{name: "repeated end", captured: "✅ Execute BEAR-59 · out 26k · out 26k", display: tokens.Display{Position: tokens.PositionEnd, Value: "26k"}, want: "✅ Execute BEAR-59 · out 26k · out 26k · out 26k"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			got, err := Reconcile(state.TaskRecord{CapturedTitle: test.captured}, state.StatusComplete, "", "", test.display)
@@ -537,5 +537,17 @@ func TestReconcileDisablingTokensRemovesOnlyManagedFigure(t *testing.T) {
 	}
 	if got.Title != "➡️ Release service → review the rollout" || got.DurableSubject != "Release service" || got.ManagedTokenDisplay != "" {
 		t.Fatalf("Reconcile() = %+v", got)
+	}
+}
+
+func TestAdoptSingleLeadingStatusPreservesCompleteRemainder(t *testing.T) {
+	status, subject, ok := AdoptSingleLeadingStatus("✅ 26k User subject → user action")
+	if !ok || status != state.StatusComplete || subject != "26k User subject → user action" {
+		t.Fatalf("adoption = %q %q %t", status, subject, ok)
+	}
+	for _, title := range []string{"Release service", "✅ ❔ Release service", "✅✅ Release service"} {
+		if _, _, ok := AdoptSingleLeadingStatus(title); ok {
+			t.Fatalf("adopted non-strict title %q", title)
+		}
 	}
 }
