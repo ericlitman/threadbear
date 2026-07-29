@@ -479,6 +479,15 @@ func TestOperationRevalidationRejectsSameSecondNativeMismatch(t *testing.T) {
 	}
 }
 
+func isASCIIString(value string) bool {
+	for _, char := range value {
+		if char > 127 {
+			return false
+		}
+	}
+	return true
+}
+
 type dispatchStoreOverride struct {
 	*state.Store
 	config *config.Config
@@ -531,33 +540,29 @@ func TestDispatchEligibilityEnvelopeAndPrivacy(t *testing.T) {
 		if got.Child.Prompt != ChildPrompt {
 			t.Fatal("dispatch envelope did not use the deterministic helper-owned child prompt")
 		}
-		if len([]byte(got.Child.Prompt)) > 6000 || !strings.HasPrefix(got.Child.Prompt, ChildPromptSentinel+"\n") || strings.Count(got.Child.Prompt, ChildPromptSentinel) != 1 {
+		if len([]byte(got.Child.Prompt)) > 6000 || !strings.HasPrefix(got.Child.Prompt, ChildPromptSentinel+"\n") || strings.Count(got.Child.Prompt, ChildPromptSentinel) != 1 || !isASCIIString(got.Child.Prompt) {
 			t.Fatalf("prompt bytes=%d prefix=%q", len([]byte(got.Child.Prompt)), got.Child.Prompt[:min(len(got.Child.Prompt), 80)])
 		}
+		if strings.Count(ChildActuatorProgram, ChildSourcePlaceholder) != 1 || strings.Count(got.Child.Prompt, ChildActuatorProgram) != 1 {
+			t.Fatal("child prompt does not contain one exact helper-owned actuator program and placeholder")
+		}
 		for _, marker := range []string{
-			"child-only ThreadBear title actuator", "Obtain SOURCE_ID only from your own codex_delegation.source_thread_id", "one model pass", "exactly one functions.exec",
-			`title-plan --json --wait "$SOURCE_ID"`, `title-plan --json --operation "$OPERATION_ID"`, "exact revalidated plan",
-			"tools.codex_app__set_thread_title", `await tools.codex_app__set_thread_title({threadId: TASK_ID, title: DESIRED_TITLE})`,
-			"title-plan --json --report", `{"reports":[{"operation_id":"OPERATION_ID","task_id":"TASK_ID","native_success":true}]}`,
-			"accepted_ids has exact set equality with submitted task IDs", "no_op", "canonical_persisted", "native_succeeded_pending_canonical",
-			"title_actuation_failed", "no retry", "tools.codex_app__set_thread_archived", `await tools.codex_app__set_thread_archived({archived: true})`,
-			"Successful self-archive is expected to interrupt execution", "do not recover from that interruption",
+			"one model pass", "exactly one functions.exec", "codex_delegation.source_thread_id", "Author, revise, or infer nothing", "empty expected_title",
+			`k(x)!=="dispositions,mode,plans,version"`, `k(x)==="desired_title,expected_revision,expected_title,operation_id,task_id"`, `k(x)==="outcome,task_id"`, `k(x)!=="accepted_ids,rejected_ids,version"`,
+			`typeof r.output!=="string"`, `typeof r.exit_code!=="number"`, `r.exit_code!==0`, `"session_id"in r`,
+			"title-plan --json --wait", "title-plan --json --operation", "title-plan --json --report", "title_actuation_failed",
+			"native_set_failed", "canonical_persisted", "native_succeeded_pending_canonical", "no_op",
 		} {
 			if !strings.Contains(got.Child.Prompt, marker) {
-				t.Fatalf("child prompt missing contract marker %q", marker)
+				t.Fatalf("child prompt missing exact program marker %q", marker)
 			}
 		}
-		for _, prohibition := range []string{
-			"Do not read a skill, discover tools, inspect schemas or implementation, inspect files, use network access, or take a preliminary execution or recovery turn.",
-			"stops with no retry, inspection, second command, or recovery turn",
-		} {
-			if !strings.Contains(got.Child.Prompt, prohibition) {
-				t.Fatalf("child prompt missing prohibition %q", prohibition)
-			}
+		if strings.Count(ChildActuatorProgram, "tools.codex_app__set_thread_title") != 1 || strings.Count(ChildActuatorProgram, "tools.codex_app__set_thread_archived") != 1 || strings.Count(ChildActuatorProgram, "title-plan --json --report") != 1 {
+			t.Fatal("child actuator does not preserve exact native/report call sites")
 		}
-		for _, forbidden := range []string{"list_tools", "get_tool_schema", "ALL_TOOLS", "tools.codex_app__list", "tools.codex_app__read"} {
-			if strings.Contains(got.Child.Prompt, forbidden) {
-				t.Fatalf("child prompt contains discovery or inspection primitive %q", forbidden)
+		for _, forbidden := range []string{"import(", "process", "require(", "node:", "ALL_TOOLS", "fetch(", "XMLHttpRequest", "Deno.", "Bun.", "list_tools", "get_tool_schema", "tools.codex_app__list", "tools.codex_app__read"} {
+			if strings.Contains(ChildActuatorProgram, forbidden) {
+				t.Fatalf("child actuator contains forbidden primitive %q", forbidden)
 			}
 		}
 		encoded, err := json.Marshal(got)

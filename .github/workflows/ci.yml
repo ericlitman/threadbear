@@ -19,6 +19,10 @@ jobs:
           go-version-file: go.mod
           cache: true
       - run: go test ./...
+      - name: Replay exact Luna title actuator under V8
+        run: |
+          command -v node
+          node scripts/replay-title-actuator.mjs
       - run: go vet ./...
       - run: CGO_ENABLED=0 GOOS=darwin GOARCH=arm64 go build -o /tmp/threadbear_darwin_arm64 ./cmd/threadbear
       - run: CGO_ENABLED=0 GOOS=darwin GOARCH=amd64 go build -o /tmp/threadbear_darwin_amd64 ./cmd/threadbear

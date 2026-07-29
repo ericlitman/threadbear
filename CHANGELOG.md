@@ -15,6 +15,7 @@
 
 ### Fixed
 
+- Made the Luna actuator execute the helper-owned exact title-plan schema instead of inventing a narrower validator.
 - Replaced Node-dependent title handoff with a strict helper-owned raw-V8 child dispatch envelope.
 - Separated source guard/dispatch from child-only Luna title actuation and self-archive.
 - Made the Luna title actuator call Desktop-native title and self-archive tools directly without discovery.
