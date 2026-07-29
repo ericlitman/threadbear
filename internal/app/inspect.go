@@ -86,13 +86,7 @@ func InspectHandler(store OperatorStore, inventory OperatorInventory, clock Oper
 				retry = &output.RetryResult{TaskID: request.TaskID, Operation: diagnostic.Operation, ErrorCode: diagnostic.ErrorCode}
 			}
 		}
-		_, hasPendingTitle := committed.PendingTitlePlans[request.TaskID]
-		hasPendingTitle = cfg.RenameEnabled && hasPendingTitle
-		eligible := recordMatchesCurrent && !hasPendingTitle && archiveEligibleForInspect(record, clock.Now().UTC(), cfg.ArchiveAfterDays) && cfg.ArchiveEnabled
-		pendingTitle, nativeOutcome, canonicalPersistence := false, state.NativeTitleOutcome(""), ""
-		if plan, ok := committed.PendingTitlePlans[request.TaskID]; cfg.RenameEnabled && ok {
-			pendingTitle, nativeOutcome, canonicalPersistence = true, plan.NativeOutcome, "pending_inventory"
-		}
+		eligible := recordMatchesCurrent && archiveEligibleForInspect(record, clock.Now().UTC(), cfg.ArchiveAfterDays) && cfg.ArchiveEnabled
 		return output.InspectResult{
 			TaskID:               request.TaskID,
 			CapturedRevision:     revision,
@@ -105,9 +99,6 @@ func InspectHandler(store OperatorStore, inventory OperatorInventory, clock Oper
 			ManagedTokenPosition: managedTokenPosition,
 			ManagedTokenDisplay:  managedTokenDisplay,
 			TokenUsageFound:      tokenUsageFound,
-			PendingTitlePlan:     pendingTitle,
-			NativeTitleOutcome:   nativeOutcome,
-			CanonicalPersistence: canonicalPersistence,
 		}, nil
 	}
 }

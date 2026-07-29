@@ -374,6 +374,7 @@ type CycleOperation struct {
 	ManagedAction        string          `json:"managed_action,omitempty"`
 	ManagedTokenDisplay  string          `json:"managed_token_display,omitempty"`
 	ManagedTokenPosition tokens.Position `json:"managed_token_position,omitempty"`
+	ForceWrite           bool            `json:"force_write,omitempty"`
 	VerifiedRevision     string          `json:"verified_revision,omitempty"`
 	VerifiedTitle        string          `json:"verified_title,omitempty"`
 }
@@ -456,11 +457,11 @@ func (o CycleOperation) Valid() bool {
 		}
 		return valid
 	case OperationArchive:
-		return canonicalIdentifier(o.TaskID) && canonicalIdentifier(o.ExpectedRevision) && o.NoticeVersion == "" && o.PreviousVersion == ""
+		return canonicalIdentifier(o.TaskID) && canonicalIdentifier(o.ExpectedRevision) && o.NoticeVersion == "" && o.PreviousVersion == "" && !o.ForceWrite
 	case OperationNotice:
-		return o.TaskID == "" && canonicalIdentifier(o.NoticeVersion) && o.PreviousVersion == ""
+		return o.TaskID == "" && canonicalIdentifier(o.NoticeVersion) && o.PreviousVersion == "" && !o.ForceWrite
 	case OperationAnnouncement:
-		return o.TaskID == "" && canonicalIdentifier(o.NoticeVersion) && canonicalIdentifier(o.PreviousVersion) && o.NoticeVersion != o.PreviousVersion
+		return o.TaskID == "" && canonicalIdentifier(o.NoticeVersion) && canonicalIdentifier(o.PreviousVersion) && o.NoticeVersion != o.PreviousVersion && !o.ForceWrite
 	default:
 		return false
 	}

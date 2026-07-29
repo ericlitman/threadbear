@@ -18,7 +18,7 @@ ThreadBear depends on compatibility-detectable local Codex capabilities for comp
 
 ## Sidebar expectations
 
-Detached App Server title writes persist but cannot invalidate an already-mounted Desktop catalog, so the heartbeat no longer performs them. Exact plans are applied only through capability-detected Codex-hosted native title tools with explicit opt-in. Native success, next-inventory canonical persistence, and operator-observed rendered accessibility are three distinct outcomes. ThreadBear never edits private caches, uses private IPC/UI automation/daemons, or requires a restart.
+The heartbeat writes titles through capability-detected `thread/name/set`, then verifies persistence through a fresh inventory read before committing ownership or archiving the same task. ThreadBear does not promise private Desktop cache invalidation and never edits caches, uses private IPC/UI automation/daemons, or requires a restart.
 
 ## LaunchAgent timing and environment
 

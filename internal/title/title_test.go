@@ -2,6 +2,7 @@ package title
 
 import (
 	"errors"
+	"strings"
 	"testing"
 
 	"github.com/ericlitman/threadbear/internal/state"
@@ -59,12 +60,12 @@ func TestReconcileExactOwnershipReplacesAndRemovesManagedAction(t *testing.T) {
 
 func TestReconcileUserEditAdoptsEntireNonStatusRemainder(t *testing.T) {
 	record := state.TaskRecord{CapturedTitle: "✅ User subject → this arrow text is mine", DurableSubject: "Old subject", ManagedAction: "old managed action", LastAppliedTitle: "➡️ Old subject → old managed action"}
-	got, err := Reconcile(record, state.StatusNextSteps, "", "create the implementation plan", tokens.Display{})
+	got, err := Reconcile(record, state.StatusNextSteps, "", "create plan", tokens.Display{})
 	if err != nil {
 		t.Fatal(err)
 	}
 	wantSubject := "User subject → this arrow text is mine"
-	if got.DurableSubject != wantSubject || got.Title != "➡️ "+wantSubject+" → create the implementation plan" {
+	if got.DurableSubject != wantSubject || got.Title != "➡️ "+wantSubject+" → create plan" {
 		t.Fatalf("Reconcile() = %+v", got)
 	}
 }
@@ -82,11 +83,11 @@ func TestReconcileDoesNotInferOwnershipFromMatchingShape(t *testing.T) {
 
 func TestReconcileDoesNotAccumulateActions(t *testing.T) {
 	record := state.TaskRecord{CapturedTitle: "➡️ Requirements review → pressure-test the requirements before implementation", DurableSubject: "Requirements review", ManagedAction: "pressure-test the requirements before implementation", LastAppliedTitle: "➡️ Requirements review → pressure-test the requirements before implementation"}
-	got, err := Reconcile(record, state.StatusNextSteps, "", "create the implementation plan", tokens.Display{})
+	got, err := Reconcile(record, state.StatusNextSteps, "", "create plan", tokens.Display{})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.Title != "➡️ Requirements review → create the implementation plan" {
+	if got.Title != "➡️ Requirements review → create plan" {
 		t.Fatalf("Reconcile() = %+v", got)
 	}
 }
@@ -144,7 +145,7 @@ func TestReconcilePreservesUnownedCanonicalLookingTokenText(t *testing.T) {
 	}{
 		{name: "single start", captured: "✅ 26k Execute BEAR-59", display: tokens.Display{Position: tokens.PositionStart, Value: "26k"}, want: "✅ 26k 26k Execute BEAR-59"},
 		{name: "repeated start", captured: "✅ 26k 26k 26k Execute BEAR-59", display: tokens.Display{Position: tokens.PositionStart, Value: "26k"}, want: "✅ 26k 26k 26k 26k Execute BEAR-59"},
-		{name: "repeated end", captured: "✅ Execute BEAR-59 · out 26k · out 26k", display: tokens.Display{Position: tokens.PositionEnd, Value: "26k"}, want: "✅ Execute BEAR-59 · out 26k · out 26k · out 26k"},
+		{name: "repeated end", captured: "✅ Execute BEAR-59 · out 26k · out 26k", display: tokens.Display{Position: tokens.PositionEnd, Value: "26k"}, want: "✅ Execute BEAR-59 · out 26k · out 26k · 26k"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			got, err := Reconcile(state.TaskRecord{CapturedTitle: test.captured}, state.StatusComplete, "", "", test.display)
@@ -171,7 +172,7 @@ func TestReconcileReplacesManagedEndDisplayBeforePersistedEllipsis(t *testing.T)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if first.Title != "❔ BEAR-59 — validate post-turn title actuator ·… · out 700k" || first.DurableSubject != "BEAR-59 — validate post-turn title actuator ·…" {
+	if first.Title != "❔ BEAR-59 — validate post-turn title actuator ·… · 700k" || first.DurableSubject != "BEAR-59 — validate post-turn title actuator ·…" {
 		t.Fatalf("first = %+v", first)
 	}
 	second, err := Reconcile(state.TaskRecord{
@@ -186,7 +187,7 @@ func TestReconcileReplacesManagedEndDisplayBeforePersistedEllipsis(t *testing.T)
 	}
 }
 
-func TestReconcileConvergesLegacyOwnedTokenDuplicates(t *testing.T) {
+func TestReconcilePreservesSameBoundaryLegacyTokenText(t *testing.T) {
 	for _, test := range []struct {
 		name     string
 		captured string
@@ -194,8 +195,8 @@ func TestReconcileConvergesLegacyOwnedTokenDuplicates(t *testing.T) {
 		want     string
 		subject  string
 	}{
-		{name: "start", captured: "✅ 670k 670k Release service", position: tokens.PositionStart, want: "✅ 700k Release service", subject: "Release service"},
-		{name: "end", captured: "✅ Release service · out 670k · out 670k", position: tokens.PositionEnd, want: "✅ Release service · out 700k", subject: "Release service"},
+		{name: "start", captured: "✅ 670k 670k Release service", position: tokens.PositionStart, want: "✅ 700k 670k Release service", subject: "670k Release service"},
+		{name: "end", captured: "✅ Release service · out 670k · out 670k", position: tokens.PositionEnd, want: "✅ Release service · out 670k · 700k", subject: "Release service · out 670k"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			record := state.TaskRecord{
@@ -225,6 +226,222 @@ func TestReconcileConvergesLegacyOwnedTokenDuplicates(t *testing.T) {
 	}
 }
 
+func TestReconcileConvergesOwnedTokenDuplicatesAcrossPositionMigration(t *testing.T) {
+	for _, test := range []struct {
+		name    string
+		record  state.TaskRecord
+		display tokens.Display
+		want    string
+		subject string
+	}{
+		{
+			name: "start to end",
+			record: state.TaskRecord{
+				CapturedTitle:        "➡️ 1.1m 1.1m 1.1m Stabilize Linear CLI … · out 1.1m",
+				DurableSubject:       "1.1m 1.1m 1.1m Stabilize Linear CLI …",
+				LastAppliedTitle:     "➡️ 1.1m 1.1m 1.1m Stabilize Linear CLI … · out 1.1m",
+				ManagedTokenDisplay:  "1.1m",
+				ManagedTokenPosition: tokens.PositionEnd,
+			},
+			display: tokens.Display{Position: tokens.PositionEnd, Value: "1.1m"},
+			want:    "➡️ Stabilize Linear CLI … · 1.1m",
+			subject: "Stabilize Linear CLI …",
+		},
+		{
+			name: "end to start",
+			record: state.TaskRecord{
+				CapturedTitle:        "➡️ 1.1m Stabilize Linear CLI … · out 1.1m · out 1.1m · out 1.1m",
+				DurableSubject:       "Stabilize Linear CLI … · out 1.1m · out 1.1m · out 1.1m",
+				LastAppliedTitle:     "➡️ 1.1m Stabilize Linear CLI … · out 1.1m · out 1.1m · out 1.1m",
+				ManagedTokenDisplay:  "1.1m",
+				ManagedTokenPosition: tokens.PositionStart,
+			},
+			display: tokens.Display{Position: tokens.PositionStart, Value: "1.1m"},
+			want:    "➡️ 1.1m Stabilize Linear CLI …",
+			subject: "Stabilize Linear CLI …",
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			first, err := Reconcile(test.record, state.StatusNextSteps, "", "", test.display)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if first.Title != test.want || first.DurableSubject != test.subject {
+				t.Fatalf("first = %+v", first)
+			}
+			second, err := Reconcile(state.TaskRecord{
+				CapturedTitle: first.Title, DurableSubject: first.DurableSubject, LastAppliedTitle: first.Title,
+				ManagedTokenDisplay: first.ManagedTokenDisplay, ManagedTokenPosition: first.ManagedTokenPosition,
+			}, state.StatusNextSteps, "", "", test.display)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if second != first {
+				t.Fatalf("first=%+v second=%+v", first, second)
+			}
+		})
+	}
+}
+
+func TestReconcileRecognizesExactCodexShortening(t *testing.T) {
+	const oldDisplay = "330k"
+	fullSubject := oldDisplay + " " + oldDisplay + " " + strings.Repeat("Long managed subject ", 4)
+	lastApplied := "➡️ " + fullSubject + " · out " + oldDisplay
+	record := state.TaskRecord{
+		CapturedTitle:        truncateUTF16(lastApplied, 59) + "…",
+		DurableSubject:       fullSubject,
+		LastAppliedTitle:     lastApplied,
+		ManagedTokenDisplay:  oldDisplay,
+		ManagedTokenPosition: tokens.PositionEnd,
+	}
+	first, err := Reconcile(record, state.StatusNextSteps, "", "review the complete retained action", tokens.Display{Position: tokens.PositionEnd, Value: "340k"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantSubject := strings.TrimSpace(strings.TrimPrefix(fullSubject, oldDisplay+" "+oldDisplay+" "))
+	if first.DurableSubject != wantSubject || first.ManagedAction != "review the complete retained action" || !strings.HasSuffix(first.Title, " · 340k") || utf16Units(first.Title) > 60 {
+		t.Fatalf("first = %+v units=%d", first, utf16Units(first.Title))
+	}
+	second, err := Reconcile(state.TaskRecord{
+		CapturedTitle: first.Title, DurableSubject: first.DurableSubject, ManagedAction: first.ManagedAction, LastAppliedTitle: first.Title,
+		ManagedTokenDisplay: first.ManagedTokenDisplay, ManagedTokenPosition: first.ManagedTokenPosition,
+	}, state.StatusNextSteps, "", first.ManagedAction, tokens.Display{Position: tokens.PositionEnd, Value: "340k"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if second != first {
+		t.Fatalf("first=%+v second=%+v", first, second)
+	}
+}
+
+func TestReconcilePreservesArbitraryDivergentShortTitle(t *testing.T) {
+	lastApplied := "✅ " + strings.Repeat("Managed title ", 6) + " · out 26k"
+	captured := truncateUTF16(lastApplied, 59) + "… user edit"
+	record := state.TaskRecord{
+		CapturedTitle: captured, DurableSubject: "Old subject", LastAppliedTitle: lastApplied,
+		ManagedTokenDisplay: "26k", ManagedTokenPosition: tokens.PositionEnd,
+	}
+	got, err := Reconcile(record, state.StatusComplete, "", "", tokens.Display{Position: tokens.PositionEnd, Value: "26k"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.DurableSubject != stripStatusPrefixes(captured) {
+		t.Fatalf("Reconcile() = %+v", got)
+	}
+}
+
+func TestReconcileBoundsUTF16AndRetainsFullState(t *testing.T) {
+	subject := strings.Repeat("Launch 😀 service ", 6)
+	action := strings.Repeat("review 😀 rollout ", 4)
+	got, err := Reconcile(state.TaskRecord{CapturedTitle: subject}, state.StatusNextSteps, "", action, tokens.Display{Position: tokens.PositionEnd, Value: "1.6m"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if utf16Units(got.Title) > 60 || !strings.HasSuffix(got.Title, " · 1.6m") || got.DurableSubject != strings.TrimSpace(subject) || got.ManagedAction != strings.TrimSpace(action) {
+		t.Fatalf("Reconcile() = %+v units=%d", got, utf16Units(got.Title))
+	}
+	if got := truncateUTF16(strings.Repeat("a", 58)+"😀", 59); got != strings.Repeat("a", 58) {
+		t.Fatalf("surrogate split = %q", got)
+	}
+}
+
+func TestOwnedTokenBoundariesRecognizeLegacyCanonicalAndUnicodeWhitespace(t *testing.T) {
+	for _, value := range []string{
+		"Release · out 26k",
+		"Release · 26k",
+		"Release · out 26k · 26k",
+		"Release · 26k · out 26k",
+	} {
+		if got := stripOwnedTokenCopies(value, "26k", tokens.PositionEnd); got != "Release" {
+			t.Fatalf("stripOwnedTokenCopies(%q) = %q", value, got)
+		}
+	}
+	const prefixed = "26k\u200326k\tRelease"
+	if ownedTokenCopies(prefixed, "26k", tokens.PositionStart) != 2 || stripOwnedTokenCopies(prefixed, "26k", tokens.PositionStart) != "Release" {
+		t.Fatalf("unicode prefix was not recognized")
+	}
+}
+
+func TestReconcilePreservesSingleMatchingTokenTextAtOppositeBoundary(t *testing.T) {
+	for _, test := range []struct {
+		name    string
+		record  state.TaskRecord
+		display tokens.Display
+	}{
+		{
+			name: "single start subject with end ownership",
+			record: state.TaskRecord{
+				CapturedTitle:        "✅ 26k Release service · 26k",
+				DurableSubject:       "26k Release service",
+				LastAppliedTitle:     "✅ 26k Release service · 26k",
+				ManagedTokenDisplay:  "26k",
+				ManagedTokenPosition: tokens.PositionEnd,
+			},
+			display: tokens.Display{Position: tokens.PositionEnd, Value: "26k"},
+		},
+		{
+			name: "single end subject with start ownership",
+			record: state.TaskRecord{
+				CapturedTitle:        "✅ 26k Release service · 26k",
+				DurableSubject:       "Release service · 26k",
+				LastAppliedTitle:     "✅ 26k Release service · 26k",
+				ManagedTokenDisplay:  "26k",
+				ManagedTokenPosition: tokens.PositionStart,
+			},
+			display: tokens.Display{Position: tokens.PositionStart, Value: "26k"},
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			got, err := Reconcile(test.record, state.StatusComplete, "", "", test.display)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got.Title != test.record.CapturedTitle || got.DurableSubject != test.record.DurableSubject {
+				t.Fatalf("Reconcile() = %+v", got)
+			}
+		})
+	}
+}
+
+func TestReconcilePreservesOppositeBoundaryCopiesAfterUserEdit(t *testing.T) {
+	for _, test := range []struct {
+		name     string
+		captured string
+		want     string
+		subject  string
+	}{
+		{
+			name:     "repeated managed value",
+			captured: "✅ 26k 26k User subject · custom · out 26k",
+			want:     "✅ 26k 26k User subject · custom · 26k",
+			subject:  "26k 26k User subject · custom",
+		},
+		{
+			name:     "single matching value",
+			captured: "✅ 26k User subject · custom · out 26k",
+			want:     "✅ 26k User subject · custom · 26k",
+			subject:  "26k User subject · custom",
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			record := state.TaskRecord{
+				CapturedTitle:        test.captured,
+				DurableSubject:       "Old subject",
+				LastAppliedTitle:     "✅ Old subject · out 26k",
+				ManagedTokenDisplay:  "26k",
+				ManagedTokenPosition: tokens.PositionEnd,
+			}
+			got, err := Reconcile(record, state.StatusComplete, "", "", tokens.Display{Position: tokens.PositionEnd, Value: "26k"})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got.Title != test.want || got.DurableSubject != test.subject {
+				t.Fatalf("Reconcile() = %+v", got)
+			}
+		})
+	}
+}
+
 func TestReconcileCleansContaminatedOwnedSubjectAcrossPositions(t *testing.T) {
 	record := state.TaskRecord{
 		CapturedTitle:        "✅ 26k 26k 26k Execute BEAR-59",
@@ -237,7 +454,7 @@ func TestReconcileCleansContaminatedOwnedSubjectAcrossPositions(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if first.Title != "✅ Execute BEAR-59 · out 26k" || first.DurableSubject != "Execute BEAR-59" {
+	if first.Title != "✅ 26k 26k Execute BEAR-59 · 26k" || first.DurableSubject != "26k 26k Execute BEAR-59" {
 		t.Fatalf("first = %+v", first)
 	}
 	second, err := Reconcile(state.TaskRecord{
@@ -247,15 +464,25 @@ func TestReconcileCleansContaminatedOwnedSubjectAcrossPositions(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if second.Title != first.Title || second.DurableSubject != first.DurableSubject {
+	if second.Title != "✅ Execute BEAR-59 · 26k" || second.DurableSubject != "Execute BEAR-59" {
 		t.Fatalf("first=%+v second=%+v", first, second)
+	}
+	third, err := Reconcile(state.TaskRecord{
+		CapturedTitle: second.Title, DurableSubject: second.DurableSubject, LastAppliedTitle: second.Title,
+		ManagedTokenDisplay: second.ManagedTokenDisplay, ManagedTokenPosition: second.ManagedTokenPosition,
+	}, state.StatusComplete, "", "", tokens.Display{Position: tokens.PositionEnd, Value: "26k"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if third != second {
+		t.Fatalf("second=%+v third=%+v", second, third)
 	}
 
 	off, err := Reconcile(record, state.StatusComplete, "", "", tokens.Display{})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if off.Title != "✅ Execute BEAR-59" || off.DurableSubject != "Execute BEAR-59" {
+	if off.Title != "✅ 26k 26k Execute BEAR-59" || off.DurableSubject != "26k 26k Execute BEAR-59" {
 		t.Fatalf("off = %+v", off)
 	}
 }
@@ -266,6 +493,7 @@ func TestReconcileRecoversCurrentDisplayWithIncompleteOrStaleOwnership(t *testin
 		record  state.TaskRecord
 		display tokens.Display
 		want    string
+		subject string
 	}{
 		{
 			name: "incomplete current ownership",
@@ -274,7 +502,8 @@ func TestReconcileRecoversCurrentDisplayWithIncompleteOrStaleOwnership(t *testin
 				LastAppliedTitle: "✅ 26k Execute BEAR-59",
 			},
 			display: tokens.Display{Position: tokens.PositionStart, Value: "26k"},
-			want:    "✅ 26k Execute BEAR-59",
+			want:    "✅ 26k 26k Execute BEAR-59",
+			subject: "26k Execute BEAR-59",
 		},
 		{
 			name: "stale position with repeated current display",
@@ -286,7 +515,8 @@ func TestReconcileRecoversCurrentDisplayWithIncompleteOrStaleOwnership(t *testin
 				ManagedTokenPosition: tokens.PositionEnd,
 			},
 			display: tokens.Display{Position: tokens.PositionStart, Value: "26k"},
-			want:    "✅ 26k Execute BEAR-59",
+			want:    "✅ 26k 26k Execute BEAR-59",
+			subject: "26k Execute BEAR-59",
 		},
 		{
 			name: "stale display while moving positions",
@@ -298,7 +528,8 @@ func TestReconcileRecoversCurrentDisplayWithIncompleteOrStaleOwnership(t *testin
 				ManagedTokenPosition: tokens.PositionStart,
 			},
 			display: tokens.Display{Position: tokens.PositionEnd, Value: "26k"},
-			want:    "✅ Execute BEAR-59 · out 26k",
+			want:    "✅ 26k Execute BEAR-59 · 26k",
+			subject: "26k Execute BEAR-59",
 		},
 	} {
 		t.Run(test.name, func(t *testing.T) {
@@ -306,7 +537,7 @@ func TestReconcileRecoversCurrentDisplayWithIncompleteOrStaleOwnership(t *testin
 			if err != nil {
 				t.Fatal(err)
 			}
-			if got.Title != test.want || got.DurableSubject != "Execute BEAR-59" {
+			if got.Title != test.want || got.DurableSubject != test.subject {
 				t.Fatalf("Reconcile() = %+v", got)
 			}
 		})
@@ -321,9 +552,9 @@ func TestReconcilePreservesUnownedNumericText(t *testing.T) {
 		want     string
 	}{
 		{name: "different start value", captured: "✅ 94k Execute BEAR-59", display: tokens.Display{Position: tokens.PositionStart, Value: "26k"}, want: "✅ 26k 94k Execute BEAR-59"},
-		{name: "matching value in unconfigured prefix", captured: "✅ 26k Execute BEAR-59", display: tokens.Display{Position: tokens.PositionEnd, Value: "26k"}, want: "✅ 26k Execute BEAR-59 · out 26k"},
+		{name: "matching value in unconfigured prefix", captured: "✅ 26k Execute BEAR-59", display: tokens.Display{Position: tokens.PositionEnd, Value: "26k"}, want: "✅ 26k Execute BEAR-59 · 26k"},
 		{name: "matching ordinary suffix", captured: "✅ Execute BEAR-59 26k", display: tokens.Display{Position: tokens.PositionStart, Value: "26k"}, want: "✅ 26k Execute BEAR-59 26k"},
-		{name: "different end value", captured: "✅ Execute BEAR-59 · out 94k", display: tokens.Display{Position: tokens.PositionEnd, Value: "26k"}, want: "✅ Execute BEAR-59 · out 94k · out 26k"},
+		{name: "different end value", captured: "✅ Execute BEAR-59 · out 94k", display: tokens.Display{Position: tokens.PositionEnd, Value: "26k"}, want: "✅ Execute BEAR-59 · out 94k · 26k"},
 		{name: "no canonical status ownership", captured: "26k Execute BEAR-59", display: tokens.Display{Position: tokens.PositionStart, Value: "26k"}, want: "✅ 26k 26k Execute BEAR-59"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
@@ -355,7 +586,7 @@ func TestReconcilePreservesOwnedSubjectNumberAcrossDisplayChanges(t *testing.T) 
 				ManagedTokenPosition: tokens.PositionStart,
 			},
 			display: tokens.Display{Position: tokens.PositionEnd, Value: "26k"},
-			want:    "✅ 26k Release service · out 26k",
+			want:    "✅ 26k Release service · 26k",
 		},
 		{
 			name: "end to start",
@@ -424,12 +655,12 @@ func TestReconcilePreservesMatchingNumericTextWithExistingOwnership(t *testing.T
 			name: "authoritative end subject while disabling",
 			record: state.TaskRecord{
 				CapturedTitle:        "✅ Release service · out 26k · out 26k",
-				DurableSubject:       "Release service · out 26k",
+				DurableSubject:       "Release service · 26k",
 				LastAppliedTitle:     "✅ Release service · out 26k · out 26k",
 				ManagedTokenDisplay:  "26k",
 				ManagedTokenPosition: tokens.PositionEnd,
 			},
-			want: "✅ Release service · out 26k",
+			want: "✅ Release service · 26k",
 		},
 		{
 			name: "user edit at start boundary",
@@ -451,7 +682,7 @@ func TestReconcilePreservesMatchingNumericTextWithExistingOwnership(t *testing.T
 				ManagedTokenPosition: tokens.PositionEnd,
 			},
 			display: tokens.Display{Position: tokens.PositionEnd, Value: "26k"},
-			want:    "✅ User subject · out 26k · out 26k",
+			want:    "✅ User subject · out 26k · 26k",
 		},
 	} {
 		t.Run(test.name, func(t *testing.T) {
@@ -561,7 +792,7 @@ func TestReconcilePlacesOutputTokensInManagedZones(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if end.Title != "➡️ Release service → review the rollout · out 1.6m" || end.ManagedTokenDisplay != "1.6m" || end.ManagedTokenPosition != tokens.PositionEnd {
+	if end.Title != "➡️ Release service → review the rollout · 1.6m" || end.ManagedTokenDisplay != "1.6m" || end.ManagedTokenPosition != tokens.PositionEnd {
 		t.Fatalf("end = %+v", end)
 	}
 }
@@ -591,10 +822,10 @@ func TestReconcilePreservesUserEditedSubjectAcrossTokenUpdate(t *testing.T) {
 
 func TestReconcileDisablingTokensRemovesOnlyManagedFigure(t *testing.T) {
 	record := state.TaskRecord{
-		CapturedTitle:        "➡️ Release service → review the rollout · out 1.6m",
+		CapturedTitle:        "➡️ Release service → review the rollout · 1.6m",
 		DurableSubject:       "Release service",
 		ManagedAction:        "review the rollout",
-		LastAppliedTitle:     "➡️ Release service → review the rollout · out 1.6m",
+		LastAppliedTitle:     "➡️ Release service → review the rollout · 1.6m",
 		ManagedTokenDisplay:  "1.6m",
 		ManagedTokenPosition: tokens.PositionEnd,
 	}

@@ -45,37 +45,33 @@ type Unarchiver interface {
 	Unarchive(context.Context, string) error
 }
 
-type TitlePlanner interface {
-	Plan(context.Context, string, string, bool, bool, bool) (output.Result, error)
-	Actuator(string) (output.Result, error)
+type TitlePlanCompatibility interface {
+	Dispatch() output.Result
 }
 
 type OperatorDependencies struct {
-	Store         OperatorStore
-	Inventory     OperatorInventory
-	Clock         OperatorClock
-	LaunchAgent   LaunchAgent
-	ManagedAgents ManagedAgents
-	Preview       func(output.PreviewResult) error
-	Confirm       func() (bool, error)
-	Unarchiver    Unarchiver
-	Heartbeat     HeartbeatRunner
-	TitlePlanner  TitlePlanner
-	Install       Handler
-	SelfTest      Handler
-	Update        Updater
-	Uninstall     Handler
+	Store                  OperatorStore
+	Inventory              OperatorInventory
+	Clock                  OperatorClock
+	LaunchAgent            LaunchAgent
+	ManagedAgents          ManagedAgents
+	Preview                func(output.PreviewResult) error
+	Confirm                func() (bool, error)
+	Unarchiver             Unarchiver
+	Heartbeat              HeartbeatRunner
+	TitlePlanCompatibility TitlePlanCompatibility
+	Install                Handler
+	SelfTest               Handler
+	Update                 Updater
+	Uninstall              Handler
 }
 
 func NewWithOperatorCommands(version string, deps OperatorDependencies) *Service {
 	service := New(version)
 	service.handlers[CommandHeartbeat] = OperatorHeartbeatHandler(version, deps.Store, deps.Inventory, deps.Clock, deps.Heartbeat)
-	if deps.TitlePlanner != nil {
-		service.handlers[CommandTitlePlan] = func(ctx context.Context, request Request) (output.Result, error) {
-			if request.TitlePlanActuator != "" {
-				return deps.TitlePlanner.Actuator(request.TitlePlanActuator)
-			}
-			return deps.TitlePlanner.Plan(ctx, request.TitlePlanWait, request.TitlePlanOperation, request.TitlePlanBatch, request.TitlePlanReport, request.TitlePlanDispatch)
+	if deps.TitlePlanCompatibility != nil {
+		service.handlers[CommandTitlePlan] = func(context.Context, Request) (output.Result, error) {
+			return deps.TitlePlanCompatibility.Dispatch(), nil
 		}
 	}
 	service.handlers[CommandStatus] = StatusHandler(version, deps.Store, deps.LaunchAgent)
@@ -145,16 +141,6 @@ func StatusHandler(version string, store OperatorStore, launchAgent LaunchAgent)
 				pendingTaskIDs[taskID] = struct{}{}
 			}
 		}
-		nativeSuccesses := 0
-		pendingTitlePlans := 0
-		if cfg.RenameEnabled {
-			pendingTitlePlans = len(committed.PendingTitlePlans)
-			for _, plan := range committed.PendingTitlePlans {
-				if plan.NativeOutcome == state.NativeTitleSucceeded {
-					nativeSuccesses++
-				}
-			}
-		}
 		return output.StatusResult{
 			InstalledVersion:       version,
 			LaunchAgentHealthy:     healthy,
@@ -174,8 +160,6 @@ func StatusHandler(version string, store OperatorStore, launchAgent LaunchAgent)
 				ClassifierContextBudgetBytes: cfg.ClassifierContextBudgetBytes,
 			},
 			PendingRetries:       len(pendingTaskIDs),
-			PendingTitlePlans:    pendingTitlePlans,
-			NativeTitleSuccesses: nativeSuccesses,
 			LastUpdateCheck:      committed.LastUpdateCheck,
 			LastUpdateFailure:    committed.LastUpdateFailure,
 			LastReconcileFailure: committed.LastReconcileFailure,

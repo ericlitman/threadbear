@@ -35,7 +35,7 @@ func TestCodexInstallGuideCarriesConversationContract(t *testing.T) {
 	}
 }
 
-func TestCodexInstallGuideCarriesRawV8DispatchAndChildContract(t *testing.T) {
+func TestCodexInstallGuideUsesDirectAppServerTitleWrites(t *testing.T) {
 	guide := readInstallGuide(t)
 	published, err := os.ReadFile("../../site/install")
 	if err != nil {
@@ -44,108 +44,14 @@ func TestCodexInstallGuideCarriesRawV8DispatchAndChildContract(t *testing.T) {
 	if guide != string(published) {
 		t.Fatal("INSTALL.md and site/install differ")
 	}
-	normalized := normalizeGuideText(guide)
-	for _, required := range []string{
-		"native title mutation by exact task ID",
-		"Direct native batching is preferred",
-		"title-plan --json --batch",
-		"title-plan --json --operation",
-		"title-plan --json --report",
-		"**Source phase (source only, never actuator).**",
-		"title-plan --json --dispatch",
-		"tools.exec_command",
-		"tools.codex_app__create_thread",
-		"mandatory even for short answers and tasks that needed no other tools",
-		"owns strict installed config/state plus rename and AGENTS opt-in validation",
-		"supplies the exact projectless Luna/medium child",
-		"trusts the installed helper's JSON envelope",
-		"Invalid or unavailable output throws before child creation",
-		"Denied dispatch creates nothing",
-		"**Child actuator phase (child only).**",
-		"codex_delegation.source_thread_id",
-		"one model pass and exactly one `functions.exec`",
-		"mounted-proven raw-V8 loader",
-		"title-plan --json --actuator",
-		"without duplicating that helper's response schema",
-		"exact accepted-ID acknowledgement",
-		"title_actuation_failed",
-		"persistent ThreadBear control task is never used for routine title application",
-	} {
-		if !strings.Contains(normalized, normalizeGuideText(required)) {
-			t.Fatalf("INSTALL.md missing title dispatch contract %q", required)
+	for _, required := range []string{"persistent title, archive, and unarchive methods", "journaled as applying and applied", "verified through a fresh inventory read", "only then followed by any same-task archive", "persistent control task remains reserved"} {
+		if !strings.Contains(guide, required) {
+			t.Fatalf("INSTALL.md missing direct title contract %q", required)
 		}
 	}
-}
-
-func TestCodexInstallGuideLocksGuidedBatchingOrderAndIsolation(t *testing.T) {
-	guide := readInstallGuide(t)
-	published, err := os.ReadFile("../../site/install")
-	if err != nil {
-		t.Fatal(err)
-	}
-	for name, content := range map[string]string{"INSTALL.md": guide, "site/install": string(published)} {
-		start := strings.Index(content, "After that heartbeat, apply the staged title bootstrap")
-		if start < 0 {
-			t.Fatalf("%s is missing the guided title section", name)
-		}
-		postTurn := strings.Index(content[start:], "Use a fallback worker only through these two phases.")
-		if postTurn < 0 {
-			t.Fatalf("%s is missing the fallback title boundary", name)
-		}
-		guided := content[start : start+postTurn]
-		if !strings.Contains(guided, "Use the named callable expressions directly; do not enumerate, inspect, or look up available tools or schemas inside that execution.") {
-			t.Fatalf("%s guided actuator is missing the no-discovery contract", name)
-		}
-		previous := -1
-		for _, marker := range []string{
-			"title-plan --json --batch",
-			"title-plan --json --operation",
-			"`await tools.codex_app__set_thread_title({threadId: TASK_ID, title: DESIRED_TITLE})`",
-			"title-plan --json --report",
-		} {
-			index := strings.Index(guided, marker)
-			if index < 0 || index <= previous {
-				t.Fatalf("%s guided actuator is missing ordered marker %q", name, marker)
-			}
-			previous = index
-		}
-		for _, forbidden := range []string{
-			"codex_app__create_thread", "codex_app__set_thread_archived", "title-plan --json --dispatch", "title-plan --json --wait",
-			"THREADBEAR_TITLE_ACTUATOR_V1", "codex_delegation.source_thread_id", "projectless", "gpt-5.6-luna", "child actuator",
-			"ALL_TOOLS", ".filter(", "list_tools", "get_tool_schema", "discover the callable", "discover the tool schema",
-			"Object.keys(tools)", "Reflect.ownKeys(tools)", "tools.list", "implementation inspection",
-		} {
-			if strings.Contains(guided, forbidden) {
-				t.Fatalf("%s guided actuator contains forbidden discovery, child, or archive behavior %q", name, forbidden)
-			}
-		}
-	}
-}
-
-func TestCodexInstallGuideCarriesExactCompactSourceProgram(t *testing.T) {
-	const wantProgram = `const e=JSON.parse((await tools.exec_command({cmd:"~/.local/bin/threadbear title-plan --json --dispatch"})).output);if(e.allow)await tools.codex_app__create_thread(e.child);text(JSON.stringify({allow:e.allow,dispatched:e.allow}))`
-	guide := readInstallGuide(t)
-	start := strings.Index(guide, "**Source phase (source only, never actuator).**")
-	child := strings.Index(guide[start:], "**Child actuator phase (child only).**")
-	if start < 0 || child < 0 {
-		t.Fatal("INSTALL.md is missing source and child phases")
-	}
-	source := guide[start : start+child]
-	fence := strings.Index(source, "```js\n")
-	if fence < 0 {
-		t.Fatal("INSTALL.md source phase is missing executable JavaScript")
-	}
-	program := source[fence+len("```js\n"):]
-	program = program[:strings.Index(program, "\n```")]
-	if program != wantProgram || len([]byte(program)) != 229 {
-		t.Fatalf("INSTALL.md source program bytes=%d", len([]byte(program)))
-	}
-	if strings.Count(program, "title-plan --json --dispatch") != 1 || strings.Count(program, "tools.codex_app__create_thread(e.child)") != 1 || strings.ContainsAny(program, "<>&") {
-		t.Fatal("INSTALL.md source program violates exact one-call transport-safe contract")
-	}
-	for _, forbidden := range []string{"try{", "catch{", "Object.keys", "THREADBEAR_TITLE_ACTUATOR_V1", "codex_app__set_thread_title", "codex_app__set_thread_archived", "title-plan --json --wait", "title-plan --json --report"} {
-		if strings.Contains(program, forbidden) {
-			t.Fatalf("INSTALL.md source program contains %q", forbidden)
+	for _, forbidden := range []string{"title-plan --json --batch", "title-plan --json --report", "Child actuator phase", "codex_app__create_thread"} {
+		if strings.Contains(guide, forbidden) {
+			t.Fatalf("INSTALL.md contains retired actuator surface %q", forbidden)
 		}
 	}
 }
