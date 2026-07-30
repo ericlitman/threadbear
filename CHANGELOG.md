@@ -2,10 +2,6 @@
 
 ## Unreleased
 
-### Fixed
-
-- Made uninstall wait for App Server title persistence and accept exact or Codex-shortened restored titles, so title cleanup converges in one invocation.
-
 ## v1.4.0 - 2026-07-29
 
 ### Changed
@@ -20,6 +16,8 @@
 - Cleaned ThreadBear-owned status icons and recorded token counts from active managed task titles before uninstall removes runtime or state.
 
 - Preserved crash recovery for applying/applied title operations, forced one direct setter call for same-title migrated refreshes, retained failed migrated plans, and saved verified title guards before same-task archives.
+
+- Made uninstall wait for App Server title persistence and accept exact or Codex-shortened restored titles, so title cleanup converges in one invocation.
 
 ## v1.3.0 - 2026-07-28
 
