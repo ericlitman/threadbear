@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+## v1.5.1 - 2026-07-30
+
+### Fixed
+
+- Preserved the complete active task inventory when promoting residual native-title plans, while continuing to process changed deterministic and Luna-classified siblings and prune removed rows.
+- Deferred ambiguous token-shaped title subjects from the deterministic handoff to the later semantic pass, then removed confirmed managed-token contamination without consuming legitimate numeric subjects or divergent user edits.
+
 ## v1.5.0 - 2026-07-30
 
 ### Changed

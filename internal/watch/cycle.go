@@ -229,6 +229,7 @@ func (r *Runner) Run(ctx context.Context, dryRun bool) (output.Result, error) {
 	}
 	if !dryRun && !checkpointExists && cfg.RenameEnabled && hasPromotablePendingTitle(committed, inventory) {
 		checkpoint = state.NewCycle(r.deps.NewCycleID(), committed.Generation, now)
+		captureInventory(&checkpoint, inventory, committed, now)
 		promotePendingTitles(committed, inventory, &checkpoint)
 		if err := r.deps.Store.SaveCycle(checkpoint); err != nil {
 			return output.HeartbeatResult{CycleID: checkpoint.CycleID, ErrorCode: "cycle_write_failed"}, err
@@ -349,16 +350,9 @@ func (r *Runner) Run(ctx context.Context, dryRun bool) (output.Result, error) {
 
 	if !checkpointExists {
 		checkpoint = state.NewCycle(r.deps.NewCycleID(), committed.Generation, now)
+		captureInventory(&checkpoint, inventory, committed, now)
 		for _, task := range inventory.Tasks {
-			activity := now
-			if previous, ok := committed.Tasks[task.TaskID]; ok {
-				activity = previous.LastSubstantiveActivity
-			}
-			if _, archived := committed.Archives[task.TaskID]; archived {
-				activity = now
-			}
-			checkpoint.Inventory[task.TaskID] = state.CapturedTask{TaskID: task.TaskID, Revision: task.Revision, Title: task.Title, RolloutPath: task.RolloutPath, Archived: task.Archived, LastSubstantiveActivity: activity}
-			if previous, ok := committed.Tasks[task.TaskID]; !deterministicHandoff && ok && previous.Retry == nil && previous.CapturedRevision == task.Revision && previous.CapturedTitle == task.Title && tokenDisplayDue(previous, cfg) {
+			if previous, ok := committed.Tasks[task.TaskID]; !deterministicHandoff && ok && previous.Retry == nil && previous.CapturedRevision == task.Revision && previous.CapturedTitle == task.Title && tokenDisplayDue(previous, cfg) && !title.SubjectNeedsClassification(previous, task.Title, cfg.TokenDisplay) {
 				checkpoint.Results[task.TaskID] = state.ClassificationResult{
 					TaskID: task.TaskID, Revision: task.Revision, Status: previous.Status, Provenance: previous.Provenance,
 					DurableSubject: previous.DurableSubject, ManagedAction: previous.ManagedAction,
@@ -368,7 +362,7 @@ func (r *Runner) Run(ctx context.Context, dryRun bool) (output.Result, error) {
 		if !deterministicHandoff {
 			for _, task := range archiveDue {
 				previous := committed.Tasks[task.TaskID]
-				if previous.CapturedRevision == task.Revision && previous.CapturedTitle == task.Title {
+				if previous.CapturedRevision == task.Revision && previous.CapturedTitle == task.Title && !title.SubjectNeedsClassification(previous, task.Title, cfg.TokenDisplay) {
 					checkpoint.Results[task.TaskID] = state.ClassificationResult{TaskID: task.TaskID, Revision: task.Revision, Status: previous.Status, Provenance: previous.Provenance, DurableSubject: previous.DurableSubject, ManagedAction: previous.ManagedAction}
 				}
 			}
@@ -447,6 +441,8 @@ func (r *Runner) Run(ctx context.Context, dryRun bool) (output.Result, error) {
 		}
 		read := latestReads[task.TaskID]
 		evidence, readErr := read.evidence, read.err
+		previous, hadPrevious := committed.Tasks[task.TaskID]
+		subjectNeedsClassification := cfg.RenameEnabled && title.SubjectNeedsClassification(previous, task.Title, cfg.TokenDisplay)
 		if readErr != nil {
 			if bootstrapTitles {
 				if adopted, subject, ok := title.AdoptSingleLeadingStatus(task.Title); ok {
@@ -463,12 +459,11 @@ func (r *Runner) Run(ctx context.Context, dryRun bool) (output.Result, error) {
 		captured.EvidenceFingerprint = evidenceFingerprint(task, evidence)
 		captured.LastSubstantiveActivity = laterActivity(captured.LastSubstantiveActivity, choice.Activity, now)
 		checkpoint.Inventory[task.TaskID] = captured
-		previous, hadPrevious := committed.Tasks[task.TaskID]
 		_, advancedSettlement := advancedTitleSettlements[task.TaskID]
 		if advancedSettlement && hadPrevious && previous.EvidenceFingerprint != "" && previous.EvidenceFingerprint == captured.EvidenceFingerprint {
 			checkpoint.Results[task.TaskID] = state.ClassificationResult{TaskID: task.TaskID, Revision: task.Revision, Status: previous.Status, Provenance: previous.Provenance, DurableSubject: previous.DurableSubject, ManagedAction: previous.ManagedAction}
 			checkpoint.Progress.MechanicallyResolved++
-		} else if choice.Resolution.Resolved {
+		} else if choice.Resolution.Resolved && !subjectNeedsClassification {
 			checkpoint.Results[task.TaskID] = state.ClassificationResult{TaskID: task.TaskID, Revision: task.Revision, Status: choice.Resolution.Status, Provenance: choice.Resolution.Provenance, ManagedAction: choice.Resolution.ManagedAction}
 			checkpoint.Progress.MechanicallyResolved++
 		} else if bootstrapTitles {
@@ -1316,7 +1311,7 @@ func legacyOperationTokenDisplay(baseTitle, desiredTitle string, status state.Ta
 		inserted := strings.TrimPrefix(desiredTitle, statusPrefix)
 		if strings.HasSuffix(inserted, " "+remainder) {
 			value := strings.TrimSuffix(inserted, " "+remainder)
-			if strictTokenDisplay(value) {
+			if tokens.IsDisplayValue(value) {
 				return tokens.Display{Position: tokens.PositionStart, Value: value}, true
 			}
 		}
@@ -1324,45 +1319,11 @@ func legacyOperationTokenDisplay(baseTitle, desiredTitle string, status state.Ta
 	endPrefix := baseTitle + " · out "
 	if strings.HasPrefix(desiredTitle, endPrefix) {
 		value := strings.TrimPrefix(desiredTitle, endPrefix)
-		if strictTokenDisplay(value) {
+		if tokens.IsDisplayValue(value) {
 			return tokens.Display{Position: tokens.PositionEnd, Value: value}, true
 		}
 	}
 	return tokens.Display{}, false
-}
-
-func strictTokenDisplay(value string) bool {
-	unit := byte(0)
-	if len(value) > 0 && strings.ContainsRune("kmbt", rune(value[len(value)-1])) {
-		unit = value[len(value)-1]
-		value = value[:len(value)-1]
-	}
-	if value == "" || value[0] == '0' && value != "0" {
-		return false
-	}
-	parts := strings.Split(value, ".")
-	if len(parts) > 2 || !decimalDigits(parts[0]) {
-		return false
-	}
-	if len(parts) == 2 {
-		return unit != 0 && len(parts[0]) == 1 && len(parts[1]) == 1 && parts[1][0] >= '1' && parts[1][0] <= '9'
-	}
-	if unit == 0 {
-		return len(parts[0]) <= 3
-	}
-	return parts[0] != "0" && (unit == 't' || len(parts[0]) <= 3)
-}
-
-func decimalDigits(value string) bool {
-	if value == "" {
-		return false
-	}
-	for _, digit := range value {
-		if digit < '0' || digit > '9' {
-			return false
-		}
-	}
-	return true
 }
 
 func reconstructLegacyTitleOperations(records map[string]state.TaskRecord, checkpoint *state.CycleCheckpoint) error {
@@ -1659,6 +1620,22 @@ func nativeSetterVisible(plan state.PendingTitlePlan, task codex.Task) bool {
 	return plan.NativeOutcome == state.NativeTitlePending &&
 		task.Title == plan.DesiredTitle &&
 		(plan.DesiredTitle != plan.ExpectedTitle || task.Revision != plan.ExpectedRevision)
+}
+
+func captureInventory(checkpoint *state.CycleCheckpoint, inventory codex.Inventory, committed state.State, now time.Time) {
+	for _, task := range inventory.Tasks {
+		activity := now
+		if previous, ok := committed.Tasks[task.TaskID]; ok {
+			activity = previous.LastSubstantiveActivity
+		}
+		if _, archived := committed.Archives[task.TaskID]; archived {
+			activity = now
+		}
+		checkpoint.Inventory[task.TaskID] = state.CapturedTask{
+			TaskID: task.TaskID, Revision: task.Revision, Title: task.Title, RolloutPath: task.RolloutPath,
+			Archived: task.Archived, LastSubstantiveActivity: activity,
+		}
+	}
 }
 
 func promotePendingTitles(committed state.State, inventory codex.Inventory, checkpoint *state.CycleCheckpoint) {
