@@ -136,10 +136,14 @@ func StatusHandler(version string, store OperatorStore, launchAgent LaunchAgent)
 		if err != nil {
 			return commandError("status", "cycle_read_failed", err)
 		}
+		var firstSweep *state.SweepProgress
 		if cycleExists {
 			for taskID := range cycle.Diagnostics {
 				pendingTaskIDs[taskID] = struct{}{}
 			}
+			firstSweep = cycle.Progress
+		} else {
+			firstSweep = committed.LastSweep
 		}
 		return output.StatusResult{
 			InstalledVersion:       version,
@@ -163,6 +167,7 @@ func StatusHandler(version string, store OperatorStore, launchAgent LaunchAgent)
 			LastUpdateCheck:      committed.LastUpdateCheck,
 			LastUpdateFailure:    committed.LastUpdateFailure,
 			LastReconcileFailure: committed.LastReconcileFailure,
+			FirstSweep:           firstSweep,
 		}, nil
 	}
 }

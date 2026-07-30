@@ -4,6 +4,9 @@ Complete this checklist for every stable ThreadBear release.
 
 ## Before tagging
 
+- BEAR-87/90 evidence passed on runtime head `7d0fbc7e69dbfc442e36f84b650ec401c13ef403`: the Codex 0.146.0 production-factory isolation canary, bounded ten-second install handoff, and all four 200-observation serial/bounded rehearsals were green. The status-guided cohort was 200/200 deterministic with zero Luna calls; keep serial as the compiled default because bounded first progress regressed. See [the aggregate benchmark](benchmark.md#first-sweep-performance-release-gate). Keep the PR draft for final operator review.
+
+
 1. Prepare the intended `vN.N.N` section in `CHANGELOG.md` and leave a fresh `Unreleased` section.
 2. Make a quiesced, disposable copy of the operator's real Codex home. The copy must contain its `state_N.sqlite`, rollout files, auth needed by Codex, and 50+ real-shape tasks (emoji-only titles are reported when present, not required). Keep the copy outside this repository.
 3. Choose a readable, unarchived control task in the copy and confirm no ThreadBear LaunchAgent is loaded for the operator account.

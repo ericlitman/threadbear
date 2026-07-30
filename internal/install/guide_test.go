@@ -689,22 +689,51 @@ func TestCodexInstallGuideKeepsAdvancedClassifierSettingsBackstage(t *testing.T)
 	}
 }
 
-func TestCodexInstallGuideWaitsForVerificationBeforeAnotherProgressMessage(t *testing.T) {
+func TestCodexInstallGuideUsesBoundedBackgroundFirstSweep(t *testing.T) {
 	guide := readInstallGuide(t)
-	start := strings.Index(guide, "## 6. Install with one calm progress update")
-	end := strings.Index(guide, "## 7. Verify and close with warmth")
-	if start == -1 || end <= start {
-		t.Fatal("INSTALL.md missing install-progress section")
-	}
-	section := guide[start:end]
+	section := normalizeGuideText(guide)
 	for _, want := range []string{
-		"say exactly: “Lovely. I’m installing ThreadBear\nnow, then I’ll run its health checks and report back here.”",
-		"Do not paraphrase this message or\nadd claims about checks passing, installation stages, task-home setup, or the\nfirst tidy-up",
-		"That opening progress message is the only conversation message\nuntil every verification step in section 7 finishes",
-		"Do not send an interim\nmessage saying ThreadBear is installed, complete, successful, or that any setup\ncheck has passed",
+		`launchctl kickstart "$SERVICE"`,
+		`without ` + "`-k`",
+		"Poll once per second for no more than ten seconds.",
+		"do not wait for semantic classification or mutations to finish",
+		"the person can continue immediately",
+		"Five minutes is the normal heartbeat cadence, not an expected per-run duration.",
+		"unchanged tasks use zero model calls",
+		"in ordinary status-guided use, Luna medium is a rare ambiguity fallback",
 	} {
-		if !strings.Contains(section, want) {
-			t.Fatalf("INSTALL.md missing verification-gated progress rule %q", want)
+		if !strings.Contains(section, normalizeGuideText(want)) {
+			t.Fatalf("INSTALL.md missing bounded sweep contract %q", want)
+		}
+	}
+	if strings.Contains(guide, "~/.local/bin/threadbear heartbeat\n") {
+		t.Fatal("INSTALL.md still runs a foreground heartbeat")
+	}
+}
+
+func TestCodexInstallGuideUsesReviewedRareFallbackCopy(t *testing.T) {
+	guide := strings.ToLower(normalizeGuideText(strings.ReplaceAll(readInstallGuide(t), ">", "")))
+	phrase := strings.ToLower(normalizeGuideText("in ordinary status-guided use, Luna medium is a rare ambiguity fallback"))
+	if count := strings.Count(guide, phrase); count != 7 {
+		t.Fatalf("rare fallback boundary count=%d, want 7", count)
+	}
+	legacy := strings.ToLower(normalizeGuideText("Older tasks created before status guidance"))
+	if count := strings.Count(guide, legacy); count != 6 {
+		t.Fatalf("legacy qualification count=%d, want 6", count)
+	}
+	for _, want := range []string{
+		"unchanged tasks use zero model calls",
+		"straightforward status-guided changes resolve deterministically",
+		"Older tasks created before status guidance may take a one-time semantic pass",
+		"legacy-history tasks remain a separate one-time pre-guidance case",
+	} {
+		if !strings.Contains(guide, strings.ToLower(normalizeGuideText(want))) {
+			t.Fatalf("INSTALL.md missing reviewed fallback boundary %q", want)
+		}
+	}
+	for _, stale := range []string{"only as the ambiguity fallback", "only the ambiguity fallback", "Use “ambiguity fallback.”"} {
+		if strings.Contains(guide, strings.ToLower(normalizeGuideText(stale))) {
+			t.Fatalf("INSTALL.md retains stale fallback copy %q", stale)
 		}
 	}
 }

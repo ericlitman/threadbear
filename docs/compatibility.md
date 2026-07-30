@@ -12,7 +12,7 @@ v1 binaries are not Developer ID signed or notarized. The supported Codex-guided
 
 ## Codex surfaces
 
-ThreadBear depends on compatibility-detectable local Codex capabilities for complete read-only inventory; readable control-task adoption; persistent title, archive, and unarchive operations; fresh non-persisted classifier sessions with model/effort overrides; and a zero-model notice insertion into the control task. Install never creates a persistent task, retitles the adopted task, or pins it.
+ThreadBear depends on compatibility-detectable local Codex capabilities for complete read-only inventory; readable control-task adoption; persistent title, archive, and unarchive operations; fresh non-persisted classifier sessions with model/effort overrides; and a zero-model notice insertion into the control task. Classifier turns run in one private minimal-auth App Server per heartbeat, separate from the ordinary real-home App Server, and cleanup must complete before mutations or commit. Install never creates a persistent task, retitles the adopted task, or pins it.
 
 `~/.local/bin/threadbear self-test` checks the supported platform/architecture, binary, pinned Codex executable, local Codex home, state/config integrity, managed files, and LaunchAgent health. A failed installed AGENTS.md or skill check identifies whether the surface is stale, unsafe, or inaccessible and gives a condition-specific remedy without exposing its path. The updater candidate self-test is read-only, does not check installed managed files, and does not mutate titles or archives because update refreshes those files only after candidate validation. Install internal staged-candidate verification still checks managed surfaces after install stages them. Symlinks to user-owned regular managed files are followed without replacing the link; malformed, dangling, non-file, and foreign-owned targets fail conservatively. If a required surface changes or config/state uses an unsupported schema, ThreadBear fails instead of guessing.
 
@@ -24,7 +24,7 @@ The heartbeat writes titles through capability-detected `thread/name/set`, then 
 
 The `org.litman.threadbear` user LaunchAgent uses `StartInterval`, `ProcessType=Background`, and `KeepAlive=false`. The configured interval is approximate: launches missed during sleep or while a prior run is active are not replayed.
 
-The job receives explicit `HOME`, `CODEX_HOME`, sanitized `PATH`, and `LC_ALL=C` values. ThreadBear does not inherit or log the caller's full environment.
+The job receives explicit `HOME`, `CODEX_HOME`, sanitized `PATH`, and `LC_ALL=C` values. A classifier process receives a generated private `HOME`/`CODEX_HOME` containing only a regular `auth.json` copy plus files Codex creates there. ThreadBear does not inherit or log the caller's full environment, authentication paths, or temporary classifier-root names.
 
 ## Network behavior
 

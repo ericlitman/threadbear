@@ -12,8 +12,8 @@ import (
 )
 
 const (
-	CurrentStateSchemaVersion   = 2
-	CurrentCycleSchemaVersion   = 2
+	CurrentStateSchemaVersion   = 3
+	CurrentCycleSchemaVersion   = 3
 	NativeTitleCanonicalTimeout = 2 * time.Minute
 )
 
@@ -194,11 +194,75 @@ func (p PendingTitlePlan) Validate() error {
 	return nil
 }
 
+type SweepPhase string
+
+const (
+	SweepPhaseStarting      SweepPhase = "starting"
+	SweepPhaseDeterministic SweepPhase = "deterministic"
+	SweepPhaseSemantic      SweepPhase = "semantic"
+	SweepPhaseMutating      SweepPhase = "mutating"
+	SweepPhaseConverged     SweepPhase = "converged"
+	SweepPhaseRetryable     SweepPhase = "retryable"
+)
+
+type SweepProgress struct {
+	Phase                        SweepPhase `json:"phase"`
+	InventoryTasks               int        `json:"inventory_tasks"`
+	ChangedTasks                 int        `json:"changed_tasks"`
+	LatestTurnReads              int        `json:"latest_turn_reads"`
+	MechanicallyResolved         int        `json:"mechanically_resolved"`
+	LunaCandidates               int        `json:"luna_candidates"`
+	FirstPassBatchesTotal        int        `json:"first_pass_batches_total"`
+	FirstPassBatchesCompleted    int        `json:"first_pass_batches_completed"`
+	PreviousPassBatchesTotal     int        `json:"previous_pass_batches_total"`
+	PreviousPassBatchesCompleted int        `json:"previous_pass_batches_completed"`
+	ModelDurationMilliseconds    int64      `json:"model_duration_ms"`
+	MutationDurationMilliseconds int64      `json:"mutation_duration_ms"`
+	RetryCount                   int        `json:"retry_count"`
+	RateLimitCount               int        `json:"rate_limit_count"`
+	StartedAt                    time.Time  `json:"started_at"`
+	FirstProgressAt              *time.Time `json:"first_progress_at,omitempty"`
+	UpdatedAt                    time.Time  `json:"updated_at"`
+	CompletedAt                  *time.Time `json:"completed_at,omitempty"`
+}
+
+func (p SweepProgress) Validate() error {
+	switch p.Phase {
+	case SweepPhaseStarting, SweepPhaseDeterministic, SweepPhaseSemantic, SweepPhaseMutating, SweepPhaseConverged, SweepPhaseRetryable:
+	default:
+		return errors.New("sweep phase is invalid")
+	}
+	counts := []int{p.InventoryTasks, p.ChangedTasks, p.LatestTurnReads, p.MechanicallyResolved, p.LunaCandidates, p.FirstPassBatchesTotal, p.FirstPassBatchesCompleted, p.PreviousPassBatchesTotal, p.PreviousPassBatchesCompleted, p.RetryCount, p.RateLimitCount}
+	for _, count := range counts {
+		if count < 0 {
+			return errors.New("sweep counts must be nonnegative")
+		}
+	}
+	if p.FirstPassBatchesCompleted > p.FirstPassBatchesTotal || p.PreviousPassBatchesCompleted > p.PreviousPassBatchesTotal {
+		return errors.New("sweep completed batches exceed planned batches")
+	}
+	if p.ModelDurationMilliseconds < 0 || p.MutationDurationMilliseconds < 0 || p.StartedAt.IsZero() || p.UpdatedAt.IsZero() {
+		return errors.New("sweep timing is invalid")
+	}
+	if p.FirstProgressAt != nil && p.FirstProgressAt.IsZero() {
+		return errors.New("sweep first progress time is invalid")
+	}
+	completed := p.Phase == SweepPhaseConverged || p.Phase == SweepPhaseRetryable
+	if completed != (p.CompletedAt != nil) {
+		return errors.New("sweep completion time does not match phase")
+	}
+	if p.CompletedAt != nil && p.CompletedAt.IsZero() {
+		return errors.New("sweep completion time is invalid")
+	}
+	return nil
+}
+
 type State struct {
 	SchemaVersion           int                         `json:"schema_version"`
 	Generation              uint64                      `json:"generation"`
 	BootstrapComplete       bool                        `json:"bootstrap_complete"`
 	LastCompletedHeartbeat  *time.Time                  `json:"last_completed_heartbeat,omitempty"`
+	LastSweep               *SweepProgress              `json:"last_sweep,omitempty"`
 	LastUpdateCheck         *time.Time                  `json:"last_update_check,omitempty"`
 	LastAnnouncedVersion    string                      `json:"last_announced_version,omitempty"`
 	LastReconciledVersion   string                      `json:"last_reconciled_version,omitempty"`
@@ -236,6 +300,11 @@ func (s State) Validate() error {
 	}
 	if s.PendingWelcomeTaskID != "" && !canonicalIdentifier(s.PendingWelcomeTaskID) {
 		return errors.New("pending_welcome_task_id must be canonical")
+	}
+	if s.LastSweep != nil {
+		if err := s.LastSweep.Validate(); err != nil {
+			return fmt.Errorf("last sweep: %w", err)
+		}
 	}
 	for name, failure := range map[string]*Failure{"last_update_failure": s.LastUpdateFailure, "last_reconcile_failure": s.LastReconcileFailure} {
 		if failure != nil && (!stableCode(failure.Code) || failure.Timestamp.IsZero()) {
@@ -380,26 +449,30 @@ type CycleOperation struct {
 }
 
 type CycleCheckpoint struct {
-	SchemaVersion  int                             `json:"schema_version"`
-	CycleID        string                          `json:"cycle_id"`
-	BaseGeneration uint64                          `json:"base_generation"`
-	CapturedAt     time.Time                       `json:"captured_at"`
-	Inventory      map[string]CapturedTask         `json:"inventory"`
-	Results        map[string]ClassificationResult `json:"results"`
-	Diagnostics    map[string]CycleDiagnostic      `json:"diagnostics"`
-	Operations     map[string]CycleOperation       `json:"operations"`
+	SchemaVersion          int                             `json:"schema_version"`
+	CycleID                string                          `json:"cycle_id"`
+	BaseGeneration         uint64                          `json:"base_generation"`
+	CapturedAt             time.Time                       `json:"captured_at"`
+	Inventory              map[string]CapturedTask         `json:"inventory"`
+	Results                map[string]ClassificationResult `json:"results"`
+	Diagnostics            map[string]CycleDiagnostic      `json:"diagnostics"`
+	Operations             map[string]CycleOperation       `json:"operations"`
+	Progress               *SweepProgress                  `json:"progress,omitempty"`
+	PreviousRequested      map[string]string               `json:"previous_requested"`
+	ClassifierCleanupToken string                          `json:"classifier_cleanup_token,omitempty"`
 }
 
 func NewCycle(cycleID string, baseGeneration uint64, capturedAt time.Time) CycleCheckpoint {
 	return CycleCheckpoint{
-		SchemaVersion:  CurrentCycleSchemaVersion,
-		CycleID:        cycleID,
-		BaseGeneration: baseGeneration,
-		CapturedAt:     capturedAt.UTC(),
-		Inventory:      make(map[string]CapturedTask),
-		Results:        make(map[string]ClassificationResult),
-		Diagnostics:    make(map[string]CycleDiagnostic),
-		Operations:     make(map[string]CycleOperation),
+		SchemaVersion:     CurrentCycleSchemaVersion,
+		CycleID:           cycleID,
+		BaseGeneration:    baseGeneration,
+		CapturedAt:        capturedAt.UTC(),
+		Inventory:         make(map[string]CapturedTask),
+		Results:           make(map[string]ClassificationResult),
+		Diagnostics:       make(map[string]CycleDiagnostic),
+		Operations:        make(map[string]CycleOperation),
+		PreviousRequested: make(map[string]string),
 	}
 }
 
@@ -413,8 +486,22 @@ func (c CycleCheckpoint) Validate() error {
 	if strings.TrimSpace(c.CycleID) != c.CycleID {
 		return errors.New("cycle_id must not contain surrounding whitespace")
 	}
+	if strings.TrimSpace(c.ClassifierCleanupToken) != c.ClassifierCleanupToken {
+		return errors.New("classifier cleanup token must not contain surrounding whitespace")
+	}
 	if c.Inventory == nil || c.Results == nil || c.Diagnostics == nil || c.Operations == nil {
 		return errors.New("cycle collections must not be null")
+	}
+	if c.Progress != nil {
+		if err := c.Progress.Validate(); err != nil {
+			return fmt.Errorf("cycle progress: %w", err)
+		}
+	}
+	for taskID, revision := range c.PreviousRequested {
+		task, ok := c.Inventory[taskID]
+		if !ok || task.Revision != revision {
+			return fmt.Errorf("previous request %q does not match captured revision", taskID)
+		}
 	}
 	for key, task := range c.Inventory {
 		if !canonicalIdentifier(key) || task.TaskID != key || !canonicalIdentifier(task.Revision) || task.LastSubstantiveActivity.IsZero() || task.EvidenceFingerprint != "" && !canonicalIdentifier(task.EvidenceFingerprint) {

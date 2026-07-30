@@ -22,6 +22,12 @@ done
 if [ -z "$version" ] || [ -z "$control_task_id" ] || [ -z "$replica" ] || [ -z "$codex" ]; then
 	usage
 fi
+cohort=${THREADBEAR_FIRST_SWEEP_COHORT:-legacy}
+classifier_mode=${THREADBEAR_CLASSIFIER_MODE:-serial}
+benchmark=${THREADBEAR_FIRST_SWEEP_BENCHMARK:-0}
+case "$cohort" in legacy|status-guided) ;; *) echo "invalid THREADBEAR_FIRST_SWEEP_COHORT" >&2; exit 2 ;; esac
+case "$classifier_mode" in serial|bounded) ;; *) echo "invalid THREADBEAR_CLASSIFIER_MODE" >&2; exit 2 ;; esac
+case "$benchmark" in 0|1) ;; *) echo "invalid THREADBEAR_FIRST_SWEEP_BENCHMARK" >&2; exit 2 ;; esac
 printf '%s\n' "$version" | awk '/^[0-9]+\.[0-9]+\.[0-9]+$/ { ok=1 } END { exit(ok ? 0 : 1) }' || usage
 [ "$(uname -s)" = Darwin ] || { echo "replica rehearsal requires macOS" >&2; exit 1; }
 case $(uname -m) in
@@ -34,6 +40,24 @@ if [ "${replica#/}" = "$replica" ] || [ ! -d "$replica" ]; then
 fi
 if [ "${codex#/}" = "$codex" ] || [ ! -x "$codex" ]; then
 	usage
+fi
+expected_observations=
+if [ "$benchmark" = 1 ]; then
+	cohort_manifest="$replica/threadbear-cohort.json"
+	[ -f "$cohort_manifest" ] || { echo "benchmark replica requires threadbear-cohort.json" >&2; exit 1; }
+	expected_observations=$(python3 - "$cohort_manifest" "$cohort" <<'PY'
+import json, sys
+r=json.load(open(sys.argv[1], encoding='utf-8'))
+if r.get('cohort') != sys.argv[2] or r.get('preparation') not in ('legacy-pre-guidance','status-guided'):
+    raise SystemExit(1)
+if (sys.argv[2] == 'legacy' and r['preparation'] != 'legacy-pre-guidance') or (sys.argv[2] == 'status-guided' and r['preparation'] != 'status-guided'):
+    raise SystemExit(1)
+observations=int(r.get('observations',0))
+if observations < 150 or observations > 250:
+    raise SystemExit(1)
+print(observations)
+PY
+) || { echo "invalid benchmark cohort manifest" >&2; exit 1; }
 fi
 
 root=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)
@@ -64,6 +88,7 @@ if printf '%s\n' "$disabled_services" | grep -F 'org.litman.threadbear' | grep -
 fi
 
 temporary_root=$(mktemp -d "${TMPDIR:-/tmp}/threadbear-replica-rehearsal.XXXXXX")
+aggregate_file="$temporary_root/first-sweep-${cohort}-${classifier_mode}.json"
 # Reuse the host module cache: with HOME redirected, Go would otherwise download
 # every dependency into the temporary home as read-only files that rm cannot remove.
 export GOMODCACHE="$(go env GOMODCACHE)"
@@ -74,18 +99,30 @@ export GOCACHE="$temporary_root/go-cache"
 export PATH="$HOME/.local/bin:$PATH"
 installed=$HOME/.local/bin/threadbear
 
+restore_classifier_mode() {
+	if [ -z "${original_classifier_mode+x}" ]; then
+		return
+	fi
+	if [ -n "$original_classifier_mode" ]; then
+		"$1" setenv THREADBEAR_CLASSIFIER_MODE "$original_classifier_mode" >/dev/null 2>&1 || true
+	else
+		"$1" unsetenv THREADBEAR_CLASSIFIER_MODE >/dev/null 2>&1 || true
+	fi
+}
+
 cleanup() {
 	chmod -R u+w "$temporary_root" 2>/dev/null || true
-	if [ -z "${rehearsal_ok:-}" ] && [ -n "${THREADBEAR_REHEARSAL_DIAGNOSTICS:-}" ]; then
+	if [ -n "${THREADBEAR_REHEARSAL_DIAGNOSTICS:-}" ] && [ -f "${aggregate_file:-}" ]; then
 		if mkdir -p "$THREADBEAR_REHEARSAL_DIAGNOSTICS" 2>/dev/null; then
-			cp "$temporary_root"/*.json "$temporary_root"/*.stderr "$temporary_root"/replica-counts "$THREADBEAR_REHEARSAL_DIAGNOSTICS/" 2>/dev/null || true
-			echo "rehearsal diagnostics preserved (may contain task data; delete after review): $THREADBEAR_REHEARSAL_DIAGNOSTICS" >&2
+			cp "$aggregate_file" "$THREADBEAR_REHEARSAL_DIAGNOSTICS/" 2>/dev/null || true
+			echo "aggregate rehearsal diagnostics preserved: $THREADBEAR_REHEARSAL_DIAGNOSTICS" >&2
 		fi
 	fi
 	if [ -x "$installed" ]; then
 		"$installed" uninstall --noninteractive --confirm >/dev/null 2>&1 || true
 	fi
 	/bin/launchctl bootout "$service" >/dev/null 2>&1 || true
+	restore_classifier_mode /bin/launchctl
 	/bin/launchctl enable "$service" >/dev/null 2>&1 || true
 	rm -rf "$temporary_root"
 }
@@ -246,34 +283,100 @@ result = json.load(open(sys.argv[1], encoding="utf-8"))
 print("yes" if result.get("last_completed_heartbeat") is None else "no")
 PY
 )
+first_progress_seconds=0
+total_convergence_seconds=0
 if [ "$heartbeat_required" = yes ]; then
-	"$installed" heartbeat --json >"$temporary_root/heartbeat.json" 2>"$temporary_root/heartbeat.stderr"
+	original_classifier_mode=$(/bin/launchctl getenv THREADBEAR_CLASSIFIER_MODE 2>/dev/null || true)
+	/bin/launchctl setenv THREADBEAR_CLASSIFIER_MODE "$classifier_mode"
+	started_at=$(date +%s)
+	/bin/launchctl kickstart "$service"
+	observed=no
+	attempt=0
+	while [ "$attempt" -lt 10 ]; do
+		"$installed" status --json >"$temporary_root/status-progress.json" 2>"$temporary_root/status-progress.stderr"
+		if /bin/launchctl print "$service" | grep -Eq 'state = running|pid = [0-9]+' || grep -Eq '"first_sweep":|"last_completed_heartbeat":' "$temporary_root/status-progress.json"; then
+			observed=yes
+			break
+		fi
+		attempt=$((attempt + 1))
+		sleep 1
+	done
+	[ "$observed" = yes ] || { echo "background first sweep did not start within 10 seconds" >&2; exit 1; }
+	first_progress_observed=no
+	remaining=1800
+	while [ "$remaining" -gt 0 ]; do
+		"$installed" status --json >"$temporary_root/status-after.json" 2>"$temporary_root/status-after.stderr"
+		if [ "$first_progress_observed" = no ] && grep -q '"first_progress_at":' "$temporary_root/status-after.json"; then
+			first_progress_observed=yes
+		fi
+		if python3 - "$temporary_root/status-after.json" <<'PY'
+import json, sys
+r=json.load(open(sys.argv[1], encoding='utf-8'))
+p=r.get('first_sweep') or {}
+raise SystemExit(0 if p.get('phase') in ('converged','retryable') else 1)
+PY
+		then break; fi
+		remaining=$((remaining - 1))
+		sleep 1
+	done
+	[ "$remaining" -gt 0 ] || { echo "background first sweep did not converge within 30 minutes" >&2; exit 1; }
+	[ "$first_progress_observed" = yes ] || { echo "deterministic first progress was not persisted" >&2; exit 1; }
+	set -- $(python3 - "$temporary_root/status-after.json" <<'PY'
+import datetime, json, sys
+p=(json.load(open(sys.argv[1], encoding='utf-8')).get('first_sweep') or {})
+def stamp(name): return datetime.datetime.fromisoformat(p[name].replace('Z','+00:00'))
+print("%.3f %.3f" % ((stamp('first_progress_at')-stamp('started_at')).total_seconds(), (stamp('completed_at')-stamp('started_at')).total_seconds()))
+PY
+)
+	first_progress_seconds=$1
+	total_convergence_seconds=$2
 else
-	: >"$temporary_root/heartbeat.json"
+	cp "$temporary_root/status-before.json" "$temporary_root/status-after.json"
 fi
-"$installed" status --json >"$temporary_root/status-after.json" 2>"$temporary_root/status-after.stderr"
-heartbeat_counts=$(python3 - "$temporary_root/heartbeat.json" <<'PY'
-import json
-import sys
-text = open(sys.argv[1], encoding="utf-8").read().strip()
-if not text:
-    print("changed=0 archived=0 retries=0")
-else:
-    result = json.loads(text)
-    if result.get("error_code") not in (None, "", "partial_failure"):
-        raise SystemExit(1)
-    print("changed=%d archived=%d retries=%d" % (len(result.get("changed", [])), len(result.get("archived_ids", [])), len(result.get("retries", []))))
+heartbeat_counts=$(python3 - "$temporary_root/status-after.json" <<'PY'
+import json, sys
+r=json.load(open(sys.argv[1], encoding='utf-8'))
+p=r.get('first_sweep') or {}
+print("inventory=%d deterministic=%d luna=%d first_batches=%d previous_batches=%d retries=%d" % (p.get('inventory_tasks',0), p.get('mechanically_resolved',0), p.get('luna_candidates',0), p.get('first_pass_batches_total',0), p.get('previous_pass_batches_total',0), p.get('retry_count',0)))
 PY
 )
 status_counts=$(python3 - "$temporary_root/status-after.json" <<'PY'
-import json
-import sys
-result = json.load(open(sys.argv[1], encoding="utf-8"))
-if result.get("last_completed_heartbeat") is None or result.get("last_reconcile_failure") is not None:
+import json, sys
+r=json.load(open(sys.argv[1], encoding='utf-8'))
+p=r.get('first_sweep') or {}
+if p.get('phase') not in ('converged','retryable'):
     raise SystemExit(1)
-print("pending_retries=%d" % result.get("pending_retries", 0))
+print("phase=%s pending_retries=%d model_ms=%d mutation_ms=%d" % (p.get('phase'), r.get('pending_retries',0), p.get('model_duration_ms',0), p.get('mutation_duration_ms',0)))
 PY
 )
+helper_process_proof=not_run
+cancellation_recovery=not_run
+row_salvage=not_run
+rate_limit_gate=not_run
+if [ "$benchmark" = 1 ]; then
+	observations=$(python3 - "$temporary_root/status-after.json" <<'PY'
+import json, sys
+p=(json.load(open(sys.argv[1], encoding='utf-8')).get('first_sweep') or {})
+print(p.get('changed_tasks', p.get('latest_turn_reads', 0)))
+PY
+)
+	[ "$observations" -eq "$expected_observations" ] || { echo "benchmark observations do not match cohort manifest" >&2; exit 1; }
+	go -C "$root" test ./internal/status -run 'TestClassifier(CancellationStopsSchedulingNewBatches|ContextSplittingAndBatchFailureIsolation|SalvagesValidRowsAndDiagnosesTheRest)' -count=1 >/dev/null
+	row_salvage=passed
+	rate_limit_gate=passed
+	go -C "$root" test ./internal/watch -run 'Test(ClassifierBatchCheckpointRecoveryRepeatsOnlyUnpersistedWork|ClassifierSessionOpensOnceForMultipleBatches|ClassifierCleanupFailureBlocksMutationAndRecovers|ClassifierCancellationCleansSessionBeforeMutation)' -count=1 >/dev/null
+	cancellation_recovery=passed
+	THREADBEAR_LIVE_CODEX=1 THREADBEAR_LIVE_AUTH_FILE="$CODEX_HOME/auth.json" THREADBEAR_LIVE_CODEX_BIN="$codex" \
+		go -C "$root" test -tags=integration ./internal/codex/appserver -run TestLiveEphemeralClassifierStartsNoConfiguredHelpers -count=1 -timeout 10m >/dev/null
+	helper_process_proof=passed
+fi
+python3 - "$temporary_root/status-after.json" "$aggregate_file" "$cohort" "$classifier_mode" "$first_progress_seconds" "$total_convergence_seconds" "$helper_process_proof" "$cancellation_recovery" "$row_salvage" "$rate_limit_gate" <<'PY'
+import json, sys
+r=json.load(open(sys.argv[1], encoding='utf-8'))
+p=r.get('first_sweep') or {}
+out={"cohort":sys.argv[3],"classifier_mode":sys.argv[4],"inventory_tasks":p.get("inventory_tasks",0),"observations":p.get("changed_tasks",p.get("latest_turn_reads",0)),"mechanically_resolved":p.get("mechanically_resolved",0),"luna_candidates":p.get("luna_candidates",0),"first_pass_batches":p.get("first_pass_batches_total",0),"previous_pass_batches":p.get("previous_pass_batches_total",0),"first_progress_seconds":float(sys.argv[5]),"total_convergence_seconds":float(sys.argv[6]),"model_duration_ms":p.get("model_duration_ms",0),"mutation_duration_ms":p.get("mutation_duration_ms",0),"retry_count":p.get("retry_count",0),"rate_limit_count":p.get("rate_limit_count",0),"phase":p.get("phase",""),"helper_process_proof":sys.argv[7],"cancellation_recovery":sys.argv[8],"row_salvage":sys.argv[9],"rate_limit_gate":sys.argv[10]}
+json.dump(out, open(sys.argv[2],'w',encoding='utf-8'), sort_keys=True)
+PY
 
 "$installed" uninstall --noninteractive --confirm --json >"$temporary_root/uninstall.json" 2>"$temporary_root/uninstall.stderr"
 python3 - "$temporary_root/uninstall.json" <<'PY'
@@ -298,5 +401,5 @@ fi
 codex_version=$("$codex" --version 2>/dev/null | sed -n '1p')
 replica_counts=$(sed -n '1p' "$temporary_root/replica-counts")
 rehearsal_ok=1
-printf 'replica rehearsal passed: commit=%s version=%s architecture=%s macos=%s codex=%s %s install=ok self_test=ok launchagent=ok heartbeat_%s %s %s uninstall=ok isolation=temporary_copy\n' \
-	"$source_commit" "$version" "$(uname -m)" "$(sw_vers -productVersion)" "$codex_version" "$replica_counts" "$heartbeat_required" "$heartbeat_counts" "$status_counts"
+printf 'replica rehearsal passed: commit=%s version=%s architecture=%s macos=%s codex=%s %s install=ok self_test=ok launchagent=ok heartbeat_%s cohort=%s classifier_mode=%s first_progress=%ss convergence=%ss %s %s uninstall=ok isolation=temporary_copy\n' \
+	"$source_commit" "$version" "$(uname -m)" "$(sw_vers -productVersion)" "$codex_version" "$replica_counts" "$heartbeat_required" "$cohort" "$classifier_mode" "$first_progress_seconds" "$total_convergence_seconds" "$heartbeat_counts" "$status_counts"

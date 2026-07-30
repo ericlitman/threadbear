@@ -114,6 +114,13 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 	return 0
 }
 
+func classifierParallelism() int {
+	if os.Getenv("THREADBEAR_CLASSIFIER_MODE") == "bounded" {
+		return 2
+	}
+	return 1
+}
+
 func newOperatorService(installedVersion string, stdout, stderr io.Writer, format output.Format, request app.Request) (*app.Service, func(), error) {
 	home, err := os.UserHomeDir()
 	if err != nil {
@@ -142,15 +149,11 @@ func newOperatorService(installedVersion string, stdout, stderr io.Writer, forma
 	}
 	managed := managedAgents{surfaces: install.ManagedSurfaceSet{AgentsPath: paths.Agents, SkillPath: paths.Skill}}
 	runner, err := watch.New(watch.Dependencies{
-		Store: store, Inventory: inventory, AppServer: appServerFactory{runtime: appServers}, Clock: clock, ManagedSurfaces: managed,
+		Store: store, Inventory: inventory, AppServer: appServerFactory{runtime: appServers}, ClassifierSessions: appserver.ClassifierSessionFactory{Process: appServers.process, OperatorCodexHome: codexHome, RootParent: paths.StateDirectory}, Clock: clock, ManagedSurfaces: managed,
 		InstalledVersion: installedVersion, NewCycleID: newCycleID, UpdateChecker: heartbeatUpdateChecker{checker: updatepkg.Checker{}},
 		Updater: autoUpdater, ReleaseNotes: updatepkg.ReleaseNotes,
-		NewClassifier: func(client watch.AppServer, cfg config.Config) (watch.Classifier, error) {
-			runner, ok := client.(statusresolver.EphemeralRunner)
-			if !ok {
-				return nil, errors.New("App Server does not support ephemeral classification")
-			}
-			return statusresolver.NewClassifier(runner, statusresolver.ClassifierConfig{Model: cfg.ClassifierModel, Effort: string(cfg.ClassifierEffort), ContextBudgetBytes: cfg.ClassifierContextBudgetBytes})
+		NewClassifier: func(runner statusresolver.EphemeralRunner, cfg config.Config) (watch.Classifier, error) {
+			return statusresolver.NewClassifier(runner, statusresolver.ClassifierConfig{Model: cfg.ClassifierModel, Effort: string(cfg.ClassifierEffort), ContextBudgetBytes: cfg.ClassifierContextBudgetBytes, MaxParallelBatches: classifierParallelism()})
 		},
 	})
 	if err != nil {

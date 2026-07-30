@@ -5,8 +5,11 @@ package appserver
 import (
 	"context"
 	"database/sql"
+	"errors"
+	"fmt"
 	_ "modernc.org/sqlite"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"reflect"
 	"strings"
@@ -23,7 +26,7 @@ func TestLiveEphemeralDoesNotPersist(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	result, err := client.RunEphemeral(ctx, EphemeralRequest{Model: liveValue("THREADBEAR_LIVE_MODEL", "gpt-5.6-luna"), Effort: liveValue("THREADBEAR_LIVE_EFFORT", "medium"), Input: "Return the supplied JSON result without tools.", OutputSchema: map[string]any{"type": "object", "properties": map[string]any{"ok": map[string]any{"type": "boolean"}}, "required": []string{"ok"}, "additionalProperties": false}})
+	result, err := client.RunEphemeral(ctx, EphemeralRequest{Model: liveValue("THREADBEAR_LIVE_MODEL", "gpt-5.6-luna"), Effort: liveValue("THREADBEAR_LIVE_EFFORT", "medium"), Input: "Return the supplied JSON result without tools.", OutputSchema: map[string]any{"type": "object", "properties": map[string]any{"ok": map[string]any{"type": "boolean"}}, "required": []string{"ok"}, "additionalProperties": false}, ToolConfig: ClassifierToolConfig(), PermissionProfile: ":read-only"})
 	if err != nil {
 		client.Close()
 		t.Fatal(err)
@@ -33,7 +36,7 @@ func TestLiveEphemeralDoesNotPersist(t *testing.T) {
 	}
 	output := strings.TrimSpace(evidenceFromTurn(result.Turn).AgentMessage)
 	restriction := result.ToolRestriction
-	if result.ThreadID == "" || output == "" || !restriction.EnvironmentsDisabled || !restriction.DynamicToolsDisabled || !restriction.ApprovalsDisabled || !restriction.ReadOnlySandbox || !restriction.OutputConstrained || restriction.ConfigOverride || restriction.PermissionProfile || strings.Join(restriction.UnprovenToolSources, ",") != "core,mcp,extension,hosted" {
+	if result.ThreadID == "" || output == "" || !restriction.EnvironmentsDisabled || !restriction.DynamicToolsDisabled || !restriction.ApprovalsDisabled || restriction.ReadOnlySandbox || !restriction.OutputConstrained || !restriction.ConfigOverride || !restriction.PermissionProfile || len(restriction.UnprovenToolSources) != 0 {
 		t.Fatalf("result=%+v output=%q", result, output)
 	}
 	after := liveThreadIDs(t, home)
@@ -41,6 +44,74 @@ func TestLiveEphemeralDoesNotPersist(t *testing.T) {
 		t.Fatalf("ephemeral persisted: before=%v after=%v", before, after)
 	}
 }
+func TestLiveEphemeralClassifierStartsNoConfiguredHelpers(t *testing.T) {
+	process, _, home := liveHarness(t, true)
+	markers := []string{filepath.Join(home, "openknowledge-started"), filepath.Join(home, "node-repl-started")}
+	helpers := make([]string, len(markers))
+	for index, marker := range markers {
+		helper := filepath.Join(home, fmt.Sprintf("helper-%d.sh", index))
+		script := "#!/bin/sh\nprintf started > " + marker + "\nsleep 30\n"
+		if err := os.WriteFile(helper, []byte(script), 0700); err != nil {
+			t.Fatal(err)
+		}
+		helpers[index] = helper
+	}
+	config := fmt.Sprintf("[mcp_servers.openknowledge_canary]\ncommand = %q\n[mcp_servers.node_repl_canary]\ncommand = %q\n[features]\nplugins = true\nremote_plugin = true\napps = true\ncomputer_use = true\nshell_tool = true\nunified_exec = true\ncode_mode_host = true\ntool_suggest = true\n", helpers[0], helpers[1])
+	if err := os.WriteFile(filepath.Join(home, "config.toml"), []byte(config), 0600); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+	factory := ClassifierSessionFactory{
+		Process:           func() (ProcessSpec, error) { return process, nil },
+		OperatorCodexHome: home,
+		RootParent:        t.TempDir(),
+	}
+	opened, err := factory.Open(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	session, ok := opened.(*ClassifierSession)
+	if !ok {
+		t.Fatalf("classifier session type=%T", opened)
+	}
+	isolatedRoot := session.CleanupToken()
+	stop := make(chan struct{})
+	descendants := make(chan []string, 1)
+	go observeDescendantCommands(session.client.command.Process.Pid, stop, descendants)
+	result, err := session.RunEphemeral(ctx, EphemeralRequest{Model: liveValue("THREADBEAR_LIVE_MODEL", "gpt-5.6-luna"), Effort: liveValue("THREADBEAR_LIVE_EFFORT", "medium"), Input: "Return JSON without using tools.", OutputSchema: map[string]any{"type": "object", "properties": map[string]any{"ok": map[string]any{"type": "boolean"}}, "required": []string{"ok"}, "additionalProperties": false}, ToolConfig: ClassifierToolConfig(), PermissionProfile: ":read-only"})
+	close(stop)
+	commands := <-descendants
+	if err != nil {
+		session.Close()
+		t.Fatal(err)
+	}
+	if err := session.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(isolatedRoot); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("isolated classifier home remains: %v", err)
+	}
+	if !validToolRestrictionsForCanary(result.ToolRestriction) {
+		t.Fatalf("restriction=%+v", result.ToolRestriction)
+	}
+	for _, command := range commands {
+		lower := strings.ToLower(command)
+		if strings.Contains(lower, "node") || strings.Contains(lower, "repl") || strings.Contains(lower, "mcp") || strings.Contains(lower, "helper-") {
+			t.Fatalf("classifier started helper process %q", command)
+		}
+	}
+	for _, marker := range markers {
+		if _, err := os.Stat(marker); !errors.Is(err, os.ErrNotExist) {
+			t.Fatalf("configured helper started at %s: %v", filepath.Base(marker), err)
+		}
+	}
+}
+
+func validToolRestrictionsForCanary(restriction ToolRestriction) bool {
+	return restriction.ConfigOverride && restriction.PermissionProfile && restriction.EnvironmentsDisabled && restriction.DynamicToolsDisabled && restriction.ApprovalsDisabled && restriction.OutputConstrained && !restriction.ReadOnlySandbox && len(restriction.UnprovenToolSources) == 0
+}
+
 func TestLiveNoticeDoesNotStartTurn(t *testing.T) {
 	process, caps, home := liveHarness(t, false)
 	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
@@ -105,6 +176,52 @@ func TestLiveNoticeDoesNotStartTurn(t *testing.T) {
 		}
 	}
 }
+func observeDescendantCommands(rootPID int, stop <-chan struct{}, result chan<- []string) {
+	observed := make(map[string]struct{})
+	ticker := time.NewTicker(10 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		output, err := exec.Command("ps", "-axo", "pid=,ppid=,comm=").Output()
+		if err == nil {
+			type process struct{ pid, ppid, command string }
+			processes := make([]process, 0)
+			for _, line := range strings.Split(string(output), "\n") {
+				fields := strings.Fields(line)
+				if len(fields) < 3 {
+					continue
+				}
+				processes = append(processes, process{pid: fields[0], ppid: fields[1], command: strings.Join(fields[2:], " ")})
+			}
+			descendants := map[string]bool{fmt.Sprint(rootPID): true}
+			changed := true
+			for changed {
+				changed = false
+				for _, process := range processes {
+					if descendants[process.ppid] && !descendants[process.pid] {
+						descendants[process.pid] = true
+						changed = true
+					}
+				}
+			}
+			for _, process := range processes {
+				if process.pid != fmt.Sprint(rootPID) && descendants[process.pid] {
+					observed[process.command] = struct{}{}
+				}
+			}
+		}
+		select {
+		case <-stop:
+			commands := make([]string, 0, len(observed))
+			for command := range observed {
+				commands = append(commands, command)
+			}
+			result <- commands
+			return
+		case <-ticker.C:
+		}
+	}
+}
+
 func liveHarness(t *testing.T, requireAuth bool) (ProcessSpec, Capabilities, string) {
 	t.Helper()
 	if os.Getenv("THREADBEAR_LIVE_CODEX") != "1" {

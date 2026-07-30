@@ -575,10 +575,23 @@ full review with “Everything is ready for your review.”
 > already open keep their current reply guidance. This lets ThreadBear use
 > lightweight checks, with a careful second look when a task is unclear.
 >
+> Unchanged tasks use zero model calls. Straightforward status-guided changes
+> resolve deterministically from structured runtime evidence and ThreadBear
+> footers; in ordinary status-guided use, Luna medium is a rare ambiguity
+> fallback. Five minutes is the normal check-in cadence, not how long a check is
+> expected to run.
+>
+> I found N existing tasks. Older tasks created before status guidance may need
+> a one-time background pass, while you can continue immediately after
+> installation health and the background start are confirmed.
+>
 > It won’t ask for administrator access or Full Disk Access. Nothing has been
 > installed and no settings have changed.
 >
 > Ready for me to install ThreadBear with these choices?
+
+Replace N with the aggregate discovered inventory count. Do not expose task IDs,
+titles, flags, paths, or prose.
 
 For `retained` or `stayed_home`, use a dedicated refresh review rather than
 editing the first-install example sentence by sentence. This example shows
@@ -597,6 +610,13 @@ editing the first-install example sentence by sentence. This example shows
 > replies get a one-line ThreadBear footer such as `🧵🐻 complete`. Tasks
 > already open keep their current reply guidance. This lets ThreadBear use
 > lightweight checks, with a careful second look when a task is unclear.
+>
+> Unchanged tasks use zero model calls. Straightforward status-guided changes
+> resolve deterministically from structured runtime evidence and ThreadBear
+> footers; in ordinary status-guided use, Luna medium is a rare ambiguity
+> fallback. Older tasks created before status guidance remain a separate
+> one-time semantic case. The configured check-in interval is the normal
+> cadence, not an expected per-run duration.
 >
 > Its existing home, title, and pin will stay exactly as they are. This task
 > won’t become the new home and won’t be renamed or pinned. Nothing has been
@@ -666,10 +686,13 @@ After first-install approval, say exactly: “Lovely. I’m installing ThreadBea
 now, then I’ll run its health checks and report back here.” For a reinstall,
 replace only “installing” with “refreshing.” Do not paraphrase this message or
 add claims about checks passing, installation stages, task-home setup, or the
-first tidy-up. That opening progress message is the only conversation message
-until every verification step in section 7 finishes. Do not send an interim
-message saying ThreadBear is installed, complete, successful, or that any setup
-check has passed.
+first tidy-up. That opening progress message remains the only conversation message until the
+installer and installation-health checks finish. Historical first-sweep
+convergence is separate: after its bounded background start is confirmed, close
+successfully without waiting for Luna or mutations to finish. If a foreground
+recovery step ever exceeds 60 seconds, send a concise update naming the
+completed phase, remaining phase, and whether the person must act; never expose
+per-task evidence.
 
 In the same shell call as the confirmed curl, reconstruct the exact approved
 assignment-and-argument stanza; never rely on variables or positional arguments
@@ -726,23 +749,86 @@ Run:
 launchctl print "gui/$(id -u)/org.litman.threadbear"
 ```
 
-Inspect `last_completed_heartbeat` in `status --json`. If it is `null`, run exactly one explicit heartbeat now, after the installer has returned and released its lock:
+Inspect `last_completed_heartbeat` in `status --json`. If it is absent or null,
+start exactly one background heartbeat through the already enabled LaunchAgent:
 
 ```sh
-~/.local/bin/threadbear heartbeat
-~/.local/bin/threadbear status --json
+SERVICE="gui/$(id -u)/org.litman.threadbear"
+launchctl kickstart "$SERVICE"
+STARTED=no
+ATTEMPT=0
+while [ "$ATTEMPT" -lt 10 ]; do
+  STATUS=$(~/.local/bin/threadbear status --json)
+  JOB=$(launchctl print "$SERVICE")
+  if printf '%s\n' "$JOB" | grep -Eq 'state = running|pid = [0-9]+' || \
+     printf '%s\n' "$STATUS" | grep -Eq '"first_sweep":|"last_completed_heartbeat":'; then
+    STARTED=yes
+    break
+  fi
+  ATTEMPT=$((ATTEMPT + 1))
+  sleep 1
+done
+[ "$STARTED" = yes ]
 ```
 
-That heartbeat is mandatory when the field is null, not optional. Do not request a second user approval beyond normal command-tool approval. Do not run more than one explicit heartbeat during installation verification. If it fails, report and troubleshoot the failure in this same task.
+Use `launchctl kickstart` exactly as shown, without `-k`; do not stop or restart
+an in-flight heartbeat. Poll once per second for no more than ten seconds. A
+successful background start is observed only when the job reports a running
+state or PID, aggregate `first_sweep` progress appears, or a heartbeat completes.
+A loaded job alone is not enough. Do not run `threadbear heartbeat` in the
+foreground and do not wait for semantic classification or mutations to finish.
 
-The heartbeat performs managed title writes directly through the pinned App Server. Each title mutation is revision/title revalidated, journaled as applying and applied, verified through a fresh inventory read, journaled as verified, and only then followed by any same-task archive. Do not run a separate title worker, helper manifest, native report, child model, or replay step.
+The successful installation close requires four independent facts: the installer
+returned successfully, version/self-test/status passed, the LaunchAgent is
+healthy, and the kickstarted heartbeat start was observed within ten seconds.
+If the start is not observed in that bound, use the post-install failure close.
+Do not wait for the next five-minute schedule and do not claim background
+progress.
 
-Feature-detect and fail closed when the required App Server methods are absent. Do not use private IPC, cache edits, UI automation, a daemon, restart, or model-authored title semantics. The persistent control task remains reserved for help, lifecycle work, notices, decisions, and exceptional recovery.
+Read aggregate `first_sweep` from `status --json`. Report installation health
+separately from convergence: the sweep may be running, converged, or retryable.
+For a running sweep, say the person can continue immediately and give a measured
+or qualified expectation from aggregate inventory, Luna candidates, batch
+counts, and progress only. Five minutes is the normal heartbeat cadence, not an
+expected per-run duration. Never expose task prose, IDs, titles, flags, paths,
+or classifier payloads.
 
-Capture the heartbeat result. When it emits JSON, use the counts of `changed`,
-`archived_ids`, and `retries`; when it emits no record because there was no
-work, treat those counts as zero. After the heartbeat, rerun `status --json` and
-inspect `pending_retries`.
+Every successful close must preserve this exact operating boundary in natural
+prose: unchanged tasks use zero model calls; straightforward status-guided
+changes resolve deterministically from structured runtime evidence and
+ThreadBear footers; in ordinary status-guided use, Luna medium is a rare
+ambiguity fallback. Older legacy-history tasks remain a separate one-time
+pre-guidance case and never qualify for the word “rare.”
+
+When the first sweep is still running, use the applicable home/archive result
+template below but replace its tidy-up-count sentence with this complete
+background outcome:
+
+> ThreadBear’s installation and quiet background check are healthy. Its first
+> sweep is continuing in the background, and you can continue immediately.
+> Older tasks created before status guidance may take a one-time semantic pass;
+> ordinary unchanged checks use zero model calls, and straightforward
+> status-guided changes resolve deterministically. In ordinary status-guided
+> use, Luna medium is a rare ambiguity fallback.
+
+When the sweep has already converged, render the aggregate title/archive/retry
+outcomes below. When it is retryable, keep the healthy-install sentence, say
+plainly that ThreadBear will keep working on the aggregate retry count, and do
+not claim convergence.
+
+The background heartbeat performs managed title writes directly through the
+pinned App Server. Each title mutation is revision/title revalidated, journaled as applying and applied, verified through a fresh inventory read, journaled as
+verified, and only then followed by any same-task archive. Do not run a separate
+title worker, helper manifest, native report, child model, or replay step.
+
+Feature-detect and fail closed when required App Server methods or the tool-free
+classifier boundary are absent. The ordinary App Server stays on the real Codex
+home for evidence and mutations; unresolved work uses one private minimal-auth
+classifier App Server per heartbeat, shared across all capacity batches and
+removed before mutations or commit. Per-turn restrictions are defense in depth,
+not the isolation boundary. Do not use private IPC, cache edits, UI automation, a
+daemon, restart, or model-authored title semantics. The persistent control task remains reserved for help, lifecycle work, notices, decisions, and exceptional
+recovery.
 
 For a first adoption, unreadable replacement, or exact repair, choose exactly
 one of the following complete variants from the frozen archive setting. Every
@@ -765,6 +851,10 @@ When `archive=true`, use this heading and result:
 > check is healthy. This task is now ThreadBear’s home, named `🧵🐻 ThreadBear
 > 🐻🧵` and pinned. In the first tidy-up, ThreadBear updated X task titles, no
 > completed tasks were ready for the archive, and nothing needs another try.
+> Unchanged tasks use zero model calls, and straightforward status-guided
+> changes resolve deterministically. In ordinary status-guided use, Luna medium
+> is a rare ambiguity fallback. Older tasks created before status guidance
+> remain a separate one-time semantic case.
 
 When `archive=false`, use this heading and result:
 
@@ -774,6 +864,10 @@ When `archive=false`, use this heading and result:
 > check is healthy. This task is now ThreadBear’s home, named `🧵🐻 ThreadBear
 > 🐻🧵` and pinned. Completed tasks stayed visible while ThreadBear updated X
 > task titles in the first tidy-up, and nothing needs another try.
+> Unchanged tasks use zero model calls, and straightforward status-guided
+> changes resolve deterministically. In ordinary status-guided use, Luna medium
+> is a rare ambiguity fallback. Older tasks created before status guidance
+> remain a separate one-time semantic case.
 
 The pinned sentence in those first-install variants assumes supported pinning.
 When automatic pinning is unavailable, replace that entire sentence with this
@@ -789,6 +883,10 @@ refresh heading and result because no new welcome note was posted:
 > Everything passed. ThreadBear VERSION is refreshed, and its quiet background
 > check is healthy. ThreadBear remains based in this task. Title maintenance
 > stayed off, completed tasks stayed visible, and nothing needs another try.
+> Unchanged tasks use zero model calls, and straightforward status-guided
+> changes resolve deterministically. In ordinary status-guided use, Luna medium
+> is a rare ambiguity fallback. Older tasks created before status guidance
+> remain a separate one-time semantic case.
 
 The example above shows `retained`. For `retained`, keep exactly the one sentence
 “ThreadBear remains based in this task.” For `stayed_home`, replace that entire
