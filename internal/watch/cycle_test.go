@@ -2235,7 +2235,7 @@ func TestDisabledRenameCancelsMigratedRefreshAndAllowsArchive(t *testing.T) {
 	}
 }
 
-func TestDisabledRenameRetainsOnlySetterVisibleInflightPlanForReport(t *testing.T) {
+func TestDisabledRenameSettlesSetterVisiblePlanWithoutNativeReport(t *testing.T) {
 	now := time.Date(2026, 7, 31, 16, 30, 0, 0, time.UTC)
 	expected := codex.Task{TaskID: "inflight", Revision: "1", Title: "Before", Source: "vscode"}
 	current := codex.Task{TaskID: "inflight", Revision: "2", Title: "✅ After", Source: "vscode"}
@@ -2248,27 +2248,51 @@ func TestDisabledRenameRetainsOnlySetterVisibleInflightPlanForReport(t *testing.
 	runner, deps := testRunner(t, now, []codex.Task{current}, committed)
 	cfg := config.Default("control")
 	cfg.RenameEnabled = false
+	cfg.ArchiveEnabled = false
 	deps.store.configOverride = &cfg
 	deps.client.latest[current.TaskID] = completedEvidence(now, "done", "done\n🧵🐻 complete")
 
 	runHeartbeat(t, runner)
-	after, _ := deps.store.store.LoadState()
-	if after.PendingTitlePlans[current.TaskID].OperationID != plan.OperationID || len(deps.client.titles) != 0 {
-		t.Fatalf("inflight plan was not retained: state=%+v titles=%v", after, deps.client.titles)
+	settled, _ := deps.store.store.LoadState()
+	settledRecord := settled.Tasks[current.TaskID]
+	if len(settled.PendingTitlePlans) != 0 || settledRecord.CapturedRevision != current.Revision || settledRecord.CapturedTitle != current.Title || settledRecord.LastAppliedTitle != current.Title || len(deps.client.titles) != 0 {
+		t.Fatalf("state=%+v titles=%v", settled, deps.client.titles)
+	}
+	archiveCfg := cfg
+	archiveCfg.ArchiveEnabled = true
+	settled.Tasks[current.TaskID] = record(current, state.StatusComplete, now.Add(-15*24*time.Hour))
+	if got := archiveDueTasks(codex.Inventory{Tasks: []codex.Task{current}}, settled, archiveCfg, now); len(got) != 1 || got[0].TaskID != current.TaskID {
+		t.Fatalf("archive remains blocked after report: %+v", got)
+	}
+}
+
+func TestDisabledRenameHandoffStagesNoNativePlans(t *testing.T) {
+	now := time.Date(2026, 7, 31, 17, 0, 0, 0, time.UTC)
+	task := codex.Task{TaskID: "task", Revision: "1", Title: "Before", Source: "vscode"}
+	committed := state.New()
+	committed.BootstrapComplete = true
+	committed.LastUpdateCheck = timePointer(now)
+	committed.Tasks[task.TaskID] = record(task, state.StatusComplete, now)
+	committed.PendingTitlePlans[task.TaskID] = migratedPlan(task, "After")
+	runner, deps := testRunner(t, now, []codex.Task{task}, committed)
+	cfg := config.Default("control")
+	cfg.RenameEnabled = false
+	deps.store.configOverride = &cfg
+	checkpoint := state.NewCycle("cycle", committed.Generation, now)
+	checkpoint.Inventory[task.TaskID] = state.CapturedTask{TaskID: task.TaskID, Revision: task.Revision, Title: task.Title, LastSubstantiveActivity: now}
+	checkpoint.Results[task.TaskID] = state.ClassificationResult{TaskID: task.TaskID, Revision: task.Revision, Status: state.StatusComplete, Provenance: state.ProvenanceFooter, DurableSubject: "Subject"}
+	checkpoint.Operations["title:"+task.TaskID] = state.CycleOperation{
+		Kind: state.OperationTitle, Stage: state.StagePrepared, TaskID: task.TaskID,
+		ExpectedRevision: task.Revision, ExpectedTitle: task.Title, DesiredTitle: "After", DurableSubject: "Subject",
+	}
+	if err := deps.store.store.SaveCycle(checkpoint); err != nil {
+		t.Fatal(err)
 	}
 
-	payload := `{"reports":[{"operation_id":"` + plan.OperationID + `","outcome":"succeeded"}]}`
-	result, err := (titleplan.Service{
-		Store: deps.store, Inventory: deps.index, Input: bytes.NewBufferString(payload),
-		ThreadID: func() string { return "control" }, Now: func() time.Time { return now },
-	}).Dispatch(context.Background(), titleplan.Request{Report: true})
-	if err != nil || result.(output.TitlePlanResult).Accepted != 1 {
-		t.Fatalf("report=%+v err=%v", result, err)
-	}
 	runHeartbeat(t, runner)
-	settled, _ := deps.store.store.LoadState()
-	if len(settled.PendingTitlePlans) != 0 {
-		t.Fatalf("reported plan did not settle: %+v", settled.PendingTitlePlans)
+	stored, _ := deps.store.store.LoadState()
+	if len(stored.PendingTitlePlans) != 0 || len(deps.client.titles) != 0 {
+		t.Fatalf("state=%+v titles=%v", stored, deps.client.titles)
 	}
 }
 
@@ -2728,6 +2752,29 @@ func TestHeartbeatTargetedSettlesControlPlan(t *testing.T) {
 	stored, _ := deps.store.store.LoadState()
 	if _, pending := stored.PendingTitlePlans["control"]; pending || stored.Tasks["control"].CapturedRevision != "2" {
 		t.Fatalf("state=%+v", stored)
+	}
+}
+
+func TestDisabledNativeContinuationSettlesControlPlanWithoutReport(t *testing.T) {
+	now := time.Date(2026, 8, 5, 12, 30, 0, 0, time.UTC)
+	expected := codex.Task{TaskID: "control", Revision: "1", Title: "Control", Source: "vscode"}
+	current := codex.Task{TaskID: "control", Revision: "2", Title: "✅ Control", Source: "vscode"}
+	committed := state.New()
+	committed.BootstrapComplete, committed.LastAnnouncedVersion, committed.LastReconciledVersion = true, "1.0.0", "1.0.0"
+	committed.LastUpdateCheck = timePointer(now)
+	committed.LastSweep = &state.SweepProgress{Phase: state.SweepPhaseDeterministic, StartedAt: now, UpdatedAt: now}
+	committed.Tasks["control"] = record(expected, state.StatusComplete, now)
+	committed.PendingTitlePlans["control"] = migratedPlan(expected, current.Title)
+	runner, deps := testRunner(t, now, []codex.Task{current}, committed)
+	cfg := config.Default("control")
+	cfg.RenameEnabled = false
+	deps.store.configOverride = &cfg
+
+	runHeartbeat(t, runner)
+	stored, _ := deps.store.store.LoadState()
+	settled := stored.Tasks["control"]
+	if len(stored.PendingTitlePlans) != 0 || settled.CapturedRevision != current.Revision || settled.CapturedTitle != current.Title || settled.LastAppliedTitle != current.Title || len(deps.client.titles) != 0 {
+		t.Fatalf("state=%+v titles=%v", stored, deps.client.titles)
 	}
 }
 
