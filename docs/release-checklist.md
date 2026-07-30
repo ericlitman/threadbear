@@ -20,9 +20,9 @@ Complete this checklist for every stable ThreadBear release.
      --codex /absolute/path/to/codex
    ```
 
-   The script requires a clean release checkout; refuses the genuine Codex home, overlapping paths, and links back into it; verifies 50+ real-shape tasks and reports the emoji-only title count; copies the supplied replica again into an isolated temporary `HOME`; stages the current-architecture release artifacts outside the repository; executes the bootstrap; completes the first heartbeat when required; verifies the LaunchAgent; and uninstalls on every exit path.
+   The script requires a clean release checkout; refuses the genuine Codex home, overlapping paths, and links back into it; verifies 50+ real-shape tasks and reports the emoji-only title count; copies the supplied replica again into an isolated temporary `HOME`; stages the current-architecture release artifacts outside the repository; executes the bootstrap; completes the first heartbeat when required; verifies the LaunchAgent; and uninstalls on every exit path. A deterministic first heartbeat may finish at the retained Desktop handoff: the script accepts that boundary only after the heartbeat process is idle, `cycle.json` is gone, persisted counts balance with zero model/retry work, the native batch contains exactly the mechanically resolved plans, and the synthetic retained-batch replay passes. It reports `handoff=ready batch_replay=ok` and leaves semantic convergence explicitly deferred; only the direct Desktop canary proves the real setter and repaint.
 5. A first heartbeat over a real corpus may legitimately report `partial_failure` with per-task retries — that is the row-salvage contract, and the rehearsal accepts it; any other heartbeat error code fails. If a rehearsal fails, rerun with `THREADBEAR_REHEARSAL_DIAGNOSTICS=/absolute/dir` to preserve its step outputs for diagnosis; they can contain task data, so delete them after review.
-6. Do not tag unless the rehearsal is green. Retain only its count/status summary with the commit SHA, intended version, macOS and architecture, Codex version, install/self-test/LaunchAgent results, heartbeat aggregate counts, pending retry count, uninstall result, and `isolation=temporary_copy`. Do not retain task IDs, titles, messages, rollout paths, replica state, or raw App Server output.
+6. Do not tag unless the rehearsal is green. Retain only its count/status summary with the commit SHA, intended version, macOS and architecture, Codex version, install/self-test/LaunchAgent results, heartbeat aggregate counts, pending retry count, handoff/replay disposition, uninstall result, and `isolation=temporary_copy`. Do not retain task IDs, titles, messages, rollout paths, replica state, or raw App Server output.
 
 ## Publish and verify
 
@@ -43,5 +43,6 @@ Before a release that changes title handling, use a real Codex catalog and verif
 4. Schema-v2 pending plans drain once; valid plans use no evidence, transcript, token, or classifier reads, while missing and drifted plans return to ordinary comparison.
 5. A same-title migrated refresh performs exactly one setter call, and a failed direct write retains the compatibility plan for retry.
 6. One unchanged heartbeat performs zero classifier turns and zero title RPCs.
+7. The retained Desktop task drains the shipped native batch through `thread/name/set`, and the resulting title is visible in the Desktop accessibility tree without a refresh or restart; retain one privacy-safe screenshot as release evidence.
 
 Do not use private IPC, caches, daemons, UI automation, restarts, or the persistent ThreadBear control task for routine title work.

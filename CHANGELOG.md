@@ -17,6 +17,7 @@
 - Confirmed the Codex 0.146 production isolation canary and four 200-observation rehearsals; ordinary status-guided work was fully deterministic, while serial remains the default because bounded first progress regressed.
 - Enforced rename opt-out across native staging and operation reads, preserved setter-visible plans until their native report, and bounded stage readiness at 120 seconds plus the immediate continuation at five minutes.
 - Kept the continuation signal backward-compatible with older installed actuators and made the retained cell stage the exact success or retry footer that matches its verified outcome.
+- Made the replica rehearsal recognize the retained Desktop handoff, verify exact native-plan accounting and replay coverage, and keep semantic convergence explicitly deferred.
 
 ## v1.4.0 - 2026-07-29
 

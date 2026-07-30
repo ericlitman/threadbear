@@ -110,6 +110,97 @@ restore_classifier_mode() {
 	fi
 }
 
+first_sweep_gate() {
+	python3 - "$1" "$2" <<'PY'
+import json, sys
+r=json.load(open(sys.argv[1], encoding='utf-8'))
+p=r.get('first_sweep') or {}
+phase=p.get('phase')
+if phase in ('converged','retryable'):
+    print('settled')
+    raise SystemExit(0)
+if phase != 'deterministic':
+    raise SystemExit(1)
+if sys.argv[2] == '1':
+    print('benchmark_handoff')
+    raise SystemExit(0)
+inventory=p.get('inventory_tasks', 0)
+changed=p.get('changed_tasks', 0)
+latest_reads=p.get('latest_turn_reads', 0)
+mechanical=p.get('mechanically_resolved', 0)
+luna=p.get('luna_candidates', 0)
+if (
+    not r.get('last_completed_heartbeat')
+    or not p.get('first_progress_at')
+    or p.get('completed_at')
+    or changed != inventory
+    or latest_reads != inventory
+    or mechanical + luna != changed
+    or p.get('first_pass_batches_total', 0) != 0
+    or p.get('first_pass_batches_completed',0) != 0
+    or p.get('previous_pass_batches_total', 0) != 0
+    or p.get('previous_pass_batches_completed',0) != 0
+    or p.get('model_duration_ms',0) != 0
+    or p.get('mutation_duration_ms',0) != 0
+    or p.get('retry_count', 0) != 0
+    or p.get('rate_limit_count', 0) != 0
+    or r.get('pending_retries', 0) != 0
+):
+    raise SystemExit(1)
+print('handoff')
+PY
+}
+
+deterministic_handoff_idle() {
+	launch_state=$("$1" print "$2" 2>/dev/null) || return 1
+	if printf '%s\n' "$launch_state" | grep -Eq 'state = running|pid = [0-9]+'; then
+		return 1
+	fi
+	[ ! -e "$3" ]
+}
+
+title_handoff_gate() {
+	python3 - "$1" "$2" "$3" <<'PY'
+import json, sys
+r=json.load(open(sys.argv[1], encoding='utf-8'))
+ids=r.get('operation_ids') or []
+continuation=r.get('continuation_due') is True
+mechanical=int(sys.argv[2])
+luna=int(sys.argv[3])
+if (
+    r.get('ready') is not True
+    or r.get('retryable') is not False
+    or r.get('error_code', '') != ''
+    or not isinstance(ids, list)
+    or not all(isinstance(value, str) and value for value in ids)
+    or len(set(ids)) != len(ids)
+):
+    raise SystemExit(1)
+if len(ids) != mechanical:
+    raise SystemExit(1)
+if mechanical == 0 and (luna == 0 or not continuation):
+    raise SystemExit(1)
+if mechanical > 0 and continuation:
+    raise SystemExit(1)
+print('%d %s' % (len(ids), str(continuation).lower()))
+PY
+}
+
+sweep_timings() {
+	python3 - "$1" "$2" "${3:-}" <<'PY'
+import datetime, json, sys
+p=(json.load(open(sys.argv[1], encoding='utf-8')).get('first_sweep') or {})
+def stamp(name): return datetime.datetime.fromisoformat(p[name].replace('Z','+00:00'))
+first=(stamp('first_progress_at')-stamp('started_at')).total_seconds()
+if sys.argv[2] == 'settled':
+    elapsed=(stamp('completed_at')-stamp('started_at')).total_seconds()
+    print("%.3f %.3f %.3f" % (first, elapsed, elapsed))
+else:
+    now=datetime.datetime.fromisoformat(sys.argv[3].replace('Z','+00:00')) if sys.argv[3] else datetime.datetime.now(datetime.timezone.utc)
+    print("%.3f %.3f deferred" % (first, (now-stamp('started_at')).total_seconds()))
+PY
+}
+
 cleanup() {
 	chmod -R u+w "$temporary_root" 2>/dev/null || true
 	if [ -n "${THREADBEAR_REHEARSAL_DIAGNOSTICS:-}" ] && [ -f "${aggregate_file:-}" ]; then
@@ -284,11 +375,12 @@ print("yes" if result.get("last_completed_heartbeat") is None else "no")
 PY
 )
 first_progress_seconds=0
-total_convergence_seconds=0
+release_gate_seconds=0
+total_convergence_seconds=not_run
+sweep_gate=
 if [ "$heartbeat_required" = yes ]; then
 	original_classifier_mode=$(/bin/launchctl getenv THREADBEAR_CLASSIFIER_MODE 2>/dev/null || true)
 	/bin/launchctl setenv THREADBEAR_CLASSIFIER_MODE "$classifier_mode"
-	started_at=$(date +%s)
 	/bin/launchctl kickstart "$service"
 	observed=no
 	attempt=0
@@ -302,37 +394,60 @@ if [ "$heartbeat_required" = yes ]; then
 		sleep 1
 	done
 	[ "$observed" = yes ] || { echo "background first sweep did not start within 10 seconds" >&2; exit 1; }
-	first_progress_observed=no
 	remaining=1800
 	while [ "$remaining" -gt 0 ]; do
 		"$installed" status --json >"$temporary_root/status-after.json" 2>"$temporary_root/status-after.stderr"
-		if [ "$first_progress_observed" = no ] && grep -q '"first_progress_at":' "$temporary_root/status-after.json"; then
-			first_progress_observed=yes
-		fi
-		if python3 - "$temporary_root/status-after.json" <<'PY'
-import json, sys
-r=json.load(open(sys.argv[1], encoding='utf-8'))
-p=r.get('first_sweep') or {}
-raise SystemExit(0 if p.get('phase') in ('converged','retryable') else 1)
-PY
-		then break; fi
+		if sweep_gate=$(first_sweep_gate "$temporary_root/status-after.json" "$benchmark"); then break; fi
 		remaining=$((remaining - 1))
 		sleep 1
 	done
-	[ "$remaining" -gt 0 ] || { echo "background first sweep did not converge within 30 minutes" >&2; exit 1; }
-	[ "$first_progress_observed" = yes ] || { echo "deterministic first progress was not persisted" >&2; exit 1; }
-	set -- $(python3 - "$temporary_root/status-after.json" <<'PY'
-import datetime, json, sys
-p=(json.load(open(sys.argv[1], encoding='utf-8')).get('first_sweep') or {})
-def stamp(name): return datetime.datetime.fromisoformat(p[name].replace('Z','+00:00'))
-print("%.3f %.3f" % ((stamp('first_progress_at')-stamp('started_at')).total_seconds(), (stamp('completed_at')-stamp('started_at')).total_seconds()))
-PY
-)
-	first_progress_seconds=$1
-	total_convergence_seconds=$2
+	[ "$remaining" -gt 0 ] || { echo "background first sweep did not reach a release gate within 30 minutes" >&2; exit 1; }
 else
 	cp "$temporary_root/status-before.json" "$temporary_root/status-after.json"
+	sweep_gate=$(first_sweep_gate "$temporary_root/status-after.json" "$benchmark") || { echo "completed heartbeat has no valid release gate" >&2; exit 1; }
 fi
+[ "$sweep_gate" != benchmark_handoff ] || { echo "benchmark rehearsal requires a retained Desktop title handoff before semantic convergence" >&2; exit 1; }
+handoff_plan_count=0
+handoff_continuation_due=false
+handoff_ready=not_run
+batch_replay=not_run
+handoff_gate_at=
+if [ "$sweep_gate" = handoff ]; then
+	idle=no
+	attempt=0
+	while [ "$attempt" -lt 10 ]; do
+		if deterministic_handoff_idle /bin/launchctl "$service" "$HOME/.local/share/threadbear/cycle.json"; then
+			idle=yes
+			break
+		fi
+		attempt=$((attempt + 1))
+		sleep 1
+	done
+	[ "$idle" = yes ] || { echo "deterministic first sweep did not release its process, lock, and cycle within 10 seconds" >&2; exit 1; }
+	handoff_gate_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+	handoff_result=$temporary_root/title-handoff.json
+	set -- $(python3 - "$temporary_root/status-after.json" <<'PY'
+import json, sys
+p=(json.load(open(sys.argv[1], encoding='utf-8')).get('first_sweep') or {})
+print(p.get('mechanically_resolved', 0), p.get('luna_candidates', 0))
+PY
+)
+	mechanical_count=$1
+	luna_count=$2
+	CODEX_THREAD_ID="$control_task_id" "$installed" title-plan --json --batch >"$handoff_result" 2>"$temporary_root/title-handoff.stderr" || { echo "deterministic first sweep did not expose a ready retained title handoff" >&2; exit 1; }
+	handoff_values=$(title_handoff_gate "$handoff_result" "$mechanical_count" "$luna_count") || { echo "deterministic first sweep exposed an invalid retained title handoff" >&2; exit 1; }
+	set -- $handoff_values
+	handoff_plan_count=$1
+	handoff_continuation_due=$2
+	handoff_ready=ready
+	command -v node >/dev/null 2>&1 || { echo "replica rehearsal requires node for the retained title replay" >&2; exit 1; }
+	node "$root/scripts/replay-title-batch.mjs" >"$temporary_root/title-replay.stdout" 2>"$temporary_root/title-replay.stderr"
+	batch_replay=ok
+fi
+set -- $(sweep_timings "$temporary_root/status-after.json" "$sweep_gate" "$handoff_gate_at")
+first_progress_seconds=$1
+release_gate_seconds=$2
+total_convergence_seconds=$3
 heartbeat_counts=$(python3 - "$temporary_root/status-after.json" <<'PY'
 import json, sys
 r=json.load(open(sys.argv[1], encoding='utf-8'))
@@ -344,7 +459,7 @@ status_counts=$(python3 - "$temporary_root/status-after.json" <<'PY'
 import json, sys
 r=json.load(open(sys.argv[1], encoding='utf-8'))
 p=r.get('first_sweep') or {}
-if p.get('phase') not in ('converged','retryable'):
+if p.get('phase') not in ('deterministic','converged','retryable'):
     raise SystemExit(1)
 print("phase=%s pending_retries=%d model_ms=%d mutation_ms=%d" % (p.get('phase'), r.get('pending_retries',0), p.get('model_duration_ms',0), p.get('mutation_duration_ms',0)))
 PY
@@ -370,11 +485,11 @@ PY
 		go -C "$root" test -tags=integration ./internal/codex/appserver -run TestLiveEphemeralClassifierStartsNoConfiguredHelpers -count=1 -timeout 10m >/dev/null
 	helper_process_proof=passed
 fi
-python3 - "$temporary_root/status-after.json" "$aggregate_file" "$cohort" "$classifier_mode" "$first_progress_seconds" "$total_convergence_seconds" "$helper_process_proof" "$cancellation_recovery" "$row_salvage" "$rate_limit_gate" <<'PY'
+python3 - "$temporary_root/status-after.json" "$aggregate_file" "$cohort" "$classifier_mode" "$first_progress_seconds" "$release_gate_seconds" "$total_convergence_seconds" "$sweep_gate" "$handoff_plan_count" "$handoff_continuation_due" "$handoff_ready" "$batch_replay" "$helper_process_proof" "$cancellation_recovery" "$row_salvage" "$rate_limit_gate" <<'PY'
 import json, sys
 r=json.load(open(sys.argv[1], encoding='utf-8'))
 p=r.get('first_sweep') or {}
-out={"cohort":sys.argv[3],"classifier_mode":sys.argv[4],"inventory_tasks":p.get("inventory_tasks",0),"observations":p.get("changed_tasks",p.get("latest_turn_reads",0)),"mechanically_resolved":p.get("mechanically_resolved",0),"luna_candidates":p.get("luna_candidates",0),"first_pass_batches":p.get("first_pass_batches_total",0),"previous_pass_batches":p.get("previous_pass_batches_total",0),"first_progress_seconds":float(sys.argv[5]),"total_convergence_seconds":float(sys.argv[6]),"model_duration_ms":p.get("model_duration_ms",0),"mutation_duration_ms":p.get("mutation_duration_ms",0),"retry_count":p.get("retry_count",0),"rate_limit_count":p.get("rate_limit_count",0),"phase":p.get("phase",""),"helper_process_proof":sys.argv[7],"cancellation_recovery":sys.argv[8],"row_salvage":sys.argv[9],"rate_limit_gate":sys.argv[10]}
+out={"cohort":sys.argv[3],"classifier_mode":sys.argv[4],"inventory_tasks":p.get("inventory_tasks",0),"observations":p.get("changed_tasks",p.get("latest_turn_reads",0)),"mechanically_resolved":p.get("mechanically_resolved",0),"luna_candidates":p.get("luna_candidates",0),"first_pass_batches":p.get("first_pass_batches_total",0),"previous_pass_batches":p.get("previous_pass_batches_total",0),"first_progress_seconds":float(sys.argv[5]),"release_gate_seconds":float(sys.argv[6]),"total_convergence_seconds":None if sys.argv[7] == "deferred" else float(sys.argv[7]),"model_duration_ms":p.get("model_duration_ms",0),"mutation_duration_ms":p.get("mutation_duration_ms",0),"retry_count":p.get("retry_count",0),"rate_limit_count":p.get("rate_limit_count",0),"phase":p.get("phase",""),"sweep_gate":sys.argv[8],"handoff_plan_count":int(sys.argv[9]),"handoff_continuation_due":sys.argv[10] == "true","handoff_ready":sys.argv[11],"batch_replay":sys.argv[12],"helper_process_proof":sys.argv[13],"cancellation_recovery":sys.argv[14],"row_salvage":sys.argv[15],"rate_limit_gate":sys.argv[16]}
 json.dump(out, open(sys.argv[2],'w',encoding='utf-8'), sort_keys=True)
 PY
 
@@ -401,5 +516,5 @@ fi
 codex_version=$("$codex" --version 2>/dev/null | sed -n '1p')
 replica_counts=$(sed -n '1p' "$temporary_root/replica-counts")
 rehearsal_ok=1
-printf 'replica rehearsal passed: commit=%s version=%s architecture=%s macos=%s codex=%s %s install=ok self_test=ok launchagent=ok heartbeat_%s cohort=%s classifier_mode=%s first_progress=%ss convergence=%ss %s %s uninstall=ok isolation=temporary_copy\n' \
-	"$source_commit" "$version" "$(uname -m)" "$(sw_vers -productVersion)" "$codex_version" "$replica_counts" "$heartbeat_required" "$cohort" "$classifier_mode" "$first_progress_seconds" "$total_convergence_seconds" "$heartbeat_counts" "$status_counts"
+printf 'replica rehearsal passed: commit=%s version=%s architecture=%s macos=%s codex=%s %s install=ok self_test=ok launchagent=ok heartbeat_%s cohort=%s classifier_mode=%s first_progress=%ss release_gate=%ss convergence=%s sweep_gate=%s native_plans=%s continuation_due=%s handoff=%s batch_replay=%s %s %s uninstall=ok isolation=temporary_copy\n' \
+	"$source_commit" "$version" "$(uname -m)" "$(sw_vers -productVersion)" "$codex_version" "$replica_counts" "$heartbeat_required" "$cohort" "$classifier_mode" "$first_progress_seconds" "$release_gate_seconds" "$total_convergence_seconds" "$sweep_gate" "$handoff_plan_count" "$handoff_continuation_due" "$handoff_ready" "$batch_replay" "$heartbeat_counts" "$status_counts"
