@@ -191,7 +191,7 @@ func (r *Runner) Run(ctx context.Context, dryRun bool) (output.Result, error) {
 	adoptionDue := committed.LastAnnouncedVersion == "" && r.deps.InstalledVersion != ""
 	announcementDue := committed.LastAnnouncedVersion != "" && r.deps.InstalledVersion != "" && committed.LastAnnouncedVersion != r.deps.InstalledVersion
 	reconcileDue := r.deps.InstalledVersion != "" && committed.LastReconciledVersion != r.deps.InstalledVersion
-	handoffContinuation := committed.LastSweep != nil && committed.LastSweep.Phase == state.SweepPhaseDeterministic && committed.LastSweep.CompletedAt == nil
+	handoffContinuation := committed.LastSweep.DeterministicContinuationDue()
 	deterministicHandoff := reconcileDue && !handoffContinuation
 	nativeTitleMode := r.deps.InstalledVersion != "" && (deterministicHandoff || handoffContinuation)
 	var managedResources []string
@@ -216,8 +216,8 @@ func (r *Runner) Run(ctx context.Context, dryRun bool) (output.Result, error) {
 	titleStateChanged := false
 	advancedTitleSettlements := make(map[string]struct{})
 	if !checkpointExists {
-		titleStateChanged, advancedTitleSettlements = settleOrDrainPendingTitles(&committed, settlementInventory, cfg.ControlTaskID, nativeTitleMode || !cfg.RenameEnabled)
-		if !cfg.RenameEnabled && discardUnexecutedNativeTitles(&committed, settlementInventory) {
+		titleStateChanged, advancedTitleSettlements = settleOrDrainPendingTitles(&committed, settlementInventory, cfg.ControlTaskID, nativeTitleMode && cfg.RenameEnabled)
+		if !cfg.RenameEnabled && discardPendingNativeTitles(&committed) {
 			titleStateChanged = true
 		}
 	}
@@ -530,7 +530,7 @@ func (r *Runner) Run(ctx context.Context, dryRun bool) (output.Result, error) {
 			checkpoint.Progress.CompletedAt = &completedAt
 			appendRetryResults(&result, checkpoint.Diagnostics)
 		}
-		stagePendingTitlePlans(&next, checkpoint)
+		stagePendingTitlePlans(&next, checkpoint, cfg.RenameEnabled)
 		next.LastSweep = checkpoint.Progress
 		result.Progress = checkpoint.Progress
 		if err := r.deps.Store.SaveState(next); err != nil {
@@ -716,7 +716,7 @@ func (r *Runner) Run(ctx context.Context, dryRun bool) (output.Result, error) {
 	checkpoint.Progress.UpdatedAt = completedAt
 	checkpoint.Progress.CompletedAt = &completedAt
 	if nativeTitleMode {
-		stagePendingTitlePlans(&next, checkpoint)
+		stagePendingTitlePlans(&next, checkpoint, cfg.RenameEnabled)
 	}
 	next.LastSweep = checkpoint.Progress
 	result.Progress = checkpoint.Progress
@@ -1646,13 +1646,9 @@ func hasPromotablePendingTitle(committed state.State, inventory codex.Inventory)
 	return false
 }
 
-func discardUnexecutedNativeTitles(committed *state.State, inventory codex.Inventory) bool {
+func discardPendingNativeTitles(committed *state.State) bool {
 	changed := false
-	for taskID, plan := range committed.PendingTitlePlans {
-		task, exists := findTask(inventory, taskID)
-		if exists && nativeSetterVisible(plan, task) {
-			continue
-		}
+	for taskID := range committed.PendingTitlePlans {
 		delete(committed.PendingTitlePlans, taskID)
 		changed = true
 	}
@@ -1700,7 +1696,10 @@ func appendRetryResults(result *output.HeartbeatResult, diagnostics map[string]s
 	}
 }
 
-func stagePendingTitlePlans(next *state.State, checkpoint state.CycleCheckpoint) {
+func stagePendingTitlePlans(next *state.State, checkpoint state.CycleCheckpoint, renameEnabled bool) {
+	if !renameEnabled {
+		return
+	}
 	if next.PendingTitlePlans == nil {
 		next.PendingTitlePlans = make(map[string]state.PendingTitlePlan)
 	}
@@ -1761,6 +1760,11 @@ func (r *Runner) commitState(cfg config.Config, committed state.State, checkpoin
 			}
 			delete(next.PendingTitlePlans, operation.TaskID)
 			continue
+		}
+	}
+	if !cfg.RenameEnabled {
+		for taskID := range next.PendingTitlePlans {
+			delete(next.PendingTitlePlans, taskID)
 		}
 	}
 

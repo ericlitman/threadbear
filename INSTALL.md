@@ -844,10 +844,18 @@ commentary. The cell drains the first guarded batch, kickstarts exactly one
 immediate LaunchAgent continuation only when the batch carries
 `continuation_due=true`, and otherwise waits for or drains the continuation
 that is already running or complete. It uses one shared five-minute elapsed-time
-and 300-attempt budget, drains all remaining guarded plans, and stages plus
-drains `🧵🐻 complete` only after the core handoff succeeds. Whenever the final
-result is incomplete, it restages and drains the retry footer. It starts
-immediately and never waits for the five-minute cadence. Every nested
+and 300-attempt budget across every command and native setter, drains all
+remaining guarded plans, and stages plus drains `🧵🐻 complete` only after the
+core handoff succeeds. Normal handoff work stops at the five-minute deadline.
+When the final result becomes incomplete before that deadline, the cell restages
+and drains the retry footer. If the deadline expires before success finalization
+begins, it makes no more tool calls and reports `complete=false`, leaving the
+fixed retry footer as the conservative fallback. If and only if the deadline
+expires after success finalization has begun, it performs one bounded
+compensating retry-footer restoration through the existing guarded plan bridge,
+allows at most ten one-second typed-busy waits, and then reports
+`complete=false`. It starts immediately and never waits for the five-minute
+cadence. Every nested
 `tools.exec_command` requires `exit_code === 0` before JSON parsing. Each batch
 operation ID is revalidated with `--operation OP_ID` immediately before the
 native setter, and only exact payload fields are passed to
@@ -859,32 +867,33 @@ The one raw-V8 `functions.exec` cell begins with this exact supported first line
 
 ```js
 // @exec: {"yield_time_ms": 120000, "max_output_tokens": 1000}
-const counts = {accepted: 0, canonically_verified: 0, failed: 0, timed_out: 0, drifted: 0, rejected: 0}; let waitsRemaining = 300; const deadlineAt = Date.now() + 300000; const command = async (cmd) => { const result = await tools.exec_command({cmd}); if (!result || result.exit_code !== 0) throw {kind: "command_failed"}; return result; }; const commandJSON = async (cmd) => { const result = await command(cmd); if (typeof result.output !== "string") throw {kind: "command_failed"}; return JSON.parse(result.output); };
-const readyJSON = async (cmd, waitForContinuation = false) => { for (;;) {
-  const value = await commandJSON(cmd);
+const counts = {accepted: 0, canonically_verified: 0, failed: 0, timed_out: 0, drifted: 0, rejected: 0}; let waitsRemaining = 300, cleanupWaitsRemaining = 10; const deadlineAt = Date.now() + 300000; const timedOut = () => { if (!counts.timed_out) counts.timed_out++; throw {kind: "timed_out"}; }; const requireTime = () => { if (Date.now() >= deadlineAt) timedOut(); }; const command = async (cmd, enforceDeadline = true) => { if (enforceDeadline) requireTime(); const result = await tools.exec_command({cmd}); if (enforceDeadline) requireTime(); if (!result || result.exit_code !== 0) throw {kind: "command_failed"}; return result; }; const commandJSON = async (cmd, enforceDeadline = true) => { const result = await command(cmd, enforceDeadline); if (typeof result.output !== "string") throw {kind: "command_failed"}; return JSON.parse(result.output); };
+const readyJSON = async (cmd, waitForContinuation = false, enforceDeadline = true) => { for (;;) {
+  const value = await commandJSON(cmd, enforceDeadline);
   if (value.ready && (!value.continuation_due || !waitForContinuation)) return value;
   if (!value.ready && (!value.retryable || !["heartbeat_active", "heartbeat_cycle_active"].includes(value.error_code))) throw {kind: "not_ready"};
-  if (waitsRemaining-- <= 0 || Date.now() >= deadlineAt) { counts.timed_out++; throw {kind: "timed_out"}; }
-  await command("sleep 1");
+  if (enforceDeadline && waitsRemaining-- <= 0) timedOut();
+  if (!enforceDeadline && cleanupWaitsRemaining-- <= 0) throw {kind: "not_ready"};
+  await command("sleep 1", enforceDeadline);
 } };
 const quote = (value) => "'" + value.replaceAll("'", "'\\''") + "'";
-const batchCommand = "~/.local/bin/threadbear title-plan --json --batch", stageFooter = (footer) => readyJSON("printf %s " + quote(footer) + " | ~/.local/bin/threadbear title-plan --json --stage");
-const drain = async (batch) => { let complete = true;
+const batchCommand = "~/.local/bin/threadbear title-plan --json --batch", stageFooter = (footer, enforceDeadline = true) => readyJSON("printf %s " + quote(footer) + " | ~/.local/bin/threadbear title-plan --json --stage", false, enforceDeadline);
+const drain = async (batch, enforceDeadline = true) => { let complete = true;
   for (const operationID of batch.operation_ids || []) try {
-    const operation = await readyJSON("~/.local/bin/threadbear title-plan --json --operation " + quote(operationID));
+    const operation = await readyJSON("~/.local/bin/threadbear title-plan --json --operation " + quote(operationID), false, enforceDeadline);
     if (operation.disposition === "drifted") { counts.drifted++; complete = false; continue; }
     if (operation.disposition !== "ready" || !["set", "report_success"].includes(operation.action)) { counts.rejected++; complete = false; continue; }
     let outcome = "succeeded", errorCode = "";
-    if (operation.action === "set") try { await tools.codex_app__set_thread_title({threadId: operation.task_id, title: operation.desired_title}); }
-    catch { outcome = "failed"; errorCode = "native_setter_failed"; counts.failed++; complete = false; }
+    if (operation.action === "set") try { if (enforceDeadline) requireTime(); await tools.codex_app__set_thread_title({threadId: operation.task_id, title: operation.desired_title}); if (enforceDeadline) requireTime(); }
+    catch (error) { if (error?.kind === "timed_out") throw error; if (enforceDeadline) requireTime(); outcome = "failed"; errorCode = "native_setter_failed"; counts.failed++; complete = false; }
     const payload = {reports: [{operation_id: operationID, outcome, ...(errorCode && {error_code: errorCode})}]};
-    const report = await readyJSON("printf %s " + quote(JSON.stringify(payload)) + " | ~/.local/bin/threadbear title-plan --json --report");
+    const report = await readyJSON("printf %s " + quote(JSON.stringify(payload)) + " | ~/.local/bin/threadbear title-plan --json --report", false, enforceDeadline);
     counts.accepted += report.accepted || 0;
     if (outcome === "succeeded") counts.canonically_verified += report.accepted || 0;
   } catch (error) { if (error?.kind !== "timed_out") counts.failed++; complete = false; }
   return complete;
 };
-let coreComplete = false, complete = false;
+let coreComplete = false, complete = false, successFinalizationStarted = false;
 try {
   const first = await readyJSON(batchCommand);
   if (await drain(first)) {
@@ -897,12 +906,18 @@ try {
   }
 } catch (error) { if (error?.kind !== "timed_out") counts.failed++; }
 if (coreComplete) try {
+  requireTime();
+  successFinalizationStarted = true;
   await stageFooter("🧵🐻 complete");
   complete = await drain(await readyJSON(batchCommand));
 } catch (error) { if (error?.kind !== "timed_out") counts.failed++; }
-if (!complete) try {
+if (!complete && !counts.timed_out) try {
   await stageFooter("🧵🐻 next steps (agent): retry the first title handoff");
   await drain(await readyJSON(batchCommand));
+} catch (error) { if (error?.kind !== "timed_out") counts.failed++; }
+if (!complete && counts.timed_out && successFinalizationStarted) try {
+  await stageFooter("🧵🐻 next steps (agent): retry the first title handoff", false);
+  await drain(await readyJSON(batchCommand, false, false), false);
 } catch (error) { if (error?.kind !== "timed_out") counts.failed++; }
 text(JSON.stringify({...counts, complete}));
 ```
@@ -910,8 +925,9 @@ text(JSON.stringify({...counts, complete}));
 When the raw cell reports `complete=true`, end the retained install response
 with `🧵🐻 complete`. Otherwise end it with
 `🧵🐻 next steps (agent): retry the first title handoff`. The cell has already
-staged and drained the matching title plan. Emit that footer as the final line
-with no later tool call, commentary, or appended text.
+completed all permitted footer work, including the bounded compensation when
+applicable. Emit that footer as the final line with no later tool call,
+commentary, or appended text.
 
 The successful installation close requires four independent facts: the installer
 returned successfully, version/self-test/status passed, the LaunchAgent is

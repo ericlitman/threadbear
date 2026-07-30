@@ -96,8 +96,6 @@ func (s Service) Dispatch(ctx context.Context, request Request) (output.Result, 
 		switch {
 		case request.Stage:
 			return output.NewTitlePlanStageResult(true, ""), nil
-		case request.Batch:
-			return output.NewTitlePlanBatchResult(true, "", nil), nil
 		case request.OperationID != "":
 			result := output.NewTitlePlanOperationResult(true, "", request.OperationID)
 			result.Disposition = "rejected"
@@ -108,7 +106,7 @@ func (s Service) Dispatch(ctx context.Context, request Request) (output.Result, 
 	case request.Stage:
 		return s.stage(ctx, cfg, committed)
 	case request.Batch:
-		return s.batch(committed), nil
+		return s.batch(committed, cfg.RenameEnabled), nil
 	case request.OperationID != "":
 		return s.operation(ctx, cfg, committed, request.OperationID)
 	case request.Report:
@@ -219,17 +217,16 @@ func readExactFooter(input io.Reader) (string, error) {
 	}
 	return value, nil
 }
-func (s Service) batch(committed state.State) output.Result {
+func (s Service) batch(committed state.State, includeOperations bool) output.Result {
 	ids := make([]string, 0, len(committed.PendingTitlePlans))
-	for _, plan := range committed.PendingTitlePlans {
-		if plan.NativeOutcome != state.NativeTitleSucceeded {
-			ids = append(ids, plan.OperationID)
+	if includeOperations {
+		for _, plan := range committed.PendingTitlePlans {
+			if plan.NativeOutcome != state.NativeTitleSucceeded {
+				ids = append(ids, plan.OperationID)
+			}
 		}
 	}
-	if committed.LastSweep != nil &&
-		committed.LastSweep.Phase == state.SweepPhaseDeterministic &&
-		committed.LastSweep.CompletedAt == nil &&
-		len(ids) == 0 {
+	if committed.LastSweep.DeterministicContinuationDue() && len(ids) == 0 {
 		result := output.NewTitlePlanBatchResult(true, "", nil)
 		result.ContinuationDue = true
 		return result
@@ -322,7 +319,7 @@ func (s Service) report(ctx context.Context, cfg config.Config, committed state.
 		if report.Outcome != state.NativeTitleSucceeded && report.Outcome != state.NativeTitleFailed {
 			return output.ErrorResult{Operation: "title-plan", ErrorCode: "invalid_report"}, errors.New("report outcome is invalid")
 		}
-		if report.Outcome == state.NativeTitleSucceeded && report.ErrorCode != "" || report.Outcome == state.NativeTitleFailed && !stableCode(report.ErrorCode) {
+		if report.Outcome == state.NativeTitleSucceeded && report.ErrorCode != "" || report.Outcome == state.NativeTitleFailed && !state.ValidStableCode(report.ErrorCode) {
 			return output.ErrorResult{Operation: "title-plan", ErrorCode: "invalid_report"}, errors.New("report error_code is invalid")
 		}
 		if plan.NativeOutcome == state.NativeTitleSucceeded {
@@ -377,22 +374,4 @@ func (s Service) now() time.Time {
 		return s.Now().UTC()
 	}
 	return time.Now().UTC()
-}
-func stableCode(value string) bool {
-	if value == "" {
-		return false
-	}
-	separator := false
-	for index, char := range value {
-		alphanumeric := char >= 'a' && char <= 'z' || char >= '0' && char <= '9'
-		if alphanumeric {
-			separator = false
-			continue
-		}
-		if char != '_' && char != '-' && char != '.' || index == 0 || separator {
-			return false
-		}
-		separator = true
-	}
-	return !separator
 }
