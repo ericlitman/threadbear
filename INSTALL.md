@@ -820,9 +820,13 @@ verified, and only then followed by any same-task archive. Do not run a separate
 title worker, helper manifest, native report, child model, or replay step.
 
 Feature-detect and fail closed when required App Server methods or the tool-free
-classifier boundary are absent. Do not use private IPC, cache edits, UI
-automation, a daemon, restart, or model-authored title semantics. The persistent control task remains reserved for help, lifecycle work, notices, decisions, and
-exceptional recovery.
+classifier boundary are absent. The ordinary App Server stays on the real Codex
+home for evidence and mutations; unresolved work uses one private minimal-auth
+classifier App Server per heartbeat, shared across all capacity batches and
+removed before mutations or commit. Per-turn restrictions are defense in depth,
+not the isolation boundary. Do not use private IPC, cache edits, UI automation, a
+daemon, restart, or model-authored title semantics. The persistent control task remains reserved for help, lifecycle work, notices, decisions, and exceptional
+recovery.
 
 For a first adoption, unreadable replacement, or exact repair, choose exactly
 one of the following complete variants from the frozen archive setting. Every

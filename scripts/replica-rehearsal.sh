@@ -353,7 +353,7 @@ PY
 	go -C "$root" test ./internal/status -run 'TestClassifier(CancellationStopsSchedulingNewBatches|ContextSplittingAndBatchFailureIsolation|SalvagesValidRowsAndDiagnosesTheRest)' -count=1 >/dev/null
 	row_salvage=passed
 	rate_limit_gate=passed
-	go -C "$root" test ./internal/watch -run TestClassifierBatchCheckpointRecoveryRepeatsOnlyUnpersistedWork -count=1 >/dev/null
+	go -C "$root" test ./internal/watch -run 'Test(ClassifierBatchCheckpointRecoveryRepeatsOnlyUnpersistedWork|ClassifierSessionOpensOnceForMultipleBatches|ClassifierCleanupFailureBlocksMutationAndRecovers|ClassifierCancellationCleansSessionBeforeMutation)' -count=1 >/dev/null
 	cancellation_recovery=passed
 	THREADBEAR_LIVE_CODEX=1 THREADBEAR_LIVE_AUTH_FILE="$CODEX_HOME/auth.json" THREADBEAR_LIVE_CODEX_BIN="$codex" \
 		go -C "$root" test -tags=integration ./internal/codex/appserver -run TestLiveEphemeralClassifierStartsNoConfiguredHelpers -count=1 -timeout 10m >/dev/null

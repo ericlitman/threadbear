@@ -449,16 +449,17 @@ type CycleOperation struct {
 }
 
 type CycleCheckpoint struct {
-	SchemaVersion     int                             `json:"schema_version"`
-	CycleID           string                          `json:"cycle_id"`
-	BaseGeneration    uint64                          `json:"base_generation"`
-	CapturedAt        time.Time                       `json:"captured_at"`
-	Inventory         map[string]CapturedTask         `json:"inventory"`
-	Results           map[string]ClassificationResult `json:"results"`
-	Diagnostics       map[string]CycleDiagnostic      `json:"diagnostics"`
-	Operations        map[string]CycleOperation       `json:"operations"`
-	Progress          *SweepProgress                  `json:"progress,omitempty"`
-	PreviousRequested map[string]string               `json:"previous_requested"`
+	SchemaVersion          int                             `json:"schema_version"`
+	CycleID                string                          `json:"cycle_id"`
+	BaseGeneration         uint64                          `json:"base_generation"`
+	CapturedAt             time.Time                       `json:"captured_at"`
+	Inventory              map[string]CapturedTask         `json:"inventory"`
+	Results                map[string]ClassificationResult `json:"results"`
+	Diagnostics            map[string]CycleDiagnostic      `json:"diagnostics"`
+	Operations             map[string]CycleOperation       `json:"operations"`
+	Progress               *SweepProgress                  `json:"progress,omitempty"`
+	PreviousRequested      map[string]string               `json:"previous_requested"`
+	ClassifierCleanupToken string                          `json:"classifier_cleanup_token,omitempty"`
 }
 
 func NewCycle(cycleID string, baseGeneration uint64, capturedAt time.Time) CycleCheckpoint {
@@ -484,6 +485,9 @@ func (c CycleCheckpoint) Validate() error {
 	}
 	if strings.TrimSpace(c.CycleID) != c.CycleID {
 		return errors.New("cycle_id must not contain surrounding whitespace")
+	}
+	if strings.TrimSpace(c.ClassifierCleanupToken) != c.ClassifierCleanupToken {
+		return errors.New("classifier cleanup token must not contain surrounding whitespace")
 	}
 	if c.Inventory == nil || c.Results == nil || c.Diagnostics == nil || c.Operations == nil {
 		return errors.New("cycle collections must not be null")

@@ -6,7 +6,7 @@ ThreadBear is a single pure-Go macOS binary run by a user LaunchAgent. Its desig
 
 - **Heartbeat runner:** inventories every managed unarchived Codex Desktop task, excluding the control task.
 - **Deterministic resolver:** applies runtime, structured-error, automation, interruption, and valid footer evidence in precedence order.
-- **Ephemeral classifier:** sends only unresolved changed tasks to fresh App Server sessions using the configured model and effort (Luna medium by default). Sessions are non-persisted and never append to the control task.
+- **Ephemeral classifier:** sends only unresolved changed tasks to one isolated App Server per heartbeat using the configured model and effort (Luna medium by default). Its private temporary home contains only a regular `auth.json` copy plus files Codex creates there; every capacity-sized batch shares that process, and sessions never append to the control task.
 - **Mutation layer:** performs revision/title-guarded App Server title writes and safe archives through the same crash-recoverable checkpoint journal.
 - **State store:** atomically records the last completed snapshot, task classifications, archive records, retries, update checks, and delivered notice versions. Schema-v2 pending title plans are decoded only for one-time migration into ordinary checkpoint operations.
 - **Control task:** one persistent task titled `🧵🐻 ThreadBear 🐻🧵` used for actionable notices, not classifier history.
@@ -17,7 +17,7 @@ ThreadBear is a single pure-Go macOS binary run by a user LaunchAgent. Its desig
 2. Read the complete local inventory and compare it with the committed snapshot.
 3. If nothing changed and no update check or version-drift work is due, exit without starting App Server, invoking a classifier, mutating state, or writing output.
 4. Resolve changed tasks from deterministic evidence and read only the new rollout tail needed for the cumulative output-token figure. Mechanically settled tasks never reach Luna.
-5. Pack unresolved latest turns into context-safe ephemeral calls. A previous turn is requested only for tasks that return insufficient evidence; complete messages are not clipped.
+5. After deterministic resolution, create one private minimal-auth classifier App Server only when unresolved work remains. Pack latest turns into context-safe ephemeral calls on that shared process; previous evidence is read through the ordinary real-home App Server only for tasks that request it.
 6. Revalidate title and archive operations before direct mutation. A title is journaled applying, written with `thread/name/set`, journaled applied, verified by inventory, journaled verified, and only then may the same task be archived.
 7. Commit successful siblings and the captured snapshot atomically. Failed operations retain conservative state and bounded retry metadata.
 8. When due, compare release metadata. With auto-update enabled, install a newer release through the verified replacement path; with it disabled, retain the once-daily notice-only behavior. After any version change, the new binary reconciles managed guidance and stages one changelog-backed control-task announcement.
@@ -56,7 +56,7 @@ The interval is approximate. macOS does not replay runs missed during sleep, and
 | Global guidance | `${CODEX_HOME:-~/.codex}/AGENTS.md` | one identifiable managed block; ThreadBear writes `0600` |
 | Skill | `${CODEX_HOME:-~/.codex}/skills/threadbear/SKILL.md` | one identifiable managed block, `0600` |
 
-ThreadBear never logs message bodies, classifier payloads, inherited environment dumps, or private benchmark corpus content. Subprocesses receive an explicit minimal environment.
+ThreadBear never logs message bodies, classifier payloads, inherited environment dumps, authentication contents or paths, temporary classifier-home names, or private benchmark corpus content. Subprocesses receive an explicit minimal environment.
 
 ## Safety boundaries
 
@@ -74,8 +74,10 @@ kickstarts the enabled LaunchAgent, observes its start for at most ten seconds,
 and closes while historical semantic work continues.
 
 Classifier packing uses the complete serialized evidence and configured context
-budget without a fixed task-count cap. Benchmark-only bounded workers share one
-App Server through keyed turn notification routing. Production remains serial
-unless the two-cohort live gate demonstrates a reliability-neutral wall-clock
-benefit. Ephemeral turns require the supported read-only permission profile and
-a tool-free config override before `thread/start`; missing controls fail closed.
+budget without a fixed task-count cap. Benchmark-only bounded workers share the
+same isolated heartbeat-scoped App Server through keyed turn notification routing.
+Production remains serial unless the two-cohort live gate demonstrates a
+reliability-neutral wall-clock benefit. Process-level separation from the
+operator Codex home is the tool-free boundary; supported read-only permissions
+and structured feature overrides remain defense in depth. Isolation, minimum-auth
+copying, capability discovery, child shutdown, and exact-root cleanup all fail closed.

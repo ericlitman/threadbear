@@ -43,6 +43,7 @@ type Client struct {
 	done              chan struct{}
 	wait              chan error
 	closeOnce         sync.Once
+	exited            chan struct{}
 }
 
 func Start(ctx context.Context, process ProcessSpec, capabilities Capabilities) (*Client, error) {
@@ -63,10 +64,15 @@ func Start(ctx context.Context, process ProcessSpec, capabilities Capabilities) 
 		stdin.Close()
 		return nil, fmt.Errorf("start App Server: %w", err)
 	}
-	client := &Client{capabilities: capabilities, command: command, stdin: stdin, pending: make(map[int64]chan responseMessage), turnWaiters: make(map[turnKey]chan Notification), turnBacklog: make(map[turnKey][]Notification), abandonedTurns: make(map[turnKey]bool), notificationInput: make(chan Notification), notifications: make(chan Notification), done: make(chan struct{}), wait: make(chan error, 1)}
+	client := &Client{capabilities: capabilities, command: command, stdin: stdin, pending: make(map[int64]chan responseMessage), turnWaiters: make(map[turnKey]chan Notification), turnBacklog: make(map[turnKey][]Notification), abandonedTurns: make(map[turnKey]bool), notificationInput: make(chan Notification), notifications: make(chan Notification), done: make(chan struct{}), wait: make(chan error, 1), exited: make(chan struct{})}
 	go client.notificationLoop()
 	go client.readLoop(stdout)
-	go func() { err := command.Wait(); client.wait <- err; client.fail(processExitError(err)) }()
+	go func() {
+		err := command.Wait()
+		client.wait <- err
+		close(client.exited)
+		client.fail(processExitError(err))
+	}()
 	initialize := map[string]any{"clientInfo": map[string]any{"name": "threadbear", "title": "ThreadBear", "version": "0.0.0"}, "capabilities": map[string]any{"experimentalApi": true}}
 	var initialized struct {
 		CodexHome string `json:"codexHome"`
@@ -89,6 +95,7 @@ func processExitError(err error) error {
 }
 func (c *Client) Capabilities() Capabilities         { return c.capabilities }
 func (c *Client) Notifications() <-chan Notification { return c.notifications }
+func (c *Client) Exited() <-chan struct{}            { return c.exited }
 func (c *Client) notificationLoop() {
 	queue := make([]Notification, 0)
 	for {

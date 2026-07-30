@@ -45,7 +45,7 @@ func TestLiveEphemeralDoesNotPersist(t *testing.T) {
 	}
 }
 func TestLiveEphemeralClassifierStartsNoConfiguredHelpers(t *testing.T) {
-	process, caps, home := liveHarness(t, true)
+	process, _, home := liveHarness(t, true)
 	markers := []string{filepath.Join(home, "openknowledge-started"), filepath.Join(home, "node-repl-started")}
 	helpers := make([]string, len(markers))
 	for index, marker := range markers {
@@ -62,19 +62,35 @@ func TestLiveEphemeralClassifierStartsNoConfiguredHelpers(t *testing.T) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
-	client, err := Start(ctx, process, caps)
+	factory := ClassifierSessionFactory{
+		Process:           func() (ProcessSpec, error) { return process, nil },
+		OperatorCodexHome: home,
+		RootParent:        t.TempDir(),
+	}
+	opened, err := factory.Open(ctx)
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer client.Close()
+	session, ok := opened.(*ClassifierSession)
+	if !ok {
+		t.Fatalf("classifier session type=%T", opened)
+	}
+	isolatedRoot := session.CleanupToken()
 	stop := make(chan struct{})
 	descendants := make(chan []string, 1)
-	go observeDescendantCommands(client.command.Process.Pid, stop, descendants)
-	result, err := client.RunEphemeral(ctx, EphemeralRequest{Model: liveValue("THREADBEAR_LIVE_MODEL", "gpt-5.6-luna"), Effort: liveValue("THREADBEAR_LIVE_EFFORT", "medium"), Input: "Return JSON without using tools.", OutputSchema: map[string]any{"type": "object", "properties": map[string]any{"ok": map[string]any{"type": "boolean"}}, "required": []string{"ok"}, "additionalProperties": false}, ToolConfig: ClassifierToolConfig(), PermissionProfile: ":read-only"})
+	go observeDescendantCommands(session.client.command.Process.Pid, stop, descendants)
+	result, err := session.RunEphemeral(ctx, EphemeralRequest{Model: liveValue("THREADBEAR_LIVE_MODEL", "gpt-5.6-luna"), Effort: liveValue("THREADBEAR_LIVE_EFFORT", "medium"), Input: "Return JSON without using tools.", OutputSchema: map[string]any{"type": "object", "properties": map[string]any{"ok": map[string]any{"type": "boolean"}}, "required": []string{"ok"}, "additionalProperties": false}, ToolConfig: ClassifierToolConfig(), PermissionProfile: ":read-only"})
 	close(stop)
 	commands := <-descendants
 	if err != nil {
+		session.Close()
 		t.Fatal(err)
+	}
+	if err := session.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(isolatedRoot); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("isolated classifier home remains: %v", err)
 	}
 	if !validToolRestrictionsForCanary(result.ToolRestriction) {
 		t.Fatalf("restriction=%+v", result.ToolRestriction)

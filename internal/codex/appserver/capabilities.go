@@ -117,7 +117,7 @@ func ClassifierToolConfig() map[string]any {
 	return map[string]any{
 		"mcp_servers":  map[string]any{},
 		"features":     features,
-		"orchestrator": map[string]any{"mcp": false},
+		"orchestrator": map[string]any{"mcp": map[string]any{"enabled": false}},
 		"tools":        map[string]any{"web_search": false},
 	}
 }
@@ -141,7 +141,11 @@ func validClassifierToolConfig(config map[string]any) bool {
 		}
 	}
 	orchestrator, ok := config["orchestrator"].(map[string]any)
-	if !ok || len(orchestrator) != 1 || orchestrator["mcp"] != false {
+	if !ok || len(orchestrator) != 1 {
+		return false
+	}
+	mcpFeature, ok := orchestrator["mcp"].(map[string]any)
+	if !ok || len(mcpFeature) != 1 || mcpFeature["enabled"] != false {
 		return false
 	}
 	tools, ok := config["tools"].(map[string]any)
@@ -150,6 +154,10 @@ func validClassifierToolConfig(config map[string]any) bool {
 
 func (c Capabilities) ToolRestrictionCandidates() ToolRestriction {
 	return ToolRestriction{ConfigOverride: c.HasThreadStartField("config"), PermissionProfile: c.HasThreadStartField("permissions") && c.HasTurnStartField("permissions"), EnvironmentsDisabled: c.HasThreadStartField("environments") && c.HasTurnStartField("environments"), DynamicToolsDisabled: c.HasThreadStartField("dynamicTools"), ApprovalsDisabled: c.HasThreadStartField("approvalPolicy") && c.HasTurnStartField("approvalPolicy"), ReadOnlySandbox: c.HasThreadStartField("sandbox") && c.HasTurnStartField("sandboxPolicy"), OutputConstrained: c.HasTurnStartField("outputSchema")}
+}
+func (c Capabilities) RequireClassifier() error {
+	_, err := c.requireEphemeral(EphemeralRequest{ToolConfig: ClassifierToolConfig(), PermissionProfile: ":read-only"})
+	return err
 }
 func (c Capabilities) requireMethod(method string) error {
 	if !c.HasMethod(method) {

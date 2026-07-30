@@ -157,16 +157,60 @@ func (f *fakeFactory) Open(context.Context) (AppServer, error) {
 	return f.client, nil
 }
 
+type fakeClassifierSessionFactory struct {
+	opens          int
+	closes         int
+	cleanups       int
+	orphanCleanups int
+	openErr        error
+	closeErr       error
+	cleanupErr     error
+}
+
+type fakeClassifierSession struct{ factory *fakeClassifierSessionFactory }
+
+func (f *fakeClassifierSessionFactory) Open(context.Context) (ClassifierSession, error) {
+	f.opens++
+	if f.openErr != nil {
+		return nil, f.openErr
+	}
+	return &fakeClassifierSession{factory: f}, nil
+}
+
+func (f *fakeClassifierSessionFactory) Cleanup(string) error {
+	f.cleanups++
+	return f.cleanupErr
+}
+
+func (f *fakeClassifierSessionFactory) CleanupOrphans() error {
+	f.orphanCleanups++
+	return f.cleanupErr
+}
+
+func (s *fakeClassifierSession) RunEphemeral(context.Context, appserver.EphemeralRequest) (appserver.EphemeralResult, error) {
+	return appserver.EphemeralResult{}, errors.New("unexpected direct ephemeral call")
+}
+func (*fakeClassifierSession) CleanupToken() string { return "test-classifier-cleanup-token" }
+func (s *fakeClassifierSession) Close() error {
+	s.factory.closes++
+	return s.factory.closeErr
+}
+
 type fakeClassifier struct {
-	calls        int
-	requestPrev  []string
-	results      map[string]status.Classification
-	batchSizeOne bool
-	seen         []string
+	calls         int
+	requestPrev   []string
+	results       map[string]status.Classification
+	batchSizeOne  bool
+	waitForCancel bool
+	seen          []string
 }
 
 func (f *fakeClassifier) ClassifyWithProgress(ctx context.Context, tasks []status.TaskEvidence, load status.PreviousEvidenceLoader, _ status.ClassificationResume, observer status.ClassificationObserver) ([]status.Classification, error) {
 	f.calls++
+	if f.waitForCancel {
+		<-ctx.Done()
+		return nil, ctx.Err()
+	}
 	total := 1
 	if f.batchSizeOne {
 		total = len(tasks)
@@ -285,6 +329,7 @@ type wrappedStore struct {
 	failRemove            bool
 	failCycleAfter        int
 	failSemanticCompleted int
+	failClassifierToken   bool
 	cycleSaves            int
 	events                *[]string
 }
@@ -315,6 +360,9 @@ func (w *wrappedStore) SaveCycle(value state.CycleCheckpoint) error {
 			archiveStage = string(operation.Stage)
 		}
 		*w.events = append(*w.events, "save:title="+titleStage+",archive="+archiveStage)
+	}
+	if w.failClassifierToken && value.ClassifierCleanupToken != "" {
+		return errors.New("synthetic classifier token crash")
 	}
 	if w.failSemanticCompleted > 0 && value.Progress != nil && value.Progress.FirstPassBatchesCompleted >= w.failSemanticCompleted {
 		return errors.New("synthetic semantic checkpoint crash")
@@ -364,8 +412,8 @@ func TestHeartbeatIdleZero(t *testing.T) {
 	if err := output.Write(&stdout, output.FormatJSON, result); err != nil {
 		t.Fatal(err)
 	}
-	if stdout.Len() != 0 || deps.factory.opens != 0 || deps.classifier.calls != 0 || deps.index.calls != 1 || deps.store.cycleSaves != 0 {
-		t.Fatalf("stdout=%q opens=%d classifier=%d inventories=%d cycle_saves=%d", stdout.String(), deps.factory.opens, deps.classifier.calls, deps.index.calls, deps.store.cycleSaves)
+	if stdout.Len() != 0 || deps.factory.opens != 0 || deps.classifierSessions.opens != 0 || deps.classifier.calls != 0 || deps.index.calls != 1 || deps.store.cycleSaves != 0 {
+		t.Fatalf("stdout=%q opens=%d classifier_sessions=%d classifier=%d inventories=%d cycle_saves=%d", stdout.String(), deps.factory.opens, deps.classifierSessions.opens, deps.classifier.calls, deps.index.calls, deps.store.cycleSaves)
 	}
 }
 
@@ -1225,8 +1273,8 @@ func TestHeartbeatDryRunAndInvalidBudgetNeverCallClassifier(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, ok := preview.(output.PreviewResult); !ok || deps.factory.opens != 0 || deps.classifier.calls != 0 {
-		t.Fatalf("preview=%T opens=%d classifier=%d", preview, deps.factory.opens, deps.classifier.calls)
+	if _, ok := preview.(output.PreviewResult); !ok || deps.factory.opens != 0 || deps.classifierSessions.opens != 0 || deps.classifier.calls != 0 {
+		t.Fatalf("preview=%T opens=%d classifier_sessions=%d classifier=%d", preview, deps.factory.opens, deps.classifierSessions.opens, deps.classifier.calls)
 	}
 	deps.client.latest[task.TaskID] = completedEvidence(now, "done", "no footer")
 	invalid := config.Default("control")
@@ -1237,8 +1285,161 @@ func TestHeartbeatDryRunAndInvalidBudgetNeverCallClassifier(t *testing.T) {
 		t.Fatal(err)
 	}
 	result := value.(output.HeartbeatResult)
-	if deps.classifier.calls != 0 || len(result.Retries) != 1 || result.Retries[0].ErrorCode != "invalid_context_budget" {
-		t.Fatalf("result=%+v classifier=%d", result, deps.classifier.calls)
+	if deps.classifierSessions.opens != 0 || deps.classifier.calls != 0 || len(result.Retries) != 1 || result.Retries[0].ErrorCode != "invalid_context_budget" {
+		t.Fatalf("result=%+v classifier_sessions=%d classifier=%d", result, deps.classifierSessions.opens, deps.classifier.calls)
+	}
+}
+
+func TestClassifierSessionOpensOnceForMultipleBatches(t *testing.T) {
+	now := time.Date(2026, 7, 30, 12, 0, 0, 0, time.UTC)
+	tasks := []codex.Task{{TaskID: "semantic-a", Revision: "1", Title: "A", Source: "vscode"}, {TaskID: "semantic-b", Revision: "1", Title: "B", Source: "vscode"}, {TaskID: "semantic-c", Revision: "1", Title: "C", Source: "vscode"}}
+	committed := state.New()
+	committed.LastUpdateCheck = timePointer(now)
+	runner, deps := testRunner(t, now, tasks, committed)
+	for _, task := range tasks {
+		deps.client.latest[task.TaskID] = completedEvidence(now, "continue", "ambiguous")
+	}
+	deps.classifier.batchSizeOne = true
+	if _, err := runner.Run(context.Background(), false); err != nil {
+		t.Fatal(err)
+	}
+	if deps.classifierSessions.opens != 1 || deps.classifierSessions.closes != 1 || deps.classifier.calls != 1 {
+		t.Fatalf("sessions=%+v classifier_calls=%d", deps.classifierSessions, deps.classifier.calls)
+	}
+}
+
+func TestDeterministicHeartbeatDoesNotOpenClassifierSession(t *testing.T) {
+	now := time.Date(2026, 7, 30, 12, 0, 0, 0, time.UTC)
+	task := codex.Task{TaskID: "deterministic", Revision: "1", Title: "Task", Source: "vscode"}
+	committed := state.New()
+	committed.LastUpdateCheck = timePointer(now)
+	runner, deps := testRunner(t, now, []codex.Task{task}, committed)
+	deps.client.latest[task.TaskID] = completedEvidence(now, "done", "🧵🐻 complete")
+	if _, err := runner.Run(context.Background(), false); err != nil {
+		t.Fatal(err)
+	}
+	if deps.classifierSessions.opens != 0 || deps.classifier.calls != 0 {
+		t.Fatalf("sessions=%d classifier=%d", deps.classifierSessions.opens, deps.classifier.calls)
+	}
+}
+
+func TestClassifierIsolationSetupFailureBlocksMutations(t *testing.T) {
+	now := time.Date(2026, 7, 30, 12, 0, 0, 0, time.UTC)
+	task := codex.Task{TaskID: "semantic", Revision: "1", Title: "Task", Source: "vscode"}
+	committed := state.New()
+	committed.LastUpdateCheck = timePointer(now)
+	runner, deps := testRunner(t, now, []codex.Task{task}, committed)
+	deps.client.latest[task.TaskID] = completedEvidence(now, "continue", "ambiguous")
+	deps.classifierSessions.openErr = errors.New("synthetic isolation failure")
+	value, err := runner.Run(context.Background(), false)
+	if err == nil || value.(output.HeartbeatResult).ErrorCode != "classifier_isolation_failed" {
+		t.Fatalf("result=%+v err=%v", value, err)
+	}
+	if deps.classifier.calls != 0 || len(deps.client.titles) != 0 || len(deps.client.archives) != 0 {
+		t.Fatalf("classifier=%d titles=%v archives=%v", deps.classifier.calls, deps.client.titles, deps.client.archives)
+	}
+}
+
+func TestClassifierCleanupFailureBlocksPendingNotice(t *testing.T) {
+	now := time.Date(2026, 7, 30, 12, 0, 0, 0, time.UTC)
+	task := codex.Task{TaskID: "semantic", Revision: "1", Title: "Task", Source: "vscode"}
+	committed := state.New()
+	runner, deps := testRunner(t, now, []codex.Task{task}, committed)
+	cfg := config.Default("control")
+	cfg.AutoUpdateEnabled = false
+	deps.store.configOverride = &cfg
+	deps.update.result = UpdateStatus{LatestVersion: "2.0.0", Newer: true}
+	deps.client.latest[task.TaskID] = completedEvidence(now, "done", "ambiguous")
+	deps.classifierSessions.closeErr = errors.New("synthetic cleanup failure")
+	value, err := runner.Run(context.Background(), false)
+	if err == nil || value.(output.HeartbeatResult).ErrorCode != "classifier_cleanup_failed" {
+		t.Fatalf("result=%+v err=%v", value, err)
+	}
+	if len(deps.client.notices) != 0 || len(deps.client.titles) != 0 || len(deps.client.archives) != 0 {
+		t.Fatalf("notices=%v titles=%v archives=%v", deps.client.notices, deps.client.titles, deps.client.archives)
+	}
+}
+
+func TestClassifierCleanupFailureBlocksMutationAndRecovers(t *testing.T) {
+	now := time.Date(2026, 7, 30, 12, 0, 0, 0, time.UTC)
+	task := codex.Task{TaskID: "semantic", Revision: "1", Title: "Task", Source: "vscode"}
+	committed := state.New()
+	committed.LastUpdateCheck = timePointer(now)
+	runner, deps := testRunner(t, now, []codex.Task{task}, committed)
+	deps.client.latest[task.TaskID] = completedEvidence(now, "done", "ambiguous")
+	deps.classifierSessions.closeErr = errors.New("synthetic cleanup failure")
+	value, err := runner.Run(context.Background(), false)
+	if err == nil || value.(output.HeartbeatResult).ErrorCode != "classifier_cleanup_failed" {
+		t.Fatalf("result=%+v err=%v", value, err)
+	}
+	checkpoint, loadErr := deps.store.store.LoadCycle()
+	if loadErr != nil || checkpoint.ClassifierCleanupToken == "" || len(deps.client.titles) != 0 {
+		t.Fatalf("checkpoint=%+v load_err=%v titles=%v", checkpoint, loadErr, deps.client.titles)
+	}
+	deps.classifierSessions.closeErr = nil
+	if _, err := runner.Run(context.Background(), false); err != nil {
+		t.Fatal(err)
+	}
+	if deps.classifierSessions.cleanups != 1 || deps.classifier.calls != 1 {
+		t.Fatalf("sessions=%+v classifier=%d", deps.classifierSessions, deps.classifier.calls)
+	}
+}
+
+func TestClassifierTokenJournalFailureStillRecoversOrphan(t *testing.T) {
+	now := time.Date(2026, 7, 30, 12, 0, 0, 0, time.UTC)
+	task := codex.Task{TaskID: "semantic", Revision: "1", Title: "Task", Source: "vscode"}
+	committed := state.New()
+	committed.LastUpdateCheck = timePointer(now)
+	runner, deps := testRunner(t, now, []codex.Task{task}, committed)
+	deps.client.latest[task.TaskID] = completedEvidence(now, "continue", "ambiguous")
+	deps.store.failClassifierToken = true
+	deps.classifierSessions.closeErr = errors.New("synthetic cleanup failure")
+	value, err := runner.Run(context.Background(), false)
+	if err == nil || value.(output.HeartbeatResult).ErrorCode != "classifier_cleanup_failed" || deps.classifier.calls != 0 {
+		t.Fatalf("result=%+v err=%v classifier=%d", value, err, deps.classifier.calls)
+	}
+	orphanScans := deps.classifierSessions.orphanCleanups
+	deps.store.failClassifierToken = false
+	deps.classifierSessions.closeErr = nil
+	if _, err := runner.Run(context.Background(), false); err != nil {
+		t.Fatal(err)
+	}
+	if deps.classifierSessions.orphanCleanups != orphanScans+1 || deps.classifier.calls != 1 {
+		t.Fatalf("sessions=%+v classifier=%d", deps.classifierSessions, deps.classifier.calls)
+	}
+}
+
+func TestClassifierOrphanCleanupFailureStopsBeforeInventory(t *testing.T) {
+	now := time.Date(2026, 7, 30, 12, 0, 0, 0, time.UTC)
+	committed := state.New()
+	committed.LastUpdateCheck = timePointer(now)
+	runner, deps := testRunner(t, now, nil, committed)
+	deps.classifierSessions.cleanupErr = errors.New("synthetic orphan cleanup failure")
+	value, err := runner.Run(context.Background(), false)
+	if err == nil || value.(output.HeartbeatResult).ErrorCode != "classifier_cleanup_failed" {
+		t.Fatalf("result=%+v err=%v", value, err)
+	}
+	if deps.index.calls != 0 || deps.managed.calls != 0 {
+		t.Fatalf("inventory=%d managed=%d", deps.index.calls, deps.managed.calls)
+	}
+}
+
+func TestClassifierCancellationCleansSessionBeforeMutation(t *testing.T) {
+	now := time.Date(2026, 7, 30, 12, 0, 0, 0, time.UTC)
+	task := codex.Task{TaskID: "semantic", Revision: "1", Title: "Task", Source: "vscode"}
+	committed := state.New()
+	committed.LastUpdateCheck = timePointer(now)
+	runner, deps := testRunner(t, now, []codex.Task{task}, committed)
+	deps.client.latest[task.TaskID] = completedEvidence(now, "continue", "ambiguous")
+	deps.classifier.waitForCancel = true
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	value, err := runner.Run(ctx, false)
+	if !errors.Is(err, context.Canceled) || value.(output.HeartbeatResult).ErrorCode != "classifier_interrupted" {
+		t.Fatalf("result=%+v err=%v", value, err)
+	}
+	if deps.classifierSessions.opens != 1 || deps.classifierSessions.closes != 1 || len(deps.client.titles) != 0 {
+		t.Fatalf("sessions=%+v titles=%v", deps.classifierSessions, deps.client.titles)
 	}
 }
 
@@ -1652,16 +1853,17 @@ func TestReconcileRespectsDisabledAgents(t *testing.T) {
 }
 
 type testDeps struct {
-	store      *wrappedStore
-	clock      *fakeClock
-	index      *fakeIndex
-	client     *fakeClient
-	factory    *fakeFactory
-	classifier *fakeClassifier
-	update     *fakeUpdateChecker
-	updater    *fakeUpdater
-	managed    *fakeManagedSurfaces
-	tokens     *fakeTokenReader
+	store              *wrappedStore
+	clock              *fakeClock
+	index              *fakeIndex
+	client             *fakeClient
+	factory            *fakeFactory
+	classifier         *fakeClassifier
+	classifierSessions *fakeClassifierSessionFactory
+	update             *fakeUpdateChecker
+	updater            *fakeUpdater
+	managed            *fakeManagedSurfaces
+	tokens             *fakeTokenReader
 }
 
 func testRunner(t *testing.T, now time.Time, tasks []codex.Task, committed state.State) (*Runner, testDeps) {
@@ -1685,6 +1887,7 @@ func testRunner(t *testing.T, now time.Time, tasks []codex.Task, committed state
 	client := &fakeClient{index: index, latest: make(map[string]appserver.RecentEvidence), previous: make(map[string]*appserver.EvidenceTurn), persisted: make(map[string][]string), failTitle: make(map[string]bool)}
 	factory := &fakeFactory{client: client}
 	classifier := &fakeClassifier{results: make(map[string]status.Classification)}
+	classifierSessions := &fakeClassifierSessionFactory{}
 	update := &fakeUpdateChecker{result: UpdateStatus{LatestVersion: "1.0.0"}}
 	updater := &fakeUpdater{}
 	managed := &fakeManagedSurfaces{}
@@ -1692,10 +1895,10 @@ func testRunner(t *testing.T, now time.Time, tasks []codex.Task, committed state
 	wrapped := &wrappedStore{store: store}
 	clock := &fakeClock{now: now}
 	runner, err := New(Dependencies{
-		Store: wrapped, Inventory: index, AppServer: factory, UpdateChecker: update, Updater: updater, ManagedSurfaces: managed, Clock: clock, InstalledVersion: "1.0.0",
+		Store: wrapped, Inventory: index, AppServer: factory, ClassifierSessions: classifierSessions, UpdateChecker: update, Updater: updater, ManagedSurfaces: managed, Clock: clock, InstalledVersion: "1.0.0",
 		TokenReader: tokenReader,
 		NewCycleID:  func() string { return "cycle-1" },
-		NewClassifier: func(_ AppServer, cfg config.Config) (Classifier, error) {
+		NewClassifier: func(_ status.EphemeralRunner, cfg config.Config) (Classifier, error) {
 			if cfg.ClassifierContextBudgetBytes != 250000 {
 				t.Fatalf("context budget=%d", cfg.ClassifierContextBudgetBytes)
 			}
@@ -1705,7 +1908,7 @@ func testRunner(t *testing.T, now time.Time, tasks []codex.Task, committed state
 	if err != nil {
 		t.Fatal(err)
 	}
-	return runner, testDeps{store: wrapped, clock: clock, index: index, client: client, factory: factory, classifier: classifier, update: update, updater: updater, managed: managed, tokens: tokenReader}
+	return runner, testDeps{store: wrapped, clock: clock, index: index, client: client, factory: factory, classifier: classifier, classifierSessions: classifierSessions, update: update, updater: updater, managed: managed, tokens: tokenReader}
 }
 
 func completedEvidence(now time.Time, user, agent string) appserver.RecentEvidence {

@@ -36,6 +36,15 @@ func TestCapabilities(t *testing.T) {
 	if !r.ConfigOverride || !r.PermissionProfile || !r.EnvironmentsDisabled || !r.DynamicToolsDisabled || !r.ApprovalsDisabled || !r.ReadOnlySandbox || !r.OutputConstrained {
 		t.Fatalf("restriction=%+v", r)
 	}
+	config := ClassifierToolConfig()
+	orchestrator, ok := config["orchestrator"].(map[string]any)
+	mcp, mcpOK := orchestrator["mcp"].(map[string]any)
+	if !ok || !mcpOK || mcp["enabled"] != false || !validClassifierToolConfig(config) {
+		t.Fatalf("classifier config=%+v", config)
+	}
+	if err := caps.RequireClassifier(); err != nil {
+		t.Fatal(err)
+	}
 }
 func TestProcessSpecResolvesExplicitPath(t *testing.T) {
 	directory := t.TempDir()

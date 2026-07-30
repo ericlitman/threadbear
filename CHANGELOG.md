@@ -4,7 +4,7 @@
 
 ### Fixed
 
-- Decoupled guided-install health from background historical convergence, restored context-sized semantic packing, added aggregate first-sweep progress, and fail closed unless ephemeral classifiers have the supported tool-free controls.
+- Decoupled guided-install health from background historical convergence, restored context-sized semantic packing, added aggregate first-sweep progress, and isolated each heartbeat's classifier in one private minimal-auth App Server process reused across batches.
 
 ## v1.4.0 - 2026-07-29
 

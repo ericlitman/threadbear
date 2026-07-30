@@ -28,7 +28,7 @@ The finalists were rerun five times on 31 hard cases.
 
 The evaluated deterministic-plus-Luna-medium cascade reached **89/89 natural labels and 12/12 challenge labels with zero false-completes**.
 
-The product uses deterministic precedence and valid agent footers before semantic fallback, so these classifier results are not a claim that every heartbeat invokes Luna. Unchanged work costs zero model tokens, mechanically resolved changes bypass Luna, and only unresolved changed tasks enter fresh non-persisted classifier sessions.
+The product uses deterministic precedence and valid agent footers before semantic fallback, so these classifier results are not a claim that every heartbeat invokes Luna. Unchanged work costs zero model tokens, mechanically resolved changes bypass Luna, and only unresolved changed tasks enter one private non-persisted classifier process per heartbeat, reused across capacity-sized batches.
 
 The public synthetic regression fixtures separately cover all seven product states and assert that no false-next-steps result is accepted. This is repository test coverage, not an additional private-corpus metric.
 
@@ -43,8 +43,8 @@ text, identifiers, titles, paths, flags, or classifier payloads.
 
 | Cohort | Observations | Deterministic | Luna | First / previous requests | First progress | Total convergence | Retries / rate limits | Helper proof |
 |---|---:|---:|---:|---:|---:|---:|---:|---|
-| Legacy first adoption | pending live gate | pending | pending | pending | pending | pending | pending | pending |
-| Status-guided changed work | pending live gate | pending | pending | pending | pending | pending | pending | pending |
+| Legacy first adoption | pending live gate | pending | pending | pending | pending | pending | pending | pending process-isolation canary |
+| Status-guided changed work | pending live gate | pending | pending | pending | pending | pending | pending | pending process-isolation canary |
 
 Run each cohort with `THREADBEAR_FIRST_SWEEP_BENCHMARK=1`, once with `THREADBEAR_CLASSIFIER_MODE=serial` and once with
 `THREADBEAR_CLASSIFIER_MODE=bounded`. The bounded mode may become the compiled
