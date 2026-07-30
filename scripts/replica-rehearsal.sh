@@ -111,7 +111,9 @@ cleanup() {
 		"$installed" uninstall --noninteractive --confirm >/dev/null 2>&1 || true
 	fi
 	/bin/launchctl bootout "$service" >/dev/null 2>&1 || true
-	if [ -n "${original_classifier_mode+x}" ] && [ -n "$original_classifier_mode" ]; then /bin/launchctl setenv THREADBEAR_CLASSIFIER_MODE "$original_classifier_mode" >/dev/null 2>&1 || true; else /bin/launchctl unsetenv THREADBEAR_CLASSIFIER_MODE >/dev/null 2>&1 || true; fi
+	if [ -n "${original_classifier_mode+x}" ]; then
+		if [ -n "$original_classifier_mode" ]; then /bin/launchctl setenv THREADBEAR_CLASSIFIER_MODE "$original_classifier_mode" >/dev/null 2>&1 || true; else /bin/launchctl unsetenv THREADBEAR_CLASSIFIER_MODE >/dev/null 2>&1 || true; fi
+	fi
 	/bin/launchctl enable "$service" >/dev/null 2>&1 || true
 	rm -rf "$temporary_root"
 }
