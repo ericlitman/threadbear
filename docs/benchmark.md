@@ -33,3 +33,26 @@ The product uses deterministic precedence and valid agent footers before semanti
 The public synthetic regression fixtures separately cover all seven product states and assert that no false-next-steps result is accepted. This is repository test coverage, not an additional private-corpus metric.
 
 No per-state breakdown or claim beyond the approved aggregate evidence is published here.
+
+## First-sweep performance release gate
+
+BEAR-87 separates the one-time legacy-history cost from ordinary status-guided
+changes. Each benchmark replica carries an aggregate-only `threadbear-cohort.json` declaring `cohort`, `preparation`, and an expected 150–250 observations. Run both cohorts against isolated copied Codex homes and publish only
+the cohort/mode-specific aggregate JSON emitted by `scripts/replica-rehearsal.sh`; the four successful runs must not overwrite one another. Never publish task
+text, identifiers, titles, paths, flags, or classifier payloads.
+
+| Cohort | Observations | Deterministic | Luna | First / previous requests | First progress | Total convergence | Retries / rate limits | Helper proof |
+|---|---:|---:|---:|---:|---:|---:|---:|---|
+| Legacy first adoption | pending live gate | pending | pending | pending | pending | pending | pending | pending |
+| Status-guided changed work | pending live gate | pending | pending | pending | pending | pending | pending | pending |
+
+Run each cohort with `THREADBEAR_FIRST_SWEEP_BENCHMARK=1`, once with `THREADBEAR_CLASSIFIER_MODE=serial` and once with
+`THREADBEAR_CLASSIFIER_MODE=bounded`. The bounded mode may become the compiled
+default only when it lowers total convergence time with no worse first-progress
+latency, retries, rate limits, cancellation, row salvage, or restart recovery.
+Capacity-sized packing may produce one request, in which case serial execution is
+the measured result.
+
+The product copy remains “ambiguity fallback” until the reviewed status-guided
+cohort contains approximately 200 changed observations and sends no more than 5%
+to Luna. Legacy-history results never qualify for the word “rare.”

@@ -63,3 +63,19 @@ ThreadBear never logs message bodies, classifier payloads, inherited environment
 ThreadBear does not edit `.codex-global-state.json` or private sidebar caches; click through Codex Desktop or organize projects/folders/pins; create visible classifier tasks; bypass Codex approval or weaken verified update gates; keep automatic rollback data; or auto-archive unfinished work.
 
 Release binaries target `darwin/arm64` and `darwin/amd64` with `CGO_ENABLED=0` and need no Go, cgo, Python, Node.js, or other end-user runtime.
+
+## Background first-sweep convergence
+
+A changed heartbeat persists aggregate progress after deterministic resolution
+and after every capacity-sized semantic request. Status exposes only counts,
+phases, and durations; private task evidence remains inside the existing cycle
+checkpoint. Installation health is independent of convergence: guided install
+kickstarts the enabled LaunchAgent, observes its start for at most ten seconds,
+and closes while historical semantic work continues.
+
+Classifier packing uses the complete serialized evidence and configured context
+budget without a fixed task-count cap. Benchmark-only bounded workers share one
+App Server through keyed turn notification routing. Production remains serial
+unless the two-cohort live gate demonstrates a reliability-neutral wall-clock
+benefit. Ephemeral turns require the supported read-only permission profile and
+a tool-free config override before `thread/start`; missing controls fail closed.

@@ -103,7 +103,6 @@ func PackTasks(tasks []TaskEvidence, contextBudgetBytes int, includePrevious boo
 		return candidates[left].weight > candidates[right].weight
 	})
 	groups := minimumBatchGroups(candidates, capacity)
-	groups = capGroupSizes(groups, maxBatchTasks)
 	batches := make([]PackedBatch, len(groups))
 	for index, group := range groups {
 		sort.Slice(group, func(left, right int) bool {
@@ -133,14 +132,6 @@ func PackTasks(tasks []TaskEvidence, contextBudgetBytes int, includePrevious boo
 
 // Review ruling: bound exact packing by nodes and use the initial greedy grouping on exhaustion.
 const exactPackingNodeLimit = 2048
-
-// maxBatchTasks caps how many tasks share one classifier call regardless of
-// how many fit the byte budget. Every response row must echo a 36-character
-// task ID verbatim, and a live 71-task batch (2026-07-26) showed the model
-// miscopying two of them - one chimera of two adjacent IDs, one missing its
-// final character. Row salvage limits the damage; this cap limits the
-// transcription surface itself and keeps a defective batch's retry small.
-const maxBatchTasks = 20
 
 func minimumBatchGroups(candidates []packingCandidate, capacity int) [][]TaskEvidence {
 	if len(candidates) == 0 {
@@ -203,23 +194,6 @@ func minimumBatchGroups(candidates []packingCandidate, capacity int) [][]TaskEvi
 	// packings, so it is always valid and never worse than greedy — including
 	// when the bounded search exhausts its node limit (BEAR-17).
 	return best
-}
-
-// capGroupSizes splits any group larger than the task cap into consecutive
-// chunks. This deliberately trades "fewest calls" (KTD3) for bounded ID
-// transcription per call; the plan records the amendment.
-func capGroupSizes(groups [][]TaskEvidence, cap int) [][]TaskEvidence {
-	capped := make([][]TaskEvidence, 0, len(groups))
-	for _, group := range groups {
-		for start := 0; start < len(group); start += cap {
-			end := start + cap
-			if end > len(group) {
-				end = len(group)
-			}
-			capped = append(capped, group[start:end])
-		}
-	}
-	return capped
 }
 
 func greedyBatchGroups(candidates []packingCandidate, capacity int) [][]TaskEvidence {

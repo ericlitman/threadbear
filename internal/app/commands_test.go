@@ -134,6 +134,7 @@ func TestStatusHumanJSONParityAndPendingDiagnostics(t *testing.T) {
 		t.Fatal(err)
 	}
 	cycle := state.NewCycle("cycle-1", committed.Generation, now)
+	cycle.Progress = &state.SweepProgress{Phase: state.SweepPhaseSemantic, InventoryTasks: 10, LatestTurnReads: 10, MechanicallyResolved: 8, LunaCandidates: 2, FirstPassBatchesTotal: 1, StartedAt: now, UpdatedAt: now}
 	cycle.Inventory["task-b"] = state.CapturedTask{TaskID: "task-b", Revision: "rev-b", Title: "Task B", LastSubstantiveActivity: now}
 	cycle.Diagnostics["task-a"] = state.CycleDiagnostic{TaskID: "task-a", Operation: "title", ErrorCode: "write_failed"}
 	cycle.Diagnostics["task-b"] = state.CycleDiagnostic{TaskID: "task-b", Operation: "classifier", ErrorCode: "unavailable"}
@@ -146,7 +147,7 @@ func TestStatusHumanJSONParityAndPendingDiagnostics(t *testing.T) {
 		t.Fatal(err)
 	}
 	statusResult := result.(output.StatusResult)
-	if statusResult.PendingRetries != 2 || !statusResult.Preferences.AutoUpdateEnabled || statusResult.Preferences.ClassifierContextBudgetBytes != config.DefaultClassifierContextBudgetBytes || launch.healthCalls != 1 {
+	if statusResult.PendingRetries != 2 || statusResult.FirstSweep == nil || statusResult.FirstSweep.LunaCandidates != 2 || !statusResult.Preferences.AutoUpdateEnabled || statusResult.Preferences.ClassifierContextBudgetBytes != config.DefaultClassifierContextBudgetBytes || launch.healthCalls != 1 {
 		t.Fatalf("status=%+v launch=%+v", statusResult, launch)
 	}
 	var human, machine bytes.Buffer

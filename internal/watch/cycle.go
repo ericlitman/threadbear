@@ -51,7 +51,7 @@ type AppServerFactory interface {
 }
 
 type Classifier interface {
-	ClassifyWithPrevious(context.Context, []status.TaskEvidence, status.PreviousEvidenceLoader) []status.Classification
+	ClassifyWithProgress(context.Context, []status.TaskEvidence, status.PreviousEvidenceLoader, status.ClassificationResume, status.ClassificationObserver) ([]status.Classification, error)
 }
 
 type ClassifierFactory func(AppServer, config.Config) (Classifier, error)
@@ -309,6 +309,16 @@ func (r *Runner) Run(ctx context.Context, dryRun bool) (output.Result, error) {
 		}
 	}
 
+	if checkpoint.PreviousRequested == nil {
+		checkpoint.PreviousRequested = make(map[string]string)
+	}
+	if checkpoint.Progress == nil {
+		checkpoint.Progress = &state.SweepProgress{Phase: state.SweepPhaseStarting, InventoryTasks: len(inventory.Tasks), ChangedTasks: len(comparison.Changed), StartedAt: now, UpdatedAt: now}
+		if err := r.deps.Store.SaveCycle(checkpoint); err != nil {
+			return output.HeartbeatResult{CycleID: checkpoint.CycleID, ErrorCode: "cycle_write_failed"}, err
+		}
+	}
+
 	if announcementDue && !checkpointHasAnnouncement(checkpoint, r.deps.InstalledVersion) {
 		key := "announcement:" + r.deps.InstalledVersion
 		checkpoint.Operations[key] = state.CycleOperation{Kind: state.OperationAnnouncement, Stage: state.StagePrepared, PreviousVersion: committed.LastAnnouncedVersion, NoticeVersion: r.deps.InstalledVersion}
@@ -318,7 +328,7 @@ func (r *Runner) Run(ctx context.Context, dryRun bool) (output.Result, error) {
 	}
 
 	bootstrapTitles := !committed.BootstrapComplete
-	result := output.HeartbeatResult{CycleID: checkpoint.CycleID, ManagedResources: managedResources, ErrorCode: managedErrorCode(managedSurfacesErr)}
+	result := output.HeartbeatResult{CycleID: checkpoint.CycleID, ManagedResources: managedResources, ErrorCode: managedErrorCode(managedSurfacesErr), Progress: checkpoint.Progress}
 	needClient := len(comparison.Changed) > 0 || pendingUpdate.Newer || len(checkpoint.Operations) > 0
 	var client AppServer
 	closeClient := func() {}
@@ -361,11 +371,13 @@ func (r *Runner) Run(ctx context.Context, dryRun bool) (output.Result, error) {
 			checkpoint.Results[task.TaskID] = unknownResult(task, state.ProvenanceUnknown)
 			continue
 		}
+		checkpoint.Progress.LatestTurnReads++
 		evidence, readErr := client.ReadLatestTurn(ctx, task.TaskID, task.RolloutPath)
 		if readErr != nil {
 			if bootstrapTitles {
 				if adopted, subject, ok := title.AdoptSingleLeadingStatus(task.Title); ok {
 					checkpoint.Results[task.TaskID] = state.ClassificationResult{TaskID: task.TaskID, Revision: task.Revision, Status: adopted, Provenance: state.ProvenanceBootstrapTitle, DurableSubject: subject}
+					checkpoint.Progress.MechanicallyResolved++
 					continue
 				}
 			}
@@ -381,11 +393,14 @@ func (r *Runner) Run(ctx context.Context, dryRun bool) (output.Result, error) {
 		_, advancedSettlement := advancedTitleSettlements[task.TaskID]
 		if advancedSettlement && hadPrevious && previous.EvidenceFingerprint != "" && previous.EvidenceFingerprint == captured.EvidenceFingerprint {
 			checkpoint.Results[task.TaskID] = state.ClassificationResult{TaskID: task.TaskID, Revision: task.Revision, Status: previous.Status, Provenance: previous.Provenance, DurableSubject: previous.DurableSubject, ManagedAction: previous.ManagedAction}
+			checkpoint.Progress.MechanicallyResolved++
 		} else if choice.Resolution.Resolved {
 			checkpoint.Results[task.TaskID] = state.ClassificationResult{TaskID: task.TaskID, Revision: task.Revision, Status: choice.Resolution.Status, Provenance: choice.Resolution.Provenance, ManagedAction: choice.Resolution.ManagedAction}
+			checkpoint.Progress.MechanicallyResolved++
 		} else if bootstrapTitles {
 			if adopted, subject, ok := title.AdoptSingleLeadingStatus(task.Title); ok {
 				checkpoint.Results[task.TaskID] = state.ClassificationResult{TaskID: task.TaskID, Revision: task.Revision, Status: adopted, Provenance: state.ProvenanceBootstrapTitle, DurableSubject: subject}
+				checkpoint.Progress.MechanicallyResolved++
 			} else {
 				unresolved = append(unresolved, taskEvidence(choice))
 			}
@@ -393,12 +408,20 @@ func (r *Runner) Run(ctx context.Context, dryRun bool) (output.Result, error) {
 			unresolved = append(unresolved, taskEvidence(choice))
 		}
 	}
+	checkpoint.Progress.Phase = state.SweepPhaseDeterministic
+	progressAt := r.deps.Clock.Now().UTC()
+	checkpoint.Progress.UpdatedAt = progressAt
+	if checkpoint.Progress.FirstProgressAt == nil {
+		checkpoint.Progress.LunaCandidates = len(unresolved)
+		checkpoint.Progress.FirstProgressAt = &progressAt
+	}
 	if err := r.deps.Store.SaveCycle(checkpoint); err != nil {
 		result.ErrorCode = "cycle_write_failed"
 		return result, err
 	}
 
 	if len(unresolved) > 0 {
+		checkpoint.Progress.Phase = state.SweepPhaseSemantic
 		if managedSurfacesErr != nil {
 			for _, task := range unresolved {
 				checkpoint.Results[task.TaskID] = state.ClassificationResult{TaskID: task.TaskID, Revision: task.Revision, Status: state.StatusUnknown, Provenance: state.ProvenanceUnknown}
@@ -422,7 +445,9 @@ func (r *Runner) Run(ctx context.Context, dryRun bool) (output.Result, error) {
 					r.setDiagnostic(&checkpoint, task.TaskID, "classifier", "classifier_unavailable")
 				}
 			} else {
-				classified := classifier.ClassifyWithPrevious(ctx, unresolved, func(loadCtx context.Context, requested []status.TaskEvidence) []status.PreviousEvidenceResult {
+				firstCompletedBase := checkpoint.Progress.FirstPassBatchesCompleted
+				previousCompletedBase := checkpoint.Progress.PreviousPassBatchesCompleted
+				classified, classifyErr := classifier.ClassifyWithProgress(ctx, unresolved, func(loadCtx context.Context, requested []status.TaskEvidence) []status.PreviousEvidenceResult {
 					loaded := make([]status.PreviousEvidenceResult, 0, len(requested))
 					for _, request := range requested {
 						task := taskByID[request.TaskID]
@@ -435,19 +460,59 @@ func (r *Runner) Run(ctx context.Context, dryRun bool) (output.Result, error) {
 						loaded = append(loaded, status.PreviousEvidenceResult{TaskID: request.TaskID, Revision: request.Revision, Evidence: &evidence})
 					}
 					return loaded
+				}, status.ClassificationResume{PreviousRequested: checkpoint.PreviousRequested}, func(event status.ClassificationBatchEvent) error {
+					switch event.Pass {
+					case status.ClassificationPassFirst:
+						checkpoint.Progress.FirstPassBatchesTotal = firstCompletedBase + event.Total
+						checkpoint.Progress.FirstPassBatchesCompleted = firstCompletedBase + event.Completed
+					case status.ClassificationPassPrevious:
+						checkpoint.Progress.PreviousPassBatchesTotal = previousCompletedBase + event.Total
+						checkpoint.Progress.PreviousPassBatchesCompleted = previousCompletedBase + event.Completed
+					}
+					checkpoint.Progress.ModelDurationMilliseconds += event.Duration.Milliseconds()
+					checkpoint.Progress.UpdatedAt = r.deps.Clock.Now().UTC()
+					for _, request := range event.PreviousRequested {
+						checkpoint.PreviousRequested[request.TaskID] = request.Revision
+					}
+					for _, classification := range event.Classifications {
+						checkpoint.Results[classification.TaskID] = classification.StateResult()
+						if event.Pass == status.ClassificationPassPrevious {
+							delete(checkpoint.PreviousRequested, classification.TaskID)
+						}
+						if classification.Diagnostic != nil {
+							r.setDiagnostic(&checkpoint, classification.TaskID, "classifier", classification.Diagnostic.Code)
+						}
+					}
+					return r.deps.Store.SaveCycle(checkpoint)
 				})
+				if classifyErr != nil {
+					if ctx.Err() != nil {
+						result.ErrorCode = "classifier_interrupted"
+					} else {
+						result.ErrorCode = "cycle_write_failed"
+					}
+					return result, classifyErr
+				}
 				for _, classification := range classified {
 					checkpoint.Results[classification.TaskID] = classification.StateResult()
 					if classification.Diagnostic != nil {
 						r.setDiagnostic(&checkpoint, classification.TaskID, "classifier", classification.Diagnostic.Code)
 					}
 				}
+
 			}
 		}
 		if err := r.deps.Store.SaveCycle(checkpoint); err != nil {
 			result.ErrorCode = "cycle_write_failed"
 			return result, err
 		}
+	}
+
+	checkpoint.Progress.Phase = state.SweepPhaseMutating
+	checkpoint.Progress.UpdatedAt = r.deps.Clock.Now().UTC()
+	if err := r.deps.Store.SaveCycle(checkpoint); err != nil {
+		result.ErrorCode = "cycle_write_failed"
+		return result, err
 	}
 
 	records := r.prepareRecords(cfg, committed, checkpoint, now, &result)
@@ -464,16 +529,34 @@ func (r *Runner) Run(ctx context.Context, dryRun bool) (output.Result, error) {
 		return result, err
 	}
 
+	mutationStarted := time.Now()
 	if err := r.applyOperations(ctx, cfg, client, &checkpoint, records, &result, now); err != nil {
 		result.ErrorCode = "mutation_outcome_unknown"
 		return result, err
 	}
+	checkpoint.Progress.MutationDurationMilliseconds += time.Since(mutationStarted).Milliseconds()
 	appendRetryResults(&result, checkpoint.Diagnostics)
 	next, err := r.commitState(cfg, committed, checkpoint, records, now)
 	if err != nil {
 		result.ErrorCode = "operation_commit_failed"
 		return result, err
 	}
+	completedAt := r.deps.Clock.Now().UTC()
+	checkpoint.Progress.RetryCount = len(result.Retries)
+	checkpoint.Progress.RateLimitCount = 0
+	for _, diagnostic := range checkpoint.Diagnostics {
+		if diagnostic.ErrorCode == "ephemeral_rate_limited" {
+			checkpoint.Progress.RateLimitCount++
+		}
+	}
+	checkpoint.Progress.Phase = state.SweepPhaseConverged
+	if checkpoint.Progress.RetryCount > 0 {
+		checkpoint.Progress.Phase = state.SweepPhaseRetryable
+	}
+	checkpoint.Progress.UpdatedAt = completedAt
+	checkpoint.Progress.CompletedAt = &completedAt
+	next.LastSweep = checkpoint.Progress
+	result.Progress = checkpoint.Progress
 	if err := r.deps.Store.SaveState(next); err != nil {
 		result.ErrorCode = "state_write_failed"
 		return result, err
@@ -818,6 +901,7 @@ func pruneRemovedCaptured(checkpoint *state.CycleCheckpoint, inventory codex.Inv
 		delete(checkpoint.Inventory, taskID)
 		delete(checkpoint.Results, taskID)
 		delete(checkpoint.Diagnostics, taskID)
+		delete(checkpoint.PreviousRequested, taskID)
 	}
 }
 

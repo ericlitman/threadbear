@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Fixed
+
+- Decoupled guided-install health from background historical convergence, restored context-sized semantic packing, added aggregate first-sweep progress, and fail closed unless ephemeral classifiers have the supported tool-free controls.
+
 ## v1.4.0 - 2026-07-29
 
 ### Changed

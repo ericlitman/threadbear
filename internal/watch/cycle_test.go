@@ -3,6 +3,7 @@ package watch
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -157,13 +158,24 @@ func (f *fakeFactory) Open(context.Context) (AppServer, error) {
 }
 
 type fakeClassifier struct {
-	calls       int
-	requestPrev []string
-	results     map[string]status.Classification
+	calls        int
+	requestPrev  []string
+	results      map[string]status.Classification
+	batchSizeOne bool
+	seen         []string
 }
 
-func (f *fakeClassifier) ClassifyWithPrevious(ctx context.Context, tasks []status.TaskEvidence, load status.PreviousEvidenceLoader) []status.Classification {
+func (f *fakeClassifier) ClassifyWithProgress(ctx context.Context, tasks []status.TaskEvidence, load status.PreviousEvidenceLoader, _ status.ClassificationResume, observer status.ClassificationObserver) ([]status.Classification, error) {
 	f.calls++
+	total := 1
+	if f.batchSizeOne {
+		total = len(tasks)
+	}
+	if observer != nil {
+		if err := observer(status.ClassificationBatchEvent{Pass: status.ClassificationPassFirst, Total: total}); err != nil {
+			return nil, err
+		}
+	}
 	if len(f.requestPrev) > 0 {
 		requested := make([]status.TaskEvidence, 0, len(f.requestPrev))
 		for _, task := range tasks {
@@ -181,7 +193,28 @@ func (f *fakeClassifier) ClassifyWithPrevious(ctx context.Context, tasks []statu
 		}
 		result = append(result, value)
 	}
-	return result
+	if observer != nil {
+		if f.batchSizeOne {
+			for index, classification := range result {
+				f.seen = append(f.seen, classification.TaskID)
+				if err := observer(status.ClassificationBatchEvent{Pass: status.ClassificationPassFirst, Total: total, Completed: index + 1, Classifications: []status.Classification{classification}}); err != nil {
+					return nil, err
+				}
+			}
+		} else {
+			for _, classification := range result {
+				f.seen = append(f.seen, classification.TaskID)
+			}
+			if err := observer(status.ClassificationBatchEvent{Pass: status.ClassificationPassFirst, Total: total, Completed: 1, Classifications: result}); err != nil {
+				return nil, err
+			}
+		}
+	} else {
+		for _, classification := range result {
+			f.seen = append(f.seen, classification.TaskID)
+		}
+	}
+	return result, nil
 }
 
 type fakeUpdateChecker struct {
@@ -246,13 +279,14 @@ func (f *fakeTokenReader) ReadRollout(path string, _ tokens.Snapshot) (tokens.Sn
 }
 
 type wrappedStore struct {
-	store          *state.Store
-	configOverride *config.Config
-	failSaveState  bool
-	failRemove     bool
-	failCycleAfter int
-	cycleSaves     int
-	events         *[]string
+	store                 *state.Store
+	configOverride        *config.Config
+	failSaveState         bool
+	failRemove            bool
+	failCycleAfter        int
+	failSemanticCompleted int
+	cycleSaves            int
+	events                *[]string
 }
 
 func (w *wrappedStore) LoadConfig() (config.Config, error) {
@@ -282,6 +316,9 @@ func (w *wrappedStore) SaveCycle(value state.CycleCheckpoint) error {
 		}
 		*w.events = append(*w.events, "save:title="+titleStage+",archive="+archiveStage)
 	}
+	if w.failSemanticCompleted > 0 && value.Progress != nil && value.Progress.FirstPassBatchesCompleted >= w.failSemanticCompleted {
+		return errors.New("synthetic semantic checkpoint crash")
+	}
 	if w.failCycleAfter > 0 && w.cycleSaves >= w.failCycleAfter {
 		return errors.New("synthetic cycle crash")
 	}
@@ -292,6 +329,20 @@ func (w *wrappedStore) RemoveCycle() error {
 		return errors.New("synthetic remove crash")
 	}
 	return w.store.RemoveCycle()
+}
+
+func TestPruneRemovedCapturedClearsPreviousRequest(t *testing.T) {
+	now := time.Date(2026, 7, 30, 12, 0, 0, 0, time.UTC)
+	checkpoint := state.NewCycle("cycle", 0, now)
+	checkpoint.Inventory["removed"] = state.CapturedTask{TaskID: "removed", Revision: "rev", Title: "Removed", LastSubstantiveActivity: now}
+	checkpoint.PreviousRequested["removed"] = "rev"
+	pruneRemovedCaptured(&checkpoint, codex.Inventory{})
+	if _, ok := checkpoint.PreviousRequested["removed"]; ok {
+		t.Fatal("removed task retained previous request")
+	}
+	if err := checkpoint.Validate(); err != nil {
+		t.Fatal(err)
+	}
 }
 
 func TestHeartbeatIdleZero(t *testing.T) {
@@ -313,8 +364,39 @@ func TestHeartbeatIdleZero(t *testing.T) {
 	if err := output.Write(&stdout, output.FormatJSON, result); err != nil {
 		t.Fatal(err)
 	}
-	if stdout.Len() != 0 || deps.factory.opens != 0 || deps.classifier.calls != 0 || deps.index.calls != 1 {
-		t.Fatalf("stdout=%q opens=%d classifier=%d inventories=%d", stdout.String(), deps.factory.opens, deps.classifier.calls, deps.index.calls)
+	if stdout.Len() != 0 || deps.factory.opens != 0 || deps.classifier.calls != 0 || deps.index.calls != 1 || deps.store.cycleSaves != 0 {
+		t.Fatalf("stdout=%q opens=%d classifier=%d inventories=%d cycle_saves=%d", stdout.String(), deps.factory.opens, deps.classifier.calls, deps.index.calls, deps.store.cycleSaves)
+	}
+}
+
+func TestHeartbeatReportsAggregateDeterministicAndSemanticProgress(t *testing.T) {
+	now := time.Date(2026, 7, 30, 12, 0, 0, 0, time.UTC)
+	tasks := []codex.Task{{TaskID: "guided", Revision: "1", Title: "Guided", Source: "vscode"}, {TaskID: "legacy", Revision: "1", Title: "Legacy", Source: "vscode"}}
+	committed := state.New()
+	committed.LastUpdateCheck = timePointer(now)
+	runner, deps := testRunner(t, now, tasks, committed)
+	deps.client.latest["guided"] = completedEvidence(now, "finish", "done\n🧵🐻 complete")
+	deps.client.latest["legacy"] = completedEvidence(now, "continue", "ambiguous result")
+	value, err := runner.Run(context.Background(), false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	result := value.(output.HeartbeatResult)
+	if result.Progress == nil || result.Progress.InventoryTasks != 2 || result.Progress.LatestTurnReads != 2 || result.Progress.MechanicallyResolved != 1 || result.Progress.LunaCandidates != 1 || result.Progress.FirstPassBatchesTotal != 1 || result.Progress.FirstPassBatchesCompleted != 1 || result.Progress.Phase != state.SweepPhaseConverged {
+		t.Fatalf("progress=%+v", result.Progress)
+	}
+	stored, err := deps.store.store.LoadState()
+	if err != nil || stored.LastSweep == nil || stored.LastSweep.Phase != state.SweepPhaseConverged {
+		t.Fatalf("last_sweep=%+v err=%v", stored.LastSweep, err)
+	}
+	data, err := json.Marshal(result.Progress)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, private := range []string{"guided", "legacy", "ambiguous result", "🧵🐻 complete"} {
+		if strings.Contains(string(data), private) {
+			t.Fatalf("progress leaked %q: %s", private, data)
+		}
 	}
 }
 
@@ -737,6 +819,38 @@ func TestCycleLazyPreviousAndManualUnarchiveGrace(t *testing.T) {
 	stored, _ := deps.store.store.LoadState()
 	if !stored.Tasks["restored"].LastSubstantiveActivity.Equal(now) {
 		t.Fatalf("restored activity=%s", stored.Tasks["restored"].LastSubstantiveActivity)
+	}
+}
+
+func TestClassifierBatchCheckpointRecoveryRepeatsOnlyUnpersistedWork(t *testing.T) {
+	now := time.Date(2026, 7, 30, 12, 0, 0, 0, time.UTC)
+	tasks := []codex.Task{{TaskID: "semantic-a", Revision: "1", Title: "A", Source: "vscode"}, {TaskID: "semantic-b", Revision: "1", Title: "B", Source: "vscode"}, {TaskID: "semantic-c", Revision: "1", Title: "C", Source: "vscode"}}
+	committed := state.New()
+	committed.LastUpdateCheck = timePointer(now)
+	runner, deps := testRunner(t, now, tasks, committed)
+	for _, task := range tasks {
+		deps.client.latest[task.TaskID] = completedEvidence(now, "continue", "ambiguous")
+	}
+	deps.classifier.batchSizeOne = true
+	deps.store.failSemanticCompleted = 2
+	if _, err := runner.Run(context.Background(), false); err == nil {
+		t.Fatal("semantic checkpoint failure did not stop heartbeat")
+	}
+	deps.store.failSemanticCompleted = 0
+	value, err := runner.Run(context.Background(), false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	progress := value.(output.HeartbeatResult).Progress
+	if progress == nil || progress.LunaCandidates != 3 || progress.FirstPassBatchesTotal != 3 || progress.FirstPassBatchesCompleted != 3 {
+		t.Fatalf("progress=%+v", progress)
+	}
+	counts := map[string]int{}
+	for _, taskID := range deps.classifier.seen {
+		counts[taskID]++
+	}
+	if counts["semantic-a"] != 1 || counts["semantic-b"] != 2 || counts["semantic-c"] != 1 {
+		t.Fatalf("seen=%v", deps.classifier.seen)
 	}
 }
 

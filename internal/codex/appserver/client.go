@@ -21,6 +21,11 @@ var (
 	ErrUnexpectedRequest = errors.New("unexpected App Server request")
 )
 
+type turnKey struct {
+	threadID string
+	turnID   string
+}
+
 type Client struct {
 	capabilities      Capabilities
 	command           *exec.Cmd
@@ -29,6 +34,9 @@ type Client struct {
 	write             sync.Mutex
 	mu                sync.Mutex
 	pending           map[int64]chan responseMessage
+	turnWaiters       map[turnKey]chan Notification
+	turnBacklog       map[turnKey][]Notification
+	abandonedTurns    map[turnKey]bool
 	err               error
 	notificationInput chan Notification
 	notifications     chan Notification
@@ -55,7 +63,7 @@ func Start(ctx context.Context, process ProcessSpec, capabilities Capabilities) 
 		stdin.Close()
 		return nil, fmt.Errorf("start App Server: %w", err)
 	}
-	client := &Client{capabilities: capabilities, command: command, stdin: stdin, pending: make(map[int64]chan responseMessage), notificationInput: make(chan Notification), notifications: make(chan Notification), done: make(chan struct{}), wait: make(chan error, 1)}
+	client := &Client{capabilities: capabilities, command: command, stdin: stdin, pending: make(map[int64]chan responseMessage), turnWaiters: make(map[turnKey]chan Notification), turnBacklog: make(map[turnKey][]Notification), abandonedTurns: make(map[turnKey]bool), notificationInput: make(chan Notification), notifications: make(chan Notification), done: make(chan struct{}), wait: make(chan error, 1)}
 	go client.notificationLoop()
 	go client.readLoop(stdout)
 	go func() { err := command.Wait(); client.wait <- err; client.fail(processExitError(err)) }()
@@ -158,6 +166,22 @@ func (c *Client) handleLine(line []byte) error {
 	}
 	if message.Method != "" {
 		notification := Notification{Method: message.Method, Params: append(json.RawMessage(nil), message.Params...)}
+		if key, ok := notificationTurnKey(notification); ok {
+			c.mu.Lock()
+			waiter := c.turnWaiters[key]
+			abandoned := c.abandonedTurns[key]
+			if waiter == nil && !abandoned {
+				c.turnBacklog[key] = append(c.turnBacklog[key], notification)
+			}
+			c.mu.Unlock()
+			if waiter != nil {
+				select {
+				case waiter <- notification:
+				case <-c.done:
+					return ErrClosed
+				}
+			}
+		}
 		select {
 		case c.notificationInput <- notification:
 			return nil
@@ -467,16 +491,7 @@ func (c *Client) RunEphemeral(ctx context.Context, request EphemeralRequest) (Ep
 	if err != nil {
 		return EphemeralResult{}, err
 	}
-	threadParams := map[string]any{"ephemeral": true, "model": request.Model, "environments": []any{}, "dynamicTools": []any{}, "approvalPolicy": "never"}
-	if restriction.ConfigOverride {
-		threadParams["config"] = request.ToolConfig
-	}
-	if restriction.PermissionProfile {
-		threadParams["permissions"] = request.PermissionProfile
-		restriction.ReadOnlySandbox = false
-	} else {
-		threadParams["sandbox"] = "read-only"
-	}
+	threadParams := map[string]any{"ephemeral": true, "model": request.Model, "environments": []any{}, "dynamicTools": []any{}, "approvalPolicy": "never", "config": request.ToolConfig, "permissions": request.PermissionProfile}
 	var started struct {
 		Thread Thread `json:"thread"`
 	}
@@ -486,12 +501,7 @@ func (c *Client) RunEphemeral(ctx context.Context, request EphemeralRequest) (Ep
 	if !started.Thread.Ephemeral || started.Thread.Path != nil {
 		return EphemeralResult{}, errors.New("App Server did not confirm an in-memory ephemeral thread")
 	}
-	turnParams := map[string]any{"threadId": started.Thread.ID, "input": []map[string]any{{"type": "text", "text": request.Input}}, "model": request.Model, "effort": request.Effort, "outputSchema": request.OutputSchema, "environments": []any{}, "approvalPolicy": "never"}
-	if restriction.PermissionProfile {
-		turnParams["permissions"] = request.PermissionProfile
-	} else {
-		turnParams["sandboxPolicy"] = map[string]any{"type": "readOnly", "networkAccess": false}
-	}
+	turnParams := map[string]any{"threadId": started.Thread.ID, "input": []map[string]any{{"type": "text", "text": request.Input}}, "model": request.Model, "effort": request.Effort, "outputSchema": request.OutputSchema, "environments": []any{}, "approvalPolicy": "never", "permissions": request.PermissionProfile}
 	var turnStarted struct {
 		Turn Turn `json:"turn"`
 	}
@@ -504,7 +514,61 @@ func (c *Client) RunEphemeral(ctx context.Context, request EphemeralRequest) (Ep
 	}
 	return EphemeralResult{ThreadID: started.Thread.ID, Turn: turn, ToolRestriction: restriction}, nil
 }
+func notificationTurnKey(notification Notification) (turnKey, bool) {
+	switch notification.Method {
+	case "item/completed":
+		var value struct {
+			ThreadID string `json:"threadId"`
+			TurnID   string `json:"turnId"`
+		}
+		if json.Unmarshal(notification.Params, &value) != nil || value.ThreadID == "" || value.TurnID == "" {
+			return turnKey{}, false
+		}
+		return turnKey{threadID: value.ThreadID, turnID: value.TurnID}, true
+	case "turn/completed":
+		var value struct {
+			ThreadID string `json:"threadId"`
+			Turn     Turn   `json:"turn"`
+		}
+		if json.Unmarshal(notification.Params, &value) != nil || value.ThreadID == "" || value.Turn.ID == "" {
+			return turnKey{}, false
+		}
+		return turnKey{threadID: value.ThreadID, turnID: value.Turn.ID}, true
+	default:
+		return turnKey{}, false
+	}
+}
+
+func (c *Client) registerTurnWaiter(key turnKey) chan Notification {
+	c.mu.Lock()
+	backlog := c.turnBacklog[key]
+	capacity := 64
+	if len(backlog)+1 > capacity {
+		capacity = len(backlog) + 1
+	}
+	waiter := make(chan Notification, capacity)
+	c.turnWaiters[key] = waiter
+	delete(c.turnBacklog, key)
+	delete(c.abandonedTurns, key)
+	c.mu.Unlock()
+	for _, notification := range backlog {
+		waiter <- notification
+	}
+	return waiter
+}
+
+func (c *Client) unregisterTurnWaiter(key turnKey) {
+	c.mu.Lock()
+	delete(c.turnWaiters, key)
+	delete(c.turnBacklog, key)
+	c.abandonedTurns[key] = true
+	c.mu.Unlock()
+}
+
 func (c *Client) waitForTurn(ctx context.Context, threadID, turnID string) (Turn, error) {
+	key := turnKey{threadID: threadID, turnID: turnID}
+	waiter := c.registerTurnWaiter(key)
+	defer c.unregisterTurnWaiter(key)
 	items := make([]TurnItem, 0)
 	for {
 		select {
@@ -515,7 +579,7 @@ func (c *Client) waitForTurn(ctx context.Context, threadID, turnID string) (Turn
 			err := c.err
 			c.mu.Unlock()
 			return Turn{}, err
-		case notification := <-c.notifications:
+		case notification := <-waiter:
 			switch notification.Method {
 			case "item/completed":
 				var completed struct {
@@ -526,9 +590,7 @@ func (c *Client) waitForTurn(ctx context.Context, threadID, turnID string) (Turn
 				if err := json.Unmarshal(notification.Params, &completed); err != nil {
 					return Turn{}, fmt.Errorf("decode item completion: %w", err)
 				}
-				if completed.ThreadID == threadID && completed.TurnID == turnID {
-					items = append(items, completed.Item)
-				}
+				items = append(items, completed.Item)
 			case "turn/completed":
 				var completed struct {
 					ThreadID string `json:"threadId"`
@@ -537,12 +599,10 @@ func (c *Client) waitForTurn(ctx context.Context, threadID, turnID string) (Turn
 				if err := json.Unmarshal(notification.Params, &completed); err != nil {
 					return Turn{}, fmt.Errorf("decode turn completion: %w", err)
 				}
-				if completed.ThreadID == threadID && completed.Turn.ID == turnID {
-					if len(completed.Turn.Items) == 0 {
-						completed.Turn.Items = items
-					}
-					return completed.Turn, nil
+				if len(completed.Turn.Items) == 0 {
+					completed.Turn.Items = items
 				}
+				return completed.Turn, nil
 			}
 		}
 	}

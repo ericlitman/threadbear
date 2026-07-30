@@ -10,6 +10,8 @@ import (
 	"io"
 	"sort"
 	"strings"
+	"sync"
+	"time"
 
 	"github.com/ericlitman/threadbear/internal/codex/appserver"
 	"github.com/ericlitman/threadbear/internal/state"
@@ -26,6 +28,7 @@ type ClassifierConfig struct {
 	Model              string
 	Effort             string
 	ContextBudgetBytes int
+	MaxParallelBatches int
 }
 
 type Classifier struct {
@@ -115,69 +118,131 @@ func NewClassifier(runner EphemeralRunner, config ClassifierConfig) (*Classifier
 	return &Classifier{runner: runner, config: config, schema: schema}, nil
 }
 
+type ClassificationPass string
+
+const (
+	ClassificationPassFirst    ClassificationPass = "first"
+	ClassificationPassPrevious ClassificationPass = "previous"
+)
+
+type TaskKey struct {
+	TaskID   string
+	Revision string
+}
+
+type ClassificationResume struct {
+	PreviousRequested map[string]string
+}
+
+type ClassificationBatchEvent struct {
+	Pass              ClassificationPass
+	Total             int
+	Completed         int
+	Duration          time.Duration
+	Classifications   []Classification
+	PreviousRequested []TaskKey
+}
+
+type ClassificationObserver func(ClassificationBatchEvent) error
+
 func (c *Classifier) Classify(ctx context.Context, tasks []TaskEvidence) []Classification {
-	return c.classify(ctx, tasks, nil)
+	return c.classifyLegacy(ctx, tasks, nil)
 }
 
 func (c *Classifier) ClassifyWithPrevious(ctx context.Context, tasks []TaskEvidence, load PreviousEvidenceLoader) []Classification {
-	return c.classify(ctx, tasks, load)
+	return c.classifyLegacy(ctx, tasks, load)
 }
 
-func (c *Classifier) classify(ctx context.Context, tasks []TaskEvidence, load PreviousEvidenceLoader) []Classification {
+func (c *Classifier) classifyLegacy(ctx context.Context, tasks []TaskEvidence, load PreviousEvidenceLoader) []Classification {
+	results, _ := c.ClassifyWithProgress(ctx, tasks, load, ClassificationResume{}, nil)
+	return results
+}
+
+func (c *Classifier) ClassifyWithProgress(ctx context.Context, tasks []TaskEvidence, load PreviousEvidenceLoader, resume ClassificationResume, observer ClassificationObserver) ([]Classification, error) {
 	results := make([]Classification, len(tasks))
 	for index, task := range tasks {
 		results[index] = unknownClassification(task, "unclassified", "classification did not produce a result", ClassificationMetadata{}, "")
 	}
 	if len(tasks) == 0 {
-		return results
+		return results, nil
 	}
 	if c.config.ContextBudgetBytes <= 0 {
-		return replaceUnknown(results, tasks, "invalid_context_budget", "advertised context budget is absent or invalid")
+		return replaceUnknown(results, tasks, "invalid_context_budget", "advertised context budget is absent or invalid"), nil
 	}
 	model := strings.TrimSpace(c.config.Model)
 	effort := strings.TrimSpace(c.config.Effort)
 	if model == "" || effort == "" || model != c.config.Model || effort != c.config.Effort {
-		return replaceUnknown(results, tasks, "invalid_classifier_config", "classifier model and effort are required without surrounding whitespace")
+		return replaceUnknown(results, tasks, "invalid_classifier_config", "classifier model and effort are required without surrounding whitespace"), nil
 	}
 	if err := validateTaskEvidence(tasks); err != nil {
-		return replaceUnknown(results, tasks, "invalid_task_evidence", "classifier task evidence is invalid")
+		return replaceUnknown(results, tasks, "invalid_task_evidence", "classifier task evidence is invalid"), nil
 	}
 
-	first, oversized, err := PackTasks(tasks, c.config.ContextBudgetBytes, false)
-	if err != nil {
-		return replaceUnknown(results, tasks, "packing_failed", "classifier payload packing failed")
-	}
 	byID := make(map[string]Classification, len(tasks))
+	firstTasks := make([]TaskEvidence, 0, len(tasks))
+	requested := make([]TaskEvidence, 0)
+	requestedMetadata := make(map[string]ClassificationMetadata)
+	for _, task := range tasks {
+		if resume.PreviousRequested != nil && resume.PreviousRequested[task.TaskID] == task.Revision {
+			requested = append(requested, task)
+			continue
+		}
+		firstTasks = append(firstTasks, task)
+	}
+	first, oversized, err := PackTasks(firstTasks, c.config.ContextBudgetBytes, false)
+	if err != nil {
+		return replaceUnknown(results, tasks, "packing_failed", "classifier payload packing failed"), nil
+	}
 	for _, item := range oversized {
 		byID[item.Task.TaskID] = unknownClassification(item.Task, "task_exceeds_context_budget", "complete task evidence exceeds the advertised context budget", ClassificationMetadata{}, "")
 	}
-	requested := make([]TaskEvidence, 0)
-	requestedMetadata := make(map[string]ClassificationMetadata)
-	for _, batch := range first {
-		outcomes, rowDiagnostics, diagnostic := c.runBatch(ctx, batch)
-		if diagnostic != nil {
-			for _, task := range batch.Tasks {
-				byID[task.TaskID] = unknownClassification(task, diagnostic.Code, diagnostic.Message, diagnostic.Metadata, diagnostic.OffendingItem)
-			}
-			continue
+	if observer != nil {
+		if err := observer(ClassificationBatchEvent{Pass: ClassificationPassFirst, Total: len(first)}); err != nil {
+			return results, err
 		}
-		for _, task := range batch.Tasks {
-			outcome, classified := outcomes[task.TaskID]
-			if !classified {
-				rowDiagnostic := rowDiagnostics[task.TaskID]
-				if rowDiagnostic == nil {
-					rowDiagnostic = &batchDiagnostic{Code: "missing_from_response", Message: "classifier response contained no valid row for this task"}
+	}
+	firstCompleted := 0
+	err = c.executeBatches(ctx, first, func(execution batchExecution) error {
+		firstCompleted++
+		classifications := make([]Classification, 0, len(execution.batch.Tasks))
+		previous := make([]TaskKey, 0)
+		if execution.diagnostic != nil {
+			for _, task := range execution.batch.Tasks {
+				classification := unknownClassification(task, execution.diagnostic.Code, execution.diagnostic.Message, execution.diagnostic.Metadata, execution.diagnostic.OffendingItem)
+				byID[task.TaskID] = classification
+				classifications = append(classifications, classification)
+			}
+		} else {
+			for _, task := range execution.batch.Tasks {
+				outcome, classified := execution.outcomes[task.TaskID]
+				if !classified {
+					rowDiagnostic := execution.rowDiagnostics[task.TaskID]
+					if rowDiagnostic == nil {
+						rowDiagnostic = &batchDiagnostic{Code: "missing_from_response", Message: "classifier response contained no valid row for this task"}
+					}
+					classification := unknownClassification(task, rowDiagnostic.Code, rowDiagnostic.Message, rowDiagnostic.Metadata, rowDiagnostic.OffendingItem)
+					byID[task.TaskID] = classification
+					classifications = append(classifications, classification)
+					continue
 				}
-				byID[task.TaskID] = unknownClassification(task, rowDiagnostic.Code, rowDiagnostic.Message, rowDiagnostic.Metadata, rowDiagnostic.OffendingItem)
-				continue
+				if outcome.item.RequestPrevious {
+					requested = append(requested, task)
+					requestedMetadata[task.TaskID] = outcome.metadata
+					previous = append(previous, TaskKey{TaskID: task.TaskID, Revision: task.Revision})
+					continue
+				}
+				classification := acceptedClassification(task, outcome)
+				byID[task.TaskID] = classification
+				classifications = append(classifications, classification)
 			}
-			if outcome.item.RequestPrevious {
-				requested = append(requested, task)
-				requestedMetadata[task.TaskID] = outcome.metadata
-				continue
-			}
-			byID[task.TaskID] = acceptedClassification(task, outcome)
 		}
+		if observer != nil {
+			return observer(ClassificationBatchEvent{Pass: ClassificationPassFirst, Total: len(first), Completed: firstCompleted, Duration: execution.duration, Classifications: classifications, PreviousRequested: previous})
+		}
+		return nil
+	})
+	if err != nil {
+		return results, err
 	}
 
 	if len(requested) > 0 {
@@ -191,10 +256,9 @@ func (c *Classifier) classify(ctx context.Context, tasks []TaskEvidence, load Pr
 			loaded := load(ctx, missing)
 			byLoadedID := make(map[string]PreviousEvidenceResult, len(loaded))
 			for _, item := range loaded {
-				if _, duplicate := byLoadedID[item.TaskID]; duplicate {
-					continue
+				if _, duplicate := byLoadedID[item.TaskID]; !duplicate {
+					byLoadedID[item.TaskID] = item
 				}
-				byLoadedID[item.TaskID] = item
 			}
 			for index := range requested {
 				if requested[index].Previous != nil {
@@ -233,33 +297,52 @@ func (c *Classifier) classify(ctx context.Context, tasks []TaskEvidence, load Pr
 			for _, item := range secondOversized {
 				byID[item.Task.TaskID] = unknownClassification(item.Task, "task_exceeds_context_budget", "complete expanded task evidence exceeds the advertised context budget", requestedMetadata[item.Task.TaskID], "")
 			}
-			for _, batch := range second {
-				outcomes, rowDiagnostics, diagnostic := c.runBatch(ctx, batch)
-				if diagnostic != nil {
-					for _, task := range batch.Tasks {
-						metadata := mergeMetadata(requestedMetadata[task.TaskID], diagnostic.Metadata)
-						byID[task.TaskID] = unknownClassification(task, diagnostic.Code, diagnostic.Message, metadata, diagnostic.OffendingItem)
-					}
-					continue
+			if observer != nil {
+				if err := observer(ClassificationBatchEvent{Pass: ClassificationPassPrevious, Total: len(second)}); err != nil {
+					return results, err
 				}
-				for _, task := range batch.Tasks {
-					outcome, classified := outcomes[task.TaskID]
+			}
+			secondCompleted := 0
+			err = c.executeBatches(ctx, second, func(execution batchExecution) error {
+				secondCompleted++
+				classifications := make([]Classification, 0, len(execution.batch.Tasks))
+				for _, task := range execution.batch.Tasks {
+					if execution.diagnostic != nil {
+						metadata := mergeMetadata(requestedMetadata[task.TaskID], execution.diagnostic.Metadata)
+						classification := unknownClassification(task, execution.diagnostic.Code, execution.diagnostic.Message, metadata, execution.diagnostic.OffendingItem)
+						byID[task.TaskID] = classification
+						classifications = append(classifications, classification)
+						continue
+					}
+					outcome, classified := execution.outcomes[task.TaskID]
 					if !classified {
-						rowDiagnostic := rowDiagnostics[task.TaskID]
+						rowDiagnostic := execution.rowDiagnostics[task.TaskID]
 						if rowDiagnostic == nil {
 							rowDiagnostic = &batchDiagnostic{Code: "missing_from_response", Message: "classifier response contained no valid row for this task"}
 						}
 						metadata := mergeMetadata(requestedMetadata[task.TaskID], rowDiagnostic.Metadata)
-						byID[task.TaskID] = unknownClassification(task, rowDiagnostic.Code, rowDiagnostic.Message, metadata, rowDiagnostic.OffendingItem)
+						classification := unknownClassification(task, rowDiagnostic.Code, rowDiagnostic.Message, metadata, rowDiagnostic.OffendingItem)
+						byID[task.TaskID] = classification
+						classifications = append(classifications, classification)
 						continue
 					}
 					outcome.metadata = mergeMetadata(requestedMetadata[task.TaskID], outcome.metadata)
+					var classification Classification
 					if outcome.item.RequestPrevious {
-						byID[task.TaskID] = unknownClassification(task, "previous_expansion_exhausted", "classifier requested previous-turn evidence after the single allowed expansion", outcome.metadata, "")
-						continue
+						classification = unknownClassification(task, "previous_expansion_exhausted", "classifier requested previous-turn evidence after the single allowed expansion", outcome.metadata, "")
+					} else {
+						classification = acceptedClassification(task, outcome)
 					}
-					byID[task.TaskID] = acceptedClassification(task, outcome)
+					byID[task.TaskID] = classification
+					classifications = append(classifications, classification)
 				}
+				if observer != nil {
+					return observer(ClassificationBatchEvent{Pass: ClassificationPassPrevious, Total: len(second), Completed: secondCompleted, Duration: execution.duration, Classifications: classifications})
+				}
+				return nil
+			})
+			if err != nil {
+				return results, err
 			}
 		}
 	}
@@ -269,19 +352,105 @@ func (c *Classifier) classify(ctx context.Context, tasks []TaskEvidence, load Pr
 			results[index] = result
 		}
 	}
-	return results
+	return results, nil
+}
+
+type batchExecution struct {
+	batch          PackedBatch
+	outcomes       map[string]passOutcome
+	rowDiagnostics map[string]*batchDiagnostic
+	diagnostic     *batchDiagnostic
+	duration       time.Duration
+	err            error
+}
+
+func (c *Classifier) executeBatches(ctx context.Context, batches []PackedBatch, handle func(batchExecution) error) error {
+	if len(batches) == 0 {
+		return nil
+	}
+	parallel := c.config.MaxParallelBatches
+	if parallel <= 0 {
+		parallel = 1
+	}
+	if parallel > len(batches) {
+		parallel = len(batches)
+	}
+	workCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	jobs := make(chan PackedBatch)
+	completed := make(chan batchExecution)
+	var workers sync.WaitGroup
+	for index := 0; index < parallel; index++ {
+		workers.Add(1)
+		go func() {
+			defer workers.Done()
+			for batch := range jobs {
+				if workCtx.Err() != nil {
+					return
+				}
+				started := time.Now()
+				outcomes, rowDiagnostics, diagnostic := c.runBatch(workCtx, batch)
+				execution := batchExecution{batch: batch, outcomes: outcomes, rowDiagnostics: rowDiagnostics, diagnostic: diagnostic, duration: time.Since(started)}
+				if workCtx.Err() != nil {
+					execution.err = workCtx.Err()
+				}
+				select {
+				case completed <- execution:
+				case <-workCtx.Done():
+					return
+				}
+			}
+		}()
+	}
+	go func() {
+		defer close(jobs)
+		for _, batch := range batches {
+			select {
+			case jobs <- batch:
+			case <-workCtx.Done():
+				return
+			}
+		}
+	}()
+	go func() {
+		workers.Wait()
+		close(completed)
+	}()
+	var firstErr error
+	for execution := range completed {
+		if execution.err != nil && firstErr == nil {
+			firstErr = execution.err
+			cancel()
+			continue
+		}
+		if firstErr == nil {
+			if err := handle(execution); err != nil {
+				firstErr = err
+				cancel()
+			}
+		}
+	}
+	if firstErr != nil {
+		return firstErr
+	}
+	return ctx.Err()
 }
 
 func (c *Classifier) runBatch(ctx context.Context, batch PackedBatch) (map[string]passOutcome, map[string]*batchDiagnostic, *batchDiagnostic) {
 	result, err := c.runner.RunEphemeral(ctx, appserver.EphemeralRequest{
-		Model:        c.config.Model,
-		Effort:       c.config.Effort,
-		Input:        batch.Input,
-		OutputSchema: c.schema,
+		Model:             c.config.Model,
+		Effort:            c.config.Effort,
+		Input:             batch.Input,
+		OutputSchema:      c.schema,
+		ToolConfig:        appserver.ClassifierToolConfig(),
+		PermissionProfile: ":read-only",
 	})
 	if err != nil {
 		code := "ephemeral_call_failed"
-		if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) {
+		lowerError := strings.ToLower(err.Error())
+		if strings.Contains(lowerError, "rate limit") || strings.Contains(lowerError, "429") {
+			code = "ephemeral_rate_limited"
+		} else if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) {
 			code = "ephemeral_call_timeout"
 		}
 		return nil, nil, &batchDiagnostic{Code: code, Message: "ephemeral classifier call failed"}
@@ -499,7 +668,7 @@ func validateWireItem(item classifierWireItem) error {
 }
 
 func validToolRestrictions(restriction appserver.ToolRestriction) bool {
-	return restriction.EnvironmentsDisabled && restriction.DynamicToolsDisabled && restriction.ApprovalsDisabled && restriction.ReadOnlySandbox && restriction.OutputConstrained
+	return restriction.ConfigOverride && restriction.PermissionProfile && restriction.EnvironmentsDisabled && restriction.DynamicToolsDisabled && restriction.ApprovalsDisabled && restriction.OutputConstrained && len(restriction.UnprovenToolSources) == 0
 }
 
 func acceptedClassification(task TaskEvidence, outcome passOutcome) Classification {

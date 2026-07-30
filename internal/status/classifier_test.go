@@ -6,20 +6,27 @@ import (
 	"errors"
 	"os"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/ericlitman/threadbear/internal/codex/appserver"
 	"github.com/ericlitman/threadbear/internal/state"
 )
 
 type fakeEphemeralRunner struct {
+	mu       sync.Mutex
 	requests []appserver.EphemeralRequest
 	run      func(int, appserver.EphemeralRequest) (appserver.EphemeralResult, error)
 }
 
 func (f *fakeEphemeralRunner) RunEphemeral(_ context.Context, request appserver.EphemeralRequest) (appserver.EphemeralResult, error) {
+	f.mu.Lock()
 	f.requests = append(f.requests, request)
-	return f.run(len(f.requests)-1, request)
+	index := len(f.requests) - 1
+	f.mu.Unlock()
+	return f.run(index, request)
 }
 
 func TestClassifierConfiguredModelEffortAndOptionBMetadata(t *testing.T) {
@@ -35,14 +42,14 @@ func TestClassifierConfiguredModelEffortAndOptionBMetadata(t *testing.T) {
 	if len(runner.requests) != 1 || runner.requests[0].Model != "configured-model" || runner.requests[0].Effort != "high" {
 		t.Fatalf("requests=%+v", runner.requests)
 	}
-	if strings.Join(results[0].Metadata.UnprovenToolSources, ",") != "core,hosted,mcp" {
+	if len(results[0].Metadata.UnprovenToolSources) != 0 {
 		t.Fatalf("metadata=%+v", results[0].Metadata)
 	}
 	if !strings.Contains(runner.requests[0].Input, "Do not use tools") || runner.requests[0].OutputSchema == nil {
 		t.Fatal("request did not carry tool prohibition and output schema")
 	}
-	if runner.requests[0].ToolConfig != nil || runner.requests[0].PermissionProfile != "" {
-		t.Fatalf("request used unproven optional controls: %+v", runner.requests[0])
+	if runner.requests[0].ToolConfig == nil || runner.requests[0].PermissionProfile != ":read-only" {
+		t.Fatalf("request omitted tool-free controls: %+v", runner.requests[0])
 	}
 }
 
@@ -83,6 +90,25 @@ func TestClassifierSelectivePreviousExpansion(t *testing.T) {
 	}
 }
 
+func TestClassifierResumeRunsPreviousPassWithoutRepeatingFirstPass(t *testing.T) {
+	task := TaskEvidence{TaskID: "resume-task", Revision: "rev", Latest: TurnEvidence{User: "continue", FinalAgent: "ambiguous"}}
+	runner := &fakeEphemeralRunner{run: func(_ int, request appserver.EphemeralRequest) (appserver.EphemeralResult, error) {
+		envelope := decodePrompt(t, request.Input)
+		if !envelope.PreviousPass || len(envelope.Tasks) != 1 || envelope.Tasks[0].Previous == nil {
+			t.Fatalf("envelope=%+v", envelope)
+		}
+		return successfulEphemeral(responseText([]classifierWireItem{{TaskID: task.TaskID, TaskRevision: task.Revision, State: state.StatusComplete, DurableSubject: "Resume task"}})), nil
+	}}
+	classifier := newTestClassifier(t, runner, 1<<20, "model", "medium")
+	results, err := classifier.ClassifyWithProgress(context.Background(), []TaskEvidence{task}, func(_ context.Context, requested []TaskEvidence) []PreviousEvidenceResult {
+		previous := TurnEvidence{User: "before", FinalAgent: "before result"}
+		return []PreviousEvidenceResult{{TaskID: requested[0].TaskID, Revision: requested[0].Revision, Evidence: &previous}}
+	}, ClassificationResume{PreviousRequested: map[string]string{task.TaskID: task.Revision}}, nil)
+	if err != nil || len(runner.requests) != 1 || results[0].Status != state.StatusComplete {
+		t.Fatalf("requests=%d results=%+v err=%v", len(runner.requests), results, err)
+	}
+}
+
 func TestClassifierLoadsPreviousOnlyForRequestedTasks(t *testing.T) {
 	tasks := []TaskEvidence{
 		{TaskID: "task-a", Revision: "rev-a", Latest: TurnEvidence{User: "a", FinalAgent: "done"}},
@@ -111,6 +137,86 @@ func TestClassifierLoadsPreviousOnlyForRequestedTasks(t *testing.T) {
 	})
 	if strings.Join(loaded, ",") != "task-b" || len(runner.requests) != 2 || results[0].Status != state.StatusComplete || results[1].Status != state.StatusComplete {
 		t.Fatalf("loaded=%v calls=%d results=%+v", loaded, len(runner.requests), results)
+	}
+}
+
+type cancelEphemeralRunner struct{ calls atomic.Int32 }
+
+func (r *cancelEphemeralRunner) RunEphemeral(ctx context.Context, _ appserver.EphemeralRequest) (appserver.EphemeralResult, error) {
+	r.calls.Add(1)
+	<-ctx.Done()
+	return appserver.EphemeralResult{}, ctx.Err()
+}
+
+func TestClassifierCancellationStopsSchedulingNewBatches(t *testing.T) {
+	tasks := make([]TaskEvidence, 5)
+	for index := range tasks {
+		tasks[index] = TaskEvidence{TaskID: "cancel-" + string(rune('a'+index)), Revision: "r", Latest: TurnEvidence{FinalAgent: strings.Repeat("x", 500)}}
+	}
+	budget, err := PayloadSize([]TaskEvidence{tasks[0]}, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	runner := &cancelEphemeralRunner{}
+	classifier, err := NewClassifier(runner, ClassifierConfig{Model: "model", Effort: "medium", ContextBudgetBytes: budget, MaxParallelBatches: 2})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() {
+		_, err := classifier.ClassifyWithProgress(ctx, tasks, nil, ClassificationResume{}, nil)
+		done <- err
+	}()
+	deadline := time.Now().Add(time.Second)
+	for runner.calls.Load() < 2 && time.Now().Before(deadline) {
+		time.Sleep(time.Millisecond)
+	}
+	cancel()
+	if err := <-done; !errors.Is(err, context.Canceled) {
+		t.Fatalf("err=%v", err)
+	}
+	if calls := runner.calls.Load(); calls > 2 {
+		t.Fatalf("scheduled %d batches after cancellation", calls)
+	}
+}
+
+func TestClassifierCapacityBatchesUseBoundedConcurrencyAndProgress(t *testing.T) {
+	tasks := make([]TaskEvidence, 4)
+	for index := range tasks {
+		tasks[index] = TaskEvidence{TaskID: "task-" + string(rune('a'+index)), Revision: "r", Latest: TurnEvidence{FinalAgent: strings.Repeat("x", 500)}}
+	}
+	budget, err := PayloadSize([]TaskEvidence{tasks[0]}, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var active atomic.Int32
+	var maximum atomic.Int32
+	runner := &fakeEphemeralRunner{run: func(_ int, request appserver.EphemeralRequest) (appserver.EphemeralResult, error) {
+		current := active.Add(1)
+		for {
+			old := maximum.Load()
+			if current <= old || maximum.CompareAndSwap(old, current) {
+				break
+			}
+		}
+		defer active.Add(-1)
+		time.Sleep(10 * time.Millisecond)
+		envelope := decodePrompt(t, request.Input)
+		task := envelope.Tasks[0]
+		return successfulEphemeral(responseText([]classifierWireItem{{TaskID: task.TaskID, TaskRevision: task.Revision, State: state.StatusComplete, DurableSubject: task.TaskID}})), nil
+	}}
+	classifier, err := NewClassifier(runner, ClassifierConfig{Model: "model", Effort: "medium", ContextBudgetBytes: budget, MaxParallelBatches: 2})
+	if err != nil {
+		t.Fatal(err)
+	}
+	events := []ClassificationBatchEvent{}
+	results, err := classifier.ClassifyWithProgress(context.Background(), tasks, nil, ClassificationResume{}, func(event ClassificationBatchEvent) error { events = append(events, event); return nil })
+	if err != nil || len(results) != len(tasks) || maximum.Load() != 2 {
+		t.Fatalf("results=%d max=%d err=%v", len(results), maximum.Load(), err)
+	}
+	if len(events) != 5 || events[0].Total != 4 || events[len(events)-1].Completed != 4 {
+		t.Fatalf("events=%+v", events)
 	}
 }
 
@@ -145,7 +251,7 @@ func TestClassifierContextSplittingAndBatchFailureIsolation(t *testing.T) {
 	if len(runner.requests) != 3 {
 		t.Fatalf("calls=%d", len(runner.requests))
 	}
-	if results[0].Status != state.StatusComplete || results[2].Status != state.StatusComplete || results[1].Diagnostic == nil || results[1].Diagnostic.Code != "ephemeral_call_failed" {
+	if results[0].Status != state.StatusComplete || results[2].Status != state.StatusComplete || results[1].Diagnostic == nil || results[1].Diagnostic.Code != "ephemeral_rate_limited" {
 		t.Fatalf("results=%+v", results)
 	}
 }
@@ -412,7 +518,7 @@ func TestClassifierFailsClosedForBudgetControlsAndCallFailure(t *testing.T) {
 
 	classifier := newTestClassifier(t, runner, 1<<20, "model", "medium")
 	result = classifier.Classify(context.Background(), []TaskEvidence{task})[0]
-	if result.Diagnostic == nil || result.Diagnostic.Code != "ephemeral_call_failed" || strings.Contains(result.Diagnostic.Message, "SECRET") {
+	if result.Diagnostic == nil || result.Diagnostic.Code != "ephemeral_rate_limited" || strings.Contains(result.Diagnostic.Message, "SECRET") {
 		t.Fatalf("result=%+v", result)
 	}
 
@@ -422,14 +528,13 @@ func TestClassifierFailsClosedForBudgetControlsAndCallFailure(t *testing.T) {
 		return value, nil
 	}}
 	result = newTestClassifier(t, runner, 1<<20, "model", "medium").Classify(context.Background(), []TaskEvidence{task})[0]
-	if result.Diagnostic == nil || result.Diagnostic.Code != "tool_controls_unconfirmed" || len(result.Metadata.UnprovenToolSources) == 0 {
+	if result.Diagnostic == nil || result.Diagnostic.Code != "tool_controls_unconfirmed" {
 		t.Fatalf("result=%+v", result)
 	}
 
 	runner = &fakeEphemeralRunner{run: func(_ int, _ appserver.EphemeralRequest) (appserver.EphemeralResult, error) {
 		value := successfulEphemeral(responseText([]classifierWireItem{{TaskID: task.TaskID, TaskRevision: task.Revision, State: state.StatusComplete, DurableSubject: "Task"}}))
-		value.ToolRestriction.ReadOnlySandbox = false
-		value.ToolRestriction.PermissionProfile = true
+		value.ToolRestriction.ConfigOverride = false
 		return value, nil
 	}}
 	result = newTestClassifier(t, runner, 1<<20, "model", "medium").Classify(context.Background(), []TaskEvidence{task})[0]
@@ -510,7 +615,7 @@ func successfulEphemeral(text string) appserver.EphemeralResult {
 	return appserver.EphemeralResult{
 		ThreadID:        "ephemeral-test",
 		Turn:            appserver.Turn{ID: "turn-test", Status: "completed", Items: []appserver.TurnItem{{Type: "agentMessage", Phase: "final_answer", Text: text}}},
-		ToolRestriction: appserver.ToolRestriction{EnvironmentsDisabled: true, DynamicToolsDisabled: true, ApprovalsDisabled: true, ReadOnlySandbox: true, OutputConstrained: true, UnprovenToolSources: []string{"mcp", "core", "hosted", "core"}},
+		ToolRestriction: appserver.ToolRestriction{ConfigOverride: true, PermissionProfile: true, EnvironmentsDisabled: true, DynamicToolsDisabled: true, ApprovalsDisabled: true, OutputConstrained: true},
 	}
 }
 

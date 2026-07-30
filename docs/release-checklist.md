@@ -4,6 +4,9 @@ Complete this checklist for every stable ThreadBear release.
 
 ## Before tagging
 
+- Review the BEAR-87 tool-free subprocess canary, bounded ten-second guided-install handoff, legacy and status-guided aggregate cohort summaries, cancellation/restart recovery, and repeated unchanged-heartbeat silence. Keep the PR draft until all are accepted.
+
+
 1. Prepare the intended `vN.N.N` section in `CHANGELOG.md` and leave a fresh `Unreleased` section.
 2. Make a quiesced, disposable copy of the operator's real Codex home. The copy must contain its `state_N.sqlite`, rollout files, auth needed by Codex, and 50+ real-shape tasks (emoji-only titles are reported when present, not required). Keep the copy outside this repository.
 3. Choose a readable, unarchived control task in the copy and confirm no ThreadBear LaunchAgent is loaded for the operator account.
