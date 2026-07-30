@@ -40,13 +40,21 @@ After the help capability card:
 
 After ThreadBear updates itself, the next heartbeat posts one control-thread announcement with the version change and available release-note bullets.
 
+## Native title handoff
+
+Before the retained native batch, stage the exact actual footer that will end the response with the separate dynamic command `~/.local/bin/threadbear title-plan --json --stage`. Inspect its JSON because exit zero alone is insufficient: require `ready=true`, and retry only typed `heartbeat_active` or `heartbeat_cycle_active` results until ready. The stage result never contains an operation ID. Only then invoke the tested fixed raw-V8 cell once as a top-level `functions.exec`. The cell keeps batch retry inside that same raw cell, uses nested `tools.exec_command` and `sleep 1`, revalidates every batch operation through `--operation OP_ID` immediately before `tools.codex_app__set_thread_title`, and reports monotonic outcomes. Every nested command must have `exit_code === 0` before JSON parsing.
+
+If the top-level raw cell yields, use only `functions.wait` on that same cell until terminal output. After terminal output, use no more tools or commentary. Show only aggregate accepted, canonically verified, failed, drifted, and rejected counts; never expose task IDs, titles, revisions, operation IDs, manifests, or report payloads.
+
+A successful retained response ends with the exact staged footer and no later text. Preserve footer semantics: stage `🧵🐻 complete` only for a genuinely complete result, and otherwise stage the exact canonical footer matching the actual disposition.
+
 Never edit ThreadBear state files, `.codex-global-state.json`, Codex Desktop private caches, task databases, AGENTS.md managed markers, skill managed markers, or LaunchAgent files directly. Do not click through Desktop, force sidebar refreshes, invent rollback state, or wake a model merely to inspect ThreadBear status.
 
-When explaining title state, use the canonical meanings: `⏳` running, `🚨` blocked, `🙋` needs input, `🤖` automation, `➡️` next steps, `✅` complete, and `❔` unknown. Only completed inactive tasks can be auto-archived.
+Describe the control task title by its current status, never as a permanently fixed bootstrap name. When explaining title state, use the canonical meanings: `⏳` running, `🚨` blocked, `🙋` needs input, `🤖` automation, `➡️` next steps, `✅` complete, and `❔` unknown. Only completed inactive tasks can be auto-archived.
 
 ## Runtime roles
 
-The persistent ThreadBear control task remains the user-facing master for help, configuration, install, update, uninstall, notices, user decisions, and exceptional recovery. Routine heartbeat classification uses fresh ephemeral App Server sessions and direct deterministic title/archive mutations; never route that work into the control task history.
+The persistent ThreadBear control task remains the user-facing master for help, configuration, install, update, uninstall, notices, user decisions, and exceptional recovery. Routine heartbeat classification uses fresh ephemeral App Server sessions. During retained handoff it stages guarded title plans for exact native control-task replay while archives remain direct and conservative; never route classification into the control task history.
 
 When managed global guidance is enabled, terminal responses use one concrete footer line:
 

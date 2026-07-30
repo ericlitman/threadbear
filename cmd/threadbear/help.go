@@ -116,8 +116,12 @@ func noCommandFlags(*flag.FlagSet, *app.Request) {}
 
 func commandSpecFor(command app.Command) (commandSpec, bool) {
 	if command == app.CommandTitlePlan {
-		return commandSpec{command: command, synopsis: "Retired title actuator compatibility endpoint.", registerFlags: func(flags *flag.FlagSet, request *app.Request) {
-			flags.BoolVar(&request.TitlePlanDispatch, "dispatch", false, "return the retired fail-closed compatibility result")
+		return commandSpec{command: command, synopsis: "Hidden native title handoff compatibility endpoint.", registerFlags: func(flags *flag.FlagSet, request *app.Request) {
+			flags.BoolVar(&request.TitlePlan.Retired, "dispatch", false, "return the retired fail-closed compatibility result")
+			flags.BoolVar(&request.TitlePlan.Stage, "stage", false, "stage the configured control task from an exact footer on standard input")
+			flags.BoolVar(&request.TitlePlan.Batch, "batch", false, "list pending native title operation IDs")
+			flags.StringVar(&request.TitlePlan.OperationID, "operation", "", "revalidate exact native title operation `OP_ID`")
+			flags.BoolVar(&request.TitlePlan.Report, "report", false, "read native title outcomes from standard input")
 		}}, true
 	}
 	for _, spec := range commandSpecs {

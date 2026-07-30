@@ -734,8 +734,10 @@ the supported rename tool detected earlier to rename the calling task exactly
 how to pin it manually and continue. For `retained` or `stayed_home`, do not
 rename, pin, or reassert anything on any task. A user's later rename or unpin is
 respected and must not be restored. In particular, `stayed_home` from another
-calling task never renames or pins that calling task. Do not use private Codex
-state or UI automation.
+calling task never renames or pins that calling task. Treat `🧵🐻 ThreadBear 🐻🧵`
+as the first-adoption bootstrap name, not a permanently fixed title; after native
+handoff, describe the control task title by its current status. Do not use
+private Codex state or UI automation.
 
 ## 7. Verify and close with warmth
 
@@ -778,6 +780,64 @@ state or PID, aggregate `first_sweep` progress appears, or a heartbeat completes
 A loaded job alone is not enough. Do not run `threadbear heartbeat` in the
 foreground and do not wait for semantic classification or mutations to finish.
 
+Immediately after that bounded background start is observed, begin the retained
+native title drain; do not wait for semantic classification, the next heartbeat,
+or the five-minute cadence.
+
+Before invoking the cell, stage the exact actual canonical footer that will end
+the retained response by piping that one line to the separate dynamic command
+`~/.local/bin/threadbear title-plan --json --stage`. Inspect its JSON: exit zero
+alone is not readiness. Continue only when `ready=true`; when `retryable=true`
+with `error_code=heartbeat_active` or `heartbeat_cycle_active`, wait one second
+and retry the same stage command until ready. Stop on every other shape. The
+stage result is non-sensitive and never contains an operation ID. Only after
+stage is ready, invoke the tested cell embedded verbatim in
+`scripts/replay-title-batch.mjs` once as a top-level `functions.exec` raw-V8
+cell. If that top-level cell yields, use only `functions.wait` on the same cell
+until it reaches terminal output; after terminal output, use no more tools or
+commentary. The cell keeps batch retry inside that same raw cell for
+`heartbeat_active` and `heartbeat_cycle_active`. Every nested
+`tools.exec_command` requires `exit_code === 0` before JSON parsing. Each batch
+operation ID is revalidated
+with `--operation OP_ID` immediately before the native setter, and only exact
+payload fields are passed to `tools.codex_app__set_thread_title`. The terminal
+output contains aggregate accepted, canonically verified, failed, drifted, and rejected counts only.
+
+The one raw-V8 `functions.exec` cell begins with this exact supported first line:
+
+```js
+// @exec: {"yield_time_ms": 120000, "max_output_tokens": 1000}
+const counts = {accepted: 0, canonically_verified: 0, failed: 0, drifted: 0, rejected: 0}; const commandJSON = async (cmd) => { const result = await tools.exec_command({cmd}); if (!result || result.exit_code !== 0 || typeof result.output !== "string") throw new Error("command_failed"); return JSON.parse(result.output); };
+const readyJSON = async (cmd) => { for (;;) {
+  const value = await commandJSON(cmd);
+  if (value.ready) return value;
+  if (!value.retryable || !["heartbeat_active", "heartbeat_cycle_active"].includes(value.error_code)) throw new Error("not_ready");
+  if ((await tools.exec_command({cmd: "sleep 1"})).exit_code !== 0) throw new Error("sleep_failed");
+} };
+const quote = (value) => "'" + value.replaceAll("'", "'\\''") + "'";
+try {
+  for (const operationID of (await readyJSON("~/.local/bin/threadbear title-plan --json --batch")).operation_ids || []) try {
+    const operation = await readyJSON("~/.local/bin/threadbear title-plan --json --operation " + quote(operationID));
+    if (operation.disposition === "drifted") { counts.drifted++; continue; }
+    if (operation.disposition !== "ready" || !["set", "report_success"].includes(operation.action)) { counts.rejected++; continue; }
+    let outcome = "succeeded", errorCode = "";
+    if (operation.action === "set") try { await tools.codex_app__set_thread_title({threadId: operation.task_id, title: operation.desired_title}); }
+    catch { outcome = "failed"; errorCode = "native_setter_failed"; counts.failed++; }
+    const payload = {reports: [{operation_id: operationID, outcome, ...(errorCode && {error_code: errorCode})}]};
+    const report = await readyJSON("printf %s " + quote(JSON.stringify(payload)) + " | ~/.local/bin/threadbear title-plan --json --report");
+    counts.accepted += report.accepted || 0;
+    if (outcome === "succeeded") counts.canonically_verified += report.accepted || 0;
+  } catch { counts.failed++; }
+} catch { counts.failed++; }
+text(JSON.stringify(counts));
+```
+
+A successful retained install response must end with the exact staged footer
+`🧵🐻 complete`. Emit that footer as the final line with no later tool call,
+commentary, or appended text. This terminal rule preserves the ordinary footer
+semantics; use a different exact canonical footer only when the actual retained
+outcome is not complete, and stage that exact line before the native batch.
+
 The successful installation close requires four independent facts: the installer
 returned successfully, version/self-test/status passed, the LaunchAgent is
 healthy, and the kickstarted heartbeat start was observed within ten seconds.
@@ -816,10 +876,14 @@ outcomes below. When it is retryable, keep the healthy-install sentence, say
 plainly that ThreadBear will keep working on the aggregate retry count, and do
 not claim convergence.
 
-The background heartbeat performs managed title writes directly through the
-pinned App Server. Each title mutation is revision/title revalidated, journaled as applying and applied, verified through a fresh inventory read, journaled as
-verified, and only then followed by any same-task archive. Do not run a separate
-title worker, helper manifest, native report, child model, or replay step.
+During the retained handoff, the background heartbeat performs no App Server
+title writes. Its deterministic pass commits exact revision/title-guarded native
+plans, removes its cycle, returns, and releases the heartbeat lock before Luna.
+The native drain revalidates each operation through a targeted index lookup,
+uses the supported task-name tool, and records a monotonic native report. A later
+heartbeat settles reported titles and stages any Luna-derived plans. Same-task
+archive work remains behind unsettled title plans. The ordinary evidence and
+classifier App Servers remain separate from this native title path.
 
 Feature-detect and fail closed when required App Server methods or the tool-free
 classifier boundary are absent. The ordinary App Server stays on the real Codex
@@ -848,8 +912,8 @@ When `archive=true`, use this heading and result:
 > ThreadBear is installed
 >
 > Everything passed: ThreadBear VERSION is installed, and its quiet background
-> check is healthy. This task is now ThreadBear’s home, named `🧵🐻 ThreadBear
-> 🐻🧵` and pinned. In the first tidy-up, ThreadBear updated X task titles, no
+> check is healthy. This task is now ThreadBear’s pinned home, and its title
+> reflects its current complete status. In the first tidy-up, ThreadBear updated X task titles, no
 > completed tasks were ready for the archive, and nothing needs another try.
 > Unchanged tasks use zero model calls, and straightforward status-guided
 > changes resolve deterministically. In ordinary status-guided use, Luna medium
@@ -861,8 +925,8 @@ When `archive=false`, use this heading and result:
 > ThreadBear is installed
 >
 > Everything passed: ThreadBear VERSION is installed, and its quiet background
-> check is healthy. This task is now ThreadBear’s home, named `🧵🐻 ThreadBear
-> 🐻🧵` and pinned. Completed tasks stayed visible while ThreadBear updated X
+> check is healthy. This task is now ThreadBear’s pinned home, and its title
+> reflects its current complete status. Completed tasks stayed visible while ThreadBear updated X
 > task titles in the first tidy-up, and nothing needs another try.
 > Unchanged tasks use zero model calls, and straightforward status-guided
 > changes resolve deterministically. In ordinary status-guided use, Luna medium
@@ -871,8 +935,8 @@ When `archive=false`, use this heading and result:
 
 The pinned sentence in those first-install variants assumes supported pinning.
 When automatic pinning is unavailable, replace that entire sentence with this
-actual outcome: “This task is now ThreadBear’s home and is named `🧵🐻
-ThreadBear 🐻🧵`, but Codex did not offer automatic pinning; you can pin it from
+actual outcome: “This task is now ThreadBear’s home and its title reflects its
+current complete status, but Codex did not offer automatic pinning; you can pin it from
 the task menu.”
 
 For a retained home, whether this task or another task, use this dedicated
@@ -1015,8 +1079,9 @@ post-mutation shape and adapt every factual sentence to the evidence:
 > ThreadBear hit a snag while starting its quiet background check.
 >
 > The install itself finished: ThreadBear is in place, this task is now its
-> home, named `🧵🐻 ThreadBear 🐻🧵` and pinned, and your settings are in place.
-> The welcome note above records those choices; the health check is the only
+> pinned home, and your settings are in place. Its title will reflect current
+> status once the background title handoff completes. The welcome note above
+> records those choices; the health check is the only
 > part that has not passed yet.
 >
 > I’m checking why the background check did not start now. You don’t need to

@@ -42,6 +42,50 @@ func (r TitleDispatchResult) Human() string {
 	return string(data)
 }
 
+type titlePlanMode uint8
+
+const (
+	titlePlanStage titlePlanMode = iota
+	titlePlanBatch
+	titlePlanOperation
+	titlePlanReport
+)
+
+type TitlePlanResult struct {
+	Version      int      `json:"version"`
+	Ready        bool     `json:"ready"`
+	Retryable    bool     `json:"retryable"`
+	ErrorCode    string   `json:"error_code,omitempty"`
+	OperationIDs []string `json:"operation_ids,omitempty"`
+	OperationID  string   `json:"operation_id,omitempty"`
+	Disposition  string   `json:"disposition,omitempty"`
+	Action       string   `json:"action,omitempty"`
+	TaskID       string   `json:"task_id,omitempty"`
+	DesiredTitle string   `json:"desired_title,omitempty"`
+	Accepted     int      `json:"accepted,omitempty"`
+	Unchanged    int      `json:"unchanged,omitempty"`
+	mode         titlePlanMode
+}
+
+func NewTitlePlanStageResult(ready bool, code string) TitlePlanResult {
+	return TitlePlanResult{Ready: ready, Retryable: !ready, ErrorCode: code, mode: titlePlanStage}
+}
+func NewTitlePlanBatchResult(ready bool, code string, ids []string) TitlePlanResult {
+	return TitlePlanResult{Ready: ready, Retryable: !ready, ErrorCode: code, OperationIDs: ids, mode: titlePlanBatch}
+}
+func NewTitlePlanOperationResult(ready bool, code, id string) TitlePlanResult {
+	return TitlePlanResult{Ready: ready, Retryable: !ready, ErrorCode: code, OperationID: id, mode: titlePlanOperation}
+}
+func NewTitlePlanReportResult(ready bool, code string, accepted, unchanged int) TitlePlanResult {
+	return TitlePlanResult{Ready: ready, Retryable: !ready, ErrorCode: code, Accepted: accepted, Unchanged: unchanged, mode: titlePlanReport}
+}
+func (TitlePlanResult) result()     {}
+func (TitlePlanResult) Empty() bool { return false }
+func (r TitlePlanResult) Human() string {
+	data, _ := json.Marshal(r)
+	return string(data)
+}
+
 type TaskChange struct {
 	TaskID string           `json:"task_id"`
 	State  state.TaskStatus `json:"state"`
@@ -454,6 +498,11 @@ func dereferenceResult(value Result) (Result, error) {
 			return nil, errors.New("result is required")
 		}
 		return *result, nil
+	case *TitlePlanResult:
+		if result == nil {
+			return nil, errors.New("result is required")
+		}
+		return *result, nil
 	case *HeartbeatResult:
 		if result == nil {
 			return nil, errors.New("result is required")
@@ -512,6 +561,17 @@ func dereferenceResult(value Result) (Result, error) {
 func withVersion(value Result) Result {
 	switch result := value.(type) {
 	case TitleDispatchResult:
+		if result.Version == 0 {
+			result.Version = CurrentResultVersion
+		}
+		return result
+	case TitlePlanResult:
+		if result.mode == titlePlanBatch {
+			result.OperationIDs = slices.Clone(result.OperationIDs)
+			if result.OperationIDs == nil {
+				result.OperationIDs = []string{}
+			}
+		}
 		if result.Version == 0 {
 			result.Version = CurrentResultVersion
 		}
@@ -649,6 +709,48 @@ func validateResult(value Result) error {
 	case TitleDispatchResult:
 		if result.Allow || result.Disposition != "retired" {
 			return errors.New("title dispatch compatibility envelope is invalid")
+		}
+	case TitlePlanResult:
+		if result.Ready == result.Retryable || result.Retryable != (result.ErrorCode != "") {
+			return errors.New("title plan readiness is inconsistent")
+		}
+		if err := checkCode("error_code", result.ErrorCode, result.Ready); err != nil {
+			return err
+		}
+		operationPayload := result.OperationID != "" || result.Disposition != "" || result.Action != "" || result.TaskID != "" || result.DesiredTitle != ""
+		if result.mode != titlePlanBatch && len(result.OperationIDs) > 0 || result.mode != titlePlanOperation && operationPayload || result.mode != titlePlanReport && (result.Accepted != 0 || result.Unchanged != 0) {
+			return errors.New("title plan result leaks payload")
+		}
+		switch result.mode {
+		case titlePlanStage:
+		case titlePlanBatch:
+			for _, id := range result.OperationIDs {
+				if err := checkID("operation_id", id); err != nil {
+					return err
+				}
+			}
+		case titlePlanOperation:
+			if err := checkID("operation_id", result.OperationID); err != nil {
+				return err
+			}
+			if result.Retryable {
+				break
+			}
+			if result.Disposition == "ready" {
+				if result.Action != "set" && result.Action != "report_success" || result.TaskID == "" || result.DesiredTitle == "" {
+					return errors.New("ready title operation is incomplete")
+				}
+			} else if result.Disposition != "drifted" && result.Disposition != "missing" && result.Disposition != "rejected" {
+				return errors.New("title operation disposition is invalid")
+			} else if result.Action != "" || result.TaskID != "" || result.DesiredTitle != "" {
+				return errors.New("title operation disposition leaks payload")
+			}
+		case titlePlanReport:
+			if result.Accepted < 0 || result.Unchanged < 0 {
+				return errors.New("title report counts must be nonnegative")
+			}
+		default:
+			return errors.New("title plan result mode is invalid")
 		}
 	case HeartbeatResult:
 		if result.Progress != nil {
@@ -859,6 +961,8 @@ func validateResult(value Result) error {
 func resultVersion(value Result) int {
 	switch result := value.(type) {
 	case TitleDispatchResult:
+		return result.Version
+	case TitlePlanResult:
 		return result.Version
 	case HeartbeatResult:
 		return result.Version

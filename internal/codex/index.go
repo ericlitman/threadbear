@@ -141,6 +141,43 @@ func (i *Index) Close() error {
 	return i.db.Close()
 }
 
+func (i *Index) Task(ctx context.Context, controlTaskID, taskID string) (Task, bool, error) {
+	if strings.TrimSpace(controlTaskID) == "" || strings.TrimSpace(controlTaskID) != controlTaskID {
+		return Task{}, false, errors.New("control task ID is required")
+	}
+	if strings.TrimSpace(taskID) == "" || strings.TrimSpace(taskID) != taskID {
+		return Task{}, false, errors.New("task ID is required")
+	}
+	if err := i.validateSchema(ctx); err != nil {
+		return Task{}, false, err
+	}
+	var task Task
+	var updatedAtMS int64
+	var name sql.NullString
+	var archived int
+	var threadSource sql.NullString
+	var rolloutPath sql.NullString
+	err := i.db.QueryRowContext(ctx, `
+SELECT id, updated_at_ms, title, name, archived, source, thread_source, rollout_path
+FROM threads
+WHERE id = ?`, taskID).Scan(&task.TaskID, &updatedAtMS, &task.DerivedTitle, &name, &archived, &task.Source, &threadSource, &rolloutPath)
+	if errors.Is(err, sql.ErrNoRows) {
+		return Task{}, false, nil
+	}
+	if err != nil {
+		return Task{}, false, fmt.Errorf("read Codex task: %w", err)
+	}
+	task.Revision = strconv.FormatInt(updatedAtMS, 10)
+	task.Title = task.DerivedTitle
+	if name.Valid {
+		task.Title = name.String
+	}
+	task.Archived = archived != 0
+	task.ThreadSource = threadSource.String
+	task.RolloutPath = rolloutPath.String
+	return task, true, nil
+}
+
 func (i *Index) Inventory(ctx context.Context, controlTaskID string) (Inventory, error) {
 	if controlTaskID == "" {
 		return Inventory{}, errors.New("control task ID is required")

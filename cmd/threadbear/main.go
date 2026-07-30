@@ -206,7 +206,7 @@ func newOperatorService(installedVersion string, stdout, stderr io.Writer, forma
 		uninstaller.Prompter = prompter
 		return uninstaller, prompter.Close, nil
 	}
-	titlePlanCompatibility := titleplan.Service{}
+	titlePlanCompatibility := titleplan.Service{Store: store, Inventory: inventory, Input: os.Stdin, ThreadID: func() string { return os.Getenv("CODEX_THREAD_ID") }, Now: time.Now}
 	service := app.NewWithOperatorCommands(installedVersion, app.OperatorDependencies{
 		Store: store, Inventory: inventory, Clock: clock, LaunchAgent: launch, TitlePlanCompatibility: titlePlanCompatibility,
 		ManagedAgents: managed, Unarchiver: appServerUnarchiver{runtime: appServers}, Heartbeat: runner,
@@ -277,6 +277,23 @@ func (i *lazyInventory) Inventory(ctx context.Context, controlTaskID string) (co
 		i.index = index
 	}
 	return i.index.Inventory(ctx, controlTaskID)
+}
+
+func (i *lazyInventory) Task(ctx context.Context, controlTaskID, taskID string) (codex.Task, bool, error) {
+	i.mu.Lock()
+	defer i.mu.Unlock()
+	if i.index == nil {
+		sqliteHome, err := codex.ResolveSQLiteHome(i.codexHome)
+		if err != nil {
+			return codex.Task{}, false, err
+		}
+		index, err := codex.OpenIndex(sqliteHome)
+		if err != nil {
+			return codex.Task{}, false, err
+		}
+		i.index = index
+	}
+	return i.index.Task(ctx, controlTaskID, taskID)
 }
 
 func (i *lazyInventory) Close() error {

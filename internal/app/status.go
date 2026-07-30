@@ -11,6 +11,7 @@ import (
 	"github.com/ericlitman/threadbear/internal/config"
 	"github.com/ericlitman/threadbear/internal/output"
 	"github.com/ericlitman/threadbear/internal/state"
+	"github.com/ericlitman/threadbear/internal/titleplan"
 	"github.com/ericlitman/threadbear/internal/tokens"
 )
 
@@ -46,7 +47,7 @@ type Unarchiver interface {
 }
 
 type TitlePlanCompatibility interface {
-	Dispatch() output.Result
+	Dispatch(context.Context, titleplan.Request) (output.Result, error)
 }
 
 type OperatorDependencies struct {
@@ -70,8 +71,8 @@ func NewWithOperatorCommands(version string, deps OperatorDependencies) *Service
 	service := New(version)
 	service.handlers[CommandHeartbeat] = OperatorHeartbeatHandler(version, deps.Store, deps.Inventory, deps.Clock, deps.Heartbeat)
 	if deps.TitlePlanCompatibility != nil {
-		service.handlers[CommandTitlePlan] = func(context.Context, Request) (output.Result, error) {
-			return deps.TitlePlanCompatibility.Dispatch(), nil
+		service.handlers[CommandTitlePlan] = func(ctx context.Context, request Request) (output.Result, error) {
+			return deps.TitlePlanCompatibility.Dispatch(ctx, request.TitlePlan)
 		}
 	}
 	service.handlers[CommandStatus] = StatusHandler(version, deps.Store, deps.LaunchAgent)

@@ -719,31 +719,23 @@ func (f *hostedWaitClientFake) ReadLatestTurn(ctx context.Context, _, _ string) 
 
 func (f *hostedWaitClientFake) Close() error { f.closed = true; return nil }
 
-func TestRetiredTitlePlanCompatibilityIsHiddenAndFailClosed(t *testing.T) {
+func TestTitlePlanCompatibilityIsHiddenAndRetainsFailClosedDispatch(t *testing.T) {
 	request, err := parseRequest([]string{"title-plan", "--json", "--dispatch"})
-	if err != nil || !request.TitlePlanDispatch {
+	if err != nil || !request.TitlePlan.Retired {
 		t.Fatalf("request=%+v err=%v", request, err)
 	}
-	for _, args := range [][]string{{"title-plan", "--dispatch"}, {"title-plan", "--json"}, {"title-plan", "--json", "--batch"}} {
+	for _, args := range [][]string{{"title-plan", "--dispatch"}, {"title-plan", "--json"}, {"title-plan", "--json", "--batch", "--report"}} {
 		if _, err := parseRequest(args); err == nil {
 			t.Fatalf("accepted %v", args)
+		}
+	}
+	for _, args := range [][]string{{"title-plan", "--json", "--stage"}, {"title-plan", "--json", "--batch"}, {"title-plan", "--json", "--operation", "op-1"}, {"title-plan", "--json", "--report"}} {
+		if _, err := parseRequest(args); err != nil {
+			t.Fatalf("rejected %v: %v", args, err)
 		}
 	}
 	if strings.Contains(renderTopLevelHelp(), "title-plan") {
 		t.Fatal("retired compatibility command is visible in help")
 	}
-	home := t.TempDir()
-	codexHome := filepath.Join(home, ".codex")
-	if err := os.MkdirAll(codexHome, 0o700); err != nil {
-		t.Fatal(err)
-	}
-	t.Setenv("HOME", home)
-	t.Setenv("CODEX_HOME", codexHome)
-	var stdout, stderr bytes.Buffer
-	if code := run(context.Background(), []string{"title-plan", "--json", "--dispatch"}, &stdout, &stderr); code != 0 {
-		t.Fatalf("code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
-	}
-	if got, want := stdout.String(), "{\"version\":1,\"allow\":false,\"disposition\":\"retired\"}\n"; got != want {
-		t.Fatalf("got %q want %q", got, want)
-	}
+
 }

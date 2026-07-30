@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+### Changed
+
+- Restored retained native title handoff: deterministic and Luna passes stage exact guarded schema-v3 plans, the hidden control-task compatibility surface revalidates and records monotonic native outcomes, and heartbeat performs no App Server title writes in this mode.
+- Bounded latest-turn and fresh rollout-tail reads to eight workers with deterministic result ordering, and updated guided install to drain native plans immediately after bounded background start.
+
 ### Fixed
 
 - Decoupled guided-install health from background historical convergence, restored context-sized semantic packing, added aggregate first-sweep progress, and isolated each heartbeat's classifier in one private minimal-auth App Server process reused across batches.

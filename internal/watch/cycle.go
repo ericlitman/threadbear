@@ -7,6 +7,7 @@ import (
 	"io/fs"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/ericlitman/threadbear/internal/codex"
@@ -20,7 +21,10 @@ import (
 	updatepkg "github.com/ericlitman/threadbear/internal/update"
 )
 
-const updateApplyTimeout = 3 * time.Minute
+const (
+	updateApplyTimeout = 3 * time.Minute
+	readWorkerLimit    = 8
+)
 
 type Store interface {
 	LoadConfig() (config.Config, error)
@@ -34,6 +38,7 @@ type Store interface {
 
 type InventoryReader interface {
 	Inventory(context.Context, string) (codex.Inventory, error)
+	Task(context.Context, string, string) (codex.Task, bool, error)
 }
 
 type AppServer interface {
@@ -112,6 +117,16 @@ type Dependencies struct {
 	NewCycleID         func() string
 }
 
+type latestTurnRead struct {
+	evidence appserver.RecentEvidence
+	err      error
+}
+
+type tokenRead struct {
+	snapshot tokens.Snapshot
+	err      error
+}
+
 type Runner struct {
 	deps Dependencies
 }
@@ -176,6 +191,9 @@ func (r *Runner) Run(ctx context.Context, dryRun bool) (output.Result, error) {
 	adoptionDue := committed.LastAnnouncedVersion == "" && r.deps.InstalledVersion != ""
 	announcementDue := committed.LastAnnouncedVersion != "" && r.deps.InstalledVersion != "" && committed.LastAnnouncedVersion != r.deps.InstalledVersion
 	reconcileDue := r.deps.InstalledVersion != "" && committed.LastReconciledVersion != r.deps.InstalledVersion
+	handoffContinuation := committed.LastSweep != nil && committed.LastSweep.Phase == state.SweepPhaseDeterministic && committed.LastSweep.CompletedAt == nil
+	deterministicHandoff := reconcileDue && !handoffContinuation
+	nativeTitleMode := r.deps.InstalledVersion != "" && (deterministicHandoff || handoffContinuation || committed.BootstrapComplete && committed.LastReconciledVersion == r.deps.InstalledVersion && committed.LastSweep != nil)
 	var managedResources []string
 	var managedSurfacesErr error
 	if !dryRun && r.deps.ManagedSurfaces != nil {
@@ -185,11 +203,21 @@ func (r *Runner) Run(ctx context.Context, dryRun bool) (output.Result, error) {
 	if err != nil {
 		return output.HeartbeatResult{CycleID: "inventory", ErrorCode: "inventory_failed"}, err
 	}
+	settlementInventory := inventory
+	if _, pending := committed.PendingTitlePlans[cfg.ControlTaskID]; pending {
+		control, found, targetErr := r.deps.Inventory.Task(ctx, cfg.ControlTaskID, cfg.ControlTaskID)
+		if targetErr != nil {
+			return output.HeartbeatResult{CycleID: "inventory", ErrorCode: "inventory_failed"}, targetErr
+		}
+		if found {
+			settlementInventory.Tasks = append(append([]codex.Task(nil), inventory.Tasks...), control)
+		}
+	}
 	titleStateChanged := false
 	advancedTitleSettlements := make(map[string]struct{})
 	if !checkpointExists {
 		if cfg.RenameEnabled {
-			titleStateChanged, advancedTitleSettlements = settleOrDrainPendingTitles(&committed, inventory)
+			titleStateChanged, advancedTitleSettlements = settleOrDrainPendingTitles(&committed, settlementInventory, cfg.ControlTaskID, nativeTitleMode)
 		} else if len(committed.PendingTitlePlans) > 0 {
 			committed.PendingTitlePlans = make(map[string]state.PendingTitlePlan)
 			titleStateChanged = true
@@ -211,8 +239,20 @@ func (r *Runner) Run(ctx context.Context, dryRun bool) (output.Result, error) {
 		}
 		checkpointExists = true
 	}
-	comparison := codex.CompareInventory(inventory, committed)
-	comparison.Changed = dueChanged(comparison.Changed, committed, now)
+	comparisonState := committed
+	comparisonState.Tasks = make(map[string]state.TaskRecord, len(committed.Tasks))
+	for taskID, record := range committed.Tasks {
+		if taskID != cfg.ControlTaskID {
+			comparisonState.Tasks[taskID] = record
+		}
+	}
+	comparison := codex.CompareInventory(inventory, comparisonState)
+	if deterministicHandoff {
+		comparison.Changed = append([]codex.Task(nil), inventory.Tasks...)
+		sort.Slice(comparison.Changed, func(i, j int) bool { return comparison.Changed[i].TaskID < comparison.Changed[j].TaskID })
+	} else {
+		comparison.Changed = dueChanged(comparison.Changed, committed, now)
+	}
 	archiveDue := archiveDueTasks(inventory, committed, cfg, now)
 	comparison.Changed = mergeChanged(comparison.Changed, archiveDue)
 	comparison.Changed = mergeChanged(comparison.Changed, tokenDisplayDueTasks(inventory, committed, cfg))
@@ -236,7 +276,7 @@ func (r *Runner) Run(ctx context.Context, dryRun bool) (output.Result, error) {
 		committed.LastReconcileFailure = failure("managed_reconcile_failed", now)
 		administrativeChanged = true
 	} else {
-		if reconcileDue {
+		if reconcileDue && !deterministicHandoff {
 			committed.LastReconciledVersion = r.deps.InstalledVersion
 			administrativeChanged = true
 		}
@@ -253,7 +293,7 @@ func (r *Runner) Run(ctx context.Context, dryRun bool) (output.Result, error) {
 
 	pendingUpdate := UpdateStatus{}
 	updateChecked := false
-	if updateDue && !checkpointExists && !announcementDue {
+	if updateDue && !checkpointExists && !announcementDue && !deterministicHandoff {
 		updateChecked = true
 		committed.LastUpdateCheck = &now
 		if err := r.deps.Store.SaveState(committed); err != nil {
@@ -300,7 +340,7 @@ func (r *Runner) Run(ctx context.Context, dryRun bool) (output.Result, error) {
 		}
 	}
 
-	if comparison.Unchanged() && !announcementDue && !pendingUpdate.Newer && !checkpointExists {
+	if comparison.Unchanged() && !announcementDue && !pendingUpdate.Newer && !checkpointExists && !deterministicHandoff && !handoffContinuation {
 		if administrativeChanged || updateChecked {
 			committed.LastCompletedHeartbeat = &now
 			if err := r.deps.Store.SaveState(committed); err != nil {
@@ -321,17 +361,19 @@ func (r *Runner) Run(ctx context.Context, dryRun bool) (output.Result, error) {
 				activity = now
 			}
 			checkpoint.Inventory[task.TaskID] = state.CapturedTask{TaskID: task.TaskID, Revision: task.Revision, Title: task.Title, RolloutPath: task.RolloutPath, Archived: task.Archived, LastSubstantiveActivity: activity}
-			if previous, ok := committed.Tasks[task.TaskID]; ok && previous.Retry == nil && previous.CapturedRevision == task.Revision && previous.CapturedTitle == task.Title && tokenDisplayDue(previous, cfg) {
+			if previous, ok := committed.Tasks[task.TaskID]; !deterministicHandoff && ok && previous.Retry == nil && previous.CapturedRevision == task.Revision && previous.CapturedTitle == task.Title && tokenDisplayDue(previous, cfg) {
 				checkpoint.Results[task.TaskID] = state.ClassificationResult{
 					TaskID: task.TaskID, Revision: task.Revision, Status: previous.Status, Provenance: previous.Provenance,
 					DurableSubject: previous.DurableSubject, ManagedAction: previous.ManagedAction,
 				}
 			}
 		}
-		for _, task := range archiveDue {
-			previous := committed.Tasks[task.TaskID]
-			if previous.CapturedRevision == task.Revision && previous.CapturedTitle == task.Title {
-				checkpoint.Results[task.TaskID] = state.ClassificationResult{TaskID: task.TaskID, Revision: task.Revision, Status: previous.Status, Provenance: previous.Provenance, DurableSubject: previous.DurableSubject, ManagedAction: previous.ManagedAction}
+		if !deterministicHandoff {
+			for _, task := range archiveDue {
+				previous := committed.Tasks[task.TaskID]
+				if previous.CapturedRevision == task.Revision && previous.CapturedTitle == task.Title {
+					checkpoint.Results[task.TaskID] = state.ClassificationResult{TaskID: task.TaskID, Revision: task.Revision, Status: previous.Status, Provenance: previous.Provenance, DurableSubject: previous.DurableSubject, ManagedAction: previous.ManagedAction}
+				}
 			}
 		}
 		if err := r.deps.Store.SaveCycle(checkpoint); err != nil {
@@ -349,7 +391,7 @@ func (r *Runner) Run(ctx context.Context, dryRun bool) (output.Result, error) {
 		}
 	}
 
-	if announcementDue && !checkpointHasAnnouncement(checkpoint, r.deps.InstalledVersion) {
+	if announcementDue && !deterministicHandoff && !checkpointHasAnnouncement(checkpoint, r.deps.InstalledVersion) {
 		key := "announcement:" + r.deps.InstalledVersion
 		checkpoint.Operations[key] = state.CycleOperation{Kind: state.OperationAnnouncement, Stage: state.StagePrepared, PreviousVersion: committed.LastAnnouncedVersion, NoticeVersion: r.deps.InstalledVersion}
 		if err := r.deps.Store.SaveCycle(checkpoint); err != nil {
@@ -379,6 +421,20 @@ func (r *Runner) Run(ctx context.Context, dryRun bool) (output.Result, error) {
 	pruneRemovedCaptured(&checkpoint, inventory)
 
 	unresolved := make([]status.TaskEvidence, 0)
+	latestCandidates := make([]codex.Task, 0, len(comparison.Changed))
+	if client != nil {
+		for _, task := range comparison.Changed {
+			captured, ok := checkpoint.Inventory[task.TaskID]
+			if !ok || captured.Revision != task.Revision || captured.Title != task.Title {
+				continue
+			}
+			if _, ok := checkpoint.Results[task.TaskID]; !ok {
+				latestCandidates = append(latestCandidates, task)
+			}
+		}
+	}
+	latestReads := r.readLatestTurns(ctx, client, latestCandidates)
+	checkpoint.Progress.LatestTurnReads += len(latestCandidates)
 	for _, task := range comparison.Changed {
 		captured, ok := checkpoint.Inventory[task.TaskID]
 		if !ok || captured.Revision != task.Revision || captured.Title != task.Title {
@@ -392,8 +448,8 @@ func (r *Runner) Run(ctx context.Context, dryRun bool) (output.Result, error) {
 			checkpoint.Results[task.TaskID] = unknownResult(task, state.ProvenanceUnknown)
 			continue
 		}
-		checkpoint.Progress.LatestTurnReads++
-		evidence, readErr := client.ReadLatestTurn(ctx, task.TaskID, task.RolloutPath)
+		read := latestReads[task.TaskID]
+		evidence, readErr := read.evidence, read.err
 		if readErr != nil {
 			if bootstrapTitles {
 				if adopted, subject, ok := title.AdoptSingleLeadingStatus(task.Title); ok {
@@ -439,6 +495,56 @@ func (r *Runner) Run(ctx context.Context, dryRun bool) (output.Result, error) {
 	if err := r.deps.Store.SaveCycle(checkpoint); err != nil {
 		result.ErrorCode = "cycle_write_failed"
 		return result, err
+	}
+
+	if deterministicHandoff {
+		records := r.prepareRecords(cfg, committed, checkpoint, now, &result)
+		for taskID := range checkpoint.Inventory {
+			if _, resolved := checkpoint.Results[taskID]; !resolved {
+				delete(records, taskID)
+			}
+		}
+		if err := reconstructLegacyTitleOperations(records, &checkpoint); err != nil {
+			result.ErrorCode = "operation_prepare_failed"
+			return result, err
+		}
+		if err := r.prepareOperations(cfg, records, &checkpoint, now, true); err != nil {
+			result.ErrorCode = "operation_prepare_failed"
+			return result, err
+		}
+		if err := r.deps.Store.SaveCycle(checkpoint); err != nil {
+			result.ErrorCode = "cycle_write_failed"
+			return result, err
+		}
+		next, err := r.commitState(cfg, committed, checkpoint, records, now)
+		if err != nil {
+			result.ErrorCode = "operation_commit_failed"
+			return result, err
+		}
+		next.BootstrapComplete = committed.BootstrapComplete
+		incomplete := len(checkpoint.Diagnostics) > 0
+		if reconcileDue && !incomplete && r.deps.ManagedSurfaces != nil && managedSurfacesErr == nil {
+			next.LastReconciledVersion = r.deps.InstalledVersion
+		}
+		if incomplete {
+			completedAt := r.deps.Clock.Now().UTC()
+			checkpoint.Progress.Phase = state.SweepPhaseRetryable
+			checkpoint.Progress.UpdatedAt = completedAt
+			checkpoint.Progress.CompletedAt = &completedAt
+			appendRetryResults(&result, checkpoint.Diagnostics)
+		}
+		stagePendingTitlePlans(&next, checkpoint)
+		next.LastSweep = checkpoint.Progress
+		result.Progress = checkpoint.Progress
+		if err := r.deps.Store.SaveState(next); err != nil {
+			result.ErrorCode = "state_write_failed"
+			return result, err
+		}
+		if err := r.deps.Store.RemoveCycle(); err != nil {
+			result.ErrorCode = "cycle_remove_failed"
+			return result, err
+		}
+		return result, nil
 	}
 
 	if len(unresolved) > 0 {
@@ -577,7 +683,7 @@ func (r *Runner) Run(ctx context.Context, dryRun bool) (output.Result, error) {
 		result.ErrorCode = "operation_prepare_failed"
 		return result, err
 	}
-	if err := r.prepareOperations(cfg, records, &checkpoint, now); err != nil {
+	if err := r.prepareOperations(cfg, records, &checkpoint, now, deterministicHandoff); err != nil {
 		result.ErrorCode = "operation_prepare_failed"
 		return result, err
 	}
@@ -587,7 +693,7 @@ func (r *Runner) Run(ctx context.Context, dryRun bool) (output.Result, error) {
 	}
 
 	mutationStarted := time.Now()
-	if err := r.applyOperations(ctx, cfg, client, &checkpoint, records, &result, now); err != nil {
+	if err := r.applyOperations(ctx, cfg, client, &checkpoint, records, &result, now, nativeTitleMode); err != nil {
 		result.ErrorCode = "mutation_outcome_unknown"
 		return result, err
 	}
@@ -612,6 +718,9 @@ func (r *Runner) Run(ctx context.Context, dryRun bool) (output.Result, error) {
 	}
 	checkpoint.Progress.UpdatedAt = completedAt
 	checkpoint.Progress.CompletedAt = &completedAt
+	if nativeTitleMode {
+		stagePendingTitlePlans(&next, checkpoint)
+	}
 	next.LastSweep = checkpoint.Progress
 	result.Progress = checkpoint.Progress
 	if err := r.deps.Store.SaveState(next); err != nil {
@@ -782,6 +891,42 @@ func dryRunResult(comparison codex.Comparison, updateDue, reconcileDue, announce
 		effects = append(effects, "update_announcement")
 	}
 	return output.PreviewResult{Command: "heartbeat", Effects: effects}
+}
+
+func parallelReads[J, V any](jobs []J, read func(J) V) []V {
+	results := make([]V, len(jobs))
+	queue := make(chan int)
+	var workers sync.WaitGroup
+	for range min(readWorkerLimit, len(jobs)) {
+		workers.Add(1)
+		go func() {
+			defer workers.Done()
+			for index := range queue {
+				results[index] = read(jobs[index])
+			}
+		}()
+	}
+	for index := range jobs {
+		queue <- index
+	}
+	close(queue)
+	workers.Wait()
+	return results
+}
+
+func (r *Runner) readLatestTurns(ctx context.Context, client AppServer, tasks []codex.Task) map[string]latestTurnRead {
+	result := make(map[string]latestTurnRead, len(tasks))
+	if client == nil {
+		return result
+	}
+	reads := parallelReads(tasks, func(task codex.Task) latestTurnRead {
+		evidence, err := client.ReadLatestTurn(ctx, task.TaskID, task.RolloutPath)
+		return latestTurnRead{evidence: evidence, err: err}
+	})
+	for index, task := range tasks {
+		result[task.TaskID] = reads[index]
+	}
+	return result
 }
 
 func (r *Runner) lazyClient(ctx context.Context) (AppServer, func(), error) {
@@ -999,7 +1144,35 @@ func (r *Runner) recoverOperations(checkpoint *state.CycleCheckpoint, inventory 
 	}
 }
 
+func (r *Runner) readTokenTails(cfg config.Config, committed state.State, checkpoint state.CycleCheckpoint) map[string]tokenRead {
+	result := make(map[string]tokenRead)
+	if !cfg.RenameEnabled || cfg.TokenDisplay == tokens.PositionOff {
+		return result
+	}
+	type job struct {
+		taskID, path string
+		previous     tokens.Snapshot
+	}
+	jobs := make([]job, 0, len(checkpoint.Inventory))
+	for taskID, captured := range checkpoint.Inventory {
+		operation, planned := checkpoint.Operations["title:"+taskID]
+		if _, classified := checkpoint.Results[taskID]; classified && captured.RolloutPath != "" && (!planned || !operation.ForceWrite) {
+			jobs = append(jobs, job{taskID, captured.RolloutPath, tokenSnapshot(committed.Tasks[taskID])})
+		}
+	}
+	sort.Slice(jobs, func(i, j int) bool { return jobs[i].taskID < jobs[j].taskID })
+	reads := parallelReads(jobs, func(job job) tokenRead {
+		snapshot, err := r.deps.TokenReader.ReadRollout(job.path, job.previous)
+		return tokenRead{snapshot: snapshot, err: err}
+	})
+	for index, job := range jobs {
+		result[job.taskID] = reads[index]
+	}
+	return result
+}
+
 func (r *Runner) prepareRecords(cfg config.Config, committed state.State, checkpoint state.CycleCheckpoint, now time.Time, result *output.HeartbeatResult) map[string]state.TaskRecord {
+	tokenReads := r.readTokenTails(cfg, committed, checkpoint)
 	records := make(map[string]state.TaskRecord, len(checkpoint.Inventory))
 	for taskID, captured := range checkpoint.Inventory {
 		classification, ok := checkpoint.Results[taskID]
@@ -1062,13 +1235,10 @@ func (r *Runner) prepareRecords(cfg config.Config, committed state.State, checkp
 			if cfg.TokenDisplay != tokens.PositionOff && !migratedTitle {
 				if captured.RolloutPath == "" {
 					clearTokenSnapshot(&record)
+				} else if read := tokenReads[taskID]; read.err != nil {
+					clearTokenSnapshot(&record)
 				} else {
-					snapshot, readErr := r.deps.TokenReader.ReadRollout(captured.RolloutPath, tokenSnapshot(record))
-					if readErr != nil {
-						clearTokenSnapshot(&record)
-					} else {
-						applyTokenSnapshot(&record, snapshot)
-					}
+					applyTokenSnapshot(&record, read.snapshot)
 				}
 			}
 		}
@@ -1077,7 +1247,7 @@ func (r *Runner) prepareRecords(cfg config.Config, committed state.State, checkp
 	return records
 }
 
-func (r *Runner) prepareTitleOperation(cfg config.Config, taskID string, record state.TaskRecord, classification state.ClassificationResult) (state.CycleOperation, bool, error) {
+func (r *Runner) prepareTitleOperation(cfg config.Config, taskID string, record state.TaskRecord, classification state.ClassificationResult, force bool) (state.CycleOperation, bool, error) {
 	display := tokens.Display{}
 	if classification.Provenance != state.ProvenanceBootstrapTitle && record.TokenUsageFound && cfg.TokenDisplay != tokens.PositionOff {
 		display = tokens.Display{Position: cfg.TokenDisplay, Value: tokens.Format(record.OutputTokens)}
@@ -1086,7 +1256,7 @@ func (r *Runner) prepareTitleOperation(cfg config.Config, taskID string, record 
 	if err != nil {
 		return state.CycleOperation{}, false, err
 	}
-	if rendered.Title == record.CapturedTitle {
+	if rendered.Title == record.CapturedTitle && !force {
 		return state.CycleOperation{}, false, nil
 	}
 	return state.CycleOperation{
@@ -1094,6 +1264,7 @@ func (r *Runner) prepareTitleOperation(cfg config.Config, taskID string, record 
 		ExpectedRevision: record.CapturedRevision, ExpectedTitle: record.CapturedTitle, DesiredTitle: rendered.Title,
 		DurableSubject: rendered.DurableSubject, ManagedAction: rendered.ManagedAction,
 		ManagedTokenDisplay: rendered.ManagedTokenDisplay, ManagedTokenPosition: rendered.ManagedTokenPosition,
+		ForceWrite: force,
 	}, true, nil
 }
 
@@ -1211,7 +1382,7 @@ func hasPendingTitleOperation(checkpoint state.CycleCheckpoint, taskID string) b
 	return exists && operation.Stage != state.StageVerified
 }
 
-func (r *Runner) prepareOperations(cfg config.Config, records map[string]state.TaskRecord, checkpoint *state.CycleCheckpoint, now time.Time) error {
+func (r *Runner) prepareOperations(cfg config.Config, records map[string]state.TaskRecord, checkpoint *state.CycleCheckpoint, now time.Time, forceTitles bool) error {
 	if !cfg.RenameEnabled {
 		for key, operation := range checkpoint.Operations {
 			if operation.Kind == state.OperationTitle {
@@ -1239,7 +1410,7 @@ func (r *Runner) prepareOperations(cfg config.Config, records map[string]state.T
 				records[taskID] = titleRecord
 			}
 			if !exists || !existing.ForceWrite {
-				operation, planned, err := r.prepareTitleOperation(cfg, taskID, titleRecord, classification)
+				operation, planned, err := r.prepareTitleOperation(cfg, taskID, titleRecord, classification, forceTitles)
 				if err != nil {
 					r.setDiagnostic(checkpoint, taskID, "title", "title_reconcile_failed")
 				} else if planned {
@@ -1261,7 +1432,7 @@ func (r *Runner) prepareOperations(cfg config.Config, records map[string]state.T
 	return nil
 }
 
-func (r *Runner) applyOperations(ctx context.Context, cfg config.Config, client AppServer, checkpoint *state.CycleCheckpoint, records map[string]state.TaskRecord, result *output.HeartbeatResult, now time.Time) error {
+func (r *Runner) applyOperations(ctx context.Context, cfg config.Config, client AppServer, checkpoint *state.CycleCheckpoint, records map[string]state.TaskRecord, result *output.HeartbeatResult, now time.Time, nativeTitles bool) error {
 	keys := make([]string, 0, len(checkpoint.Operations))
 	for key := range checkpoint.Operations {
 		keys = append(keys, key)
@@ -1275,7 +1446,7 @@ func (r *Runner) applyOperations(ctx context.Context, cfg config.Config, client 
 	})
 	for _, key := range keys {
 		op := checkpoint.Operations[key]
-		if op.Kind == state.OperationNotice || op.Kind == state.OperationAnnouncement || op.Stage == state.StageVerified {
+		if op.Kind == state.OperationNotice || op.Kind == state.OperationAnnouncement || op.Stage == state.StageVerified || nativeTitles && op.Kind == state.OperationTitle {
 			continue
 		}
 		if op.Kind == state.OperationArchive && hasPendingTitleOperation(*checkpoint, op.TaskID) {
@@ -1408,21 +1579,24 @@ func (r *Runner) applyOperations(ctx context.Context, cfg config.Config, client 
 	return nil
 }
 
-func settleOrDrainPendingTitles(committed *state.State, inventory codex.Inventory) (bool, map[string]struct{}) {
+func settleOrDrainPendingTitles(committed *state.State, inventory codex.Inventory, controlTaskID string, requireNativeReport bool) (bool, map[string]struct{}) {
 	changed := false
 	advanced := make(map[string]struct{})
 	for taskID, plan := range committed.PendingTitlePlans {
 		task, exists := findTask(inventory, taskID)
 		if !exists {
+			if taskID == controlTaskID {
+				continue
+			}
 			delete(committed.PendingTitlePlans, taskID)
 			changed = true
 			continue
 		}
 		sameTitleRefresh := plan.ExpectedTitle == plan.DesiredTitle
-		if task.Title == plan.DesiredTitle && (!sameTitleRefresh || plan.NativeOutcome == state.NativeTitleSucceeded) {
+		if task.Title == plan.DesiredTitle && (plan.NativeOutcome == state.NativeTitleSucceeded || !requireNativeReport && !sameTitleRefresh) {
 			revisionAdvanced := task.Revision != plan.ExpectedRevision
 			if record, ok := committed.Tasks[taskID]; ok {
-				if !revisionAdvanced {
+				if !revisionAdvanced || taskID == controlTaskID {
 					record.CapturedRevision = task.Revision
 				}
 				record.CapturedTitle, record.LastAppliedTitle = task.Title, task.Title
@@ -1491,6 +1665,31 @@ func appendRetryResults(result *output.HeartbeatResult, diagnostics map[string]s
 	}
 }
 
+func stagePendingTitlePlans(next *state.State, checkpoint state.CycleCheckpoint) {
+	if next.PendingTitlePlans == nil {
+		next.PendingTitlePlans = make(map[string]state.PendingTitlePlan)
+	}
+	for _, operation := range checkpoint.Operations {
+		if operation.Kind != state.OperationTitle || operation.Stage == state.StageVerified {
+			continue
+		}
+		operationID := state.TitleOperationID(operation.TaskID, operation.ExpectedRevision, operation.ExpectedTitle, operation.DesiredTitle)
+		plan := state.PendingTitlePlan{
+			OperationID: operationID, TaskID: operation.TaskID,
+			ExpectedRevision: operation.ExpectedRevision, ExpectedTitle: operation.ExpectedTitle, DesiredTitle: operation.DesiredTitle,
+			DurableSubject: operation.DurableSubject, ManagedAction: operation.ManagedAction,
+			ManagedTokenDisplay: operation.ManagedTokenDisplay, ManagedTokenPosition: operation.ManagedTokenPosition,
+			NativeOutcome: state.NativeTitlePending,
+		}
+		if existing, ok := next.PendingTitlePlans[operation.TaskID]; ok && existing.OperationID == operationID {
+			plan.NativeOutcome = existing.NativeOutcome
+			plan.NativeReportedAt = existing.NativeReportedAt
+			plan.NativeErrorCode = existing.NativeErrorCode
+		}
+		next.PendingTitlePlans[operation.TaskID] = plan
+	}
+}
+
 func (r *Runner) commitState(cfg config.Config, committed state.State, checkpoint state.CycleCheckpoint, records map[string]state.TaskRecord, now time.Time) (state.State, error) {
 	next := committed
 	next.Generation++
@@ -1533,6 +1732,17 @@ func (r *Runner) commitState(cfg config.Config, committed state.State, checkpoin
 	next.Tasks = make(map[string]state.TaskRecord, len(records))
 	for taskID, record := range records {
 		next.Tasks[taskID] = record
+	}
+	if control, ok := committed.Tasks[cfg.ControlTaskID]; ok {
+		next.Tasks[cfg.ControlTaskID] = control
+	}
+	for taskID := range next.PendingTitlePlans {
+		if _, captured := checkpoint.Inventory[taskID]; captured {
+			continue
+		}
+		if record, ok := committed.Tasks[taskID]; ok {
+			next.Tasks[taskID] = record
+		}
 	}
 	for taskID := range next.Archives {
 		if _, restored := checkpoint.Inventory[taskID]; restored {
