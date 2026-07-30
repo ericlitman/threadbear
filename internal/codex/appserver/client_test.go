@@ -36,6 +36,15 @@ func TestCapabilities(t *testing.T) {
 	if !r.ConfigOverride || !r.PermissionProfile || !r.EnvironmentsDisabled || !r.DynamicToolsDisabled || !r.ApprovalsDisabled || !r.ReadOnlySandbox || !r.OutputConstrained {
 		t.Fatalf("restriction=%+v", r)
 	}
+	config := ClassifierToolConfig()
+	orchestrator, ok := config["orchestrator"].(map[string]any)
+	mcp, mcpOK := orchestrator["mcp"].(map[string]any)
+	if !ok || !mcpOK || mcp["enabled"] != false || !validClassifierToolConfig(config) {
+		t.Fatalf("classifier config=%+v", config)
+	}
+	if err := caps.RequireClassifier(); err != nil {
+		t.Fatal(err)
+	}
 }
 func TestProcessSpecResolvesExplicitPath(t *testing.T) {
 	directory := t.TempDir()
@@ -347,24 +356,51 @@ func TestMutationNotificationsHaveNoFixedBufferCap(t *testing.T) {
 	}
 }
 
+func TestConcurrentEphemeralTurnsRouteNotifications(t *testing.T) {
+	c := startFake(t, "concurrent-turns", fixtureCaps(t))
+	defer c.Close()
+	type outcome struct {
+		result EphemeralResult
+		err    error
+	}
+	outcomes := make(chan outcome, 2)
+	for index := 0; index < 2; index++ {
+		go func() {
+			result, err := c.RunEphemeral(context.Background(), EphemeralRequest{Model: "gpt-5.6-luna", Effort: "medium", Input: "classify", OutputSchema: map[string]any{"type": "object"}, ToolConfig: ClassifierToolConfig(), PermissionProfile: ":read-only"})
+			outcomes <- outcome{result: result, err: err}
+		}()
+	}
+	seen := map[string]bool{}
+	for index := 0; index < 2; index++ {
+		value := <-outcomes
+		if value.err != nil {
+			t.Fatal(value.err)
+		}
+		text := evidenceFromTurn(value.result.Turn).AgentMessage
+		if text != value.result.ThreadID {
+			t.Fatalf("thread=%s output=%q", value.result.ThreadID, text)
+		}
+		seen[value.result.ThreadID] = true
+	}
+	if len(seen) != 2 {
+		t.Fatalf("threads=%v", seen)
+	}
+}
+
 func TestEphemeralControls(t *testing.T) {
 	c := startFake(t, "normal", fixtureCaps(t))
 	defer c.Close()
-	result, err := c.RunEphemeral(context.Background(), EphemeralRequest{Model: "gpt-5.6-luna", Effort: "medium", Input: "classify", OutputSchema: map[string]any{"type": "object"}, ToolConfig: map[string]any{"tools": map[string]any{"enabled": false}}, PermissionProfile: "threadbear"})
+	result, err := c.RunEphemeral(context.Background(), EphemeralRequest{Model: "gpt-5.6-luna", Effort: "medium", Input: "classify", OutputSchema: map[string]any{"type": "object"}, ToolConfig: ClassifierToolConfig(), PermissionProfile: ":read-only"})
 	if err != nil {
 		t.Fatal(err)
 	}
 	output := evidenceFromTurn(result.Turn).AgentMessage
-	if result.ThreadID != "ephemeral-1" || result.Turn.Status != "completed" || output != `{"state":"complete"}` || !result.ToolRestriction.ConfigOverride || !result.ToolRestriction.PermissionProfile || result.ToolRestriction.ReadOnlySandbox || !result.ToolRestriction.EnvironmentsDisabled || !result.ToolRestriction.DynamicToolsDisabled || !result.ToolRestriction.ApprovalsDisabled || !result.ToolRestriction.OutputConstrained || strings.Join(result.ToolRestriction.UnprovenToolSources, ",") != "core,mcp,extension,hosted" {
+	if result.ThreadID != "ephemeral-1" || result.Turn.Status != "completed" || output != `{"state":"complete"}` || !result.ToolRestriction.ConfigOverride || !result.ToolRestriction.PermissionProfile || result.ToolRestriction.ReadOnlySandbox || !result.ToolRestriction.EnvironmentsDisabled || !result.ToolRestriction.DynamicToolsDisabled || !result.ToolRestriction.ApprovalsDisabled || !result.ToolRestriction.OutputConstrained || len(result.ToolRestriction.UnprovenToolSources) != 0 {
 		t.Fatalf("result=%+v output=%q", result, output)
 	}
-	legacy, err := c.RunEphemeral(context.Background(), EphemeralRequest{Model: "gpt-5.6-luna", Effort: "medium", Input: "classify", OutputSchema: map[string]any{"type": "object"}})
-	if err != nil {
-		t.Fatal(err)
-	}
-	legacyRestriction := legacy.ToolRestriction
-	if !legacyRestriction.EnvironmentsDisabled || !legacyRestriction.DynamicToolsDisabled || !legacyRestriction.ApprovalsDisabled || !legacyRestriction.ReadOnlySandbox || !legacyRestriction.OutputConstrained || legacyRestriction.ConfigOverride || legacyRestriction.PermissionProfile || strings.Join(legacyRestriction.UnprovenToolSources, ",") != "core,mcp,extension,hosted" {
-		t.Fatalf("legacy restriction=%+v", legacyRestriction)
+	_, err = c.RunEphemeral(context.Background(), EphemeralRequest{Model: "gpt-5.6-luna", Effort: "medium", Input: "classify", OutputSchema: map[string]any{"type": "object"}})
+	if !errors.Is(err, ErrCapability) {
+		t.Fatalf("legacy error=%v", err)
 	}
 	caps := fixtureCaps(t)
 	delete(caps.ThreadStartFields, "dynamicTools")
@@ -450,6 +486,13 @@ func copyTree(src, dst string) error {
 	})
 }
 func fakeServe(scenario string) {
+	threadSequence := 0
+	turnSequence := 0
+	type pendingTurn struct {
+		threadID string
+		turnID   string
+	}
+	pendingTurns := make([]pendingTurn, 0, 2)
 	decoder := json.NewDecoder(bufio.NewReader(os.Stdin))
 	encoder := json.NewEncoder(os.Stdout)
 	for {
@@ -568,15 +611,41 @@ func fakeServe(scenario string) {
 				encoder.Encode(fakeError(request.ID, err.Error()))
 				continue
 			}
-			encoder.Encode(map[string]any{"id": request.ID, "result": map[string]any{"thread": map[string]any{"id": "ephemeral-1", "ephemeral": true, "path": nil, "status": map[string]any{"type": "idle"}}}})
+			threadSequence++
+			threadID := "ephemeral-1"
+			if scenario == "concurrent-turns" {
+				threadID = fmt.Sprintf("ephemeral-%d", threadSequence)
+			}
+			encoder.Encode(map[string]any{"id": request.ID, "result": map[string]any{"thread": map[string]any{"id": threadID, "ephemeral": true, "path": nil, "status": map[string]any{"type": "idle"}}}})
 		case "turn/start":
 			if err := validateTurn(request.Params); err != nil {
 				encoder.Encode(fakeError(request.ID, err.Error()))
 				continue
 			}
-			encoder.Encode(map[string]any{"id": request.ID, "result": map[string]any{"turn": map[string]any{"id": "turn-1", "status": "inProgress"}}})
-			encoder.Encode(map[string]any{"method": "item/completed", "params": map[string]any{"threadId": "ephemeral-1", "turnId": "turn-1", "completedAtMs": 1, "item": map[string]any{"id": "item-1", "type": "agentMessage", "phase": "final_answer", "text": `{"state":"complete"}`}}})
-			encoder.Encode(map[string]any{"method": "turn/completed", "params": map[string]any{"threadId": "ephemeral-1", "turn": map[string]any{"id": "turn-1", "status": "completed", "items": []any{}, "itemsView": "notLoaded"}}})
+			var params struct {
+				ThreadID string `json:"threadId"`
+			}
+			_ = json.Unmarshal(request.Params, &params)
+			turnSequence++
+			turnID := "turn-1"
+			if scenario == "concurrent-turns" {
+				turnID = fmt.Sprintf("turn-%d", turnSequence)
+			}
+			encoder.Encode(map[string]any{"id": request.ID, "result": map[string]any{"turn": map[string]any{"id": turnID, "status": "inProgress"}}})
+			pendingTurns = append(pendingTurns, pendingTurn{threadID: params.ThreadID, turnID: turnID})
+			if scenario == "concurrent-turns" && len(pendingTurns) < 2 {
+				continue
+			}
+			for index := len(pendingTurns) - 1; index >= 0; index-- {
+				pending := pendingTurns[index]
+				text := `{"state":"complete"}`
+				if scenario == "concurrent-turns" {
+					text = pending.threadID
+				}
+				encoder.Encode(map[string]any{"method": "item/completed", "params": map[string]any{"threadId": pending.threadID, "turnId": pending.turnID, "completedAtMs": 1, "item": map[string]any{"id": "item-1", "type": "agentMessage", "phase": "final_answer", "text": text}}})
+				encoder.Encode(map[string]any{"method": "turn/completed", "params": map[string]any{"threadId": pending.threadID, "turn": map[string]any{"id": pending.turnID, "status": "completed", "items": []any{}, "itemsView": "notLoaded"}}})
+			}
+			pendingTurns = pendingTurns[:0]
 		default:
 			encoder.Encode(fakeError(request.ID, "unknown"))
 		}

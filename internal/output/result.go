@@ -54,20 +54,21 @@ type RetryResult struct {
 }
 
 type HeartbeatResult struct {
-	Version          int           `json:"version"`
-	CycleID          string        `json:"cycle_id"`
-	Changed          []TaskChange  `json:"changed"`
-	ArchivedIDs      []string      `json:"archived_ids"`
-	RestoredIDs      []string      `json:"restored_ids"`
-	ManagedResources []string      `json:"managed_resources,omitempty"`
-	Retries          []RetryResult `json:"retries"`
-	ErrorCode        string        `json:"error_code,omitempty"`
+	Version          int                  `json:"version"`
+	CycleID          string               `json:"cycle_id"`
+	Changed          []TaskChange         `json:"changed"`
+	ArchivedIDs      []string             `json:"archived_ids"`
+	RestoredIDs      []string             `json:"restored_ids"`
+	ManagedResources []string             `json:"managed_resources,omitempty"`
+	Retries          []RetryResult        `json:"retries"`
+	ErrorCode        string               `json:"error_code,omitempty"`
+	Progress         *state.SweepProgress `json:"progress,omitempty"`
 }
 
 func (HeartbeatResult) result() {}
 
 func (r HeartbeatResult) Empty() bool {
-	return len(r.Changed) == 0 && len(r.ArchivedIDs) == 0 && len(r.RestoredIDs) == 0 && len(r.ManagedResources) == 0 && len(r.Retries) == 0 && r.ErrorCode == ""
+	return len(r.Changed) == 0 && len(r.ArchivedIDs) == 0 && len(r.RestoredIDs) == 0 && len(r.ManagedResources) == 0 && len(r.Retries) == 0 && r.ErrorCode == "" && r.Progress == nil
 }
 
 func (r HeartbeatResult) Human() string {
@@ -128,17 +129,18 @@ type Preferences struct {
 }
 
 type StatusResult struct {
-	Version                int            `json:"version"`
-	InstalledVersion       string         `json:"installed_version"`
-	LaunchAgentHealthy     bool           `json:"launch_agent_healthy"`
-	LaunchAgentStatus      string         `json:"launch_agent_status"`
-	LastCompletedHeartbeat *time.Time     `json:"last_completed_heartbeat,omitempty"`
-	ControlTaskID          string         `json:"control_task_id"`
-	Preferences            Preferences    `json:"preferences"`
-	PendingRetries         int            `json:"pending_retries"`
-	LastUpdateCheck        *time.Time     `json:"last_update_check,omitempty"`
-	LastUpdateFailure      *state.Failure `json:"last_update_failure,omitempty"`
-	LastReconcileFailure   *state.Failure `json:"last_reconcile_failure,omitempty"`
+	Version                int                  `json:"version"`
+	InstalledVersion       string               `json:"installed_version"`
+	LaunchAgentHealthy     bool                 `json:"launch_agent_healthy"`
+	LaunchAgentStatus      string               `json:"launch_agent_status"`
+	LastCompletedHeartbeat *time.Time           `json:"last_completed_heartbeat,omitempty"`
+	ControlTaskID          string               `json:"control_task_id"`
+	Preferences            Preferences          `json:"preferences"`
+	PendingRetries         int                  `json:"pending_retries"`
+	LastUpdateCheck        *time.Time           `json:"last_update_check,omitempty"`
+	LastUpdateFailure      *state.Failure       `json:"last_update_failure,omitempty"`
+	LastReconcileFailure   *state.Failure       `json:"last_reconcile_failure,omitempty"`
+	FirstSweep             *state.SweepProgress `json:"first_sweep,omitempty"`
 }
 
 func (StatusResult) result()     {}
@@ -154,7 +156,11 @@ func (r StatusResult) Human() string {
 	if health == "unavailable" {
 		health = "scheduler adapter unavailable (pending install unit)"
 	}
-	return fmt.Sprintf("ThreadBear %s · LaunchAgent %s · heartbeat %s · control task %s · heartbeat interval %ds · archive %t/%dd · rename %t · auto-update %t · token display %s · AGENTS %t · classifier %s/%s/%dB · retries %d · update check %s · update failure %s · reconcile failure %s", r.InstalledVersion, health, formatTime(r.LastCompletedHeartbeat), r.ControlTaskID, r.Preferences.HeartbeatSeconds, r.Preferences.ArchiveEnabled, r.Preferences.ArchiveAfterDays, r.Preferences.RenameEnabled, r.Preferences.AutoUpdateEnabled, r.Preferences.TokenDisplay, r.Preferences.AgentsEnabled, r.Preferences.ClassifierModel, r.Preferences.ClassifierEffort, r.Preferences.ClassifierContextBudgetBytes, r.PendingRetries, formatTime(r.LastUpdateCheck), formatFailure(r.LastUpdateFailure), formatFailure(r.LastReconcileFailure))
+	message := fmt.Sprintf("ThreadBear %s · LaunchAgent %s · heartbeat %s · control task %s · heartbeat interval %ds · archive %t/%dd · rename %t · auto-update %t · token display %s · AGENTS %t · classifier %s/%s/%dB · retries %d · update check %s · update failure %s · reconcile failure %s", r.InstalledVersion, health, formatTime(r.LastCompletedHeartbeat), r.ControlTaskID, r.Preferences.HeartbeatSeconds, r.Preferences.ArchiveEnabled, r.Preferences.ArchiveAfterDays, r.Preferences.RenameEnabled, r.Preferences.AutoUpdateEnabled, r.Preferences.TokenDisplay, r.Preferences.AgentsEnabled, r.Preferences.ClassifierModel, r.Preferences.ClassifierEffort, r.Preferences.ClassifierContextBudgetBytes, r.PendingRetries, formatTime(r.LastUpdateCheck), formatFailure(r.LastUpdateFailure), formatFailure(r.LastReconcileFailure))
+	if r.FirstSweep != nil {
+		message += fmt.Sprintf(" · first sweep %s · deterministic %d/%d · Luna %d · batches %d/%d+%d/%d", r.FirstSweep.Phase, r.FirstSweep.MechanicallyResolved, r.FirstSweep.ChangedTasks, r.FirstSweep.LunaCandidates, r.FirstSweep.FirstPassBatchesCompleted, r.FirstSweep.FirstPassBatchesTotal, r.FirstSweep.PreviousPassBatchesCompleted, r.FirstSweep.PreviousPassBatchesTotal)
+	}
+	return message
 }
 
 func formatFailure(failure *state.Failure) string {
@@ -645,6 +651,11 @@ func validateResult(value Result) error {
 			return errors.New("title dispatch compatibility envelope is invalid")
 		}
 	case HeartbeatResult:
+		if result.Progress != nil {
+			if err := result.Progress.Validate(); err != nil {
+				return err
+			}
+		}
 		if !result.Empty() && result.CycleID == "" {
 			return errors.New("changed heartbeat requires cycle_id")
 		}
@@ -681,6 +692,11 @@ func validateResult(value Result) error {
 			}
 		}
 	case StatusResult:
+		if result.FirstSweep != nil {
+			if err := result.FirstSweep.Validate(); err != nil {
+				return err
+			}
+		}
 		if result.LaunchAgentStatus != "" && result.LaunchAgentStatus != "healthy" && result.LaunchAgentStatus != "unhealthy" && result.LaunchAgentStatus != "unavailable" {
 			return errors.New("status result has invalid launch_agent_status")
 		}

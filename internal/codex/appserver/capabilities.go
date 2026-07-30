@@ -100,8 +100,64 @@ func (c Capabilities) RecentTurnsMethod() string {
 	}
 	return ""
 }
+
+var classifierDisabledFeatures = []string{
+	"shell_tool", "unified_exec", "shell_snapshot", "code_mode", "code_mode_host",
+	"web_search_request", "web_search_cached", "standalone_web_search", "memory_tool",
+	"collab", "multi_agent_v2", "apps", "enable_mcp_apps", "tool_suggest", "plugins",
+	"executor_capability_discovery", "computer_use", "remote_plugin", "image_generation",
+	"skill_mcp_dependency_install", "search_tool",
+}
+
+func ClassifierToolConfig() map[string]any {
+	features := make(map[string]any, len(classifierDisabledFeatures))
+	for _, name := range classifierDisabledFeatures {
+		features[name] = false
+	}
+	return map[string]any{
+		"mcp_servers":  map[string]any{},
+		"features":     features,
+		"orchestrator": map[string]any{"mcp": map[string]any{"enabled": false}},
+		"tools":        map[string]any{"web_search": false},
+	}
+}
+
+func validClassifierToolConfig(config map[string]any) bool {
+	if len(config) != 4 {
+		return false
+	}
+	mcp, ok := config["mcp_servers"].(map[string]any)
+	if !ok || len(mcp) != 0 {
+		return false
+	}
+	features, ok := config["features"].(map[string]any)
+	if !ok || len(features) != len(classifierDisabledFeatures) {
+		return false
+	}
+	for _, name := range classifierDisabledFeatures {
+		value, ok := features[name].(bool)
+		if !ok || value {
+			return false
+		}
+	}
+	orchestrator, ok := config["orchestrator"].(map[string]any)
+	if !ok || len(orchestrator) != 1 {
+		return false
+	}
+	mcpFeature, ok := orchestrator["mcp"].(map[string]any)
+	if !ok || len(mcpFeature) != 1 || mcpFeature["enabled"] != false {
+		return false
+	}
+	tools, ok := config["tools"].(map[string]any)
+	return ok && len(tools) == 1 && tools["web_search"] == false
+}
+
 func (c Capabilities) ToolRestrictionCandidates() ToolRestriction {
 	return ToolRestriction{ConfigOverride: c.HasThreadStartField("config"), PermissionProfile: c.HasThreadStartField("permissions") && c.HasTurnStartField("permissions"), EnvironmentsDisabled: c.HasThreadStartField("environments") && c.HasTurnStartField("environments"), DynamicToolsDisabled: c.HasThreadStartField("dynamicTools"), ApprovalsDisabled: c.HasThreadStartField("approvalPolicy") && c.HasTurnStartField("approvalPolicy"), ReadOnlySandbox: c.HasThreadStartField("sandbox") && c.HasTurnStartField("sandboxPolicy"), OutputConstrained: c.HasTurnStartField("outputSchema")}
+}
+func (c Capabilities) RequireClassifier() error {
+	_, err := c.requireEphemeral(EphemeralRequest{ToolConfig: ClassifierToolConfig(), PermissionProfile: ":read-only"})
+	return err
 }
 func (c Capabilities) requireMethod(method string) error {
 	if !c.HasMethod(method) {
@@ -126,12 +182,12 @@ func (c Capabilities) requireEphemeral(request EphemeralRequest) (ToolRestrictio
 		}
 	}
 	restriction := c.ToolRestrictionCandidates()
-	if !restriction.EnvironmentsDisabled || !restriction.DynamicToolsDisabled || !restriction.ApprovalsDisabled || !restriction.ReadOnlySandbox || !restriction.OutputConstrained {
-		return ToolRestriction{}, fmt.Errorf("%w: compensating tool restriction controls", ErrCapability)
+	restriction.ConfigOverride = restriction.ConfigOverride && validClassifierToolConfig(request.ToolConfig)
+	restriction.PermissionProfile = restriction.PermissionProfile && request.PermissionProfile == ":read-only"
+	if !restriction.ConfigOverride || !restriction.PermissionProfile || !restriction.EnvironmentsDisabled || !restriction.DynamicToolsDisabled || !restriction.ApprovalsDisabled || !restriction.OutputConstrained {
+		return ToolRestriction{}, fmt.Errorf("%w: tool-free classifier controls", ErrCapability)
 	}
-	restriction.ConfigOverride = restriction.ConfigOverride && len(request.ToolConfig) > 0
-	restriction.PermissionProfile = restriction.PermissionProfile && request.PermissionProfile != ""
-	restriction.UnprovenToolSources = []string{"core", "mcp", "extension", "hosted"}
+	restriction.ReadOnlySandbox = false
 	return restriction, nil
 }
 func DiscoverCapabilities(ctx context.Context, process ProcessSpec) (Capabilities, error) {

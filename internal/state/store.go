@@ -101,8 +101,8 @@ func (s *Store) LoadCycle() (CycleCheckpoint, error) {
 	if err != nil {
 		return CycleCheckpoint{}, err
 	}
-	var value CycleCheckpoint
-	if err := decodeVersioned(data, CurrentCycleSchemaVersion, &value); err != nil {
+	value, err := decodeCycle(data)
+	if err != nil {
 		return CycleCheckpoint{}, fmt.Errorf("decode cycle: %w", err)
 	}
 	if err := value.Validate(); err != nil {
@@ -324,6 +324,13 @@ func decodeState(data []byte) (State, error) {
 			return State{}, err
 		}
 		return value, nil
+	case 2:
+		var value State
+		if err := decodeJSON(data, &value, true); err != nil {
+			return State{}, err
+		}
+		value.SchemaVersion = CurrentStateSchemaVersion
+		return value, nil
 	case 1:
 		var legacy stateV1
 		if err := decodeJSON(data, &legacy, true); err != nil {
@@ -351,7 +358,40 @@ func decodeState(data []byte) (State, error) {
 		}
 		return value, nil
 	default:
-		return State{}, fmt.Errorf("%w: got %d, want 1 or %d", ErrUnsupportedSchema, found, CurrentStateSchemaVersion)
+		return State{}, fmt.Errorf("%w: got %d, want 1, 2, or %d", ErrUnsupportedSchema, found, CurrentStateSchemaVersion)
+	}
+}
+
+func decodeCycle(data []byte) (CycleCheckpoint, error) {
+	var envelope struct {
+		SchemaVersion *int `json:"schema_version"`
+	}
+	if err := decodeJSON(data, &envelope, false); err != nil {
+		return CycleCheckpoint{}, err
+	}
+	found := 0
+	if envelope.SchemaVersion != nil {
+		found = *envelope.SchemaVersion
+	}
+	switch found {
+	case CurrentCycleSchemaVersion:
+		var value CycleCheckpoint
+		if err := decodeJSON(data, &value, true); err != nil {
+			return CycleCheckpoint{}, err
+		}
+		return value, nil
+	case 2:
+		var value CycleCheckpoint
+		if err := decodeJSON(data, &value, true); err != nil {
+			return CycleCheckpoint{}, err
+		}
+		value.SchemaVersion = CurrentCycleSchemaVersion
+		if value.PreviousRequested == nil {
+			value.PreviousRequested = make(map[string]string)
+		}
+		return value, nil
+	default:
+		return CycleCheckpoint{}, fmt.Errorf("%w: got %d, want 2 or %d", ErrUnsupportedSchema, found, CurrentCycleSchemaVersion)
 	}
 }
 

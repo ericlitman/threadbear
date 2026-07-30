@@ -282,6 +282,49 @@ func TestNonBlockingLock(t *testing.T) {
 	}
 }
 
+func TestLoadMigratesVersionTwoStateAndCycle(t *testing.T) {
+	dir := privateTempDir(t)
+	store := NewStore(dir)
+	stateData, err := json.Marshal(validState())
+	if err != nil {
+		t.Fatal(err)
+	}
+	var stateWire map[string]any
+	if err := json.Unmarshal(stateData, &stateWire); err != nil {
+		t.Fatal(err)
+	}
+	stateWire["schema_version"] = float64(2)
+	delete(stateWire, "last_sweep")
+	stateData, _ = json.Marshal(stateWire)
+	if err := os.WriteFile(filepath.Join(dir, stateFileName), stateData, 0600); err != nil {
+		t.Fatal(err)
+	}
+	loadedState, err := store.LoadState()
+	if err != nil || loadedState.SchemaVersion != CurrentStateSchemaVersion || loadedState.LastSweep != nil {
+		t.Fatalf("state=%+v err=%v", loadedState, err)
+	}
+
+	cycleData, err := json.Marshal(validCycle())
+	if err != nil {
+		t.Fatal(err)
+	}
+	var cycleWire map[string]any
+	if err := json.Unmarshal(cycleData, &cycleWire); err != nil {
+		t.Fatal(err)
+	}
+	cycleWire["schema_version"] = float64(2)
+	delete(cycleWire, "progress")
+	delete(cycleWire, "previous_requested")
+	cycleData, _ = json.Marshal(cycleWire)
+	if err := os.WriteFile(filepath.Join(dir, cycleFileName), cycleData, 0600); err != nil {
+		t.Fatal(err)
+	}
+	loadedCycle, err := store.LoadCycle()
+	if err != nil || loadedCycle.SchemaVersion != CurrentCycleSchemaVersion || loadedCycle.Progress != nil || loadedCycle.PreviousRequested == nil {
+		t.Fatalf("cycle=%+v err=%v", loadedCycle, err)
+	}
+}
+
 func TestLoadRejectsUnsupportedSchemas(t *testing.T) {
 	dir := privateTempDir(t)
 	store := NewStore(dir)
@@ -292,8 +335,8 @@ func TestLoadRejectsUnsupportedSchemas(t *testing.T) {
 		load func() error
 	}{
 		{"old state", stateFileName, `{"schema_version":0}`, func() error { _, err := store.LoadState(); return err }},
-		{"new state", stateFileName, `{"schema_version":3}`, func() error { _, err := store.LoadState(); return err }},
-		{"new cycle", cycleFileName, `{"schema_version":3}`, func() error { _, err := store.LoadCycle(); return err }},
+		{"new state", stateFileName, `{"schema_version":4}`, func() error { _, err := store.LoadState(); return err }},
+		{"new cycle", cycleFileName, `{"schema_version":4}`, func() error { _, err := store.LoadCycle(); return err }},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			if err := os.WriteFile(filepath.Join(dir, test.file), []byte(test.data), 0600); err != nil {
