@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## v1.4.0 - 2026-07-29
+
 ### Changed
 
 - Restored direct, checkpointed App Server title writes with revision/title revalidation, persisted applying/applied/verified stages, inventory verification, and title-before-archive ordering.
