@@ -105,7 +105,7 @@ change, or ask about every choice, promise a friendly review showing exactly
 what will happen before anything changes, and promise to verify that everything
 is healthy before calling the work complete:
 
-> Welcome to ThreadBear 🧵🐻
+> ## Hi. Let's install ThreadBear.
 >
 > ThreadBear keeps your Codex tasks usefully named, makes the ones that need you
 > easy to spot, and gives completed work a tidy trip to the archive after it has

@@ -9,6 +9,7 @@
 
 ### Fixed
 
+- Opened guided installs with a rendered ThreadBear heading.
 - Removed the duplicate review and confirmation when a person accepts the unchanged recommended guided-install setup.
 - Decoupled guided-install health from background historical convergence, restored context-sized semantic packing, added aggregate first-sweep progress, and isolated each heartbeat's classifier in one private minimal-auth App Server process reused across batches.
 - Confirmed the Codex 0.146 production isolation canary and four 200-observation rehearsals; ordinary status-guided work was fully deterministic, while serial remains the default because bounded first progress regressed.

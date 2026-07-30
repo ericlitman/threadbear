@@ -12,7 +12,6 @@ func TestCodexInstallGuideCarriesConversationContract(t *testing.T) {
 	for _, want := range []string{
 		"### Conversation contract",
 		"## 1. Welcome the person",
-		"Welcome to ThreadBear 🧵🐻",
 		"show you exactly what will happen",
 		"Would you like to install the recommended setup, change a choice, or have me explain any",
 		"At the start (recommended)",
@@ -32,6 +31,37 @@ func TestCodexInstallGuideCarriesConversationContract(t *testing.T) {
 		if !strings.Contains(guide, want) {
 			t.Fatalf("INSTALL.md missing conversation contract text %q", want)
 		}
+	}
+}
+
+func TestCodexInstallGuideOpensFirstInstallWithRenderedHeading(t *testing.T) {
+	guide := readInstallGuide(t)
+	start := strings.Index(guide, "## 1. Welcome the person")
+	if start == -1 {
+		t.Fatal("INSTALL.md missing first-install welcome section")
+	}
+	end := strings.Index(guide[start:], "\nFollow it with one calm macOS heads-up:")
+	if end == -1 {
+		t.Fatal("INSTALL.md missing first-install welcome example")
+	}
+	welcome := guide[start : start+end]
+	var firstVisible string
+	for _, line := range strings.Split(welcome, "\n") {
+		if !strings.HasPrefix(line, ">") {
+			continue
+		}
+		visible := strings.TrimSpace(strings.TrimPrefix(line, ">"))
+		if visible != "" {
+			firstVisible = visible
+			break
+		}
+	}
+	const heading = "## Hi. Let's install ThreadBear."
+	if firstVisible != heading || !strings.HasPrefix(firstVisible, "## ") {
+		t.Fatalf("first visible welcome line = %q, want Markdown heading %q", firstVisible, heading)
+	}
+	if retired := "Welcome to ThreadBear 🧵🐻"; strings.Contains(welcome, retired) {
+		t.Fatalf("first-install welcome retains retired opening %q", retired)
 	}
 }
 
