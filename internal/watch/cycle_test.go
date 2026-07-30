@@ -2235,6 +2235,43 @@ func TestDisabledRenameCancelsMigratedRefreshAndAllowsArchive(t *testing.T) {
 	}
 }
 
+func TestDisabledRenameRetainsOnlySetterVisibleInflightPlanForReport(t *testing.T) {
+	now := time.Date(2026, 7, 31, 16, 30, 0, 0, time.UTC)
+	expected := codex.Task{TaskID: "inflight", Revision: "1", Title: "Before", Source: "vscode"}
+	current := codex.Task{TaskID: "inflight", Revision: "2", Title: "✅ After", Source: "vscode"}
+	committed := state.New()
+	committed.BootstrapComplete = true
+	committed.LastUpdateCheck = timePointer(now)
+	committed.Tasks[expected.TaskID] = record(expected, state.StatusComplete, now)
+	plan := migratedPlan(expected, current.Title)
+	committed.PendingTitlePlans[expected.TaskID] = plan
+	runner, deps := testRunner(t, now, []codex.Task{current}, committed)
+	cfg := config.Default("control")
+	cfg.RenameEnabled = false
+	deps.store.configOverride = &cfg
+	deps.client.latest[current.TaskID] = completedEvidence(now, "done", "done\n🧵🐻 complete")
+
+	runHeartbeat(t, runner)
+	after, _ := deps.store.store.LoadState()
+	if after.PendingTitlePlans[current.TaskID].OperationID != plan.OperationID || len(deps.client.titles) != 0 {
+		t.Fatalf("inflight plan was not retained: state=%+v titles=%v", after, deps.client.titles)
+	}
+
+	payload := `{"reports":[{"operation_id":"` + plan.OperationID + `","outcome":"succeeded"}]}`
+	result, err := (titleplan.Service{
+		Store: deps.store, Inventory: deps.index, Input: bytes.NewBufferString(payload),
+		ThreadID: func() string { return "control" }, Now: func() time.Time { return now },
+	}).Dispatch(context.Background(), titleplan.Request{Report: true})
+	if err != nil || result.(output.TitlePlanResult).Accepted != 1 {
+		t.Fatalf("report=%+v err=%v", result, err)
+	}
+	runHeartbeat(t, runner)
+	settled, _ := deps.store.store.LoadState()
+	if len(settled.PendingTitlePlans) != 0 {
+		t.Fatalf("reported plan did not settle: %+v", settled.PendingTitlePlans)
+	}
+}
+
 func migratedPlan(task codex.Task, desired string) state.PendingTitlePlan {
 	return state.PendingTitlePlan{
 		OperationID: state.TitleOperationID(task.TaskID, task.Revision, task.Title, desired),
@@ -2593,6 +2630,15 @@ func TestNativeTitleHandoffMixedExistingInstall(t *testing.T) {
 	if len(settled.PendingTitlePlans) != 0 || settled.Tasks["legacy"].CapturedTitle != "✅ Legacy" {
 		t.Fatalf("settled=%+v", settled)
 	}
+	later := codex.Task{TaskID: "later", Revision: "1", Title: "Later", Source: "vscode"}
+	deps.index.tasks = append(deps.index.tasks, later)
+	deps.client.latest["later"] = completedEvidence(now, "done", "done\n🧵🐻 complete")
+	runHeartbeat(t, runner)
+	ordinary, _ := deps.store.store.LoadState()
+	current, _ := deps.index.task("later")
+	if current.Title != "✅ Later" || ordinary.Tasks["later"].CapturedTitle != "✅ Later" || len(ordinary.PendingTitlePlans) != 0 || len(deps.client.titles) != 1 {
+		t.Fatalf("ordinary=%+v current=%+v writes=%v", ordinary, current, deps.client.titles)
+	}
 }
 
 func TestNativeTitleHandoffEmptyActivationPersists(t *testing.T) {
@@ -2682,5 +2728,20 @@ func TestHeartbeatTargetedSettlesControlPlan(t *testing.T) {
 	stored, _ := deps.store.store.LoadState()
 	if _, pending := stored.PendingTitlePlans["control"]; pending || stored.Tasks["control"].CapturedRevision != "2" {
 		t.Fatalf("state=%+v", stored)
+	}
+}
+
+func TestNativeSetterReportInterleavingRetainsDesiredPlan(t *testing.T) {
+	now := time.Date(2026, 8, 5, 12, 0, 0, 0, time.UTC)
+	expected := codex.Task{TaskID: "task", Revision: "1", Title: "Before", Source: "vscode"}
+	current := codex.Task{TaskID: "task", Revision: "2", Title: "After", Source: "vscode"}
+	committed := state.New()
+	committed.Tasks["task"] = record(expected, state.StatusComplete, now)
+	plan := migratedPlan(expected, current.Title)
+	committed.PendingTitlePlans["task"] = plan
+
+	changed, _ := settleOrDrainPendingTitles(&committed, codex.Inventory{Tasks: []codex.Task{current}}, "control", true)
+	if changed || committed.PendingTitlePlans["task"].OperationID != plan.OperationID {
+		t.Fatalf("setter-visible plan was removed before report: changed=%t state=%+v", changed, committed)
 	}
 }

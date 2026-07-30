@@ -51,10 +51,17 @@ func TestCodexInstallGuideUsesRetainedNativeTitleHandoff(t *testing.T) {
 		t.Fatal("replay harness does not expose the raw cell")
 	}
 	cell := body[start+len(prefix) : end]
-	for _, required := range []string{"background heartbeat performs no App Server\ntitle writes", "title-plan --json --stage", "title-plan --json --batch", "title-plan --json --operation", "title-plan --json --report", "exit zero\nalone is not readiness", "Continue only when `ready=true`", "stage result is non-sensitive and never contains an operation ID", "keeps batch retry inside that same raw cell", "tools.codex_app__set_thread_title", "accepted, canonically verified, failed, drifted, and rejected counts only", cell} {
+	skill, err := os.ReadFile("../../assets/skill/SKILL.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, required := range []string{"background heartbeat performs no App Server\ntitle writes", "title-plan --json --stage", "title-plan --json --batch", "title-plan --json --operation", "title-plan --json --report", "exit zero alone\nis not readiness", "Continue only when `ready=true`", "at most 120 attempts", "five-minute elapsed-time\nand 300-attempt budget", "stage result\nis non-sensitive and never contains an operation ID", "kickstarts exactly one", "continuation_due=true", "all remaining guarded plans", "retry the first title handoff", "tools.codex_app__set_thread_title", "accepted, canonically verified, failed, timed-out", "`complete` boolean", cell} {
 		if !strings.Contains(guide, required) {
 			t.Fatalf("INSTALL.md missing native title contract %q", required)
 		}
+	}
+	if !strings.Contains(string(skill), cell) {
+		t.Fatal("installed skill does not carry the canonical raw cell byte-for-byte")
 	}
 	if !strings.HasPrefix(cell, `// @exec: {"yield_time_ms": 120000, "max_output_tokens": 1000}`) || strings.Index(cell, `JSON.parse(result.output)`) <= strings.Index(cell, `result.exit_code !== 0`) {
 		t.Fatal("replay cell lacks execution envelope or exit-before-JSON ordering")
@@ -162,7 +169,7 @@ func TestCodexInstallGuideInstallsUnchangedRecommendationWithoutDuplicateReview(
 	}
 	decision := guide[decisionStart:decisionEnd]
 	consent := "a clear “yes,” “install as is,” or equivalent response to the unchanged complete recommended card is installation consent"
-	progress := "send the exact one-line progress update from section 6"
+	progress := "send the exact progress message from section 6"
 	noDuplicate := "without showing the full review below or asking a second confirmation question."
 	if consentAt, progressAt, noDuplicateAt := strings.Index(decision, consent), strings.Index(decision, progress), strings.Index(decision, noDuplicate); consentAt == -1 || progressAt <= consentAt || noDuplicateAt <= progressAt {
 		t.Fatal("INSTALL.md does not transition clear unchanged-card consent directly to progress without duplicate review")
@@ -181,7 +188,7 @@ func TestCodexInstallGuideInstallsUnchangedRecommendationWithoutDuplicateReview(
 	for _, want := range []string{
 		"Would you like to install the recommended setup, change a choice, or have me explain any of them?",
 		"When the person accepts the unchanged recommended card, this is the next visible message.",
-		"Lovely. I’m installing ThreadBear now, then I’ll run its health checks and report back here.",
+		"Lovely. I’m installing ThreadBear now, then I’ll run its health checks and finish the first title handoff here. It starts immediately rather than waiting for the five-minute schedule. A status-guided catalog usually takes about 30 seconds; a legacy-heavy catalog of about 200 tasks takes roughly two to four minutes, and the immediate continuation stops at five minutes. I’ll only update you when its aggregate progress changes.",
 	} {
 		if !strings.Contains(guide, want) {
 			t.Fatalf("INSTALL.md missing direct recommended-install contract %q", want)
@@ -191,6 +198,7 @@ func TestCodexInstallGuideInstallsUnchangedRecommendationWithoutDuplicateReview(
 		"Their card acceptance is not installation consent.",
 		"If they accept those settings, run the backstage review and show the first full review below.",
 		"the card and final review are sufficient.",
+		"exact one-line progress update",
 	} {
 		if strings.Contains(guide, retired) {
 			t.Fatalf("INSTALL.md retains duplicate-review transition %q", retired)
@@ -752,12 +760,18 @@ func TestCodexInstallGuideUsesBoundedBackgroundFirstSweep(t *testing.T) {
 	guide := readInstallGuide(t)
 	section := normalizeGuideText(guide)
 	for _, want := range []string{
+		"## 6. Install with one calm opening update",
 		`launchctl kickstart "$SERVICE"`,
 		`without ` + "`-k`",
 		"Poll once per second for no more than ten seconds.",
 		"do not wait for semantic classification or mutations to finish",
 		"the person can continue immediately",
 		"Five minutes is the normal heartbeat cadence, not an expected per-run duration.",
+		"A status-guided catalog usually takes about 30 seconds",
+		"a legacy-heavy catalog of about 200 tasks takes roughly two to four minutes",
+		"the immediate continuation stops at five minutes",
+		"I’ll only update you when its aggregate progress changes",
+		"Do not use a successful close unless the raw cell reports `complete=true`",
 		"unchanged tasks use zero model calls",
 		"in ordinary status-guided use, Luna medium is a rare ambiguity fallback",
 	} {
@@ -768,22 +782,24 @@ func TestCodexInstallGuideUsesBoundedBackgroundFirstSweep(t *testing.T) {
 	if strings.Contains(guide, "~/.local/bin/threadbear heartbeat\n") {
 		t.Fatal("INSTALL.md still runs a foreground heartbeat")
 	}
+	if strings.Contains(guide, "Install with one calm progress update") {
+		t.Fatal("INSTALL.md still promises one update while allowing aggregate progress changes")
+	}
 }
 
 func TestCodexInstallGuideUsesReviewedRareFallbackCopy(t *testing.T) {
 	guide := strings.ToLower(normalizeGuideText(strings.ReplaceAll(readInstallGuide(t), ">", "")))
 	phrase := strings.ToLower(normalizeGuideText("in ordinary status-guided use, Luna medium is a rare ambiguity fallback"))
-	if count := strings.Count(guide, phrase); count != 7 {
-		t.Fatalf("rare fallback boundary count=%d, want 7", count)
+	if count := strings.Count(guide, phrase); count != 6 {
+		t.Fatalf("rare fallback boundary count=%d, want 6", count)
 	}
 	legacy := strings.ToLower(normalizeGuideText("Older tasks created before status guidance"))
-	if count := strings.Count(guide, legacy); count != 6 {
-		t.Fatalf("legacy qualification count=%d, want 6", count)
+	if count := strings.Count(guide, legacy); count != 5 {
+		t.Fatalf("legacy qualification count=%d, want 5", count)
 	}
 	for _, want := range []string{
 		"unchanged tasks use zero model calls",
 		"straightforward status-guided changes resolve deterministically",
-		"Older tasks created before status guidance may take a one-time semantic pass",
 		"legacy-history tasks remain a separate one-time pre-guidance case",
 	} {
 		if !strings.Contains(guide, strings.ToLower(normalizeGuideText(want))) {

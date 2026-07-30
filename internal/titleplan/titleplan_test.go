@@ -180,3 +180,150 @@ func TestStageRetriesThroughLockAndStaleCycle(t *testing.T) {
 		t.Fatal(got)
 	}
 }
+
+func TestBatchSignalsContinuationAfterFirstNativeReports(t *testing.T) {
+	cfg := config.Default("control")
+	first := plan("first", "1", "Before", "After")
+	committed := pending(first)
+	committed.LastSweep = &state.SweepProgress{
+		Phase:     state.SweepPhaseDeterministic,
+		StartedAt: time.Unix(1, 0).UTC(),
+		UpdatedAt: time.Unix(1, 0).UTC(),
+	}
+	store := &planStore{cfg: cfg, committed: committed}
+	got := call(t, service(store, nil, ""), Request{Batch: true}).(output.TitlePlanResult)
+	if !got.Ready || len(got.OperationIDs) != 1 || got.OperationIDs[0] != first.OperationID {
+		t.Fatalf("first batch=%+v", got)
+	}
+	failed := store.committed.PendingTitlePlans[first.TaskID]
+	failed.NativeOutcome = state.NativeTitleFailed
+	failed.NativeErrorCode = "native_setter_failed"
+	failedAt := time.Unix(2, 0).UTC()
+	failed.NativeReportedAt = &failedAt
+	store.committed.PendingTitlePlans[first.TaskID] = failed
+	got = call(t, service(store, nil, ""), Request{Batch: true}).(output.TitlePlanResult)
+	if !got.Ready || len(got.OperationIDs) != 1 || got.OperationIDs[0] != first.OperationID {
+		t.Fatalf("failed batch=%+v", got)
+	}
+	reported := store.committed.PendingTitlePlans[first.TaskID]
+	reported.NativeOutcome = state.NativeTitleSucceeded
+	reported.NativeErrorCode = ""
+	reported.NativeReportedAt = &failedAt
+	store.committed.PendingTitlePlans[first.TaskID] = reported
+	got = call(t, service(store, nil, ""), Request{Batch: true}).(output.TitlePlanResult)
+	if !got.Ready || got.Retryable || got.ErrorCode != "" || !got.ContinuationDue || len(got.OperationIDs) != 0 {
+		t.Fatalf("continuation=%+v", got)
+	}
+	completed := time.Unix(3, 0).UTC()
+	store.committed.LastSweep.CompletedAt = &completed
+	got = call(t, service(store, nil, ""), Request{Batch: true}).(output.TitlePlanResult)
+	if !got.Ready || len(got.OperationIDs) != 0 {
+		t.Fatalf("completed=%+v", got)
+	}
+}
+
+func TestRenameDisabledHidesNativeWorkButAllowsInflightReport(t *testing.T) {
+	cfg := config.Default("control")
+	cfg.RenameEnabled = false
+	inflight := plan("task", "1", "Before", "After")
+	store := &planStore{cfg: cfg, committed: pending(inflight)}
+	inventory := planInventory{
+		"control": {TaskID: "control", Revision: "1", Title: "Control", Source: "vscode"},
+		"task":    {TaskID: "task", Revision: "2", Title: "After", Source: "vscode"},
+	}
+	if got := call(t, service(store, inventory, "ignored"), Request{Stage: true}).(output.TitlePlanResult); !got.Ready {
+		t.Fatalf("stage=%+v", got)
+	}
+	if got := call(t, service(store, inventory, ""), Request{Batch: true}).(output.TitlePlanResult); !got.Ready || len(got.OperationIDs) != 0 {
+		t.Fatalf("batch=%+v", got)
+	}
+	if got := call(t, service(store, inventory, ""), Request{OperationID: inflight.OperationID}).(output.TitlePlanResult); !got.Ready || got.Disposition != "rejected" || got.TaskID != "" {
+		t.Fatalf("operation=%+v", got)
+	}
+	payload := `{"reports":[{"operation_id":"` + inflight.OperationID + `","outcome":"succeeded"}]}`
+	if got := call(t, service(store, inventory, payload), Request{Report: true}).(output.TitlePlanResult); !got.Ready || got.Accepted != 1 {
+		t.Fatalf("report=%+v", got)
+	}
+	if store.committed.PendingTitlePlans["task"].NativeOutcome != state.NativeTitleSucceeded {
+		t.Fatalf("state=%+v", store.committed)
+	}
+}
+
+func TestNativeHandoffReplayPersistsRealStoreTransitions(t *testing.T) {
+	store := state.NewStore(t.TempDir())
+	cfg := config.Default("control")
+	if err := store.SaveConfig(cfg); err != nil {
+		t.Fatal(err)
+	}
+	first := plan("deterministic", "1", "Before", "✅ Deterministic")
+	committed := pending(first)
+	started := time.Unix(1, 0).UTC()
+	committed.Tasks[first.TaskID] = state.TaskRecord{
+		TaskID: first.TaskID, CapturedRevision: first.ExpectedRevision, CapturedTitle: first.ExpectedTitle,
+		Status: state.StatusUnknown, Provenance: state.ProvenanceUnknown, StateStartedAt: started, LastSubstantiveActivity: started,
+	}
+	committed.LastSweep = &state.SweepProgress{
+		Phase: state.SweepPhaseDeterministic, StartedAt: started, UpdatedAt: started,
+	}
+	if err := store.SaveState(committed); err != nil {
+		t.Fatal(err)
+	}
+	inventory := planInventory{
+		"deterministic": {TaskID: "deterministic", Revision: "1", Title: "Before", Source: "vscode"},
+		"semantic":      {TaskID: "semantic", Revision: "1", Title: "Legacy", Source: "vscode"},
+	}
+	replay := func(input string, request Request) output.TitlePlanResult {
+		return call(t, service(store, inventory, input), request).(output.TitlePlanResult)
+	}
+
+	batch := replay("", Request{Batch: true})
+	if !batch.Ready || len(batch.OperationIDs) != 1 || batch.OperationIDs[0] != first.OperationID {
+		t.Fatalf("first batch=%+v", batch)
+	}
+	if operation := replay("", Request{OperationID: first.OperationID}); operation.Action != "set" {
+		t.Fatalf("first operation=%+v", operation)
+	}
+	inventory["deterministic"] = codex.Task{TaskID: "deterministic", Revision: "2", Title: first.DesiredTitle, Source: "vscode"}
+	firstReport := `{"reports":[{"operation_id":"` + first.OperationID + `","outcome":"succeeded"}]}`
+	if report := replay(firstReport, Request{Report: true}); report.Accepted != 1 {
+		t.Fatalf("first report=%+v", report)
+	}
+	if waiting := replay("", Request{Batch: true}); !waiting.Ready || !waiting.ContinuationDue || waiting.ErrorCode != "" {
+		t.Fatalf("continuation readiness=%+v", waiting)
+	}
+
+	afterFirst, err := store.LoadState()
+	if err != nil {
+		t.Fatal(err)
+	}
+	second := plan("semantic", "1", "Legacy", "✅ Semantic")
+	afterFirst.Tasks[second.TaskID] = state.TaskRecord{
+		TaskID: second.TaskID, CapturedRevision: second.ExpectedRevision, CapturedTitle: second.ExpectedTitle,
+		Status: state.StatusUnknown, Provenance: state.ProvenanceUnknown, StateStartedAt: started, LastSubstantiveActivity: started,
+	}
+	afterFirst.PendingTitlePlans[second.TaskID] = second
+	completed := time.Unix(2, 0).UTC()
+	afterFirst.LastSweep.Phase = state.SweepPhaseConverged
+	afterFirst.LastSweep.UpdatedAt = completed
+	afterFirst.LastSweep.CompletedAt = &completed
+	afterFirst.Generation++
+	if err := store.SaveState(afterFirst); err != nil {
+		t.Fatal(err)
+	}
+	batch = replay("", Request{Batch: true})
+	if !batch.Ready || len(batch.OperationIDs) != 1 || batch.OperationIDs[0] != second.OperationID {
+		t.Fatalf("second batch=%+v", batch)
+	}
+	if operation := replay("", Request{OperationID: second.OperationID}); operation.Action != "set" {
+		t.Fatalf("second operation=%+v", operation)
+	}
+	inventory["semantic"] = codex.Task{TaskID: "semantic", Revision: "2", Title: second.DesiredTitle, Source: "vscode"}
+	secondReport := `{"reports":[{"operation_id":"` + second.OperationID + `","outcome":"succeeded"}]}`
+	if report := replay(secondReport, Request{Report: true}); report.Accepted != 1 {
+		t.Fatalf("second report=%+v", report)
+	}
+	final, err := store.LoadState()
+	if err != nil || final.PendingTitlePlans[first.TaskID].NativeOutcome != state.NativeTitleSucceeded || final.PendingTitlePlans[second.TaskID].NativeOutcome != state.NativeTitleSucceeded {
+		t.Fatalf("final=%+v err=%v", final, err)
+	}
+}

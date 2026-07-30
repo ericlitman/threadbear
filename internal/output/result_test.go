@@ -83,6 +83,30 @@ func TestHeartbeatManagedMutationHumanJSONParity(t *testing.T) {
 	}
 }
 
+func TestTitlePlanContinuationEnvelopeRemainsReadyForLegacyConsumers(t *testing.T) {
+	result := NewTitlePlanBatchResult(true, "", nil)
+	result.ContinuationDue = true
+	var machine bytes.Buffer
+	if err := Write(&machine, FormatJSON, result); err != nil {
+		t.Fatal(err)
+	}
+	if got, want := machine.String(), `{"version":1,"ready":true,"retryable":false,"continuation_due":true}`+"\n"; got != want {
+		t.Fatalf("json=%q want=%q", got, want)
+	}
+	var legacy struct {
+		Ready        bool     `json:"ready"`
+		Retryable    bool     `json:"retryable"`
+		ErrorCode    string   `json:"error_code"`
+		OperationIDs []string `json:"operation_ids"`
+	}
+	if err := json.Unmarshal(machine.Bytes(), &legacy); err != nil {
+		t.Fatal(err)
+	}
+	if !legacy.Ready || legacy.Retryable || legacy.ErrorCode != "" || len(legacy.OperationIDs) != 0 {
+		t.Fatalf("legacy=%+v", legacy)
+	}
+}
+
 func TestPreviewDetailsHumanJSONContract(t *testing.T) {
 	result := PreviewResult{Command: "install", Effects: []string{"binary"}, Details: []string{"AGENTS.md: write managed block", "LaunchAgent staged disabled"}, WillUnarchiveControlTask: true}
 	var human, machine bytes.Buffer

@@ -92,6 +92,18 @@ func (s Service) Dispatch(ctx context.Context, request Request) (output.Result, 
 	if !ready {
 		return retryable(request, "heartbeat_cycle_active"), nil
 	}
+	if !cfg.RenameEnabled {
+		switch {
+		case request.Stage:
+			return output.NewTitlePlanStageResult(true, ""), nil
+		case request.Batch:
+			return output.NewTitlePlanBatchResult(true, "", nil), nil
+		case request.OperationID != "":
+			result := output.NewTitlePlanOperationResult(true, "", request.OperationID)
+			result.Disposition = "rejected"
+			return result, nil
+		}
+	}
 	switch {
 	case request.Stage:
 		return s.stage(ctx, cfg, committed)
@@ -213,6 +225,14 @@ func (s Service) batch(committed state.State) output.Result {
 		if plan.NativeOutcome != state.NativeTitleSucceeded {
 			ids = append(ids, plan.OperationID)
 		}
+	}
+	if committed.LastSweep != nil &&
+		committed.LastSweep.Phase == state.SweepPhaseDeterministic &&
+		committed.LastSweep.CompletedAt == nil &&
+		len(ids) == 0 {
+		result := output.NewTitlePlanBatchResult(true, "", nil)
+		result.ContinuationDue = true
+		return result
 	}
 	sort.Strings(ids)
 	return output.NewTitlePlanBatchResult(true, "", ids)

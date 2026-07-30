@@ -66,7 +66,7 @@ change the words inside a state but never the order.
    actually interrupts.
 4. After the card, answer questions or collect changes. For a first install,
    only a clear affirmative response to the unchanged complete recommended card
-   is installation consent. Advance directly to the exact one-line progress
+   is installation consent. Advance directly to the exact progress
    update from section 6 without showing a second review or asking again.
 5. If they change a choice before consent, acknowledge the changes, show one
    complete authoritative review in a new assistant turn, and ask the friendly
@@ -80,7 +80,7 @@ change the words inside a state but never the order.
    defaults.
 7. Only a clear yes to the unchanged recommended first-install card or to the
    installation question after changed choices or for a reinstall advances to
-   installation. Send the exact one-line progress update from section 6,
+   installation. Send the exact progress message from section 6,
    complete all verification backstage, then send one complete success or
    failure close.
 
@@ -560,8 +560,8 @@ already supplied installation consent:
 Preserve this decision order exactly. First send the readiness result and
 settings card, then wait for the person’s reply. For a first install, a clear
 “yes,” “install as is,” or equivalent response to the unchanged complete
-recommended card is installation consent: send the exact one-line progress
-update from section 6, keep the backstage safety work invisible, and install
+recommended card is installation consent: send the exact progress message from
+section 6, keep the backstage safety work invisible, and install
 without showing the full review below or asking a second confirmation question.
 A question, explanation request, unrelated reply, or ambiguous reply is not
 consent. If they request any change before consent, acknowledge all requested
@@ -715,20 +715,24 @@ claiming a review exists:
 Do not run the confirmed command, rename or pin a task, or ask them to
 reconsider.
 
-## 6. Install with one calm progress update
+## 6. Install with one calm opening update
 
 After first-install approval, say exactly: “Lovely. I’m installing ThreadBear
-now, then I’ll run its health checks and report back here.” When the person
-accepts the unchanged recommended card, this is the next visible message. For a
-reinstall, replace only “installing” with “refreshing.” Do not paraphrase this
-message or add claims about checks passing, installation stages, task-home
-setup, or the first tidy-up. That opening progress message remains the only
-conversation message until the installer and installation-health checks
-finish. Historical first-sweep convergence is separate: after its bounded background start is confirmed, close
-successfully without waiting for Luna or mutations to finish. If a foreground
-recovery step ever exceeds 60 seconds, send a concise update naming the
-completed phase, remaining phase, and whether the person must act; never expose
-per-task evidence.
+now, then I’ll run its health checks and finish the first title handoff here.
+It starts immediately rather than waiting for the five-minute schedule. A
+status-guided catalog usually takes about 30 seconds; a legacy-heavy catalog of
+about 200 tasks takes roughly two to four minutes, and the immediate
+continuation stops at five minutes. I’ll only update you when its aggregate
+progress changes.” When the person accepts the unchanged recommended card, this
+is the next visible message. For a reinstall, replace only “installing” with
+“refreshing.” Do not paraphrase this message or add claims about checks passing,
+installation stages, task-home setup, or the first tidy-up. That opening
+progress message remains the only conversation message until the installer and
+installation-health checks finish unless aggregate progress changes. The
+retained handoff includes the typed immediate ambiguity-only continuation and
+the drain of all remaining guarded plans; close successfully only after both
+finish inside the five-minute bound. If the bound expires, use the fixed retry
+footer. Never expose per-task evidence.
 
 In the same shell call as the confirmed curl, reconstruct the exact approved
 assignment-and-argument stanza; never rely on variables or positional arguments
@@ -822,59 +826,92 @@ Immediately after that bounded background start is observed, begin the retained
 native title drain; do not wait for semantic classification, the next heartbeat,
 or the five-minute cadence.
 
-Before invoking the cell, stage the exact actual canonical footer that will end
-the retained response by piping that one line to the separate dynamic command
-`~/.local/bin/threadbear title-plan --json --stage`. Inspect its JSON: exit zero
-alone is not readiness. Continue only when `ready=true`; when `retryable=true`
-with `error_code=heartbeat_active` or `heartbeat_cycle_active`, wait one second
-and retry the same stage command until ready. Stop on every other shape. The
-stage result is non-sensitive and never contains an operation ID. Only after
-stage is ready, invoke the tested cell embedded verbatim in
+Before invoking the cell, stage the fixed safety footer
+`🧵🐻 next steps (agent): retry the first title handoff` by piping that one line
+to the separate dynamic command
+`~/.local/bin/threadbear title-plan --json --stage`. That footer remains
+truthful if the bounded handoff cannot finish. Inspect its JSON: exit zero alone
+is not readiness. Continue only when `ready=true`; when `retryable=true` with
+`error_code=heartbeat_active` or `heartbeat_cycle_active`, wait one second and
+retry the same stage command for at most 120 attempts. Stop with the
+post-install failure close on a timeout or every other shape. The stage result
+is non-sensitive and never contains an operation ID. Only after stage is ready,
+invoke the tested cell embedded verbatim in
 `scripts/replay-title-batch.mjs` once as a top-level `functions.exec` raw-V8
 cell. If that top-level cell yields, use only `functions.wait` on the same cell
 until it reaches terminal output; after terminal output, use no more tools or
-commentary. The cell keeps batch retry inside that same raw cell for
-`heartbeat_active` and `heartbeat_cycle_active`. Every nested
+commentary. The cell drains the first guarded batch, kickstarts exactly one
+immediate LaunchAgent continuation only when the batch carries
+`continuation_due=true`, and otherwise waits for or drains the continuation
+that is already running or complete. It uses one shared five-minute elapsed-time
+and 300-attempt budget, drains all remaining guarded plans, and stages plus
+drains `🧵🐻 complete` only after the core handoff succeeds. Whenever the final
+result is incomplete, it restages and drains the retry footer. It starts
+immediately and never waits for the five-minute cadence. Every nested
 `tools.exec_command` requires `exit_code === 0` before JSON parsing. Each batch
-operation ID is revalidated
-with `--operation OP_ID` immediately before the native setter, and only exact
-payload fields are passed to `tools.codex_app__set_thread_title`. The terminal
-output contains aggregate accepted, canonically verified, failed, drifted, and rejected counts only.
+operation ID is revalidated with `--operation OP_ID` immediately before the
+native setter, and only exact payload fields are passed to
+`tools.codex_app__set_thread_title`. The terminal output contains aggregate
+accepted, canonically verified, failed, timed-out, drifted, and rejected counts
+plus one non-sensitive `complete` boolean.
 
 The one raw-V8 `functions.exec` cell begins with this exact supported first line:
 
 ```js
 // @exec: {"yield_time_ms": 120000, "max_output_tokens": 1000}
-const counts = {accepted: 0, canonically_verified: 0, failed: 0, drifted: 0, rejected: 0}; const commandJSON = async (cmd) => { const result = await tools.exec_command({cmd}); if (!result || result.exit_code !== 0 || typeof result.output !== "string") throw new Error("command_failed"); return JSON.parse(result.output); };
-const readyJSON = async (cmd) => { for (;;) {
+const counts = {accepted: 0, canonically_verified: 0, failed: 0, timed_out: 0, drifted: 0, rejected: 0}; let waitsRemaining = 300; const deadlineAt = Date.now() + 300000; const command = async (cmd) => { const result = await tools.exec_command({cmd}); if (!result || result.exit_code !== 0) throw {kind: "command_failed"}; return result; }; const commandJSON = async (cmd) => { const result = await command(cmd); if (typeof result.output !== "string") throw {kind: "command_failed"}; return JSON.parse(result.output); };
+const readyJSON = async (cmd, waitForContinuation = false) => { for (;;) {
   const value = await commandJSON(cmd);
-  if (value.ready) return value;
-  if (!value.retryable || !["heartbeat_active", "heartbeat_cycle_active"].includes(value.error_code)) throw new Error("not_ready");
-  if ((await tools.exec_command({cmd: "sleep 1"})).exit_code !== 0) throw new Error("sleep_failed");
+  if (value.ready && (!value.continuation_due || !waitForContinuation)) return value;
+  if (!value.ready && (!value.retryable || !["heartbeat_active", "heartbeat_cycle_active"].includes(value.error_code))) throw {kind: "not_ready"};
+  if (waitsRemaining-- <= 0 || Date.now() >= deadlineAt) { counts.timed_out++; throw {kind: "timed_out"}; }
+  await command("sleep 1");
 } };
 const quote = (value) => "'" + value.replaceAll("'", "'\\''") + "'";
-try {
-  for (const operationID of (await readyJSON("~/.local/bin/threadbear title-plan --json --batch")).operation_ids || []) try {
+const batchCommand = "~/.local/bin/threadbear title-plan --json --batch", stageFooter = (footer) => readyJSON("printf %s " + quote(footer) + " | ~/.local/bin/threadbear title-plan --json --stage");
+const drain = async (batch) => { let complete = true;
+  for (const operationID of batch.operation_ids || []) try {
     const operation = await readyJSON("~/.local/bin/threadbear title-plan --json --operation " + quote(operationID));
-    if (operation.disposition === "drifted") { counts.drifted++; continue; }
-    if (operation.disposition !== "ready" || !["set", "report_success"].includes(operation.action)) { counts.rejected++; continue; }
+    if (operation.disposition === "drifted") { counts.drifted++; complete = false; continue; }
+    if (operation.disposition !== "ready" || !["set", "report_success"].includes(operation.action)) { counts.rejected++; complete = false; continue; }
     let outcome = "succeeded", errorCode = "";
     if (operation.action === "set") try { await tools.codex_app__set_thread_title({threadId: operation.task_id, title: operation.desired_title}); }
-    catch { outcome = "failed"; errorCode = "native_setter_failed"; counts.failed++; }
+    catch { outcome = "failed"; errorCode = "native_setter_failed"; counts.failed++; complete = false; }
     const payload = {reports: [{operation_id: operationID, outcome, ...(errorCode && {error_code: errorCode})}]};
     const report = await readyJSON("printf %s " + quote(JSON.stringify(payload)) + " | ~/.local/bin/threadbear title-plan --json --report");
     counts.accepted += report.accepted || 0;
     if (outcome === "succeeded") counts.canonically_verified += report.accepted || 0;
-  } catch { counts.failed++; }
-} catch { counts.failed++; }
-text(JSON.stringify(counts));
+  } catch (error) { if (error?.kind !== "timed_out") counts.failed++; complete = false; }
+  return complete;
+};
+let coreComplete = false, complete = false;
+try {
+  const first = await readyJSON(batchCommand);
+  if (await drain(first)) {
+    let remaining = first.continuation_due ? first : await readyJSON(batchCommand);
+    if (remaining.continuation_due) {
+      await command('launchctl kickstart "gui/$(id -u)/org.litman.threadbear"');
+      remaining = await readyJSON(batchCommand, true);
+    }
+    coreComplete = await drain(remaining);
+  }
+} catch (error) { if (error?.kind !== "timed_out") counts.failed++; }
+if (coreComplete) try {
+  await stageFooter("🧵🐻 complete");
+  complete = await drain(await readyJSON(batchCommand));
+} catch (error) { if (error?.kind !== "timed_out") counts.failed++; }
+if (!complete) try {
+  await stageFooter("🧵🐻 next steps (agent): retry the first title handoff");
+  await drain(await readyJSON(batchCommand));
+} catch (error) { if (error?.kind !== "timed_out") counts.failed++; }
+text(JSON.stringify({...counts, complete}));
 ```
 
-A successful retained install response must end with the exact staged footer
-`🧵🐻 complete`. Emit that footer as the final line with no later tool call,
-commentary, or appended text. This terminal rule preserves the ordinary footer
-semantics; use a different exact canonical footer only when the actual retained
-outcome is not complete, and stage that exact line before the native batch.
+When the raw cell reports `complete=true`, end the retained install response
+with `🧵🐻 complete`. Otherwise end it with
+`🧵🐻 next steps (agent): retry the first title handoff`. The cell has already
+staged and drained the matching title plan. Emit that footer as the final line
+with no later tool call, commentary, or appended text.
 
 The successful installation close requires four independent facts: the installer
 returned successfully, version/self-test/status passed, the LaunchAgent is
@@ -898,16 +935,9 @@ ThreadBear footers; in ordinary status-guided use, Luna medium is a rare
 ambiguity fallback. Older legacy-history tasks remain a separate one-time
 pre-guidance case and never qualify for the word “rare.”
 
-When the first sweep is still running, use the applicable home/archive result
-template below but replace its tidy-up-count sentence with this complete
-background outcome:
-
-> ThreadBear’s installation and quiet background check are healthy. Its first
-> sweep is continuing in the background, and you can continue immediately.
-> Older tasks created before status guidance may take a one-time semantic pass;
-> ordinary unchanged checks use zero model calls, and straightforward
-> status-guided changes resolve deterministically. In ordinary status-guided
-> use, Luna medium is a rare ambiguity fallback.
+Do not use a successful close unless the raw cell reports `complete=true`. A
+false result means the retained first sweep or one of its guarded native writes
+did not finish; use the fixed retry-footer close.
 
 When the sweep has already converged, render the aggregate title/archive/retry
 outcomes below. When it is retryable, keep the healthy-install sentence, say
@@ -918,10 +948,19 @@ During the retained handoff, the background heartbeat performs no App Server
 title writes. Its deterministic pass commits exact revision/title-guarded native
 plans, removes its cycle, returns, and releases the heartbeat lock before Luna.
 The native drain revalidates each operation through a targeted index lookup,
-uses the supported task-name tool, and records a monotonic native report. A later
-heartbeat settles reported titles and stages any Luna-derived plans. Same-task
-archive work remains behind unsettled title plans. The ordinary evidence and
-classifier App Servers remain separate from this native title path.
+uses the supported task-name tool, records a monotonic native report, and
+immediately kickstarts one ambiguity-only continuation only when the typed
+`continuation_due` discriminator proves it is still due. That continuation
+settles reported titles, calls Luna medium only for unresolved legacy evidence,
+stages its guarded plans, and releases the lock before the drain of all
+remaining guarded plans.
+Ordinary later heartbeats return to direct App Server title writes and never
+stage unowned native work. Same-task archive work remains behind unsettled title
+plans. The native setter does not expose compare-and-set, so an external rename
+in the narrow interval after operation revalidation and before the setter cannot
+be made atomic; report revalidation fails closed unless the desired title is
+visible. The ordinary evidence and classifier App Servers remain separate from
+this native title path.
 
 Feature-detect and fail closed when required App Server methods or the tool-free
 classifier boundary are absent. The ordinary App Server stays on the real Codex

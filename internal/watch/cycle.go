@@ -193,7 +193,7 @@ func (r *Runner) Run(ctx context.Context, dryRun bool) (output.Result, error) {
 	reconcileDue := r.deps.InstalledVersion != "" && committed.LastReconciledVersion != r.deps.InstalledVersion
 	handoffContinuation := committed.LastSweep != nil && committed.LastSweep.Phase == state.SweepPhaseDeterministic && committed.LastSweep.CompletedAt == nil
 	deterministicHandoff := reconcileDue && !handoffContinuation
-	nativeTitleMode := r.deps.InstalledVersion != "" && (deterministicHandoff || handoffContinuation || committed.BootstrapComplete && committed.LastReconciledVersion == r.deps.InstalledVersion && committed.LastSweep != nil)
+	nativeTitleMode := r.deps.InstalledVersion != "" && (deterministicHandoff || handoffContinuation)
 	var managedResources []string
 	var managedSurfacesErr error
 	if !dryRun && r.deps.ManagedSurfaces != nil {
@@ -216,14 +216,10 @@ func (r *Runner) Run(ctx context.Context, dryRun bool) (output.Result, error) {
 	titleStateChanged := false
 	advancedTitleSettlements := make(map[string]struct{})
 	if !checkpointExists {
-		if cfg.RenameEnabled {
-			titleStateChanged, advancedTitleSettlements = settleOrDrainPendingTitles(&committed, settlementInventory, cfg.ControlTaskID, nativeTitleMode)
-		} else if len(committed.PendingTitlePlans) > 0 {
-			committed.PendingTitlePlans = make(map[string]state.PendingTitlePlan)
+		titleStateChanged, advancedTitleSettlements = settleOrDrainPendingTitles(&committed, settlementInventory, cfg.ControlTaskID, nativeTitleMode || !cfg.RenameEnabled)
+		if !cfg.RenameEnabled && discardUnexecutedNativeTitles(&committed, settlementInventory) {
 			titleStateChanged = true
 		}
-	} else if !cfg.RenameEnabled {
-		committed.PendingTitlePlans = make(map[string]state.PendingTitlePlan)
 	}
 	if titleStateChanged && !dryRun {
 		committed.Generation++
@@ -256,6 +252,7 @@ func (r *Runner) Run(ctx context.Context, dryRun bool) (output.Result, error) {
 	archiveDue := archiveDueTasks(inventory, committed, cfg, now)
 	comparison.Changed = mergeChanged(comparison.Changed, archiveDue)
 	comparison.Changed = mergeChanged(comparison.Changed, tokenDisplayDueTasks(inventory, committed, cfg))
+	comparison.Changed = excludeSetterVisibleNativeReports(comparison.Changed, committed)
 	updateDue := committed.LastUpdateCheck == nil || !now.Before(committed.LastUpdateCheck.Add(config.UpdateCheckInterval(cfg.AutoUpdateEnabled)))
 
 	if dryRun {
@@ -793,7 +790,7 @@ func archiveDueTasks(inventory codex.Inventory, committed state.State, cfg confi
 	}
 	result := make([]codex.Task, 0)
 	for _, task := range inventory.Tasks {
-		if _, pending := committed.PendingTitlePlans[task.TaskID]; cfg.RenameEnabled && pending {
+		if _, pending := committed.PendingTitlePlans[task.TaskID]; pending {
 			continue
 		}
 		record, ok := committed.Tasks[task.TaskID]
@@ -801,6 +798,20 @@ func archiveDueTasks(inventory codex.Inventory, committed state.State, cfg confi
 			continue
 		}
 		if archiveEligible(record, now, cfg.ArchiveAfterDays) {
+			result = append(result, task)
+		}
+	}
+	return result
+}
+
+func excludeSetterVisibleNativeReports(tasks []codex.Task, committed state.State) []codex.Task {
+	if len(committed.PendingTitlePlans) == 0 {
+		return tasks
+	}
+	result := make([]codex.Task, 0, len(tasks))
+	for _, task := range tasks {
+		plan, pending := committed.PendingTitlePlans[task.TaskID]
+		if !pending || !nativeSetterVisible(plan, task) {
 			result = append(result, task)
 		}
 	}
@@ -1611,6 +1622,11 @@ func settleOrDrainPendingTitles(committed *state.State, inventory codex.Inventor
 			}
 			continue
 		}
+		// The native setter can repaint the Desktop before its report reaches
+		// ThreadBear. Keep the exact guarded plan until that report arrives.
+		if requireNativeReport && task.Title == plan.DesiredTitle {
+			continue
+		}
 		if task.Revision != plan.ExpectedRevision || task.Title != plan.ExpectedTitle {
 			delete(committed.PendingTitlePlans, taskID)
 			changed = true
@@ -1628,6 +1644,25 @@ func hasPromotablePendingTitle(committed state.State, inventory codex.Inventory)
 		}
 	}
 	return false
+}
+
+func discardUnexecutedNativeTitles(committed *state.State, inventory codex.Inventory) bool {
+	changed := false
+	for taskID, plan := range committed.PendingTitlePlans {
+		task, exists := findTask(inventory, taskID)
+		if exists && nativeSetterVisible(plan, task) {
+			continue
+		}
+		delete(committed.PendingTitlePlans, taskID)
+		changed = true
+	}
+	return changed
+}
+
+func nativeSetterVisible(plan state.PendingTitlePlan, task codex.Task) bool {
+	return plan.NativeOutcome == state.NativeTitlePending &&
+		task.Title == plan.DesiredTitle &&
+		(plan.DesiredTitle != plan.ExpectedTitle || task.Revision != plan.ExpectedRevision)
 }
 
 func promotePendingTitles(committed state.State, inventory codex.Inventory, checkpoint *state.CycleCheckpoint) {
@@ -1695,7 +1730,7 @@ func (r *Runner) commitState(cfg config.Config, committed state.State, checkpoin
 	next.Generation++
 	next.BootstrapComplete = committed.BootstrapComplete || bootstrapCheckpointComplete(checkpoint)
 	next.LastCompletedHeartbeat = &now
-	if next.PendingTitlePlans == nil || !cfg.RenameEnabled {
+	if next.PendingTitlePlans == nil {
 		next.PendingTitlePlans = make(map[string]state.PendingTitlePlan)
 	}
 	for _, operation := range checkpoint.Operations {

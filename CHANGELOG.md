@@ -4,7 +4,7 @@
 
 ### Changed
 
-- Restored retained native title handoff: deterministic and Luna passes stage exact guarded schema-v3 plans, the hidden control-task compatibility surface revalidates and records monotonic native outcomes, and heartbeat performs no App Server title writes in this mode.
+- Bounded retained native title handoff to install/reconcile: one guarded plan drain conditionally kickstarts a typed ambiguity-only continuation and drains the remaining guarded plans, while ordinary later heartbeats resume direct App Server title writes.
 - Bounded latest-turn and fresh rollout-tail reads to eight workers with deterministic result ordering, and updated guided install to drain native plans immediately after bounded background start.
 
 ### Fixed
@@ -12,6 +12,8 @@
 - Removed the duplicate review and confirmation when a person accepts the unchanged recommended guided-install setup.
 - Decoupled guided-install health from background historical convergence, restored context-sized semantic packing, added aggregate first-sweep progress, and isolated each heartbeat's classifier in one private minimal-auth App Server process reused across batches.
 - Confirmed the Codex 0.146 production isolation canary and four 200-observation rehearsals; ordinary status-guided work was fully deterministic, while serial remains the default because bounded first progress regressed.
+- Enforced rename opt-out across native staging and operation reads, preserved setter-visible plans until their native report, and bounded stage readiness at 120 seconds plus the immediate continuation at five minutes.
+- Kept the continuation signal backward-compatible with older installed actuators and made the retained cell stage the exact success or retry footer that matches its verified outcome.
 
 ## v1.4.0 - 2026-07-29
 
