@@ -48,7 +48,7 @@ text, identifiers, titles, paths, flags, or classifier payloads.
 | Status-guided changed work | serial | 200 | 200 | 0 | 0 / 0 | 4.855s | 20.813s | 0 / 0 | passed |
 | Status-guided changed work | bounded | 200 | 200 | 0 | 0 / 0 | 6.452s | 27.431s | 0 / 0 | passed |
 
-On exact draft head `7d0fbc7e69dbfc442e36f84b650ec401c13ef403`, the production isolation canary passed on Codex CLI 0.146.0, macOS 26.4 arm64, in 9.77 seconds. Configured OpenKnowledge and node helper sentinels did not start, no matching descendant appeared, and the private classifier root was removed. Every cohort run also passed helper proof, cancellation recovery, row salvage, and the rate-limit gate; installed, self-tested, loaded the isolated LaunchAgent, uninstalled, and removed state successfully.
+On exact runtime head `7d0fbc7e69dbfc442e36f84b650ec401c13ef403`, the production isolation canary passed on Codex CLI 0.146.0, macOS 26.4 arm64, in 9.77 seconds. Configured OpenKnowledge and node helper sentinels did not start, no matching descendant appeared, and the private classifier root was removed. Every cohort run also passed helper proof, cancellation recovery, row salvage, and the rate-limit gate; installed, self-tested, loaded the isolated LaunchAgent, uninstalled, and removed state successfully.
 
 Run each cohort with `THREADBEAR_FIRST_SWEEP_BENCHMARK=1`, once with `THREADBEAR_CLASSIFIER_MODE=serial` and once with
 `THREADBEAR_CLASSIFIER_MODE=bounded`. The bounded mode may become the compiled

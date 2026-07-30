@@ -4,7 +4,7 @@ Complete this checklist for every stable ThreadBear release.
 
 ## Before tagging
 
-- BEAR-87/90 evidence passed on draft head `7d0fbc7e69dbfc442e36f84b650ec401c13ef403`: the Codex 0.146.0 production-factory isolation canary, bounded ten-second install handoff, and all four 200-observation serial/bounded rehearsals were green. The status-guided cohort was 200/200 deterministic with zero Luna calls; keep serial as the compiled default because bounded first progress regressed. See [the aggregate benchmark](benchmark.md#first-sweep-performance-release-gate). Keep the PR draft for final operator review.
+- BEAR-87/90 evidence passed on runtime head `7d0fbc7e69dbfc442e36f84b650ec401c13ef403`: the Codex 0.146.0 production-factory isolation canary, bounded ten-second install handoff, and all four 200-observation serial/bounded rehearsals were green. The status-guided cohort was 200/200 deterministic with zero Luna calls; keep serial as the compiled default because bounded first progress regressed. See [the aggregate benchmark](benchmark.md#first-sweep-performance-release-gate). Keep the PR draft for final operator review.
 
 
 1. Prepare the intended `vN.N.N` section in `CHANGELOG.md` and leave a fresh `Unreleased` section.
