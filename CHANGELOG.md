@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Fixed
+
+- Made uninstall wait for App Server title persistence and accept exact or Codex-shortened restored titles, so title cleanup converges in one invocation.
+
 ## v1.4.0 - 2026-07-29
 
 ### Changed
