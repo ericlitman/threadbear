@@ -120,6 +120,14 @@ func commandSpecFor(command app.Command) (commandSpec, bool) {
 			flags.BoolVar(&request.TitlePlanDispatch, "dispatch", false, "return the retired fail-closed compatibility result")
 		}}, true
 	}
+	if command == app.CommandTitleBatch {
+		return commandSpec{command: command, synopsis: "Managed source-task native title protocol.", registerFlags: func(flags *flag.FlagSet, request *app.Request) {
+			flags.BoolVar(&request.TitleBatchList, "list", false, "return eligible exact title operations")
+			flags.BoolVar(&request.TitleBatchStage, "stage", false, "stage the source terminal footer from stdin")
+			flags.BoolVar(&request.TitleBatchReport, "report", false, "accept aggregate native results from stdin")
+			flags.StringVar(&request.TitleBatchOperation, "operation", "", "revalidate one operation ID")
+		}}, true
+	}
 	for _, spec := range commandSpecs {
 		if spec.command == command {
 			return spec, true
@@ -137,8 +145,8 @@ func newCommandFlagSet(spec commandSpec, request *app.Request) *flag.FlagSet {
 }
 
 func requestedHelp(args []string) (string, int, bool) {
-	if len(args) > 0 && app.Command(args[0]) == app.CommandTitlePlan && (containsFlag(args[1:], "-h") || containsFlag(args[1:], "--help")) {
-		return unknownCommandMessage(app.CommandTitlePlan), 2, true
+	if len(args) > 0 && (app.Command(args[0]) == app.CommandTitlePlan || app.Command(args[0]) == app.CommandTitleBatch) && (containsFlag(args[1:], "-h") || containsFlag(args[1:], "--help")) {
+		return unknownCommandMessage(app.Command(args[0])), 2, true
 	}
 	if len(args) == 0 {
 		return renderTopLevelHelp(), 2, true
@@ -151,8 +159,8 @@ func requestedHelp(args []string) (string, int, bool) {
 			return renderTopLevelHelp(), 0, true
 		}
 		if len(args) == 2 {
-			if app.Command(args[1]) == app.CommandTitlePlan {
-				return unknownCommandMessage(app.CommandTitlePlan), 2, true
+			if app.Command(args[1]) == app.CommandTitlePlan || app.Command(args[1]) == app.CommandTitleBatch {
+				return unknownCommandMessage(app.Command(args[1])), 2, true
 			}
 			if spec, ok := commandSpecFor(app.Command(args[1])); ok {
 				return renderCommandHelp(spec), 0, true

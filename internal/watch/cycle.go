@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -185,6 +186,19 @@ func (r *Runner) Run(ctx context.Context, dryRun bool) (output.Result, error) {
 	if err != nil {
 		return output.HeartbeatResult{CycleID: "inventory", ErrorCode: "inventory_failed"}, err
 	}
+	if plan, pending := committed.PendingTitlePlans[cfg.ControlTaskID]; pending && plan.ExpectedFooter != "" {
+		reader, ok := r.deps.Inventory.(interface {
+			Task(context.Context, string) (codex.Task, error)
+		})
+		if !ok {
+			return output.HeartbeatResult{CycleID: "inventory", ErrorCode: "inventory_failed"}, errors.New("control task inventory is unavailable")
+		}
+		controlTask, readErr := reader.Task(ctx, cfg.ControlTaskID)
+		if readErr != nil {
+			return output.HeartbeatResult{CycleID: "inventory", ErrorCode: "inventory_failed"}, readErr
+		}
+		inventory.Tasks = append(inventory.Tasks, controlTask)
+	}
 	titleStateChanged := false
 	advancedTitleSettlements := make(map[string]struct{})
 	if !checkpointExists {
@@ -203,15 +217,8 @@ func (r *Runner) Run(ctx context.Context, dryRun bool) (output.Result, error) {
 			return output.HeartbeatResult{CycleID: "titles", ErrorCode: "state_write_failed"}, err
 		}
 	}
-	if !dryRun && !checkpointExists && cfg.RenameEnabled && hasPromotablePendingTitle(committed, inventory) {
-		checkpoint = state.NewCycle(r.deps.NewCycleID(), committed.Generation, now)
-		promotePendingTitles(committed, inventory, &checkpoint)
-		if err := r.deps.Store.SaveCycle(checkpoint); err != nil {
-			return output.HeartbeatResult{CycleID: checkpoint.CycleID, ErrorCode: "cycle_write_failed"}, err
-		}
-		checkpointExists = true
-	}
 	comparison := codex.CompareInventory(inventory, committed)
+	comparison.RemovedIDs = slices.DeleteFunc(comparison.RemovedIDs, func(taskID string) bool { return taskID == cfg.ControlTaskID })
 	comparison.Changed = dueChanged(comparison.Changed, committed, now)
 	archiveDue := archiveDueTasks(inventory, committed, cfg, now)
 	comparison.Changed = mergeChanged(comparison.Changed, archiveDue)
@@ -979,6 +986,9 @@ func (r *Runner) recoverOperations(checkpoint *state.CycleCheckpoint, inventory 
 		task, exists := findTask(inventory, operation.TaskID)
 		switch operation.Kind {
 		case state.OperationTitle:
+			if operation.Stage == state.StageNativePending {
+				continue
+			}
 			if exists && task.Title == operation.DesiredTitle && (!operation.ForceWrite || operation.Stage == state.StageApplied) {
 				operation.Stage = state.StageVerified
 				operation.VerifiedRevision = task.Revision
@@ -1004,6 +1014,11 @@ func (r *Runner) prepareRecords(cfg config.Config, committed state.State, checkp
 	for taskID, captured := range checkpoint.Inventory {
 		classification, ok := checkpoint.Results[taskID]
 		previous, hadPrevious := committed.Tasks[taskID]
+		if plan, pending := committed.PendingTitlePlans[taskID]; pending && hadPrevious && plan.ExpectedFooter != "" && plan.NativeOutcome == state.NativeTitleSucceeded && captured.Title == plan.DesiredTitle {
+			previous.CapturedRevision, previous.CapturedTitle, previous.LastAppliedTitle = captured.Revision, captured.Title, captured.Title
+			previous.DurableSubject, previous.ManagedAction = plan.DurableSubject, plan.ManagedAction
+			previous.ManagedTokenDisplay, previous.ManagedTokenPosition = plan.ManagedTokenDisplay, plan.ManagedTokenPosition
+		}
 		if !ok {
 			if hadPrevious {
 				previous.CapturedRevision = captured.Revision
@@ -1281,7 +1296,7 @@ func (r *Runner) applyOperations(ctx context.Context, cfg config.Config, client 
 		if op.Kind == state.OperationArchive && hasPendingTitleOperation(*checkpoint, op.TaskID) {
 			continue
 		}
-		if client == nil {
+		if client == nil && op.Kind != state.OperationTitle {
 			r.setDiagnostic(checkpoint, op.TaskID, string(op.Kind), "app_server_unavailable")
 			continue
 		}
@@ -1295,50 +1310,10 @@ func (r *Runner) applyOperations(ctx context.Context, cfg config.Config, client 
 		}
 		switch op.Kind {
 		case state.OperationTitle:
-			op.Stage = state.StageApplying
-			checkpoint.Operations[key] = op
-			if err := r.deps.Store.SaveCycle(*checkpoint); err != nil {
-				return err
-			}
-			if err := client.SetTitle(ctx, op.TaskID, op.DesiredTitle); err != nil {
-				op.Stage = state.StagePrepared
-				checkpoint.Operations[key] = op
-				r.setDiagnostic(checkpoint, op.TaskID, "title", "title_write_failed")
-				continue
-			}
-			op.Stage = state.StageApplied
-			checkpoint.Operations[key] = op
-			if err := r.deps.Store.SaveCycle(*checkpoint); err != nil {
-				return err
-			}
-			verified, verifyErr := r.deps.Inventory.Inventory(ctx, cfg.ControlTaskID)
-			if verifyErr != nil {
-				return verifyErr
-			}
-			row, ok := findTask(verified, op.TaskID)
-			if !ok || row.Title != op.DesiredTitle {
-				return errors.New("title mutation was not visible after application")
-			}
-			op.Stage = state.StageVerified
-			op.VerifiedRevision = row.Revision
-			op.VerifiedTitle = row.Title
+			op.Stage = state.StageNativePending
 			checkpoint.Operations[key] = op
 			record := records[op.TaskID]
-			record.CapturedRevision = row.Revision
-			record.CapturedTitle = row.Title
-			record.LastAppliedTitle = row.Title
-			record.DurableSubject = op.DurableSubject
-			record.ManagedAction = op.ManagedAction
-			record.ManagedTokenDisplay = op.ManagedTokenDisplay
-			record.ManagedTokenPosition = op.ManagedTokenPosition
-			records[op.TaskID] = record
 			result.Changed = append(result.Changed, output.TaskChange{TaskID: op.TaskID, State: record.Status})
-			archiveKey := "archive:" + op.TaskID
-			if archive, exists := checkpoint.Operations[archiveKey]; exists && archive.Stage == state.StagePrepared {
-				archive.ExpectedRevision = row.Revision
-				archive.ExpectedTitle = row.Title
-				checkpoint.Operations[archiveKey] = archive
-			}
 			if err := r.deps.Store.SaveCycle(*checkpoint); err != nil {
 				return err
 			}
@@ -1418,8 +1393,10 @@ func settleOrDrainPendingTitles(committed *state.State, inventory codex.Inventor
 			changed = true
 			continue
 		}
-		sameTitleRefresh := plan.ExpectedTitle == plan.DesiredTitle
-		if task.Title == plan.DesiredTitle && (!sameTitleRefresh || plan.NativeOutcome == state.NativeTitleSucceeded) {
+		if plan.ExpectedFooter != "" {
+			continue
+		}
+		if task.Title == plan.DesiredTitle && plan.NativeOutcome == state.NativeTitleSucceeded {
 			revisionAdvanced := task.Revision != plan.ExpectedRevision
 			if record, ok := committed.Tasks[taskID]; ok {
 				if !revisionAdvanced {
@@ -1443,30 +1420,6 @@ func settleOrDrainPendingTitles(committed *state.State, inventory codex.Inventor
 		}
 	}
 	return changed, advanced
-}
-
-func hasPromotablePendingTitle(committed state.State, inventory codex.Inventory) bool {
-	for taskID, plan := range committed.PendingTitlePlans {
-		task, exists := findTask(inventory, taskID)
-		_, recorded := committed.Tasks[taskID]
-		if exists && recorded && task.Revision == plan.ExpectedRevision && task.Title == plan.ExpectedTitle {
-			return true
-		}
-	}
-	return false
-}
-
-func promotePendingTitles(committed state.State, inventory codex.Inventory, checkpoint *state.CycleCheckpoint) {
-	for taskID, plan := range committed.PendingTitlePlans {
-		task, exists := findTask(inventory, taskID)
-		record, recorded := committed.Tasks[taskID]
-		if !exists || !recorded || task.Revision != plan.ExpectedRevision || task.Title != plan.ExpectedTitle {
-			continue
-		}
-		checkpoint.Inventory[taskID] = state.CapturedTask{TaskID: taskID, Revision: task.Revision, Title: task.Title, RolloutPath: task.RolloutPath, Archived: task.Archived, LastSubstantiveActivity: record.LastSubstantiveActivity, EvidenceFingerprint: record.EvidenceFingerprint}
-		checkpoint.Results[taskID] = state.ClassificationResult{TaskID: taskID, Revision: task.Revision, Status: record.Status, Provenance: record.Provenance, DurableSubject: plan.DurableSubject, ManagedAction: plan.ManagedAction}
-		checkpoint.Operations["title:"+taskID] = state.CycleOperation{Kind: state.OperationTitle, Stage: state.StagePrepared, TaskID: taskID, ExpectedRevision: plan.ExpectedRevision, ExpectedTitle: plan.ExpectedTitle, DesiredTitle: plan.DesiredTitle, DurableSubject: plan.DurableSubject, ManagedAction: plan.ManagedAction, ManagedTokenDisplay: plan.ManagedTokenDisplay, ManagedTokenPosition: plan.ManagedTokenPosition, ForceWrite: true}
-	}
 }
 
 func incompleteEvidence(diagnostic state.CycleDiagnostic) bool {
@@ -1506,6 +1459,20 @@ func (r *Runner) commitState(cfg config.Config, committed state.State, checkpoin
 			}
 			continue
 		}
+		if operation.Stage == state.StageNativePending {
+			plan := state.PendingTitlePlan{
+				OperationID: state.TitleOperationID(operation.TaskID, operation.ExpectedRevision, operation.ExpectedTitle, operation.DesiredTitle),
+				TaskID:      operation.TaskID, ExpectedRevision: operation.ExpectedRevision, ExpectedTitle: operation.ExpectedTitle, DesiredTitle: operation.DesiredTitle,
+				DurableSubject: operation.DurableSubject, ManagedAction: operation.ManagedAction,
+				ManagedTokenDisplay: operation.ManagedTokenDisplay, ManagedTokenPosition: operation.ManagedTokenPosition,
+				NativeOutcome: state.NativeTitlePending,
+			}
+			if err := plan.Validate(); err != nil {
+				return state.State{}, fmt.Errorf("stage native title plan for %s: %w", operation.TaskID, err)
+			}
+			next.PendingTitlePlans[operation.TaskID] = plan
+			continue
+		}
 		if operation.Stage == state.StageVerified {
 			if record, ok := records[operation.TaskID]; ok {
 				if legacyTitleOwnership(operation) {
@@ -1533,6 +1500,31 @@ func (r *Runner) commitState(cfg config.Config, committed state.State, checkpoin
 	next.Tasks = make(map[string]state.TaskRecord, len(records))
 	for taskID, record := range records {
 		next.Tasks[taskID] = record
+	}
+	if controlRecord, ok := committed.Tasks[cfg.ControlTaskID]; ok {
+		if _, captured := next.Tasks[cfg.ControlTaskID]; !captured {
+			next.Tasks[cfg.ControlTaskID] = controlRecord
+		}
+	}
+	for taskID, plan := range next.PendingTitlePlans {
+		if plan.ExpectedFooter == "" {
+			continue
+		}
+		classification, ok := checkpoint.Results[taskID]
+		record, recorded := next.Tasks[taskID]
+		parsed := status.ParseFooter(status.FooterInput{Message: plan.ExpectedFooter, LatestTurnCompleted: true})
+		action := ""
+		if parsed.Accepted && parsed.Footer.Owner != status.OwnerNone {
+			action = parsed.Footer.Action
+		}
+		if !ok || !recorded || !parsed.Accepted || classification.Status != parsed.Footer.Status || classification.ManagedAction != action || record.CapturedTitle != plan.DesiredTitle || plan.NativeOutcome != state.NativeTitleSucceeded || plan.CanonicalCheckedAt == nil {
+			continue
+		}
+		record.LastAppliedTitle = plan.DesiredTitle
+		record.DurableSubject, record.ManagedAction = plan.DurableSubject, plan.ManagedAction
+		record.ManagedTokenDisplay, record.ManagedTokenPosition = plan.ManagedTokenDisplay, plan.ManagedTokenPosition
+		next.Tasks[taskID] = record
+		delete(next.PendingTitlePlans, taskID)
 	}
 	for taskID := range next.Archives {
 		if _, restored := checkpoint.Inventory[taskID]; restored {

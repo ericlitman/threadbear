@@ -33,15 +33,16 @@ Complete this checklist for every stable ThreadBear release.
 
 The hosted smoke explicitly does not prove real Codex auth, real App Server side effects, classification heartbeat behavior, title/archive effects, or an architecture other than its runner. The required replica rehearsal covers the Codex-touching composition before tagging.
 
-## Direct title-write canaries
+## Native title-convergence canaries
 
 Before a release that changes title handling, use a real Codex catalog and verify:
 
-1. A changed task is revalidated before `thread/name/set`, and checkpoint saves record applying, applied, and verified in order.
-2. Inventory persistence is verified before committed title ownership changes and before a same-task archive begins.
-3. Applying/applied crash recovery does not repeat a title already visible in inventory and safely retries one not yet visible.
-4. Schema-v2 pending plans drain once; valid plans use no evidence, transcript, token, or classifier reads, while missing and drifted plans return to ordinary comparison.
-5. A same-title migrated refresh performs exactly one setter call, and a failed direct write retains the compatibility plan for retry.
-6. One unchanged heartbeat performs zero classifier turns and zero title RPCs.
+1. Detached `thread/name/set` canonical persistence is recorded separately and is not claimed as mounted Desktop convergence.
+2. The retained control task resolves its canonical runtime identity exactly, drains a multi-title native batch, and repaints mounted Recents and saved-project rows without reload or restart.
+3. Every operation is revalidated immediately before the native setter; unowned, malformed, stale, and drifted rows are skipped and reported only by operation ID.
+4. Native success, canonical verification, checkpoint recovery, partial failure, duplicate reports, and bounded canonical retries settle deterministically before same-task archive.
+5. The current source title matches the exact terminal ThreadBear footer, and a changed/missing final footer recomputes rather than accepting the staged status.
+6. One unchanged heartbeat and retained source turn perform zero classifier turns and zero title operations.
+7. A disposable 50+ task replica exercises the fixed aggregate raw-V8 path and retains only aggregate counts.
 
 Do not use private IPC, caches, daemons, UI automation, restarts, or the persistent ThreadBear control task for routine title work.

@@ -630,3 +630,14 @@ func directoryNames(t *testing.T, path string) []string {
 	slices.Sort(names)
 	return names
 }
+
+func TestTaskReadsExcludedControlByCanonicalID(t *testing.T) {
+	index := openFixture(t, "state_5.sqlite")
+	task, err := index.Task(context.Background(), "control-123")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if task.TaskID != "control-123" || task.Source != "vscode" || task.Archived {
+		t.Fatalf("task=%+v", task)
+	}
+}

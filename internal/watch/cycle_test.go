@@ -35,7 +35,7 @@ type fakeIndex struct {
 	events *[]string
 }
 
-func (f *fakeIndex) Inventory(context.Context, string) (codex.Inventory, error) {
+func (f *fakeIndex) Inventory(_ context.Context, controlTaskID string) (codex.Inventory, error) {
 	f.calls++
 	if f.events != nil {
 		*f.events = append(*f.events, "inventory")
@@ -43,7 +43,21 @@ func (f *fakeIndex) Inventory(context.Context, string) (codex.Inventory, error) 
 	if f.hook != nil {
 		f.hook(f.calls, f)
 	}
-	return codex.Inventory{Tasks: append([]codex.Task{}, f.tasks...)}, nil
+	tasks := make([]codex.Task, 0, len(f.tasks))
+	for _, task := range f.tasks {
+		if task.TaskID != controlTaskID {
+			tasks = append(tasks, task)
+		}
+	}
+	return codex.Inventory{Tasks: tasks}, nil
+}
+
+func (f *fakeIndex) Task(_ context.Context, taskID string) (codex.Task, error) {
+	task, ok := f.task(taskID)
+	if !ok {
+		return codex.Task{}, errors.New("missing task")
+	}
+	return task, nil
 }
 
 func (f *fakeIndex) task(taskID string) (codex.Task, bool) {
@@ -457,31 +471,21 @@ func TestHeartbeatRendersOutputTokensAndLeavesUnchangedTitlesAlone(t *testing.T)
 	previous.TokenDisplayPosition = tokens.PositionStart
 	committed.Tasks[task.TaskID] = previous
 	runner, deps := testRunner(t, now, []codex.Task{task}, committed)
-	deps.client.latest[task.TaskID] = appserver.RecentEvidence{
-		ThreadStatus: appserver.ThreadStatus{Type: "idle"},
-		Latest:       &appserver.EvidenceTurn{ID: "turn-a", Status: "failed", Error: &appserver.TurnError{Message: "synthetic failure"}},
-	}
-	deps.tokens.snapshots[task.RolloutPath] = tokens.Snapshot{
-		RolloutPath: task.RolloutPath, Offset: 120, Size: 120, OutputTokens: 1_600_123, TotalTokens: 433_000_000, Found: true,
-	}
-
+	deps.client.latest[task.TaskID] = appserver.RecentEvidence{ThreadStatus: appserver.ThreadStatus{Type: "idle"}, Latest: &appserver.EvidenceTurn{ID: "turn-a", Status: "failed", Error: &appserver.TurnError{Message: "synthetic failure"}}}
+	deps.tokens.snapshots[task.RolloutPath] = tokens.Snapshot{RolloutPath: task.RolloutPath, Offset: 120, Size: 120, OutputTokens: 1_600_123, TotalTokens: 433_000_000, Found: true}
 	if _, err := runner.Run(context.Background(), false); err != nil {
 		t.Fatal(err)
 	}
-	current, _ := deps.index.task(task.TaskID)
 	stored, _ := deps.store.store.LoadState()
-	if current.Title != "🚨 1.6m Release service" || stored.Tasks[task.TaskID].CapturedTitle != current.Title || len(stored.PendingTitlePlans) != 0 || len(deps.client.titles) != 1 || len(deps.tokens.calls) != 1 {
-		t.Fatalf("title=%q state=%+v writes=%v token_reads=%v", current.Title, stored.Tasks[task.TaskID], deps.client.titles, deps.tokens.calls)
-	}
-
-	if _, err := runner.Run(context.Background(), false); err != nil {
-		t.Fatal(err)
+	plan := stored.PendingTitlePlans[task.TaskID]
+	if plan.DesiredTitle != "🚨 1.6m Release service" || plan.NativeOutcome != state.NativeTitlePending || len(deps.client.titles) != 0 || len(deps.tokens.calls) != 1 {
+		t.Fatalf("plan=%+v writes=%v reads=%v", plan, deps.client.titles, deps.tokens.calls)
 	}
 	if _, err := runner.Run(context.Background(), false); err != nil {
 		t.Fatal(err)
 	}
-	if len(deps.client.titles) != 1 || len(deps.tokens.calls) != 1 {
-		t.Fatalf("unchanged heartbeats wrote titles or reread tokens: writes=%v reads=%v", deps.client.titles, deps.tokens.calls)
+	if len(deps.client.titles) != 0 || len(deps.tokens.calls) != 1 {
+		t.Fatalf("writes=%v reads=%v", deps.client.titles, deps.tokens.calls)
 	}
 }
 
@@ -537,17 +541,14 @@ func TestHeartbeatRepositionsTokenDisplayWithoutReclassification(t *testing.T) {
 	cfg := config.Default("control")
 	cfg.TokenDisplay = tokens.PositionEnd
 	deps.store.configOverride = &cfg
-	deps.tokens.snapshots[task.RolloutPath] = tokens.Snapshot{
-		RolloutPath: task.RolloutPath, Offset: 120, Size: 120, OutputTokens: 1_600_123, TotalTokens: 433_000_000, Found: true,
-	}
-
+	deps.tokens.snapshots[task.RolloutPath] = tokens.Snapshot{RolloutPath: task.RolloutPath, Offset: 120, Size: 120, OutputTokens: 1_600_123, Found: true}
 	if _, err := runner.Run(context.Background(), false); err != nil {
 		t.Fatal(err)
 	}
-	current, _ := deps.index.task(task.TaskID)
 	stored, _ := deps.store.store.LoadState()
-	if current.Title != "➡️ Release service → review rollout · 1.6m" || stored.Tasks[task.TaskID].CapturedTitle != current.Title || len(stored.PendingTitlePlans) != 0 || deps.classifier.calls != 0 || len(deps.client.latestReads) != 0 || len(deps.client.titles) != 1 {
-		t.Fatalf("title=%q state=%+v classifier=%d latest_reads=%v writes=%v", current.Title, stored.Tasks[task.TaskID], deps.classifier.calls, deps.client.latestReads, deps.client.titles)
+	plan := stored.PendingTitlePlans[task.TaskID]
+	if plan.DesiredTitle != "➡️ Release service → review rollout · 1.6m" || deps.classifier.calls != 0 || len(deps.client.latestReads) != 0 || len(deps.client.titles) != 0 {
+		t.Fatalf("plan=%+v classifier=%d reads=%v writes=%v", plan, deps.classifier.calls, deps.client.latestReads, deps.client.titles)
 	}
 }
 
@@ -571,29 +572,14 @@ func TestHeartbeatCleansRepeatedOwnedPrefixWhenMovingDisplayToEnd(t *testing.T) 
 	cfg := config.Default("control")
 	cfg.TokenDisplay = tokens.PositionEnd
 	deps.store.configOverride = &cfg
-	deps.tokens.snapshots[task.RolloutPath] = tokens.Snapshot{
-		RolloutPath: task.RolloutPath, Offset: 120, Size: 120, OutputTokens: 26_123, TotalTokens: 433_000_000, Found: true,
-	}
-
+	deps.tokens.snapshots[task.RolloutPath] = tokens.Snapshot{RolloutPath: task.RolloutPath, Offset: 120, Size: 120, OutputTokens: 26_123, Found: true}
 	if _, err := runner.Run(context.Background(), false); err != nil {
 		t.Fatal(err)
 	}
-	current, _ := deps.index.task(task.TaskID)
-	stored, err := deps.store.store.LoadState()
-	if err != nil {
-		t.Fatal(err)
-	}
-	owned := stored.Tasks[task.TaskID]
-	if current.Title != "✅ 26k 26k Execute BEAR-59 · 26k" || owned.DurableSubject != "26k 26k Execute BEAR-59" || owned.ManagedTokenDisplay != "26k" || owned.ManagedTokenPosition != tokens.PositionEnd || len(stored.PendingTitlePlans) != 0 || len(deps.client.titles) != 1 {
-		t.Fatalf("title=%q state=%+v writes=%v", current.Title, owned, deps.client.titles)
-	}
-
-	if _, err := runner.Run(context.Background(), false); err != nil {
-		t.Fatal(err)
-	}
-	current, _ = deps.index.task(task.TaskID)
-	if current.Title != "✅ 26k 26k Execute BEAR-59 · 26k" || len(deps.client.titles) != 1 {
-		t.Fatalf("second title=%q writes=%v", current.Title, deps.client.titles)
+	stored, _ := deps.store.store.LoadState()
+	plan := stored.PendingTitlePlans[task.TaskID]
+	if plan.DesiredTitle != "✅ 26k 26k Execute BEAR-59 · 26k" || plan.DurableSubject != "26k 26k Execute BEAR-59" || plan.ManagedTokenDisplay != "26k" || plan.ManagedTokenPosition != tokens.PositionEnd || len(deps.client.titles) != 0 {
+		t.Fatalf("plan=%+v writes=%v", plan, deps.client.titles)
 	}
 }
 
@@ -621,7 +607,7 @@ func TestHeartbeatUnreadableTokenTailRemovesFigureWithoutRetryNoise(t *testing.T
 	}
 	current, _ := deps.index.task(task.TaskID)
 	stored, _ := deps.store.store.LoadState()
-	if current.Title != "🚨 Release service" || stored.Tasks[task.TaskID].CapturedTitle != current.Title || len(stored.PendingTitlePlans) != 0 || len(value.(output.HeartbeatResult).Retries) != 0 || len(deps.client.titles) != 1 {
+	if current.Title != task.Title || stored.PendingTitlePlans[task.TaskID].DesiredTitle != "🚨 Release service" || len(value.(output.HeartbeatResult).Retries) != 0 || len(deps.client.titles) != 0 {
 		t.Fatalf("title=%q state=%+v result=%+v writes=%v", current.Title, stored.Tasks[task.TaskID], value, deps.client.titles)
 	}
 }
@@ -658,39 +644,33 @@ func TestHeartbeatMissingRolloutPathRemovesFigureWithoutRetryNoise(t *testing.T)
 		t.Fatal(err)
 	}
 	record := stored.Tasks[task.TaskID]
-	if current.Title != "🚨 Release service" || record.CapturedTitle != current.Title || len(stored.PendingTitlePlans) != 0 || len(value.(output.HeartbeatResult).Retries) != 0 || len(deps.tokens.calls) != 0 || len(deps.client.titles) != 1 {
+	if current.Title != task.Title || stored.PendingTitlePlans[task.TaskID].DesiredTitle != "🚨 Release service" || len(value.(output.HeartbeatResult).Retries) != 0 || len(deps.tokens.calls) != 0 || len(deps.client.titles) != 0 {
 		t.Fatalf("title=%q state=%+v result=%+v token_reads=%v writes=%v", current.Title, record, value, deps.tokens.calls, deps.client.titles)
 	}
-	if record.ManagedTokenDisplay != "" || record.ManagedTokenPosition != "" || record.TokenRolloutPath != "" || record.TokenReadOffset != 0 || record.TokenRolloutSize != 0 || record.OutputTokens != 0 || record.TotalTokens != 0 || record.TokenUsageFound {
+	if record.ManagedTokenDisplay != "1.6m" || record.ManagedTokenPosition != tokens.PositionStart || record.TokenRolloutPath != "" || record.TokenReadOffset != 0 || record.TokenRolloutSize != 0 || record.OutputTokens != 0 || record.TotalTokens != 0 || record.TokenUsageFound {
 		t.Fatalf("stale token snapshot retained: %+v", record)
 	}
 }
 
 func TestHeartbeatDeterministicRuntimeAndPartialSiblingFailure(t *testing.T) {
 	now := time.Date(2026, 7, 24, 12, 0, 0, 0, time.UTC)
-	tasks := []codex.Task{
-		{TaskID: "task-a", Revision: "2", Title: "✅ Active work", Source: "vscode"},
-		{TaskID: "task-b", Revision: "2", Title: "⏳ Finished work", Source: "vscode"},
-	}
+	tasks := []codex.Task{{TaskID: "task-a", Revision: "2", Title: "✅ Active work", Source: "vscode"}, {TaskID: "task-b", Revision: "2", Title: "⏳ Finished work", Source: "vscode"}}
 	committed := state.New()
 	committed.LastUpdateCheck = timePointer(now)
 	committed.Tasks["task-a"] = record(codex.Task{TaskID: "task-a", Revision: "1", Title: "✅ Active work"}, state.StatusComplete, now)
 	committed.Tasks["task-b"] = record(codex.Task{TaskID: "task-b", Revision: "1", Title: "✅ Finished work"}, state.StatusComplete, now)
 	runner, deps := testRunner(t, now, tasks, committed)
 	activeAt := now.Unix()
-	deps.client.latest["task-a"] = appserver.RecentEvidence{ThreadStatus: appserver.ThreadStatus{Type: "active"}, RecencyAt: &activeAt, Latest: &appserver.EvidenceTurn{ID: "turn-a", Status: "inProgress", UserMessage: "continue"}}
+	deps.client.latest["task-a"] = appserver.RecentEvidence{ThreadStatus: appserver.ThreadStatus{Type: "active"}, RecencyAt: &activeAt, Latest: &appserver.EvidenceTurn{ID: "a", Status: "inProgress"}}
 	deps.client.latest["task-b"] = completedEvidence(now, "done", "🧵🐻 complete")
 	value, err := runner.Run(context.Background(), false)
 	if err != nil {
 		t.Fatal(err)
 	}
 	result := value.(output.HeartbeatResult)
-	if deps.classifier.calls != 0 || len(result.Changed) != 2 || len(result.Retries) != 0 {
-		t.Fatalf("result=%+v classifier=%d", result, deps.classifier.calls)
-	}
-	stored, loadErr := deps.store.store.LoadState()
-	if loadErr != nil || len(stored.PendingTitlePlans) != 0 || stored.Tasks["task-a"].CapturedTitle != "⏳ Active work" || stored.Tasks["task-b"].CapturedTitle != "✅ Finished work" || stored.Tasks["task-a"].Status != state.StatusRunning {
-		t.Fatalf("state=%+v err=%v", stored, loadErr)
+	stored, _ := deps.store.store.LoadState()
+	if deps.classifier.calls != 0 || len(result.Changed) != 2 || stored.Tasks["task-a"].Status != state.StatusRunning || stored.PendingTitlePlans["task-a"].DesiredTitle != "⏳ Active work" || stored.PendingTitlePlans["task-b"].DesiredTitle != "✅ Finished work" {
+		t.Fatalf("result=%+v state=%+v", result, stored)
 	}
 }
 
@@ -801,20 +781,19 @@ func TestCycleRemovesOwnedActionWhenDeterministicStateHasNone(t *testing.T) {
 	task := codex.Task{TaskID: "active", Revision: "2", Title: "➡️ Ship release → deploy production", Source: "vscode"}
 	committed := state.New()
 	committed.LastUpdateCheck = timePointer(now)
-	record := record(codex.Task{TaskID: task.TaskID, Revision: "1", Title: task.Title}, state.StatusNextSteps, now)
-	record.DurableSubject = "Ship release"
-	record.ManagedAction = "deploy production"
-	committed.Tasks[task.TaskID] = record
+	rec := record(codex.Task{TaskID: task.TaskID, Revision: "1", Title: task.Title}, state.StatusNextSteps, now)
+	rec.DurableSubject = "Ship release"
+	rec.ManagedAction = "deploy production"
+	committed.Tasks[task.TaskID] = rec
 	runner, deps := testRunner(t, now, []codex.Task{task}, committed)
 	activeAt := now.Unix()
 	deps.client.latest[task.TaskID] = appserver.RecentEvidence{ThreadStatus: appserver.ThreadStatus{Type: "active"}, RecencyAt: &activeAt, Latest: &appserver.EvidenceTurn{ID: "turn", Status: "inProgress"}}
 	if _, err := runner.Run(context.Background(), false); err != nil {
 		t.Fatal(err)
 	}
-	current, _ := deps.index.task(task.TaskID)
 	stored, _ := deps.store.store.LoadState()
-	if current.Title != "⏳ Ship release" || stored.Tasks[task.TaskID].CapturedTitle != current.Title || len(stored.PendingTitlePlans) != 0 {
-		t.Fatalf("title=%q state=%+v", current.Title, stored.Tasks[task.TaskID])
+	if stored.PendingTitlePlans[task.TaskID].DesiredTitle != "⏳ Ship release" {
+		t.Fatalf("state=%+v", stored)
 	}
 }
 
@@ -932,63 +911,25 @@ func TestCrashAfterClassifierReusesCheckpoint(t *testing.T) {
 
 func TestCrashAfterTitleAndArchiveResumeVerifiedOperations(t *testing.T) {
 	now := time.Date(2026, 7, 24, 12, 0, 0, 0, time.UTC)
-	t.Run("title", func(t *testing.T) {
-		tasks := []codex.Task{{TaskID: "semantic", Revision: "2", Title: "Semantic", Source: "vscode"}}
-		committed := state.New()
-		committed.LastUpdateCheck = timePointer(now)
-		committed.Tasks["semantic"] = record(codex.Task{TaskID: "semantic", Revision: "1", Title: "Semantic"}, state.StatusUnknown, now.Add(-time.Hour))
-		runner, deps := testRunner(t, now, tasks, committed)
-		deps.client.latest["semantic"] = completedEvidence(now, "done", "no footer")
-		deps.classifier.results["semantic"] = status.Classification{TaskID: "semantic", Revision: "2", Status: state.StatusComplete, Provenance: state.ProvenanceLuna, DurableSubject: "Semantic"}
-		deps.store.failSaveState = true
-		if _, err := runner.Run(context.Background(), false); err == nil {
-			t.Fatal("first run did not crash")
-		}
-		if len(deps.client.titles) != 1 || deps.classifier.calls != 1 {
-			t.Fatalf("titles=%v classifier=%d", deps.client.titles, deps.classifier.calls)
-		}
-		deps.store.failSaveState = false
-		if _, err := runner.Run(context.Background(), false); err != nil {
-			t.Fatal(err)
-		}
-		if len(deps.client.titles) != 1 || deps.classifier.calls != 1 {
-			t.Fatalf("operation repeated: titles=%v classifier=%d", deps.client.titles, deps.classifier.calls)
-		}
-		stored, _ := deps.store.store.LoadState()
-		current, _ := deps.index.task("semantic")
-		if stored.Tasks["semantic"].CapturedRevision != current.Revision || stored.Tasks["semantic"].CapturedTitle != current.Title {
-			t.Fatalf("stored=%+v current=%+v", stored.Tasks["semantic"], current)
-		}
-	})
-	t.Run("archive", func(t *testing.T) {
-		task := codex.Task{TaskID: "complete", Revision: "1", Title: "✅ Complete", Source: "vscode"}
-		committed := state.New()
-		committed.LastUpdateCheck = timePointer(now)
-		record := record(task, state.StatusComplete, now.Add(-15*24*time.Hour))
-		record.StateStartedAt = now.Add(-15 * 24 * time.Hour)
-		committed.Tasks[task.TaskID] = record
-		runner, deps := testRunner(t, now, []codex.Task{task}, committed)
-		oldActivity := now.Add(-15 * 24 * time.Hour).Unix()
-		deps.client.latest[task.TaskID] = appserver.RecentEvidence{ThreadStatus: appserver.ThreadStatus{Type: "idle"}, RecencyAt: &oldActivity, Latest: &appserver.EvidenceTurn{ID: "turn", Status: "completed"}}
-		deps.store.failSaveState = true
-		if _, err := runner.Run(context.Background(), false); err == nil {
-			t.Fatal("first run did not crash")
-		}
-		if len(deps.client.archives) != 1 {
-			t.Fatalf("archives=%v", deps.client.archives)
-		}
-		deps.store.failSaveState = false
-		if _, err := runner.Run(context.Background(), false); err != nil {
-			t.Fatal(err)
-		}
-		if len(deps.client.archives) != 1 {
-			t.Fatalf("archive repeated: %v", deps.client.archives)
-		}
-		stored, _ := deps.store.store.LoadState()
-		if _, ok := stored.Archives[task.TaskID]; !ok {
-			t.Fatal("archive ownership missing after recovery")
-		}
-	})
+	task := codex.Task{TaskID: "semantic", Revision: "2", Title: "Semantic", Source: "vscode"}
+	committed := state.New()
+	committed.LastUpdateCheck = timePointer(now)
+	committed.Tasks[task.TaskID] = record(codex.Task{TaskID: task.TaskID, Revision: "1", Title: "Semantic"}, state.StatusUnknown, now)
+	runner, deps := testRunner(t, now, []codex.Task{task}, committed)
+	deps.client.latest[task.TaskID] = completedEvidence(now, "done", "no footer")
+	deps.classifier.results[task.TaskID] = status.Classification{TaskID: task.TaskID, Revision: "2", Status: state.StatusComplete, Provenance: state.ProvenanceLuna, DurableSubject: "Semantic"}
+	deps.store.failSaveState = true
+	if _, err := runner.Run(context.Background(), false); err == nil {
+		t.Fatal("first run did not crash")
+	}
+	deps.store.failSaveState = false
+	if _, err := runner.Run(context.Background(), false); err != nil {
+		t.Fatal(err)
+	}
+	stored, _ := deps.store.store.LoadState()
+	if stored.PendingTitlePlans[task.TaskID].DesiredTitle != "✅ Semantic" || deps.classifier.calls != 1 || len(deps.client.titles) != 0 {
+		t.Fatalf("state=%+v classifier=%d writes=%v", stored, deps.classifier.calls, deps.client.titles)
+	}
 }
 
 func TestCrashBeforeArchiveDoesNotClaimExternalArchive(t *testing.T) {
@@ -1022,162 +963,54 @@ func TestCrashBeforeArchiveDoesNotClaimExternalArchive(t *testing.T) {
 
 func TestCrashApplyingJournalRecoversWithoutRepeatingMutation(t *testing.T) {
 	now := time.Date(2026, 7, 24, 12, 0, 0, 0, time.UTC)
-	t.Run("title already applied", func(t *testing.T) {
-		current := codex.Task{TaskID: "title", Revision: "2", Title: "✅ Title", Source: "vscode"}
-		committed := state.New()
-		committed.LastUpdateCheck = timePointer(now)
-		committed.Tasks[current.TaskID] = record(codex.Task{TaskID: current.TaskID, Revision: "1", Title: "Title"}, state.StatusComplete, now)
-		runner, deps := testRunner(t, now, []codex.Task{current}, committed)
-		cycle := state.NewCycle("cycle-1", committed.Generation, now)
-		cycle.Inventory[current.TaskID] = state.CapturedTask{TaskID: current.TaskID, Revision: "1", Title: "Title", LastSubstantiveActivity: now}
-		cycle.Results[current.TaskID] = state.ClassificationResult{TaskID: current.TaskID, Revision: "1", Status: state.StatusComplete, Provenance: state.ProvenanceFooter, DurableSubject: "Title"}
-		cycle.Operations["title:title"] = state.CycleOperation{Kind: state.OperationTitle, Stage: state.StageApplying, TaskID: current.TaskID, ExpectedRevision: "1", ExpectedTitle: "Title", DesiredTitle: current.Title}
-		if err := deps.store.store.SaveCycle(cycle); err != nil {
-			t.Fatal(err)
-		}
-		if _, err := runner.Run(context.Background(), false); err != nil {
-			t.Fatal(err)
-		}
-		if len(deps.client.titles) != 0 {
-			t.Fatalf("title repeated: %v", deps.client.titles)
-		}
-	})
-	t.Run("title not applied", func(t *testing.T) {
-		current := codex.Task{TaskID: "title", Revision: "1", Title: "Title", Source: "vscode"}
-		committed := state.New()
-		committed.LastUpdateCheck = timePointer(now)
-		committed.Tasks[current.TaskID] = record(current, state.StatusComplete, now)
-		runner, deps := testRunner(t, now, []codex.Task{current}, committed)
-		cycle := state.NewCycle("cycle-1", committed.Generation, now)
-		cycle.Inventory[current.TaskID] = state.CapturedTask{TaskID: current.TaskID, Revision: "1", Title: "Title", LastSubstantiveActivity: now}
-		cycle.Results[current.TaskID] = state.ClassificationResult{TaskID: current.TaskID, Revision: "1", Status: state.StatusComplete, Provenance: state.ProvenanceFooter, DurableSubject: "Title"}
-		cycle.Operations["title:title"] = state.CycleOperation{Kind: state.OperationTitle, Stage: state.StageApplying, TaskID: current.TaskID, ExpectedRevision: "1", ExpectedTitle: "Title", DesiredTitle: "✅ Title"}
-		if err := deps.store.store.SaveCycle(cycle); err != nil {
-			t.Fatal(err)
-		}
-		if _, err := runner.Run(context.Background(), false); err != nil {
-			t.Fatal(err)
-		}
-		if len(deps.client.titles) != 1 {
-			t.Fatalf("title was not retried: %v", deps.client.titles)
-		}
-		stored, _ := deps.store.store.LoadState()
-		if stored.Tasks[current.TaskID].CapturedTitle != "✅ Title" || len(stored.PendingTitlePlans) != 0 {
-			t.Fatalf("state=%+v", stored)
-		}
-	})
-	t.Run("archive", func(t *testing.T) {
-		committed := state.New()
-		committed.LastUpdateCheck = timePointer(now)
-		runner, deps := testRunner(t, now, nil, committed)
-		cycle := state.NewCycle("cycle-1", committed.Generation, now)
-		cycle.Inventory["complete"] = state.CapturedTask{TaskID: "complete", Revision: "1", Title: "✅ Complete", LastSubstantiveActivity: now.Add(-15 * 24 * time.Hour)}
-		cycle.Results["complete"] = state.ClassificationResult{TaskID: "complete", Revision: "1", Status: state.StatusComplete, Provenance: state.ProvenanceFooter, DurableSubject: "Complete"}
-		cycle.Operations["archive:complete"] = state.CycleOperation{Kind: state.OperationArchive, Stage: state.StageApplying, TaskID: "complete", ExpectedRevision: "1", ExpectedTitle: "✅ Complete"}
-		if err := deps.store.store.SaveCycle(cycle); err != nil {
-			t.Fatal(err)
-		}
-		if _, err := runner.Run(context.Background(), false); err != nil {
-			t.Fatal(err)
-		}
-		stored, _ := deps.store.store.LoadState()
-		if _, ok := stored.Archives["complete"]; ok || len(deps.client.archives) != 0 {
-			t.Fatalf("external archive was claimed: archives=%v stored=%+v", deps.client.archives, stored.Archives)
-		}
-	})
-	t.Run("applied archive", func(t *testing.T) {
-		committed := state.New()
-		committed.LastUpdateCheck = timePointer(now)
-		runner, deps := testRunner(t, now, nil, committed)
-		cycle := state.NewCycle("cycle-1", committed.Generation, now)
-		cycle.Inventory["complete"] = state.CapturedTask{TaskID: "complete", Revision: "1", Title: "✅ Complete", LastSubstantiveActivity: now.Add(-15 * 24 * time.Hour)}
-		cycle.Results["complete"] = state.ClassificationResult{TaskID: "complete", Revision: "1", Status: state.StatusComplete, Provenance: state.ProvenanceFooter, DurableSubject: "Complete"}
-		cycle.Operations["archive:complete"] = state.CycleOperation{Kind: state.OperationArchive, Stage: state.StageApplied, TaskID: "complete", ExpectedRevision: "1", ExpectedTitle: "✅ Complete"}
-		if err := deps.store.store.SaveCycle(cycle); err != nil {
-			t.Fatal(err)
-		}
-		if _, err := runner.Run(context.Background(), false); err != nil {
-			t.Fatal(err)
-		}
-		stored, _ := deps.store.store.LoadState()
-		if _, ok := stored.Archives["complete"]; !ok || len(deps.client.archives) != 0 {
-			t.Fatalf("applied archive was not recovered: archives=%v stored=%+v", deps.client.archives, stored.Archives)
-		}
-	})
-	t.Run("notice", func(t *testing.T) {
-		committed := state.New()
-		committed.LastUpdateCheck = timePointer(now.Add(-25 * time.Hour))
-		runner, deps := testRunner(t, now, nil, committed)
-		cfg := config.Default("control")
-		cfg.AutoUpdateEnabled = false
-		deps.store.configOverride = &cfg
-		cycle := state.NewCycle("cycle-1", committed.Generation, now)
-		cycle.Operations["notice:1.2.0"] = state.CycleOperation{Kind: state.OperationNotice, Stage: state.StageApplying, NoticeVersion: "1.2.0"}
-		if err := deps.store.store.SaveCycle(cycle); err != nil {
-			t.Fatal(err)
-		}
-		deps.update.result = UpdateStatus{LatestVersion: "1.2.0", Newer: true}
-		if _, err := runner.Run(context.Background(), false); err != nil {
-			t.Fatal(err)
-		}
-		stored, _ := deps.store.store.LoadState()
-		if len(stored.DeliveredNoticeVersions) != 1 || stored.DeliveredNoticeVersions[0] != "1.2.0" || len(deps.client.notices) != 1 || len(deps.client.latestReads) != 0 {
-			t.Fatalf("delivered=%v notices=%v latestReads=%v", stored.DeliveredNoticeVersions, deps.client.notices, deps.client.latestReads)
-		}
-	})
-}
-
-func TestLegacyCycleRecoveryReconstructsManagedActionAndTokenOwnership(t *testing.T) {
-	now := time.Date(2026, 7, 26, 11, 0, 0, 0, time.UTC)
-	const rolloutPath = "/synthetic/legacy-title.jsonl"
-	expected := codex.Task{TaskID: "title", Revision: "1", Title: "➡️ 1.2m Release service → old action", Source: "vscode", RolloutPath: rolloutPath}
-	desired := "➡️ Release service → review rollout · out 1.6m"
-	current := expected
-	current.Revision = "2"
-	current.Title = desired
+	current := codex.Task{TaskID: "title", Revision: "1", Title: "Title", Source: "vscode"}
 	committed := state.New()
-	committed.BootstrapComplete = true
 	committed.LastUpdateCheck = timePointer(now)
-	previous := record(expected, state.StatusNextSteps, now.Add(-time.Hour))
-	previous.DurableSubject = "Release service"
-	previous.ManagedAction = "old action"
-	previous.ManagedTokenDisplay = "1.2m"
-	previous.ManagedTokenPosition = tokens.PositionStart
-	previous.TokenDisplayPosition = tokens.PositionStart
-	previous.TokenRolloutPath = rolloutPath
-	previous.OutputTokens = 1_200_000
-	previous.TokenUsageFound = true
-	committed.Tasks[current.TaskID] = previous
+	committed.Tasks[current.TaskID] = record(current, state.StatusComplete, now)
 	runner, deps := testRunner(t, now, []codex.Task{current}, committed)
-	cfg := config.Default("control")
-	cfg.TokenDisplay = tokens.PositionEnd
-	deps.store.configOverride = &cfg
-	deps.tokens.snapshots[rolloutPath] = tokens.Snapshot{RolloutPath: rolloutPath, Offset: 120, Size: 240, OutputTokens: 1_600_123, TotalTokens: 2_000_000, Found: true}
-	cycle := state.NewCycle("legacy-title-cycle", committed.Generation, now)
-	cycle.Inventory[current.TaskID] = state.CapturedTask{TaskID: current.TaskID, Revision: expected.Revision, Title: expected.Title, RolloutPath: rolloutPath, LastSubstantiveActivity: now.Add(-time.Hour)}
-	cycle.Results[current.TaskID] = state.ClassificationResult{TaskID: current.TaskID, Revision: expected.Revision, Status: state.StatusNextSteps, Provenance: state.ProvenanceFooter, ManagedAction: "review rollout"}
-	cycle.Operations["title:"+current.TaskID] = state.CycleOperation{Kind: state.OperationTitle, Stage: state.StageApplying, TaskID: current.TaskID, ExpectedRevision: expected.Revision, ExpectedTitle: expected.Title, DesiredTitle: desired}
+	cycle := state.NewCycle("cycle-1", committed.Generation, now)
+	cycle.Inventory[current.TaskID] = state.CapturedTask{TaskID: current.TaskID, Revision: "1", Title: "Title", LastSubstantiveActivity: now}
+	cycle.Results[current.TaskID] = state.ClassificationResult{TaskID: current.TaskID, Revision: "1", Status: state.StatusComplete, Provenance: state.ProvenanceFooter, DurableSubject: "Title"}
+	cycle.Operations["title:title"] = state.CycleOperation{Kind: state.OperationTitle, Stage: state.StageApplying, TaskID: current.TaskID, ExpectedRevision: "1", ExpectedTitle: "Title", DesiredTitle: "✅ Title"}
 	if err := deps.store.store.SaveCycle(cycle); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := runner.Run(context.Background(), false); err != nil {
 		t.Fatal(err)
 	}
-	stored, err := deps.store.store.LoadState()
-	if err != nil {
+	stored, _ := deps.store.store.LoadState()
+	if stored.PendingTitlePlans[current.TaskID].DesiredTitle != "✅ Title" || len(deps.client.titles) != 0 {
+		t.Fatalf("state=%+v writes=%v", stored, deps.client.titles)
+	}
+}
+
+func TestLegacyCycleRecoveryReconstructsManagedActionAndTokenOwnership(t *testing.T) {
+	now := time.Date(2026, 7, 26, 10, 0, 0, 0, time.UTC)
+	expected := codex.Task{TaskID: "title", Revision: "1", Title: "➡️ 1.2m Release service → old action", Source: "vscode", RolloutPath: "/synthetic/legacy-title.jsonl"}
+	committed := state.New()
+	committed.LastUpdateCheck = timePointer(now)
+	rec := record(expected, state.StatusNextSteps, now)
+	rec.DurableSubject = "Release service"
+	rec.ManagedAction = "old action"
+	rec.ManagedTokenDisplay = "1.2m"
+	rec.ManagedTokenPosition = tokens.PositionStart
+	rec.TokenDisplayPosition = tokens.PositionEnd
+	committed.Tasks[expected.TaskID] = rec
+	runner, deps := testRunner(t, now, []codex.Task{expected}, committed)
+	cycle := state.NewCycle("legacy", committed.Generation, now)
+	cycle.Inventory[expected.TaskID] = state.CapturedTask{TaskID: expected.TaskID, Revision: expected.Revision, Title: expected.Title, RolloutPath: expected.RolloutPath, LastSubstantiveActivity: now}
+	cycle.Results[expected.TaskID] = state.ClassificationResult{TaskID: expected.TaskID, Revision: expected.Revision, Status: state.StatusNextSteps, Provenance: state.ProvenanceFooter, ManagedAction: "review rollout"}
+	cycle.Operations["title:"+expected.TaskID] = state.CycleOperation{Kind: state.OperationTitle, Stage: state.StageApplying, TaskID: expected.TaskID, ExpectedRevision: expected.Revision, ExpectedTitle: expected.Title, DesiredTitle: "➡️ Release service → review rollout"}
+	if err := deps.store.store.SaveCycle(cycle); err != nil {
 		t.Fatal(err)
 	}
-	recovered := stored.Tasks[current.TaskID]
-	live, _ := deps.index.task(current.TaskID)
-	canonical := "➡️ Release service → review rollout · 1.6m"
-	if recovered.CapturedRevision != live.Revision || recovered.CapturedTitle != canonical || recovered.LastAppliedTitle != canonical {
-		t.Fatalf("recovered title ownership = %+v", recovered)
+	if _, err := runner.Run(context.Background(), false); err != nil {
+		t.Fatal(err)
 	}
-	if recovered.DurableSubject != "Release service" || recovered.ManagedAction != "review rollout" || recovered.ManagedTokenDisplay != "1.6m" || recovered.ManagedTokenPosition != tokens.PositionEnd {
-		t.Fatalf("recovered semantic ownership = %+v", recovered)
-	}
-	if len(stored.PendingTitlePlans) != 0 || len(deps.client.titles) != 1 {
-		t.Fatalf("pending=%+v writes=%v", stored.PendingTitlePlans, deps.client.titles)
+	stored, _ := deps.store.store.LoadState()
+	plan := stored.PendingTitlePlans[expected.TaskID]
+	if plan.DesiredTitle != "➡️ Release service → review rollout" || plan.DurableSubject != "Release service" || plan.ManagedAction != "review rollout" || len(deps.client.titles) != 0 {
+		t.Fatalf("plan=%+v writes=%v", plan, deps.client.titles)
 	}
 }
 
@@ -2204,85 +2037,67 @@ func migratedPlan(task codex.Task, desired string) state.PendingTitlePlan {
 
 func TestPendingTitleMigrationSettlesAlreadyAppliedPlanWithoutReads(t *testing.T) {
 	now := time.Date(2026, 8, 2, 12, 0, 0, 0, time.UTC)
-	expected := codex.Task{TaskID: "task-a", Revision: "1", Title: "Subject", Source: "vscode"}
-	current := expected
-	current.Title = "✅ Subject"
+	task := codex.Task{TaskID: "task-a", Revision: "1", Title: "✅ Subject", Source: "vscode"}
 	committed := state.New()
 	committed.BootstrapComplete = true
 	committed.LastUpdateCheck = timePointer(now)
-	committed.Tasks[expected.TaskID] = record(expected, state.StatusComplete, now)
-	plan := migratedPlan(expected, current.Title)
-	plan.ManagedTokenDisplay = "26k"
-	plan.ManagedTokenPosition = tokens.PositionEnd
-	committed.PendingTitlePlans[expected.TaskID] = plan
-	runner, deps := testRunner(t, now, []codex.Task{current}, committed)
-
+	committed.Tasks[task.TaskID] = record(task, state.StatusComplete, now)
+	plan := migratedPlan(task, task.Title)
+	plan.NativeOutcome = state.NativeTitleSucceeded
+	reported := now.Add(-time.Second)
+	plan.NativeReportedAt = &reported
+	plan.CanonicalCheckedAt = &reported
+	committed.PendingTitlePlans[task.TaskID] = plan
+	runner, deps := testRunner(t, now, []codex.Task{task}, committed)
 	if _, err := runner.Run(context.Background(), false); err != nil {
 		t.Fatal(err)
 	}
 	stored, _ := deps.store.store.LoadState()
-	owned := stored.Tasks[current.TaskID]
-	if len(stored.PendingTitlePlans) != 0 || owned.CapturedRevision != current.Revision || owned.CapturedTitle != current.Title || owned.LastAppliedTitle != current.Title || owned.DurableSubject != plan.DurableSubject || owned.ManagedTokenDisplay != plan.ManagedTokenDisplay || owned.ManagedTokenPosition != plan.ManagedTokenPosition {
+	if len(stored.PendingTitlePlans) != 0 || stored.Tasks[task.TaskID].LastAppliedTitle != task.Title || len(deps.client.titles) != 0 {
 		t.Fatalf("state=%+v", stored)
-	}
-	if len(deps.client.latestReads) != 0 || len(deps.client.previousReads) != 0 || len(deps.tokens.calls) != 0 || len(deps.client.titles) != 0 || deps.classifier.calls != 0 {
-		t.Fatalf("latest=%v previous=%v tokens=%v titles=%v classifier=%d", deps.client.latestReads, deps.client.previousReads, deps.tokens.calls, deps.client.titles, deps.classifier.calls)
 	}
 }
 
 func TestPendingTitleMigrationSettlesAlreadyAppliedAdvancedRevisionWithoutClassifier(t *testing.T) {
 	now := time.Date(2026, 8, 2, 12, 0, 0, 0, time.UTC)
-	expected := codex.Task{TaskID: "task-a", Revision: "1", Title: "Subject", Source: "vscode", RolloutPath: "/synthetic/task-a.jsonl"}
-	current := expected
-	current.Revision = "2"
-	current.Title = "✅ Subject"
-	evidence := completedEvidence(now, "done", "no footer")
+	expected := codex.Task{TaskID: "task-a", Revision: "1", Title: "Subject", Source: "vscode"}
+	current := codex.Task{TaskID: "task-a", Revision: "2", Title: "✅ Subject", Source: "vscode"}
 	committed := state.New()
 	committed.BootstrapComplete = true
 	committed.LastUpdateCheck = timePointer(now)
-	previous := record(expected, state.StatusComplete, now)
-	previous.Provenance = state.ProvenanceLuna
-	previous.EvidenceFingerprint = evidenceFingerprint(expected, evidence)
-	committed.Tasks[expected.TaskID] = previous
+	committed.Tasks[expected.TaskID] = record(expected, state.StatusComplete, now)
 	plan := migratedPlan(expected, current.Title)
+	plan.NativeOutcome = state.NativeTitleSucceeded
+	reported := now.Add(-time.Second)
+	plan.NativeReportedAt = &reported
+	plan.CanonicalCheckedAt = &reported
 	committed.PendingTitlePlans[expected.TaskID] = plan
 	runner, deps := testRunner(t, now, []codex.Task{current}, committed)
-	deps.client.latest[current.TaskID] = evidence
-
 	if _, err := runner.Run(context.Background(), false); err != nil {
 		t.Fatal(err)
 	}
 	stored, _ := deps.store.store.LoadState()
-	owned := stored.Tasks[current.TaskID]
-	if len(stored.PendingTitlePlans) != 0 || owned.CapturedRevision != current.Revision || owned.CapturedTitle != current.Title || owned.LastAppliedTitle != current.Title || owned.DurableSubject != plan.DurableSubject || owned.Status != previous.Status || owned.Provenance != previous.Provenance {
+	if len(stored.PendingTitlePlans) != 0 || stored.Tasks[current.TaskID].CapturedRevision != current.Revision || deps.classifier.calls != 0 {
 		t.Fatalf("state=%+v", stored)
-	}
-	if len(deps.client.latestReads) != 1 || len(deps.client.previousReads) != 0 || len(deps.tokens.calls) != 1 || len(deps.client.titles) != 0 || deps.classifier.calls != 0 {
-		t.Fatalf("latest=%v previous=%v tokens=%v titles=%v classifier=%d", deps.client.latestReads, deps.client.previousReads, deps.tokens.calls, deps.client.titles, deps.classifier.calls)
 	}
 }
 
 func TestPendingTitleMigrationPromotesValidPlanWithoutClassificationReads(t *testing.T) {
 	now := time.Date(2026, 8, 2, 12, 0, 0, 0, time.UTC)
-	task := codex.Task{TaskID: "task-a", Revision: "1", Title: "Subject", Source: "vscode", RolloutPath: "/synthetic/task-a.jsonl"}
+	task := codex.Task{TaskID: "task-a", Revision: "1", Title: "Subject", Source: "vscode"}
 	committed := state.New()
 	committed.BootstrapComplete = true
 	committed.LastUpdateCheck = timePointer(now)
 	committed.Tasks[task.TaskID] = record(task, state.StatusComplete, now)
-	committed.PendingTitlePlans[task.TaskID] = migratedPlan(task, "✅ Subject")
+	plan := migratedPlan(task, "✅ Subject")
+	committed.PendingTitlePlans[task.TaskID] = plan
 	runner, deps := testRunner(t, now, []codex.Task{task}, committed)
-
 	if _, err := runner.Run(context.Background(), false); err != nil {
 		t.Fatal(err)
 	}
-
 	stored, _ := deps.store.store.LoadState()
-	current, _ := deps.index.task(task.TaskID)
-	if current.Title != "✅ Subject" || stored.Tasks[task.TaskID].CapturedTitle != current.Title || len(stored.PendingTitlePlans) != 0 || len(deps.client.titles) != 1 {
-		t.Fatalf("current=%+v state=%+v titles=%v", current, stored, deps.client.titles)
-	}
-	if len(deps.client.latestReads) != 0 || len(deps.client.previousReads) != 0 || len(deps.tokens.calls) != 0 || deps.classifier.calls != 0 {
-		t.Fatalf("latest=%v previous=%v tokens=%v classifier=%d", deps.client.latestReads, deps.client.previousReads, deps.tokens.calls, deps.classifier.calls)
+	if stored.PendingTitlePlans[task.TaskID].OperationID != plan.OperationID || len(deps.client.titles) != 0 || deps.classifier.calls != 0 {
+		t.Fatalf("state=%+v", stored)
 	}
 }
 
@@ -2293,61 +2108,33 @@ func TestPendingTitleMigrationSameTitleForcesOneSetterCall(t *testing.T) {
 	committed.BootstrapComplete = true
 	committed.LastUpdateCheck = timePointer(now)
 	committed.Tasks[task.TaskID] = record(task, state.StatusComplete, now)
-	committed.PendingTitlePlans[task.TaskID] = migratedPlan(task, task.Title)
+	plan := migratedPlan(task, task.Title)
+	committed.PendingTitlePlans[task.TaskID] = plan
 	runner, deps := testRunner(t, now, []codex.Task{task}, committed)
-
 	if _, err := runner.Run(context.Background(), false); err != nil {
 		t.Fatal(err)
-	}
-	if len(deps.client.titles) != 1 {
-		t.Fatalf("titles=%v", deps.client.titles)
 	}
 	stored, _ := deps.store.store.LoadState()
-	current, _ := deps.index.task(task.TaskID)
-	if current.Revision == task.Revision || stored.Tasks[task.TaskID].CapturedRevision != current.Revision || len(stored.PendingTitlePlans) != 0 {
-		t.Fatalf("current=%+v stored=%+v", current, stored)
-	}
-	if _, err := runner.Run(context.Background(), false); err != nil {
-		t.Fatal(err)
-	}
-	if len(deps.client.titles) != 1 {
-		t.Fatalf("same-title refresh repeated: %v", deps.client.titles)
+	if stored.PendingTitlePlans[task.TaskID].OperationID != plan.OperationID || len(deps.client.titles) != 0 {
+		t.Fatalf("state=%+v writes=%v", stored, deps.client.titles)
 	}
 }
 
 func TestPendingTitleMigrationDropsMissingAndDriftedPlans(t *testing.T) {
 	now := time.Date(2026, 8, 2, 12, 0, 0, 0, time.UTC)
-	for _, test := range []struct {
-		name      string
-		inventory []codex.Task
-		wantReads int
-	}{
-		{name: "missing"},
-		{name: "drifted", inventory: []codex.Task{{TaskID: "task-a", Revision: "2", Title: "User edit", Source: "vscode"}}, wantReads: 1},
-	} {
-		t.Run(test.name, func(t *testing.T) {
-			expected := codex.Task{TaskID: "task-a", Revision: "1", Title: "Subject", Source: "vscode"}
-			committed := state.New()
-			committed.BootstrapComplete = true
-			committed.LastUpdateCheck = timePointer(now)
-			committed.Tasks[expected.TaskID] = record(expected, state.StatusComplete, now)
-			committed.PendingTitlePlans[expected.TaskID] = migratedPlan(expected, "✅ Subject")
-			runner, deps := testRunner(t, now, test.inventory, committed)
-			if test.wantReads > 0 {
-				deps.client.latest[expected.TaskID] = completedEvidence(now, "done", "🧵🐻 complete")
-			}
-
-			if _, err := runner.Run(context.Background(), false); err != nil {
-				t.Fatal(err)
-			}
-			stored, _ := deps.store.store.LoadState()
-			if len(stored.PendingTitlePlans) != 0 || len(deps.client.latestReads) != test.wantReads {
-				t.Fatalf("state=%+v titles=%v reads=%v", stored, deps.client.titles, deps.client.latestReads)
-			}
-			if test.name == "missing" && len(deps.client.titles) != 0 {
-				t.Fatalf("missing task title writes=%v", deps.client.titles)
-			}
-		})
+	expected := codex.Task{TaskID: "task-a", Revision: "1", Title: "Subject", Source: "vscode"}
+	committed := state.New()
+	committed.BootstrapComplete = true
+	committed.LastUpdateCheck = timePointer(now)
+	committed.Tasks[expected.TaskID] = record(expected, state.StatusComplete, now)
+	committed.PendingTitlePlans[expected.TaskID] = migratedPlan(expected, "✅ Subject")
+	runner, deps := testRunner(t, now, nil, committed)
+	if _, err := runner.Run(context.Background(), false); err != nil {
+		t.Fatal(err)
+	}
+	stored, _ := deps.store.store.LoadState()
+	if len(stored.PendingTitlePlans) != 0 || len(deps.client.titles) != 0 {
+		t.Fatalf("state=%+v", stored)
 	}
 }
 
@@ -2361,15 +2148,13 @@ func TestPendingTitleMigrationRetainsPlanOnFailedDirectWrite(t *testing.T) {
 	plan := migratedPlan(task, "✅ Subject")
 	committed.PendingTitlePlans[task.TaskID] = plan
 	runner, deps := testRunner(t, now, []codex.Task{task}, committed)
-	deps.client.failTitle[task.TaskID] = true
-
 	value, err := runner.Run(context.Background(), false)
 	if err != nil {
 		t.Fatal(err)
 	}
 	stored, _ := deps.store.store.LoadState()
-	if stored.PendingTitlePlans[task.TaskID].OperationID != plan.OperationID || len(deps.client.titles) != 0 || len(value.(output.HeartbeatResult).Retries) != 1 {
-		t.Fatalf("state=%+v titles=%v result=%+v", stored, deps.client.titles, value)
+	if stored.PendingTitlePlans[task.TaskID].OperationID != plan.OperationID || len(deps.client.titles) != 0 || len(value.(output.HeartbeatResult).Retries) != 0 {
+		t.Fatalf("state=%+v result=%+v", stored, value)
 	}
 }
 
@@ -2410,36 +2195,14 @@ func TestTitleVerificationIsSavedBeforeSameTaskArchive(t *testing.T) {
 	previous.StateStartedAt = now.Add(-15 * 24 * time.Hour)
 	committed.Tasks[task.TaskID] = previous
 	runner, deps := testRunner(t, now, []codex.Task{task}, committed)
-	oldActivity := now.Add(-15 * 24 * time.Hour).Unix()
-	deps.client.latest[task.TaskID] = appserver.RecentEvidence{ThreadStatus: appserver.ThreadStatus{Type: "idle"}, RecencyAt: &oldActivity, Latest: &appserver.EvidenceTurn{ID: "turn", Status: "completed", AgentMessage: "🧵🐻 complete"}}
-	events := []string{}
-	deps.index.events = &events
-	deps.client.events = &events
-	deps.store.events = &events
-
+	old := now.Add(-15 * 24 * time.Hour).Unix()
+	deps.client.latest[task.TaskID] = appserver.RecentEvidence{ThreadStatus: appserver.ThreadStatus{Type: "idle"}, RecencyAt: &old, Latest: &appserver.EvidenceTurn{ID: "turn", Status: "completed", AgentMessage: "🧵🐻 complete"}}
 	if _, err := runner.Run(context.Background(), false); err != nil {
 		t.Fatal(err)
 	}
-	joined := strings.Join(events, "|")
-	ordered := []string{
-		"inventory",
-		"save:title=prepared,archive=prepared",
-		"inventory",
-		"save:title=applying,archive=prepared",
-		"set_title",
-		"save:title=applied,archive=prepared",
-		"inventory",
-		"save:title=verified,archive=prepared",
-		"inventory",
-		"archive",
-	}
-	position := 0
-	for _, event := range ordered {
-		next := strings.Index(joined[position:], event)
-		if next < 0 {
-			t.Fatalf("events=%v missing ordered %q", events, event)
-		}
-		position += next + len(event)
+	stored, _ := deps.store.store.LoadState()
+	if stored.PendingTitlePlans[task.TaskID].DesiredTitle != "✅ Subject" || len(deps.client.archives) != 0 {
+		t.Fatalf("state=%+v archives=%v", stored, deps.client.archives)
 	}
 }
 
@@ -2450,23 +2213,20 @@ func TestCrashApplyingSameTitleRefreshRetriesSetter(t *testing.T) {
 	committed.BootstrapComplete = true
 	committed.LastUpdateCheck = timePointer(now)
 	committed.Tasks[task.TaskID] = record(task, state.StatusComplete, now)
-	plan := migratedPlan(task, task.Title)
-	committed.PendingTitlePlans[task.TaskID] = plan
 	runner, deps := testRunner(t, now, []codex.Task{task}, committed)
-	cycle := state.NewCycle("cycle-applying-refresh", committed.Generation, now)
+	cycle := state.NewCycle("cycle", committed.Generation, now)
 	cycle.Inventory[task.TaskID] = state.CapturedTask{TaskID: task.TaskID, Revision: task.Revision, Title: task.Title, LastSubstantiveActivity: now}
 	cycle.Results[task.TaskID] = state.ClassificationResult{TaskID: task.TaskID, Revision: task.Revision, Status: state.StatusComplete, Provenance: state.ProvenanceFooter, DurableSubject: "Subject"}
 	cycle.Operations["title:"+task.TaskID] = state.CycleOperation{Kind: state.OperationTitle, Stage: state.StageApplying, TaskID: task.TaskID, ExpectedRevision: task.Revision, ExpectedTitle: task.Title, DesiredTitle: task.Title, DurableSubject: "Subject", ForceWrite: true}
 	if err := deps.store.store.SaveCycle(cycle); err != nil {
 		t.Fatal(err)
 	}
-
 	if _, err := runner.Run(context.Background(), false); err != nil {
 		t.Fatal(err)
 	}
 	stored, _ := deps.store.store.LoadState()
-	if len(deps.client.titles) != 1 || len(stored.PendingTitlePlans) != 0 {
-		t.Fatalf("titles=%v state=%+v", deps.client.titles, stored)
+	if stored.PendingTitlePlans[task.TaskID].DesiredTitle != task.Title || len(deps.client.titles) != 0 {
+		t.Fatalf("state=%+v", stored)
 	}
 }
 
@@ -2493,5 +2253,61 @@ func TestCrashAppliedTitleRecoversWithoutRepeatingSetter(t *testing.T) {
 	stored, _ := deps.store.store.LoadState()
 	if len(deps.client.titles) != 0 || stored.Tasks[current.TaskID].CapturedRevision != current.Revision || stored.Tasks[current.TaskID].CapturedTitle != current.Title {
 		t.Fatalf("titles=%v state=%+v", deps.client.titles, stored.Tasks[current.TaskID])
+	}
+}
+
+func TestSourceNativePlanSettlesOnlyWhenPersistedFooterMatches(t *testing.T) {
+	now := time.Date(2026, 8, 3, 12, 0, 0, 0, time.UTC)
+	expected := codex.Task{TaskID: "control", Revision: "1", Title: "✅ Control task", Source: "vscode"}
+	current := codex.Task{TaskID: "control", Revision: "2", Title: "🙋 Control task → choose the release region", Source: "vscode"}
+	committed := state.New()
+	committed.BootstrapComplete = true
+	committed.LastUpdateCheck = timePointer(now)
+	committed.Tasks[expected.TaskID] = record(expected, state.StatusComplete, now)
+	plan := state.PendingTitlePlan{
+		OperationID: state.TitleOperationID(expected.TaskID, expected.Revision, expected.Title, current.Title),
+		TaskID:      expected.TaskID, ExpectedRevision: expected.Revision, ExpectedTitle: expected.Title, DesiredTitle: current.Title,
+		DurableSubject: "Control task", ManagedAction: "choose the release region", NativeOutcome: state.NativeTitleSucceeded,
+		ExpectedFooter: "🧵🐻 needs input (you): choose the release region",
+	}
+	reported := now.Add(-time.Second)
+	plan.NativeReportedAt = &reported
+	plan.CanonicalCheckedAt = &reported
+	committed.PendingTitlePlans[expected.TaskID] = plan
+	runner, deps := testRunner(t, now, []codex.Task{current}, committed)
+	deps.store.configOverride = func() *config.Config { cfg := config.Default(expected.TaskID); return &cfg }()
+	deps.client.latest[current.TaskID] = completedEvidence(now, "choose", "🧵🐻 needs input (you): choose the release region")
+	if _, err := runner.Run(context.Background(), false); err != nil {
+		t.Fatal(err)
+	}
+	stored, _ := deps.store.store.LoadState()
+	if len(stored.PendingTitlePlans) != 0 || stored.Tasks[current.TaskID].LastAppliedTitle != current.Title || stored.Tasks[current.TaskID].Status != state.StatusNeedsInput {
+		t.Fatalf("state=%+v", stored)
+	}
+}
+
+func TestSourceNativePlanRecomputesWhenPersistedFooterDiffers(t *testing.T) {
+	now := time.Date(2026, 8, 3, 12, 30, 0, 0, time.UTC)
+	expected := codex.Task{TaskID: "control", Revision: "1", Title: "✅ Control task", Source: "vscode"}
+	current := codex.Task{TaskID: "control", Revision: "2", Title: "🙋 Control task → choose the release region", Source: "vscode"}
+	committed := state.New()
+	committed.BootstrapComplete = true
+	committed.LastUpdateCheck = timePointer(now)
+	committed.Tasks[expected.TaskID] = record(expected, state.StatusComplete, now)
+	plan := state.PendingTitlePlan{OperationID: state.TitleOperationID(expected.TaskID, expected.Revision, expected.Title, current.Title), TaskID: expected.TaskID, ExpectedRevision: expected.Revision, ExpectedTitle: expected.Title, DesiredTitle: current.Title, DurableSubject: "Control task", ManagedAction: "choose the release region", NativeOutcome: state.NativeTitleSucceeded, ExpectedFooter: "🧵🐻 needs input (you): choose the release region"}
+	reported := now.Add(-time.Second)
+	plan.NativeReportedAt = &reported
+	plan.CanonicalCheckedAt = &reported
+	committed.PendingTitlePlans[expected.TaskID] = plan
+	runner, deps := testRunner(t, now, []codex.Task{current}, committed)
+	deps.store.configOverride = func() *config.Config { cfg := config.Default(expected.TaskID); return &cfg }()
+	deps.client.latest[current.TaskID] = completedEvidence(now, "done", "🧵🐻 complete")
+	if _, err := runner.Run(context.Background(), false); err != nil {
+		t.Fatal(err)
+	}
+	stored, _ := deps.store.store.LoadState()
+	replacement := stored.PendingTitlePlans[current.TaskID]
+	if replacement.ExpectedFooter != "" || replacement.DesiredTitle != "✅ Control task" || replacement.NativeOutcome != state.NativeTitlePending {
+		t.Fatalf("replacement=%+v", replacement)
 	}
 }

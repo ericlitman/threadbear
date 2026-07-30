@@ -7,8 +7,8 @@ ThreadBear is a single pure-Go macOS binary run by a user LaunchAgent. Its desig
 - **Heartbeat runner:** inventories every managed unarchived Codex Desktop task, excluding the control task.
 - **Deterministic resolver:** applies runtime, structured-error, automation, interruption, and valid footer evidence in precedence order.
 - **Ephemeral classifier:** sends only unresolved changed tasks to one isolated App Server per heartbeat using the configured model and effort (Luna medium by default). Its private temporary home contains only a regular `auth.json` copy plus files Codex creates there; every capacity-sized batch shares that process, and sessions never append to the control task.
-- **Mutation layer:** performs revision/title-guarded App Server title writes and safe archives through the same crash-recoverable checkpoint journal.
-- **State store:** atomically records the last completed snapshot, task classifications, archive records, retries, update checks, and delivered notice versions. Schema-v2 pending title plans are decoded only for one-time migration into ordinary checkpoint operations.
+- **Mutation layer:** stages revision/title-guarded title operations for the opted-in retained source task, accepts aggregate native outcomes, verifies canonical persistence separately, and performs safe archives through the same crash-recoverable journal.
+- **State store:** atomically records the last completed snapshot, task classifications, pending native title operations, canonical-verification outcomes, archive records, retries, update checks, and delivered notice versions.
 - **Control task:** one persistent task titled `🧵🐻 ThreadBear 🐻🧵` used for actionable notices, not classifier history.
 
 ## Heartbeat flow
@@ -18,7 +18,7 @@ ThreadBear is a single pure-Go macOS binary run by a user LaunchAgent. Its desig
 3. If nothing changed and no update check or version-drift work is due, exit without starting App Server, invoking a classifier, mutating state, or writing output.
 4. Resolve changed tasks from deterministic evidence and read only the new rollout tail needed for the cumulative output-token figure. Mechanically settled tasks never reach Luna.
 5. After deterministic resolution, create one private minimal-auth classifier App Server only when unresolved work remains. Pack latest turns into context-safe ephemeral calls on that shared process; previous evidence is read through the ordinary real-home App Server only for tasks that request it.
-6. Revalidate title and archive operations before direct mutation. A title is journaled applying, written with `thread/name/set`, journaled applied, verified by inventory, journaled verified, and only then may the same task be archived.
+6. Revalidate title operations, persist them in the native outbox, and commit classification without using detached `thread/name/set`. The retained control task revalidates each operation immediately before its native setter, reports aggregate operation IDs, and ThreadBear verifies canonical persistence before same-task archive.
 7. Commit successful siblings and the captured snapshot atomically. Failed operations retain conservative state and bounded retry metadata.
 8. When due, compare release metadata. With auto-update enabled, install a newer release through the verified replacement path; with it disabled, retain the once-daily notice-only behavior. After any version change, the new binary reconciles managed guidance and stages one changelog-backed control-task announcement.
 
@@ -34,7 +34,7 @@ EMOJI durable subject → concise next action
 
 The action is omitted when none is warranted. The optional token display uses cumulative output tokens from the last rollout `token_count` event and renders a two-significant-figure magnitude at the start or labeled end of the managed title. ThreadBear caches the rollout path and last-read offset/size, so an unchanged rollout is not read again.
 
-ThreadBear strips existing canonical status prefixes, preserves user-edited subjects, and records its last applied title plus the exact token segment it owns. It can update or remove its prefix, token figure, and action without consuming user ownership. Verified App Server persistence updates exact ThreadBear ownership in the committed snapshot. Desktop rendering remains outside the persistence contract and is never manipulated through private caches or UI automation.
+ThreadBear strips existing canonical status prefixes, preserves user-edited subjects, and records its last applied title plus the exact token segment it owns. It can update or remove its prefix, token figure, and action without consuming user ownership. A native-success report and canonical inventory verification are separate required boundaries before ThreadBear commits exact title ownership. Rendered convergence uses only the capability-detected host-native setter in the retained control task; ThreadBear never edits private caches or drives the UI.
 
 Only `complete` tasks can be auto-archived. Running, blocked, needs-input, automation, next-steps, and unknown tasks remain active regardless of age. A manual unarchive or `~/.local/bin/threadbear restore TASK_ID` starts a new inactivity grace period.
 
