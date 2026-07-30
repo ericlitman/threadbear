@@ -42,11 +42,61 @@ After ThreadBear updates itself, the next heartbeat posts one control-thread ann
 
 ## Native title handoff
 
-Before the retained native batch, stage the exact actual footer that will end the response with the separate dynamic command `~/.local/bin/threadbear title-plan --json --stage`. Inspect its JSON because exit zero alone is insufficient: require `ready=true`, and retry only typed `heartbeat_active` or `heartbeat_cycle_active` results until ready. The stage result never contains an operation ID. Only then invoke the tested fixed raw-V8 cell once as a top-level `functions.exec`. The cell keeps batch retry inside that same raw cell, uses nested `tools.exec_command` and `sleep 1`, revalidates every batch operation through `--operation OP_ID` immediately before `tools.codex_app__set_thread_title`, and reports monotonic outcomes. Every nested command must have `exit_code === 0` before JSON parsing.
+Before the retained native batch, stage the fixed retry footer `🧵🐻 next steps (agent): retry the first title handoff` with the separate dynamic command `~/.local/bin/threadbear title-plan --json --stage`. This safety footer remains truthful if the bounded handoff cannot finish. Inspect the stage JSON because exit zero alone is insufficient: require `ready=true`, and retry only typed `heartbeat_active` or `heartbeat_cycle_active` results once per second for at most 120 attempts. The stage result never contains an operation ID. Only then invoke the tested fixed raw-V8 cell below once as a top-level `functions.exec`. The cell drains the first guarded batch, kickstarts exactly one immediate LaunchAgent continuation only when the batch carries `continuation_due=true`, gives it one shared five-minute elapsed-time and 300-attempt budget, drains all remaining guarded plans, and stages plus drains `🧵🐻 complete` only after the core handoff succeeds. Whenever the final result is incomplete, it restages and drains the retry footer. Every operation is revalidated immediately before the native setter, and every nested command must have `exit_code === 0` before JSON parsing.
 
-If the top-level raw cell yields, use only `functions.wait` on that same cell until terminal output. After terminal output, use no more tools or commentary. Show only aggregate accepted, canonically verified, failed, drifted, and rejected counts; never expose task IDs, titles, revisions, operation IDs, manifests, or report payloads.
+```js
+// @exec: {"yield_time_ms": 120000, "max_output_tokens": 1000}
+const counts = {accepted: 0, canonically_verified: 0, failed: 0, timed_out: 0, drifted: 0, rejected: 0}; let waitsRemaining = 300; const deadlineAt = Date.now() + 300000; const command = async (cmd) => { const result = await tools.exec_command({cmd}); if (!result || result.exit_code !== 0) throw {kind: "command_failed"}; return result; }; const commandJSON = async (cmd) => { const result = await command(cmd); if (typeof result.output !== "string") throw {kind: "command_failed"}; return JSON.parse(result.output); };
+const readyJSON = async (cmd, waitForContinuation = false) => { for (;;) {
+  const value = await commandJSON(cmd);
+  if (value.ready && (!value.continuation_due || !waitForContinuation)) return value;
+  if (!value.ready && (!value.retryable || !["heartbeat_active", "heartbeat_cycle_active"].includes(value.error_code))) throw {kind: "not_ready"};
+  if (waitsRemaining-- <= 0 || Date.now() >= deadlineAt) { counts.timed_out++; throw {kind: "timed_out"}; }
+  await command("sleep 1");
+} };
+const quote = (value) => "'" + value.replaceAll("'", "'\\''") + "'";
+const batchCommand = "~/.local/bin/threadbear title-plan --json --batch", stageFooter = (footer) => readyJSON("printf %s " + quote(footer) + " | ~/.local/bin/threadbear title-plan --json --stage");
+const drain = async (batch) => { let complete = true;
+  for (const operationID of batch.operation_ids || []) try {
+    const operation = await readyJSON("~/.local/bin/threadbear title-plan --json --operation " + quote(operationID));
+    if (operation.disposition === "drifted") { counts.drifted++; complete = false; continue; }
+    if (operation.disposition !== "ready" || !["set", "report_success"].includes(operation.action)) { counts.rejected++; complete = false; continue; }
+    let outcome = "succeeded", errorCode = "";
+    if (operation.action === "set") try { await tools.codex_app__set_thread_title({threadId: operation.task_id, title: operation.desired_title}); }
+    catch { outcome = "failed"; errorCode = "native_setter_failed"; counts.failed++; complete = false; }
+    const payload = {reports: [{operation_id: operationID, outcome, ...(errorCode && {error_code: errorCode})}]};
+    const report = await readyJSON("printf %s " + quote(JSON.stringify(payload)) + " | ~/.local/bin/threadbear title-plan --json --report");
+    counts.accepted += report.accepted || 0;
+    if (outcome === "succeeded") counts.canonically_verified += report.accepted || 0;
+  } catch (error) { if (error?.kind !== "timed_out") counts.failed++; complete = false; }
+  return complete;
+};
+let coreComplete = false, complete = false;
+try {
+  const first = await readyJSON(batchCommand);
+  if (await drain(first)) {
+    let remaining = first.continuation_due ? first : await readyJSON(batchCommand);
+    if (remaining.continuation_due) {
+      await command('launchctl kickstart "gui/$(id -u)/org.litman.threadbear"');
+      remaining = await readyJSON(batchCommand, true);
+    }
+    coreComplete = await drain(remaining);
+  }
+} catch (error) { if (error?.kind !== "timed_out") counts.failed++; }
+if (coreComplete) try {
+  await stageFooter("🧵🐻 complete");
+  complete = await drain(await readyJSON(batchCommand));
+} catch (error) { if (error?.kind !== "timed_out") counts.failed++; }
+if (!complete) try {
+  await stageFooter("🧵🐻 next steps (agent): retry the first title handoff");
+  await drain(await readyJSON(batchCommand));
+} catch (error) { if (error?.kind !== "timed_out") counts.failed++; }
+text(JSON.stringify({...counts, complete}));
+```
 
-A successful retained response ends with the exact staged footer and no later text. Preserve footer semantics: stage `🧵🐻 complete` only for a genuinely complete result, and otherwise stage the exact canonical footer matching the actual disposition.
+If the top-level raw cell yields, use only `functions.wait` on that same cell until terminal output. After terminal output, use no more tools or commentary. Show only aggregate accepted, canonically verified, failed, drifted, and rejected counts, plus the timed-out count and the `complete` boolean; never expose task IDs, titles, revisions, operation IDs, manifests, or report payloads.
+
+When the raw cell reports `complete=true`, end the retained response with `🧵🐻 complete`. Otherwise end it with `🧵🐻 next steps (agent): retry the first title handoff`. The cell has already staged and drained the matching footer; write no later text.
 
 Never edit ThreadBear state files, `.codex-global-state.json`, Codex Desktop private caches, task databases, AGENTS.md managed markers, skill managed markers, or LaunchAgent files directly. Do not click through Desktop, force sidebar refreshes, invent rollback state, or wake a model merely to inspect ThreadBear status.
 
@@ -54,7 +104,7 @@ Describe the control task title by its current status, never as a permanently fi
 
 ## Runtime roles
 
-The persistent ThreadBear control task remains the user-facing master for help, configuration, install, update, uninstall, notices, user decisions, and exceptional recovery. Routine heartbeat classification uses fresh ephemeral App Server sessions. During retained handoff it stages guarded title plans for exact native control-task replay while archives remain direct and conservative; never route classification into the control task history.
+The persistent ThreadBear control task remains the user-facing master for help, configuration, install, update, uninstall, notices, user decisions, and exceptional recovery. Routine heartbeat classification uses fresh ephemeral App Server sessions. Native title plans exist only for the bounded install/reconcile handoff; ordinary later heartbeats use direct App Server title writes. During retained handoff, archives remain direct and conservative; never route classification into the control task history. The native setter has no compare-and-set operation, so an external rename between operation revalidation and the setter remains a narrow non-atomic interval; the report fails closed unless the desired title is visible.
 
 When managed global guidance is enabled, terminal responses use one concrete footer line:
 

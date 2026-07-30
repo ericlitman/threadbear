@@ -52,19 +52,20 @@ const (
 )
 
 type TitlePlanResult struct {
-	Version      int      `json:"version"`
-	Ready        bool     `json:"ready"`
-	Retryable    bool     `json:"retryable"`
-	ErrorCode    string   `json:"error_code,omitempty"`
-	OperationIDs []string `json:"operation_ids,omitempty"`
-	OperationID  string   `json:"operation_id,omitempty"`
-	Disposition  string   `json:"disposition,omitempty"`
-	Action       string   `json:"action,omitempty"`
-	TaskID       string   `json:"task_id,omitempty"`
-	DesiredTitle string   `json:"desired_title,omitempty"`
-	Accepted     int      `json:"accepted,omitempty"`
-	Unchanged    int      `json:"unchanged,omitempty"`
-	mode         titlePlanMode
+	Version         int      `json:"version"`
+	Ready           bool     `json:"ready"`
+	Retryable       bool     `json:"retryable"`
+	ErrorCode       string   `json:"error_code,omitempty"`
+	ContinuationDue bool     `json:"continuation_due,omitempty"`
+	OperationIDs    []string `json:"operation_ids,omitempty"`
+	OperationID     string   `json:"operation_id,omitempty"`
+	Disposition     string   `json:"disposition,omitempty"`
+	Action          string   `json:"action,omitempty"`
+	TaskID          string   `json:"task_id,omitempty"`
+	DesiredTitle    string   `json:"desired_title,omitempty"`
+	Accepted        int      `json:"accepted,omitempty"`
+	Unchanged       int      `json:"unchanged,omitempty"`
+	mode            titlePlanMode
 }
 
 func NewTitlePlanStageResult(ready bool, code string) TitlePlanResult {
