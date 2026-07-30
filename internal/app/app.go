@@ -8,6 +8,7 @@ import (
 
 	"github.com/ericlitman/threadbear/internal/config"
 	"github.com/ericlitman/threadbear/internal/output"
+	"github.com/ericlitman/threadbear/internal/titleplan"
 	"github.com/ericlitman/threadbear/internal/tokens"
 )
 
@@ -84,7 +85,7 @@ type Request struct {
 	ArchiveControlTask bool
 	Version            string
 	TaskID             string
-	TitlePlanDispatch  bool
+	TitlePlan          titleplan.Request
 	ControlTaskID      string
 	Configure          ConfigPatch
 }
@@ -153,10 +154,19 @@ func (r Request) Validate() error {
 		return fmt.Errorf("%w: %s does not accept a task ID", ErrInvalidRequest, r.Command)
 	}
 	if r.Command == CommandTitlePlan {
-		if !r.JSON || !r.TitlePlanDispatch {
-			return fmt.Errorf("%w: title-plan compatibility requires --json --dispatch", ErrInvalidRequest)
+		if strings.TrimSpace(r.TitlePlan.OperationID) != r.TitlePlan.OperationID {
+			return fmt.Errorf("%w: title-plan operation ID must not contain surrounding whitespace", ErrInvalidRequest)
 		}
-	} else if r.TitlePlanDispatch {
+		modes := 0
+		for _, selected := range []bool{r.TitlePlan.Retired, r.TitlePlan.Stage, r.TitlePlan.Batch, r.TitlePlan.OperationID != "", r.TitlePlan.Report} {
+			if selected {
+				modes++
+			}
+		}
+		if !r.JSON || modes != 1 {
+			return fmt.Errorf("%w: title-plan compatibility requires --json and exactly one mode", ErrInvalidRequest)
+		}
+	} else if r.TitlePlan.Retired || r.TitlePlan.Stage || r.TitlePlan.Batch || r.TitlePlan.OperationID != "" || r.TitlePlan.Report {
 		return fmt.Errorf("%w: title-plan flags are title-plan-only", ErrInvalidRequest)
 	}
 	if strings.TrimSpace(r.ControlTaskID) != r.ControlTaskID {

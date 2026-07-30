@@ -35,23 +35,33 @@ func TestCodexInstallGuideCarriesConversationContract(t *testing.T) {
 	}
 }
 
-func TestCodexInstallGuideUsesDirectAppServerTitleWrites(t *testing.T) {
+func TestCodexInstallGuideUsesRetainedNativeTitleHandoff(t *testing.T) {
 	guide := readInstallGuide(t)
 	published, err := os.ReadFile("../../site/install")
+	if err != nil || guide != string(published) {
+		t.Fatalf("published guide mismatch: %v", err)
+	}
+	script, err := os.ReadFile("../../scripts/replay-title-batch.mjs")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if guide != string(published) {
-		t.Fatal("INSTALL.md and site/install differ")
+	body, prefix := string(script), "const RAW_CELL = String.raw`"
+	start, end := strings.Index(body, prefix), strings.Index(body, "`;\nconst runCell")
+	if start < 0 || end <= start {
+		t.Fatal("replay harness does not expose the raw cell")
 	}
-	for _, required := range []string{"persistent title, archive, and unarchive methods", "journaled as applying and applied", "verified through a fresh inventory read", "only then followed by any same-task archive", "persistent control task remains reserved"} {
+	cell := body[start+len(prefix) : end]
+	for _, required := range []string{"background heartbeat performs no App Server\ntitle writes", "title-plan --json --stage", "title-plan --json --batch", "title-plan --json --operation", "title-plan --json --report", "exit zero\nalone is not readiness", "Continue only when `ready=true`", "stage result is non-sensitive and never contains an operation ID", "keeps batch retry inside that same raw cell", "tools.codex_app__set_thread_title", "accepted, canonically verified, failed, drifted, and rejected counts only", cell} {
 		if !strings.Contains(guide, required) {
-			t.Fatalf("INSTALL.md missing direct title contract %q", required)
+			t.Fatalf("INSTALL.md missing native title contract %q", required)
 		}
 	}
-	for _, forbidden := range []string{"title-plan --json --batch", "title-plan --json --report", "Child actuator phase", "codex_app__create_thread"} {
-		if strings.Contains(guide, forbidden) {
-			t.Fatalf("INSTALL.md contains retired actuator surface %q", forbidden)
+	if !strings.HasPrefix(cell, `// @exec: {"yield_time_ms": 120000, "max_output_tokens": 1000}`) || strings.Index(cell, `JSON.parse(result.output)`) <= strings.Index(cell, `result.exit_code !== 0`) {
+		t.Fatal("replay cell lacks execution envelope or exit-before-JSON ordering")
+	}
+	for index, forbidden := range []string{"Child actuator phase", "codex_app__create_thread", "performs managed title writes directly through the pinned App Server", "functions.exec", "call.wait", "setTimeout", "process", "console."} {
+		if strings.Contains(cell, forbidden) || index < 3 && strings.Contains(guide, forbidden) {
+			t.Fatalf("retired or unsupported title contract %q", forbidden)
 		}
 	}
 }
@@ -333,14 +343,14 @@ func TestCodexInstallGuideDisclosesFirstInstallRenameAndPin(t *testing.T) {
 	}
 
 	firstClose := normalizeGuideText(guide[firstCloseStart:refreshCloseStart])
-	pinnedOutcome := "This task is now ThreadBear’s home, named `🧵🐻 ThreadBear 🐻🧵` and pinned."
+	pinnedOutcome := "This task is now ThreadBear’s pinned home, and its title reflects its current complete status."
 	if got := strings.Count(firstClose, pinnedOutcome); got != 2 {
 		t.Fatalf("first-install completion has %d pinned outcomes, want one in each archive variant", got)
 	}
 	for _, want := range []string{
 		"The pinned sentence in those first-install variants assumes supported pinning.",
 		"When automatic pinning is unavailable, replace that entire sentence",
-		"This task is now ThreadBear’s home and is named `🧵🐻 ThreadBear 🐻🧵`, but Codex did not offer automatic pinning; you can pin it from the task menu.",
+		"This task is now ThreadBear’s home and its title reflects its current complete status, but Codex did not offer automatic pinning; you can pin it from the task menu.",
 	} {
 		if !strings.Contains(firstClose, want) {
 			t.Fatalf("INSTALL.md first-install close omits pin outcome handling %q", want)
@@ -962,7 +972,7 @@ func TestCodexInstallGuideHasDistinctWarmFailureResponses(t *testing.T) {
 				"task-home adoption, rename, pin",
 				"a posted welcome note",
 				"Do not compress those outcomes into “your settings are in place.”",
-				"The install itself finished: ThreadBear is in place, this task is now its home, named `🧵🐻 ThreadBear 🐻🧵` and pinned, and your settings are in place",
+				"The install itself finished: ThreadBear is in place, this task is now its pinned home, and your settings are in place",
 				"The welcome note above records those choices",
 				"I’m checking why the background check did not start now.",
 				"You don’t need to",

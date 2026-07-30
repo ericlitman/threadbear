@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -20,6 +21,7 @@ import (
 	"github.com/ericlitman/threadbear/internal/output"
 	"github.com/ericlitman/threadbear/internal/state"
 	"github.com/ericlitman/threadbear/internal/status"
+	"github.com/ericlitman/threadbear/internal/titleplan"
 	"github.com/ericlitman/threadbear/internal/tokens"
 	updatepkg "github.com/ericlitman/threadbear/internal/update"
 )
@@ -35,7 +37,7 @@ type fakeIndex struct {
 	events *[]string
 }
 
-func (f *fakeIndex) Inventory(context.Context, string) (codex.Inventory, error) {
+func (f *fakeIndex) Inventory(_ context.Context, controlTaskID string) (codex.Inventory, error) {
 	f.calls++
 	if f.events != nil {
 		*f.events = append(*f.events, "inventory")
@@ -43,7 +45,21 @@ func (f *fakeIndex) Inventory(context.Context, string) (codex.Inventory, error) 
 	if f.hook != nil {
 		f.hook(f.calls, f)
 	}
-	return codex.Inventory{Tasks: append([]codex.Task{}, f.tasks...)}, nil
+	tasks := make([]codex.Task, 0, len(f.tasks))
+	for _, task := range f.tasks {
+		if task.TaskID != controlTaskID {
+			tasks = append(tasks, task)
+		}
+	}
+	return codex.Inventory{Tasks: tasks}, nil
+}
+
+func (f *fakeIndex) Task(_ context.Context, controlTaskID, taskID string) (codex.Task, bool, error) {
+	if controlTaskID == "" {
+		return codex.Task{}, false, errors.New("control task is required")
+	}
+	task, found := f.task(taskID)
+	return task, found, nil
 }
 
 func (f *fakeIndex) task(taskID string) (codex.Task, bool) {
@@ -69,6 +85,8 @@ func (f *fakeIndex) remove(taskID string) {
 }
 
 type fakeClient struct {
+	mu                     sync.Mutex
+	readHook               func()
 	index                  *fakeIndex
 	latest                 map[string]appserver.RecentEvidence
 	previous               map[string]*appserver.EvidenceTurn
@@ -86,8 +104,13 @@ type fakeClient struct {
 }
 
 func (f *fakeClient) ReadLatestTurn(_ context.Context, taskID, _ string) (appserver.RecentEvidence, error) {
+	if f.readHook != nil {
+		f.readHook()
+	}
+	f.mu.Lock()
 	f.latestReads = append(f.latestReads, taskID)
 	value, ok := f.latest[taskID]
+	f.mu.Unlock()
 	if !ok && taskID == "control" {
 		return appserver.RecentEvidence{}, nil
 	}
@@ -309,17 +332,26 @@ func (f *fakeManagedSurfaces) Repair(agentsEnabled bool) ([]string, error) {
 }
 
 type fakeTokenReader struct {
+	mu        sync.Mutex
+	readHook  func()
 	calls     []string
 	snapshots map[string]tokens.Snapshot
 	errs      map[string]error
 }
 
 func (f *fakeTokenReader) ReadRollout(path string, _ tokens.Snapshot) (tokens.Snapshot, error) {
+	if f.readHook != nil {
+		f.readHook()
+	}
+	f.mu.Lock()
 	f.calls = append(f.calls, path)
-	if err := f.errs[path]; err != nil {
+	err := f.errs[path]
+	snapshot := f.snapshots[path]
+	f.mu.Unlock()
+	if err != nil {
 		return tokens.Snapshot{}, err
 	}
-	return f.snapshots[path], nil
+	return snapshot, nil
 }
 
 type wrappedStore struct {
@@ -1726,15 +1758,18 @@ func TestVersionAdoptionReconcileAndAnnouncement(t *testing.T) {
 		if _, err := runner.Run(context.Background(), false); err != nil {
 			t.Fatal(err)
 		}
+		if _, err := runner.Run(context.Background(), false); err != nil {
+			t.Fatal(err)
+		}
 		want := "🧵🐻 I gave myself a quick brush-up: v1.1.0 → v1.2.0!\n- Safer updates\n- Fresher skill text\n- Quieter checks\nPrefer to update by hand? threadbear configure --auto-update=false"
 		stored, _ = deps.store.store.LoadState()
-		if stored.LastAnnouncedVersion != "1.2.0" || stored.LastReconciledVersion != "1.2.0" || !reflect.DeepEqual(deps.client.notices, []string{want}) || deps.managed.calls != 1 || strings.Contains(want, "is ready") {
+		if stored.LastAnnouncedVersion != "1.2.0" || stored.LastReconciledVersion != "1.2.0" || !reflect.DeepEqual(deps.client.notices, []string{want}) || deps.managed.calls != 2 || strings.Contains(want, "is ready") {
 			t.Fatalf("state=%+v notices=%q reconciles=%d", stored, deps.client.notices, deps.managed.calls)
 		}
 		if _, err := runner.Run(context.Background(), false); err != nil {
 			t.Fatal(err)
 		}
-		if len(deps.client.notices) != 1 || deps.managed.calls != 2 {
+		if len(deps.client.notices) != 1 || deps.managed.calls != 3 {
 			t.Fatalf("duplicate notices=%v reconciles=%d", deps.client.notices, deps.managed.calls)
 		}
 	})
@@ -1754,6 +1789,9 @@ func TestAnnouncementRecoveryAndReconcileRetry(t *testing.T) {
 		runner.deps.InstalledVersion = "1.2.0"
 		runner.deps.ReleaseNotes = func() []string { return []string{"Bullet one"} }
 		deps.client.failNotice = true
+		if _, err := runner.Run(context.Background(), false); err != nil {
+			t.Fatal(err)
+		}
 		if _, err := runner.Run(context.Background(), false); err == nil {
 			t.Fatal("announcement insertion did not report ambiguity")
 		}
@@ -1787,15 +1825,18 @@ func TestAnnouncementRecoveryAndReconcileRetry(t *testing.T) {
 			t.Fatal(err)
 		}
 		stored, _ = deps.store.store.LoadState()
-		if stored.LastAnnouncedVersion != "1.2.0" || stored.LastReconciledVersion != "1.1.0" || stored.LastReconcileFailure == nil || len(deps.client.notices) != 1 {
+		if stored.LastAnnouncedVersion != "1.1.0" || stored.LastReconciledVersion != "1.1.0" || stored.LastReconcileFailure == nil || len(deps.client.notices) != 0 {
 			t.Fatalf("state=%+v notices=%v", stored, deps.client.notices)
 		}
 		deps.managed.err = nil
 		if _, err := runner.Run(context.Background(), false); err != nil {
 			t.Fatal(err)
 		}
+		if _, err := runner.Run(context.Background(), false); err != nil {
+			t.Fatal(err)
+		}
 		stored, _ = deps.store.store.LoadState()
-		if stored.LastReconciledVersion != "1.2.0" || stored.LastReconcileFailure != nil || deps.managed.calls != 2 || len(deps.client.notices) != 1 {
+		if stored.LastAnnouncedVersion != "1.2.0" || stored.LastReconciledVersion != "1.2.0" || stored.LastReconcileFailure != nil || deps.managed.calls != 3 || len(deps.client.notices) != 1 {
 			t.Fatalf("state=%+v reconciles=%d notices=%v", stored, deps.managed.calls, deps.client.notices)
 		}
 	})
@@ -2493,5 +2534,153 @@ func TestCrashAppliedTitleRecoversWithoutRepeatingSetter(t *testing.T) {
 	stored, _ := deps.store.store.LoadState()
 	if len(deps.client.titles) != 0 || stored.Tasks[current.TaskID].CapturedRevision != current.Revision || stored.Tasks[current.TaskID].CapturedTitle != current.Title {
 		t.Fatalf("titles=%v state=%+v", deps.client.titles, stored.Tasks[current.TaskID])
+	}
+}
+
+func runHeartbeat(t *testing.T, runner *Runner) {
+	t.Helper()
+	if _, err := runner.Run(context.Background(), false); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func settlePlan(t *testing.T, deps *testDeps, now time.Time, plan state.PendingTitlePlan) {
+	t.Helper()
+	service := func(input string, request titleplan.Request) output.TitlePlanResult {
+		result, err := (titleplan.Service{Store: deps.store, Inventory: deps.index, Input: bytes.NewBufferString(input), ThreadID: func() string { return "control" }, Now: func() time.Time { return now }}).Dispatch(context.Background(), request)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return result.(output.TitlePlanResult)
+	}
+	operation := service("", titleplan.Request{OperationID: plan.OperationID})
+	task, _ := deps.index.task(plan.TaskID)
+	task.Title, task.Revision = operation.DesiredTitle, "2"
+	deps.index.replace(task)
+	service(`{"reports":[{"operation_id":"`+plan.OperationID+`","outcome":"succeeded"}]}`, titleplan.Request{Report: true})
+}
+
+func TestNativeTitleHandoffMixedExistingInstall(t *testing.T) {
+	now := time.Date(2026, 8, 5, 12, 0, 0, 0, time.UTC)
+	tasks := []codex.Task{{TaskID: "guided", Revision: "1", Title: "✅ Guided", Source: "vscode"}, {TaskID: "legacy", Revision: "1", Title: "Legacy", Source: "vscode"}}
+	committed := state.New()
+	committed.BootstrapComplete, committed.LastAnnouncedVersion, committed.LastReconciledVersion = true, "1.0.0", "0.9.0"
+	committed.LastUpdateCheck = timePointer(now)
+	committed.Tasks["legacy"] = record(tasks[1], state.StatusComplete, now.Add(-30*24*time.Hour))
+	runner, deps := testRunner(t, now, tasks, committed)
+	deps.client.latest["guided"] = completedEvidence(now, "finish", "done\n🧵🐻 complete")
+	deps.client.latest["legacy"] = completedEvidence(now, "continue", "ambiguous result")
+
+	runHeartbeat(t, runner)
+	first, _ := deps.store.store.LoadState()
+	guided := first.PendingTitlePlans["guided"]
+	if guided.ExpectedTitle != guided.DesiredTitle || guided.DesiredTitle != "✅ Guided" || deps.classifier.calls != 0 || len(deps.client.titles) != 0 {
+		t.Fatalf("first=%+v writes=%v", first, deps.client.titles)
+	}
+	if _, ambiguous := first.Tasks["legacy"]; ambiguous {
+		t.Fatalf("ambiguous preexisting row retained: %+v", first.Tasks)
+	}
+	settlePlan(t, &deps, now, guided)
+	runHeartbeat(t, runner)
+	second, _ := deps.store.store.LoadState()
+	legacy := second.PendingTitlePlans["legacy"]
+	if legacy.DesiredTitle != "✅ Legacy" || deps.classifier.calls != 1 || len(second.PendingTitlePlans) != 1 || len(deps.client.titles) != 0 {
+		t.Fatalf("second=%+v writes=%v", second, deps.client.titles)
+	}
+	settlePlan(t, &deps, now, legacy)
+	runHeartbeat(t, runner)
+	settled, _ := deps.store.store.LoadState()
+	if len(settled.PendingTitlePlans) != 0 || settled.Tasks["legacy"].CapturedTitle != "✅ Legacy" {
+		t.Fatalf("settled=%+v", settled)
+	}
+}
+
+func TestNativeTitleHandoffEmptyActivationPersists(t *testing.T) {
+	now := time.Date(2026, 8, 5, 12, 0, 0, 0, time.UTC)
+	committed := state.New()
+	committed.BootstrapComplete, committed.LastAnnouncedVersion, committed.LastReconciledVersion = true, "1.0.0", "0.9.0"
+	committed.LastUpdateCheck = timePointer(now)
+	committed.Tasks["control"] = record(codex.Task{TaskID: "control", Revision: "1", Title: "Control"}, state.StatusComplete, now)
+	runner, deps := testRunner(t, now, nil, committed)
+	runHeartbeat(t, runner)
+	stored, _ := deps.store.store.LoadState()
+	if stored.LastReconciledVersion != "1.0.0" || stored.Tasks["control"].TaskID == "" || stored.LastSweep == nil || stored.LastSweep.CompletedAt != nil {
+		t.Fatalf("stored=%+v", stored)
+	}
+	later := codex.Task{TaskID: "later", Revision: "1", Title: "Later", Source: "vscode"}
+	deps.index.tasks = append(deps.index.tasks, later)
+	deps.client.latest["later"] = completedEvidence(now, "done", "done\n🧵🐻 complete")
+	runHeartbeat(t, runner)
+	after, _ := deps.store.store.LoadState()
+	if after.PendingTitlePlans["later"].DesiredTitle != "✅ Later" || len(deps.client.titles) != 0 {
+		t.Fatalf("after=%+v writes=%v", after, deps.client.titles)
+	}
+}
+
+type concurrencyProbe struct {
+	started chan struct{}
+	gate    chan struct{}
+}
+
+func (p *concurrencyProbe) block() {
+	p.started <- struct{}{}
+	<-p.gate
+}
+func assertWorkerBound(t *testing.T, run func(*concurrencyProbe)) {
+	t.Helper()
+	probe := &concurrencyProbe{started: make(chan struct{}, 20), gate: make(chan struct{})}
+	done := make(chan struct{})
+	go func() { run(probe); close(done) }()
+	for range readWorkerLimit {
+		<-probe.started
+	}
+	select {
+	case <-probe.started:
+		t.Fatal("worker limit exceeded")
+	default:
+	}
+	close(probe.gate)
+	<-done
+}
+
+func TestLatestTurnReadsUseWorkerBound(t *testing.T) {
+	tasks := make([]codex.Task, 20)
+	for i := range tasks {
+		tasks[i].TaskID = fmt.Sprint(i)
+	}
+	assertWorkerBound(t, func(probe *concurrencyProbe) {
+		(&Runner{}).readLatestTurns(context.Background(), &fakeClient{readHook: probe.block, latest: map[string]appserver.RecentEvidence{}}, tasks)
+	})
+}
+
+func TestTokenTailReadsUseWorkerBound(t *testing.T) {
+	checkpoint := state.NewCycle("cycle", 0, time.Unix(1, 0))
+	for i := range 20 {
+		id := fmt.Sprint(i)
+		checkpoint.Inventory[id] = state.CapturedTask{TaskID: id, RolloutPath: id}
+		checkpoint.Results[id] = state.ClassificationResult{TaskID: id}
+	}
+	assertWorkerBound(t, func(probe *concurrencyProbe) {
+		reader := &fakeTokenReader{readHook: probe.block, snapshots: map[string]tokens.Snapshot{}, errs: map[string]error{}}
+		(&Runner{deps: Dependencies{TokenReader: reader}}).readTokenTails(config.Default("control"), state.New(), checkpoint)
+	})
+}
+
+func TestHeartbeatTargetedSettlesControlPlan(t *testing.T) {
+	now := time.Date(2026, 8, 5, 12, 0, 0, 0, time.UTC)
+	current := codex.Task{TaskID: "control", Revision: "2", Title: "✅ Control", Source: "vscode"}
+	committed := state.New()
+	committed.BootstrapComplete, committed.LastAnnouncedVersion, committed.LastReconciledVersion = true, "1.0.0", "1.0.0"
+	committed.LastUpdateCheck = timePointer(now)
+	committed.Tasks["control"] = record(codex.Task{TaskID: "control", Revision: "1", Title: "Control"}, state.StatusComplete, now)
+	plan := migratedPlan(codex.Task{TaskID: "control", Revision: "1", Title: "Control"}, current.Title)
+	plan.NativeOutcome = state.NativeTitleSucceeded
+	plan.NativeReportedAt = &now
+	committed.PendingTitlePlans["control"] = plan
+	runner, deps := testRunner(t, now, []codex.Task{current}, committed)
+	runHeartbeat(t, runner)
+	stored, _ := deps.store.store.LoadState()
+	if _, pending := stored.PendingTitlePlans["control"]; pending || stored.Tasks["control"].CapturedRevision != "2" {
+		t.Fatalf("state=%+v", stored)
 	}
 }

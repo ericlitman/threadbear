@@ -327,6 +327,28 @@ func TestInventoryIncludesEveryDesktopShape(t *testing.T) {
 	}
 }
 
+func TestTargetedTaskIncludesConfiguredControlTaskExcludedFromInventory(t *testing.T) {
+	index := openFixture(t, "state_5.sqlite")
+	task, found, err := index.Task(context.Background(), "control-123", "control-123")
+	if err != nil || !found || task.TaskID != "control-123" || task.Source != "vscode" {
+		t.Fatalf("task=%+v found=%t err=%v", task, found, err)
+	}
+	inventory, err := index.Inventory(context.Background(), "control-123")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, found := func() (Task, bool) {
+		for _, current := range inventory.Tasks {
+			if current.TaskID == "control-123" {
+				return current, true
+			}
+		}
+		return Task{}, false
+	}(); found {
+		t.Fatal("control task leaked into ordinary inventory")
+	}
+}
+
 func TestInventoryDoesNotRequirePreview(t *testing.T) {
 	index := openFixture(t, "state_5.sqlite")
 	inventory, err := index.Inventory(context.Background(), "control-123")
