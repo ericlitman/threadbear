@@ -99,6 +99,17 @@ export GOCACHE="$temporary_root/go-cache"
 export PATH="$HOME/.local/bin:$PATH"
 installed=$HOME/.local/bin/threadbear
 
+restore_classifier_mode() {
+	if [ -z "${original_classifier_mode+x}" ]; then
+		return
+	fi
+	if [ -n "$original_classifier_mode" ]; then
+		"$1" setenv THREADBEAR_CLASSIFIER_MODE "$original_classifier_mode" >/dev/null 2>&1 || true
+	else
+		"$1" unsetenv THREADBEAR_CLASSIFIER_MODE >/dev/null 2>&1 || true
+	fi
+}
+
 cleanup() {
 	chmod -R u+w "$temporary_root" 2>/dev/null || true
 	if [ -n "${THREADBEAR_REHEARSAL_DIAGNOSTICS:-}" ] && [ -f "${aggregate_file:-}" ]; then
@@ -111,9 +122,7 @@ cleanup() {
 		"$installed" uninstall --noninteractive --confirm >/dev/null 2>&1 || true
 	fi
 	/bin/launchctl bootout "$service" >/dev/null 2>&1 || true
-	if [ -n "${original_classifier_mode+x}" ]; then
-		if [ -n "$original_classifier_mode" ]; then /bin/launchctl setenv THREADBEAR_CLASSIFIER_MODE "$original_classifier_mode" >/dev/null 2>&1 || true; else /bin/launchctl unsetenv THREADBEAR_CLASSIFIER_MODE >/dev/null 2>&1 || true; fi
-	fi
+	restore_classifier_mode /bin/launchctl
 	/bin/launchctl enable "$service" >/dev/null 2>&1 || true
 	rm -rf "$temporary_root"
 }
