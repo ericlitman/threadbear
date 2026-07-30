@@ -48,10 +48,10 @@ text, identifiers, titles, paths, flags, or classifier payloads.
 | Status-guided changed work | serial | 200 | 200 | 0 | 0 / 0 | 4.855s | 20.813s | 0 / 0 | passed |
 | Status-guided changed work | bounded | 200 | 200 | 0 | 0 / 0 | 6.452s | 27.431s | 0 / 0 | passed |
 
-On exact runtime head `7d0fbc7e69dbfc442e36f84b650ec401c13ef403`, the production isolation canary passed on Codex CLI 0.146.0, macOS 26.4 arm64, in 9.77 seconds. Configured OpenKnowledge and node helper sentinels did not start, no matching descendant appeared, and the private classifier root was removed. Every cohort run also passed helper proof, cancellation recovery, row salvage, and the rate-limit gate; installed, self-tested, loaded the isolated LaunchAgent, uninstalled, and removed state successfully.
+On exact runtime head `7d0fbc7e69dbfc442e36f84b650ec401c13ef403`, before the retained Desktop title handoff, the production isolation canary passed on Codex CLI 0.146.0, macOS 26.4 arm64, in 9.77 seconds. Configured OpenKnowledge and node helper sentinels did not start, no matching descendant appeared, and the private classifier root was removed. Every cohort run also passed helper proof, cancellation recovery, row salvage, and the rate-limit gate; installed, self-tested, loaded the isolated LaunchAgent, uninstalled, and removed state successfully.
 
-Run each cohort with `THREADBEAR_FIRST_SWEEP_BENCHMARK=1`, once with `THREADBEAR_CLASSIFIER_MODE=serial` and once with
-`THREADBEAR_CLASSIFIER_MODE=bounded`. The bounded mode may become the compiled
+Those four historical cohorts used `THREADBEAR_FIRST_SWEEP_BENCHMARK=1`, once with `THREADBEAR_CLASSIFIER_MODE=serial` and once with
+`THREADBEAR_CLASSIFIER_MODE=bounded`. On the retained-handoff architecture, that flag fails fast at the deterministic boundary unless a real retained Desktop task drains the native plans; the default replica rehearsal reports `handoff=ready` and never relabels handoff latency as semantic convergence. The bounded mode may become the compiled
 default only when it lowers total convergence time with no worse first-progress
 latency, retries, rate limits, cancellation, row salvage, or restart recovery.
 Capacity-sized packing may produce one request, in which case serial execution is
