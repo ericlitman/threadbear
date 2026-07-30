@@ -14,7 +14,7 @@ func TestCodexInstallGuideCarriesConversationContract(t *testing.T) {
 		"## 1. Welcome the person",
 		"Welcome to ThreadBear 🧵🐻",
 		"show you exactly what will happen",
-		"Would you like the recommended setup, change a choice, or have me explain any",
+		"Would you like to install the recommended setup, change a choice, or have me explain any",
 		"At the start (recommended)",
 		"At the end",
 		"Hidden",
@@ -128,14 +128,17 @@ func TestCodexInstallGuideHasPriorityVisibleStateMachine(t *testing.T) {
 		"### Required visible state machine",
 		"Do not skip, reorder, or merge these states",
 		"If any required check fails, skip readiness, settings, review, and consent.",
-		"send one assistant turn containing both “This Mac and Codex are ready for ThreadBear” and the complete settings card.",
-		"Do not let a settings question, choice, or user reply appear before that card has been presented",
-		"Their card acceptance is not installation consent.",
-		"keep that first review visible",
-		"show a second complete review in a new assistant turn.",
-		"freeze a close plan from the same reviewed settings",
+		"freeze the close plan from the complete settings card, then send one assistant turn containing both “This Mac and Codex are ready for ThreadBear” and that card.",
+		"Do not let a settings question, choice, or user reply appear before the card has been presented",
+		"only a clear affirmative response to the unchanged complete recommended card is installation consent.",
+		"without showing a second review or asking again.",
+		"If they change a choice before consent",
+		"ask the friendly installation question.",
+		"keep the first review visible",
+		"show a second complete review",
+		"Keep the close plan frozen from the same complete card or reviewed settings",
 		"installation results must not switch it back to defaults.",
-		"Only a clear yes to the installation question advances to installation.",
+		"Only a clear yes to the unchanged recommended first-install card or to the installation question after changed choices or for a reinstall advances to installation.",
 		"it contains no backstage vocabulary",
 		"every suggested action would change the frozen current setting.",
 		"When official-download verification fails before mutation, copy its three-paragraph failure shape exactly and add no inventory",
@@ -146,6 +149,51 @@ func TestCodexInstallGuideHasPriorityVisibleStateMachine(t *testing.T) {
 	} {
 		if !strings.Contains(guide, want) {
 			t.Fatalf("INSTALL.md priority state machine missing %q", want)
+		}
+	}
+}
+
+func TestCodexInstallGuideInstallsUnchangedRecommendationWithoutDuplicateReview(t *testing.T) {
+	guide := normalizeGuideText(readInstallGuide(t))
+	decisionStart := strings.Index(guide, "Preserve this decision order exactly.")
+	decisionEnd := strings.Index(guide, "Only after the person has seen a full review")
+	if decisionStart == -1 || decisionEnd <= decisionStart {
+		t.Fatal("INSTALL.md missing direct first-install decision section")
+	}
+	decision := guide[decisionStart:decisionEnd]
+	consent := "a clear “yes,” “install as is,” or equivalent response to the unchanged complete recommended card is installation consent"
+	progress := "send the exact one-line progress update from section 6"
+	noDuplicate := "without showing the full review below or asking a second confirmation question."
+	if consentAt, progressAt, noDuplicateAt := strings.Index(decision, consent), strings.Index(decision, progress), strings.Index(decision, noDuplicate); consentAt == -1 || progressAt <= consentAt || noDuplicateAt <= progressAt {
+		t.Fatal("INSTALL.md does not transition clear unchanged-card consent directly to progress without duplicate review")
+	}
+	if want := "A question, explanation request, unrelated reply, or ambiguous reply is not consent."; !strings.Contains(decision, want) {
+		t.Fatalf("INSTALL.md missing direct recommended-install guard %q", want)
+	}
+	for _, want := range []string{
+		"reusing the initial discovery result as the baseline and preserving every captured preference in the complete frozen list.",
+		"For an unchanged recommended first install, the assignment-and-`set --` stanza must match the frozen backstage confirmation block byte for byte.",
+	} {
+		if !strings.Contains(guide, want) {
+			t.Fatalf("INSTALL.md missing frozen unchanged-recommendation guard %q", want)
+		}
+	}
+	for _, want := range []string{
+		"Would you like to install the recommended setup, change a choice, or have me explain any of them?",
+		"When the person accepts the unchanged recommended card, this is the next visible message.",
+		"Lovely. I’m installing ThreadBear now, then I’ll run its health checks and report back here.",
+	} {
+		if !strings.Contains(guide, want) {
+			t.Fatalf("INSTALL.md missing direct recommended-install contract %q", want)
+		}
+	}
+	for _, retired := range []string{
+		"Their card acceptance is not installation consent.",
+		"If they accept those settings, run the backstage review and show the first full review below.",
+		"the card and final review are sufficient.",
+	} {
+		if strings.Contains(guide, retired) {
+			t.Fatalf("INSTALL.md retains duplicate-review transition %q", retired)
 		}
 	}
 }
@@ -218,7 +266,7 @@ func TestCodexInstallGuideShowsOneModeSpecificSettingsCard(t *testing.T) {
 	for _, want := range []string{
 		"When installed status was unavailable, do not guess whether this is a first\n  install or reinstall",
 		"run this initial task-ID-only dry-run",
-		"show exactly one appropriate card in the next section",
+		"show exactly one\nappropriate card in the next section",
 		"Give that reinstall discovery sentence once.",
 		"When discovery identifies a first\ninstall, keep the detection backstage",
 		"installer\ncannot move a healthy readable home during a refresh",
@@ -502,11 +550,12 @@ func TestCodexInstallGuideAcknowledgesChangedChoicesWarmly(t *testing.T) {
 	for _, want := range []string{
 		"Preserve this decision order exactly.",
 		"First send the readiness result and settings card, then wait for the person’s reply.",
+		"If they request any change before consent, acknowledge all requested changes, run the backstage review, then send the complete authoritative review below and ask the friendly installation question.",
 		"If they request a change at that review instead of consenting, do not install and do not erase the first review from the conversation.",
 		"send a second full authoritative review and ask the friendly installation question again.",
-		"Only a clear yes after that second review is consent.",
+		"Only a clear yes to the latest changed review is consent.",
 		"Never invent, move, or reorder a person’s reply.",
-		"freeze the consumer-facing close plan from that review",
+		"freeze the consumer-facing close plan from that result after changed choices or for a reinstall",
 		"After consent, use heartbeat counts only to fill its tidy-up outcomes.",
 		"Never derive close branches or actions again from defaults, earlier status, or a result template.",
 		"Only after the person has seen a full review and then changes a choice does the next review need a short, consumer-facing delta.",
@@ -571,7 +620,7 @@ func TestCodexInstallGuideFreezesResolvedPreferencesForConsent(t *testing.T) {
 		"classifier model placeholder intentionally contains internal whitespace to\ndemonstrate safe quoting",
 		"second dry-run is the final review source",
 		"The final-review and confirmed argument-construction stanzas\nmust be byte-for-byte identical, and therefore semantically identical",
-		"identical complete argument list prevents the person’s preference choices from\ndrifting between review and confirmation",
+		"identical complete argument list prevents the person’s preference choices from\ndrifting between consent and confirmation",
 		"revalidates the task\nand managed resources before mutation and stops if a safety check fails",
 	} {
 		if !strings.Contains(guide, want) {
