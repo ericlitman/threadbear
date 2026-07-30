@@ -76,6 +76,14 @@ func call(t *testing.T, s Service, request Request) output.Result {
 	return result
 }
 
+func TestRetiredDispatchFailsClosedWithoutDependencies(t *testing.T) {
+	result, err := (Service{}).Dispatch(context.Background(), Request{Retired: true})
+	got := result.(output.TitleDispatchResult)
+	if err != nil || got.Allow || got.Disposition != "retired" {
+		t.Fatalf("result=%+v err=%v", got, err)
+	}
+}
+
 func TestTitlePlanStageOperationsAndReports(t *testing.T) {
 	cfg := config.Default("control")
 	control := codex.Task{TaskID: "control", Revision: "1", Title: "ThreadBear", Source: "vscode"}

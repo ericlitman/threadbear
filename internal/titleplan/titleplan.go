@@ -56,6 +56,9 @@ type nativeReport struct {
 }
 
 func (s Service) Dispatch(ctx context.Context, request Request) (output.Result, error) {
+	if request.Retired {
+		return output.TitleDispatchResult{Allow: false, Disposition: "retired"}, nil
+	}
 	if s.Store == nil || s.Inventory == nil {
 		return output.ErrorResult{Operation: "title-plan", ErrorCode: "dependency_unavailable"}, errors.New("title plan dependencies are unavailable")
 	}
@@ -69,9 +72,6 @@ func (s Service) Dispatch(ctx context.Context, request Request) (output.Result, 
 	}
 	if threadID == "" || threadID != cfg.ControlTaskID {
 		return output.ErrorResult{Operation: "title-plan", ErrorCode: "unauthorized_control_task"}, errors.New("title plan access requires the configured control task")
-	}
-	if request.Retired {
-		return output.TitleDispatchResult{Allow: false, Disposition: "retired"}, nil
 	}
 	lock, err := s.Store.AcquireLock()
 	if errors.Is(err, state.ErrLocked) {
