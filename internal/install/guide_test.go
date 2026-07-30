@@ -700,7 +700,7 @@ func TestCodexInstallGuideUsesBoundedBackgroundFirstSweep(t *testing.T) {
 		"the person can continue immediately",
 		"Five minutes is the normal heartbeat cadence, not an expected per-run duration.",
 		"unchanged tasks use zero model calls",
-		"Luna medium is used only for unresolved ambiguity",
+		"in ordinary status-guided use, Luna medium is a rare ambiguity fallback",
 	} {
 		if !strings.Contains(section, normalizeGuideText(want)) {
 			t.Fatalf("INSTALL.md missing bounded sweep contract %q", want)
@@ -708,6 +708,33 @@ func TestCodexInstallGuideUsesBoundedBackgroundFirstSweep(t *testing.T) {
 	}
 	if strings.Contains(guide, "~/.local/bin/threadbear heartbeat\n") {
 		t.Fatal("INSTALL.md still runs a foreground heartbeat")
+	}
+}
+
+func TestCodexInstallGuideUsesReviewedRareFallbackCopy(t *testing.T) {
+	guide := strings.ToLower(normalizeGuideText(strings.ReplaceAll(readInstallGuide(t), ">", "")))
+	phrase := strings.ToLower(normalizeGuideText("in ordinary status-guided use, Luna medium is a rare ambiguity fallback"))
+	if count := strings.Count(guide, phrase); count != 7 {
+		t.Fatalf("rare fallback boundary count=%d, want 7", count)
+	}
+	legacy := strings.ToLower(normalizeGuideText("Older tasks created before status guidance"))
+	if count := strings.Count(guide, legacy); count != 6 {
+		t.Fatalf("legacy qualification count=%d, want 6", count)
+	}
+	for _, want := range []string{
+		"unchanged tasks use zero model calls",
+		"straightforward status-guided changes resolve deterministically",
+		"Older tasks created before status guidance may take a one-time semantic pass",
+		"legacy-history tasks remain a separate one-time pre-guidance case",
+	} {
+		if !strings.Contains(guide, strings.ToLower(normalizeGuideText(want))) {
+			t.Fatalf("INSTALL.md missing reviewed fallback boundary %q", want)
+		}
+	}
+	for _, stale := range []string{"only as the ambiguity fallback", "only the ambiguity fallback", "Use “ambiguity fallback.”"} {
+		if strings.Contains(guide, strings.ToLower(normalizeGuideText(stale))) {
+			t.Fatalf("INSTALL.md retains stale fallback copy %q", stale)
+		}
 	}
 }
 

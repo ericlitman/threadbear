@@ -575,10 +575,11 @@ full review with “Everything is ready for your review.”
 > already open keep their current reply guidance. This lets ThreadBear use
 > lightweight checks, with a careful second look when a task is unclear.
 >
-> Unchanged tasks use no model calls. For changed tasks, structured runtime
-> evidence and ThreadBear footers settle straightforward cases; Luna medium is
-> used only as the ambiguity fallback. Five minutes is the normal check-in
-> cadence, not how long a check is expected to run.
+> Unchanged tasks use zero model calls. Straightforward status-guided changes
+> resolve deterministically from structured runtime evidence and ThreadBear
+> footers; in ordinary status-guided use, Luna medium is a rare ambiguity
+> fallback. Five minutes is the normal check-in cadence, not how long a check is
+> expected to run.
 >
 > I found N existing tasks. Older tasks created before status guidance may need
 > a one-time background pass, while you can continue immediately after
@@ -610,10 +611,12 @@ editing the first-install example sentence by sentence. This example shows
 > already open keep their current reply guidance. This lets ThreadBear use
 > lightweight checks, with a careful second look when a task is unclear.
 >
-> Unchanged tasks use no model calls. For changed tasks, structured runtime
-> evidence and ThreadBear footers settle straightforward cases; Luna medium is
-> used only as the ambiguity fallback. The configured check-in interval is the
-> normal cadence, not an expected per-run duration.
+> Unchanged tasks use zero model calls. Straightforward status-guided changes
+> resolve deterministically from structured runtime evidence and ThreadBear
+> footers; in ordinary status-guided use, Luna medium is a rare ambiguity
+> fallback. Older tasks created before status guidance remain a separate
+> one-time semantic case. The configured check-in interval is the normal
+> cadence, not an expected per-run duration.
 >
 > Its existing home, title, and pin will stay exactly as they are. This task
 > won’t become the new home and won’t be renamed or pinned. Nothing has been
@@ -791,12 +794,11 @@ expected per-run duration. Never expose task prose, IDs, titles, flags, paths,
 or classifier payloads.
 
 Every successful close must preserve this exact operating boundary in natural
-prose: unchanged tasks use zero model calls; status-guided changed tasks resolve
-deterministically from structured runtime evidence and ThreadBear footers when
-possible; Luna medium is used only for unresolved ambiguity. Use “ambiguity
-fallback.” The phrase “rare ambiguity fallback” is allowed only after the
-reviewed approximately 200-observation status-guided cohort records Luna on no
-more than 5% of changed observations; legacy-history results never qualify.
+prose: unchanged tasks use zero model calls; straightforward status-guided
+changes resolve deterministically from structured runtime evidence and
+ThreadBear footers; in ordinary status-guided use, Luna medium is a rare
+ambiguity fallback. Older legacy-history tasks remain a separate one-time
+pre-guidance case and never qualify for the word “rare.”
 
 When the first sweep is still running, use the applicable home/archive result
 template below but replace its tidy-up-count sentence with this complete
@@ -805,9 +807,9 @@ background outcome:
 > ThreadBear’s installation and quiet background check are healthy. Its first
 > sweep is continuing in the background, and you can continue immediately.
 > Older tasks created before status guidance may take a one-time semantic pass;
-> ordinary unchanged checks use zero model calls, straightforward status-guided
-> changes resolve deterministically, and Luna medium sees only unresolved
-> ambiguity.
+> ordinary unchanged checks use zero model calls, and straightforward
+> status-guided changes resolve deterministically. In ordinary status-guided
+> use, Luna medium is a rare ambiguity fallback.
 
 When the sweep has already converged, render the aggregate title/archive/retry
 outcomes below. When it is retryable, keep the healthy-install sentence, say
@@ -849,8 +851,10 @@ When `archive=true`, use this heading and result:
 > check is healthy. This task is now ThreadBear’s home, named `🧵🐻 ThreadBear
 > 🐻🧵` and pinned. In the first tidy-up, ThreadBear updated X task titles, no
 > completed tasks were ready for the archive, and nothing needs another try.
-> Unchanged tasks use zero model calls; straightforward status-guided changes
-> resolve deterministically, and Luna medium is only the ambiguity fallback.
+> Unchanged tasks use zero model calls, and straightforward status-guided
+> changes resolve deterministically. In ordinary status-guided use, Luna medium
+> is a rare ambiguity fallback. Older tasks created before status guidance
+> remain a separate one-time semantic case.
 
 When `archive=false`, use this heading and result:
 
@@ -860,8 +864,10 @@ When `archive=false`, use this heading and result:
 > check is healthy. This task is now ThreadBear’s home, named `🧵🐻 ThreadBear
 > 🐻🧵` and pinned. Completed tasks stayed visible while ThreadBear updated X
 > task titles in the first tidy-up, and nothing needs another try.
-> Unchanged tasks use zero model calls; straightforward status-guided changes
-> resolve deterministically, and Luna medium is only the ambiguity fallback.
+> Unchanged tasks use zero model calls, and straightforward status-guided
+> changes resolve deterministically. In ordinary status-guided use, Luna medium
+> is a rare ambiguity fallback. Older tasks created before status guidance
+> remain a separate one-time semantic case.
 
 The pinned sentence in those first-install variants assumes supported pinning.
 When automatic pinning is unavailable, replace that entire sentence with this
@@ -877,8 +883,10 @@ refresh heading and result because no new welcome note was posted:
 > Everything passed. ThreadBear VERSION is refreshed, and its quiet background
 > check is healthy. ThreadBear remains based in this task. Title maintenance
 > stayed off, completed tasks stayed visible, and nothing needs another try.
-> Unchanged tasks use zero model calls; straightforward status-guided changes
-> resolve deterministically, and Luna medium is only the ambiguity fallback.
+> Unchanged tasks use zero model calls, and straightforward status-guided
+> changes resolve deterministically. In ordinary status-guided use, Luna medium
+> is a rare ambiguity fallback. Older tasks created before status guidance
+> remain a separate one-time semantic case.
 
 The example above shows `retained`. For `retained`, keep exactly the one sentence
 “ThreadBear remains based in this task.” For `stayed_home`, replace that entire

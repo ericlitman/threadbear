@@ -41,10 +41,14 @@ changes. Each benchmark replica carries an aggregate-only `threadbear-cohort.jso
 the cohort/mode-specific aggregate JSON emitted by `scripts/replica-rehearsal.sh`; the four successful runs must not overwrite one another. Never publish task
 text, identifiers, titles, paths, flags, or classifier payloads.
 
-| Cohort | Observations | Deterministic | Luna | First / previous requests | First progress | Total convergence | Retries / rate limits | Helper proof |
-|---|---:|---:|---:|---:|---:|---:|---:|---|
-| Legacy first adoption | pending live gate | pending | pending | pending | pending | pending | pending | pending process-isolation canary |
-| Status-guided changed work | pending live gate | pending | pending | pending | pending | pending | pending | pending process-isolation canary |
+| Cohort | Mode | Observations | Deterministic | Luna | First / previous batches | First progress | Convergence | Retries / rate limits | Isolation and recovery gates |
+|---|---|---:|---:|---:|---:|---:|---:|---:|---|
+| Legacy first adoption | serial | 200 | 67 | 133 | 2 / 1 | 6.869s | 238.710s | 3 / 0 | passed |
+| Legacy first adoption | bounded | 200 | 67 | 133 | 2 / 1 | 9.517s | 127.374s | 3 / 0 | passed |
+| Status-guided changed work | serial | 200 | 200 | 0 | 0 / 0 | 4.855s | 20.813s | 0 / 0 | passed |
+| Status-guided changed work | bounded | 200 | 200 | 0 | 0 / 0 | 6.452s | 27.431s | 0 / 0 | passed |
+
+On exact draft head `7d0fbc7e69dbfc442e36f84b650ec401c13ef403`, the production isolation canary passed on Codex CLI 0.146.0, macOS 26.4 arm64, in 9.77 seconds. Configured OpenKnowledge and node helper sentinels did not start, no matching descendant appeared, and the private classifier root was removed. Every cohort run also passed helper proof, cancellation recovery, row salvage, and the rate-limit gate; installed, self-tested, loaded the isolated LaunchAgent, uninstalled, and removed state successfully.
 
 Run each cohort with `THREADBEAR_FIRST_SWEEP_BENCHMARK=1`, once with `THREADBEAR_CLASSIFIER_MODE=serial` and once with
 `THREADBEAR_CLASSIFIER_MODE=bounded`. The bounded mode may become the compiled
@@ -53,6 +57,11 @@ latency, retries, rate limits, cancellation, row salvage, or restart recovery.
 Capacity-sized packing may produce one request, in which case serial execution is
 the measured result.
 
-The product copy remains “ambiguity fallback” until the reviewed status-guided
-cohort contains approximately 200 changed observations and sends no more than 5%
-to Luna. Legacy-history results never qualify for the word “rare.”
+The reviewed status-guided cohort sent 0 of 200 changed observations to Luna.
+Durable product copy may therefore call Luna medium a rare ambiguity fallback in
+ordinary status-guided use while retaining the exact boundary: unchanged tasks
+use zero model calls and straightforward status-guided changes resolve
+deterministically. Legacy history remains a separate one-time pre-guidance case
+and never qualifies for the word “rare.” Serial remains the compiled default:
+bounded legacy convergence was faster, but first progress regressed from 6.869s
+to 9.517s, and bounded status-guided work was slower.

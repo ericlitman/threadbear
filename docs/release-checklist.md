@@ -4,7 +4,7 @@ Complete this checklist for every stable ThreadBear release.
 
 ## Before tagging
 
-- Review the BEAR-87/90 production-factory subprocess canary with MCP/plugin/helper sentinels in the operator home; verify one private minimal-auth classifier process is reused across batches and removed after success, failure, cancellation, and child exit. Also review the bounded ten-second guided-install handoff, legacy and status-guided aggregate cohort summaries, cleanup/checkpoint recovery, and repeated unchanged-heartbeat silence. Keep the PR draft until all are accepted.
+- BEAR-87/90 evidence passed on draft head `7d0fbc7e69dbfc442e36f84b650ec401c13ef403`: the Codex 0.146.0 production-factory isolation canary, bounded ten-second install handoff, and all four 200-observation serial/bounded rehearsals were green. The status-guided cohort was 200/200 deterministic with zero Luna calls; keep serial as the compiled default because bounded first progress regressed. See [the aggregate benchmark](benchmark.md#first-sweep-performance-release-gate). Keep the PR draft for final operator review.
 
 
 1. Prepare the intended `vN.N.N` section in `CHANGELOG.md` and leave a fresh `Unreleased` section.
