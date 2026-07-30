@@ -35,7 +35,7 @@ func TestCodexInstallGuideCarriesConversationContract(t *testing.T) {
 	}
 }
 
-func TestCodexInstallGuideUsesDirectAppServerTitleWrites(t *testing.T) {
+func TestCodexInstallGuideUsesManagedSourceNativeTitleBatch(t *testing.T) {
 	guide := readInstallGuide(t)
 	published, err := os.ReadFile("../../site/install")
 	if err != nil {
@@ -44,9 +44,9 @@ func TestCodexInstallGuideUsesDirectAppServerTitleWrites(t *testing.T) {
 	if guide != string(published) {
 		t.Fatal("INSTALL.md and site/install differ")
 	}
-	for _, required := range []string{"persistent title, archive, and unarchive methods", "journaled as applying and applied", "verified through a fresh inventory read", "only then followed by any same-task archive", "persistent control task remains reserved"} {
+	for _, required := range []string{"Native title convergence during guided install", "managed title-batch protocol", "Revalidate every operation immediately before the native setter", "accepted, failed, drifted, and rejected operation IDs", "do not wait for unresolved semantic classification"} {
 		if !strings.Contains(guide, required) {
-			t.Fatalf("INSTALL.md missing direct title contract %q", required)
+			t.Fatalf("INSTALL.md missing source-native title contract %q", required)
 		}
 	}
 	for _, forbidden := range []string{"title-plan --json --batch", "title-plan --json --report", "Child actuator phase", "codex_app__create_thread"} {

@@ -1,6 +1,7 @@
 package assets
 
 import (
+	"os/exec"
 	"strings"
 	"testing"
 )
@@ -48,12 +49,37 @@ func TestManagedSkillConversationalContract(t *testing.T) {
 	}
 }
 
-func TestManagedGuidanceContainsNoExecutableTitleActuator(t *testing.T) {
+func TestManagedGuidanceBindsSourceNativeBatchOrdering(t *testing.T) {
 	for name, content := range map[string]string{"agents": AgentsManagedContent, "skill": SkillManagedContent} {
-		for _, forbidden := range []string{"title-plan", "THREADBEAR_TITLE_ACTUATOR", "codex_app__create_thread", "codex_app__set_thread_title", "child actuator", "```js"} {
+		for _, required := range []string{"title-batch --json --stage", "title-batch --json --list", "title-batch --json --operation", "codex_app__set_thread_title", "title-batch --json --report", "no further tool call or commentary"} {
+			if !strings.Contains(content, required) {
+				t.Fatalf("%s missing native batch surface %q", name, required)
+			}
+		}
+		ordered := []string{"--list", "--operation", "codex_app__set_thread_title", "--report", "text(JSON.stringify"}
+		position := 0
+		for _, token := range ordered {
+			next := strings.Index(content[position:], token)
+			if next < 0 {
+				t.Fatalf("%s missing ordered native batch token %q", name, token)
+			}
+			position += next + len(token)
+		}
+		for _, forbidden := range []string{"title-plan --json --batch", "THREADBEAR_TITLE_ACTUATOR", "codex_app__create_thread", "child actuator", "set_thread_archived", "process.env", "source_task_id"} {
 			if strings.Contains(content, forbidden) {
 				t.Fatalf("%s contains retired actuator surface %q", name, forbidden)
 			}
 		}
+	}
+}
+
+func TestManagedTitleBatchRunsInFreshV8WithoutNodeGlobals(t *testing.T) {
+	command := exec.Command("node", "../scripts/replay-title-batch.mjs")
+	output, err := command.CombinedOutput()
+	if err != nil {
+		t.Fatalf("fresh V8 replay failed: %v\n%s", err, output)
+	}
+	if !strings.Contains(string(output), "fresh V8 title batch replay passed") {
+		t.Fatalf("unexpected replay output: %s", output)
 	}
 }

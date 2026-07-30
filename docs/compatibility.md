@@ -18,7 +18,7 @@ ThreadBear depends on compatibility-detectable local Codex capabilities for comp
 
 ## Sidebar expectations
 
-The heartbeat writes titles through capability-detected `thread/name/set`, then verifies persistence through a fresh inventory read before committing ownership or archiving the same task. ThreadBear does not promise private Desktop cache invalidation and never edits caches, uses private IPC/UI automation/daemons, or requires a restart.
+The heartbeat stages deterministic title operations and does not call detached `thread/name/set` for routine title work. With explicit guided-install consent, only the retained control task may drain those operations through the capability-detected host-native title setter; ThreadBear accepts aggregate native outcomes and verifies canonical persistence separately before committing ownership or archiving the same task. Missing native capability remains an explicit pending convergence state. ThreadBear never edits caches, uses private IPC/UI automation/daemons, creates a title child, or requires a restart.
 
 ## LaunchAgent timing and environment
 

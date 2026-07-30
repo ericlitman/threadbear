@@ -28,6 +28,7 @@ import (
 	"github.com/ericlitman/threadbear/internal/output"
 	"github.com/ericlitman/threadbear/internal/state"
 	statusresolver "github.com/ericlitman/threadbear/internal/status"
+	"github.com/ericlitman/threadbear/internal/titlebatch"
 	"github.com/ericlitman/threadbear/internal/titleplan"
 	"github.com/ericlitman/threadbear/internal/tokens"
 	updatepkg "github.com/ericlitman/threadbear/internal/update"
@@ -207,8 +208,9 @@ func newOperatorService(installedVersion string, stdout, stderr io.Writer, forma
 		return uninstaller, prompter.Close, nil
 	}
 	titlePlanCompatibility := titleplan.Service{}
+	titleBatch := titlebatch.Service{Store: store, Inventory: inventory, Input: os.Stdin, Now: time.Now, SourceIdentity: func() string { return os.Getenv("CODEX_THREAD_ID") }}
 	service := app.NewWithOperatorCommands(installedVersion, app.OperatorDependencies{
-		Store: store, Inventory: inventory, Clock: clock, LaunchAgent: launch, TitlePlanCompatibility: titlePlanCompatibility,
+		Store: store, Inventory: inventory, Clock: clock, LaunchAgent: launch, TitlePlanCompatibility: titlePlanCompatibility, TitleBatch: titleBatch,
 		ManagedAgents: managed, Unarchiver: appServerUnarchiver{runtime: appServers}, Heartbeat: runner,
 		Preview: func(preview output.PreviewResult) error {
 			if request.NonInteractive {
@@ -277,6 +279,23 @@ func (i *lazyInventory) Inventory(ctx context.Context, controlTaskID string) (co
 		i.index = index
 	}
 	return i.index.Inventory(ctx, controlTaskID)
+}
+
+func (i *lazyInventory) Task(ctx context.Context, taskID string) (codex.Task, error) {
+	i.mu.Lock()
+	defer i.mu.Unlock()
+	if i.index == nil {
+		sqliteHome, err := codex.ResolveSQLiteHome(i.codexHome)
+		if err != nil {
+			return codex.Task{}, err
+		}
+		index, err := codex.OpenIndex(sqliteHome)
+		if err != nil {
+			return codex.Task{}, err
+		}
+		i.index = index
+	}
+	return i.index.Task(ctx, taskID)
 }
 
 func (i *lazyInventory) Close() error {

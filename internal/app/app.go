@@ -14,25 +14,27 @@ import (
 type Command string
 
 const (
-	CommandInstall   Command = "install"
-	CommandHeartbeat Command = "heartbeat"
-	CommandTitlePlan Command = "title-plan"
-	CommandStatus    Command = "status"
-	CommandInspect   Command = "inspect"
-	CommandConfigure Command = "configure"
-	CommandEnable    Command = "enable"
-	CommandDisable   Command = "disable"
-	CommandRestore   Command = "restore"
-	CommandSelfTest  Command = "self-test"
-	CommandUpdate    Command = "update"
-	CommandUninstall Command = "uninstall"
-	CommandVersion   Command = "version"
+	CommandInstall    Command = "install"
+	CommandHeartbeat  Command = "heartbeat"
+	CommandTitlePlan  Command = "title-plan"
+	CommandTitleBatch Command = "title-batch"
+	CommandStatus     Command = "status"
+	CommandInspect    Command = "inspect"
+	CommandConfigure  Command = "configure"
+	CommandEnable     Command = "enable"
+	CommandDisable    Command = "disable"
+	CommandRestore    Command = "restore"
+	CommandSelfTest   Command = "self-test"
+	CommandUpdate     Command = "update"
+	CommandUninstall  Command = "uninstall"
+	CommandVersion    Command = "version"
 )
 
 var allCommands = [...]Command{
 	CommandInstall,
 	CommandHeartbeat,
 	CommandTitlePlan,
+	CommandTitleBatch,
 	CommandStatus,
 	CommandInspect,
 	CommandConfigure,
@@ -75,18 +77,22 @@ func (p ConfigPatch) Empty() bool {
 }
 
 type Request struct {
-	Command            Command
-	JSON               bool
-	DryRun             bool
-	Confirm            bool
-	NonInteractive     bool
-	Candidate          bool
-	ArchiveControlTask bool
-	Version            string
-	TaskID             string
-	TitlePlanDispatch  bool
-	ControlTaskID      string
-	Configure          ConfigPatch
+	Command             Command
+	JSON                bool
+	DryRun              bool
+	Confirm             bool
+	NonInteractive      bool
+	Candidate           bool
+	ArchiveControlTask  bool
+	Version             string
+	TaskID              string
+	TitlePlanDispatch   bool
+	TitleBatchList      bool
+	TitleBatchStage     bool
+	TitleBatchReport    bool
+	TitleBatchOperation string
+	ControlTaskID       string
+	Configure           ConfigPatch
 }
 
 type Handler func(context.Context, Request) (output.Result, error)
@@ -158,6 +164,29 @@ func (r Request) Validate() error {
 		}
 	} else if r.TitlePlanDispatch {
 		return fmt.Errorf("%w: title-plan flags are title-plan-only", ErrInvalidRequest)
+	}
+	if strings.TrimSpace(r.TitleBatchOperation) != r.TitleBatchOperation {
+		return fmt.Errorf("%w: title-batch identity must not contain surrounding whitespace", ErrInvalidRequest)
+	}
+	if r.Command == CommandTitleBatch {
+		modes := 0
+		if r.TitleBatchList {
+			modes++
+		}
+		if r.TitleBatchStage {
+			modes++
+		}
+		if r.TitleBatchReport {
+			modes++
+		}
+		if r.TitleBatchOperation != "" {
+			modes++
+		}
+		if !r.JSON || modes != 1 {
+			return fmt.Errorf("%w: title-batch requires --json and one strict mode", ErrInvalidRequest)
+		}
+	} else if r.TitleBatchList || r.TitleBatchStage || r.TitleBatchReport || r.TitleBatchOperation != "" {
+		return fmt.Errorf("%w: title-batch flags are title-batch-only", ErrInvalidRequest)
 	}
 	if strings.TrimSpace(r.ControlTaskID) != r.ControlTaskID {
 		return fmt.Errorf("%w: control task ID must not contain surrounding whitespace", ErrInvalidRequest)

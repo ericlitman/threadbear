@@ -160,6 +160,9 @@ type PendingTitlePlan struct {
 	NativeOutcome        NativeTitleOutcome `json:"native_outcome"`
 	NativeReportedAt     *time.Time         `json:"native_reported_at,omitempty"`
 	NativeErrorCode      string             `json:"native_error_code,omitempty"`
+	ExpectedFooter       string             `json:"expected_footer,omitempty"`
+	CanonicalAttempts    uint32             `json:"canonical_attempts,omitempty"`
+	CanonicalCheckedAt   *time.Time         `json:"canonical_checked_at,omitempty"`
 }
 
 func (p PendingTitlePlan) Validate() error {
@@ -174,6 +177,12 @@ func (p PendingTitlePlan) Validate() error {
 	}
 	if p.ManagedTokenDisplay != "" && p.ManagedTokenPosition != tokens.PositionStart && p.ManagedTokenPosition != tokens.PositionEnd {
 		return errors.New("pending title token position is invalid")
+	}
+	if strings.TrimSpace(p.ExpectedFooter) != p.ExpectedFooter {
+		return errors.New("pending title footer is invalid")
+	}
+	if p.CanonicalCheckedAt != nil && p.CanonicalCheckedAt.IsZero() {
+		return errors.New("pending title canonical check is invalid")
 	}
 	switch p.NativeOutcome {
 	case NativeTitlePending:
@@ -327,7 +336,8 @@ func (s State) Validate() error {
 			return fmt.Errorf("pending title plan %s: %w", key, err)
 		}
 		task, ok := s.Tasks[key]
-		if !ok || task.CapturedRevision != plan.ExpectedRevision || task.CapturedTitle != plan.ExpectedTitle {
+		sourceAwaitingFooter := plan.ExpectedFooter != "" && plan.NativeOutcome == NativeTitleSucceeded && plan.CanonicalCheckedAt != nil
+		if !ok || !sourceAwaitingFooter && (task.CapturedRevision != plan.ExpectedRevision || task.CapturedTitle != plan.ExpectedTitle) {
 			return fmt.Errorf("pending title plan %s does not match captured task", key)
 		}
 	}
@@ -427,6 +437,7 @@ const (
 	StagePrepared         OperationStage = "prepared"
 	StageApplying         OperationStage = "applying"
 	StageApplied          OperationStage = "applied"
+	StageNativePending    OperationStage = "native_pending"
 	StageVerified         OperationStage = "verified"
 )
 
@@ -531,7 +542,7 @@ func (c CycleCheckpoint) Validate() error {
 }
 
 func (o CycleOperation) Valid() bool {
-	if o.Stage != StagePrepared && o.Stage != StageApplying && o.Stage != StageApplied && o.Stage != StageVerified {
+	if o.Stage != StagePrepared && o.Stage != StageApplying && o.Stage != StageApplied && o.Stage != StageNativePending && o.Stage != StageVerified {
 		return false
 	}
 	switch o.Kind {

@@ -49,6 +49,13 @@ type TitlePlanCompatibility interface {
 	Dispatch() output.Result
 }
 
+type TitleBatch interface {
+	List(context.Context) (output.Result, error)
+	Operation(context.Context, string) (output.Result, error)
+	Stage(context.Context) (output.Result, error)
+	Report() (output.Result, error)
+}
+
 type OperatorDependencies struct {
 	Store                  OperatorStore
 	Inventory              OperatorInventory
@@ -60,6 +67,7 @@ type OperatorDependencies struct {
 	Unarchiver             Unarchiver
 	Heartbeat              HeartbeatRunner
 	TitlePlanCompatibility TitlePlanCompatibility
+	TitleBatch             TitleBatch
 	Install                Handler
 	SelfTest               Handler
 	Update                 Updater
@@ -72,6 +80,20 @@ func NewWithOperatorCommands(version string, deps OperatorDependencies) *Service
 	if deps.TitlePlanCompatibility != nil {
 		service.handlers[CommandTitlePlan] = func(context.Context, Request) (output.Result, error) {
 			return deps.TitlePlanCompatibility.Dispatch(), nil
+		}
+	}
+	if deps.TitleBatch != nil {
+		service.handlers[CommandTitleBatch] = func(ctx context.Context, request Request) (output.Result, error) {
+			switch {
+			case request.TitleBatchList:
+				return deps.TitleBatch.List(ctx)
+			case request.TitleBatchOperation != "":
+				return deps.TitleBatch.Operation(ctx, request.TitleBatchOperation)
+			case request.TitleBatchStage:
+				return deps.TitleBatch.Stage(ctx)
+			default:
+				return deps.TitleBatch.Report()
+			}
 		}
 	}
 	service.handlers[CommandStatus] = StatusHandler(version, deps.Store, deps.LaunchAgent)
@@ -145,6 +167,12 @@ func StatusHandler(version string, store OperatorStore, launchAgent LaunchAgent)
 		} else {
 			firstSweep = committed.LastSweep
 		}
+		nativeSuccesses := 0
+		for _, plan := range committed.PendingTitlePlans {
+			if plan.NativeOutcome == state.NativeTitleSucceeded {
+				nativeSuccesses++
+			}
+		}
 		return output.StatusResult{
 			InstalledVersion:       version,
 			LaunchAgentHealthy:     healthy,
@@ -164,6 +192,8 @@ func StatusHandler(version string, store OperatorStore, launchAgent LaunchAgent)
 				ClassifierContextBudgetBytes: cfg.ClassifierContextBudgetBytes,
 			},
 			PendingRetries:       len(pendingTaskIDs),
+			PendingTitlePlans:    len(committed.PendingTitlePlans),
+			NativeTitleSuccesses: nativeSuccesses,
 			LastUpdateCheck:      committed.LastUpdateCheck,
 			LastUpdateFailure:    committed.LastUpdateFailure,
 			LastReconcileFailure: committed.LastReconcileFailure,

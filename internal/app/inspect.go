@@ -86,6 +86,17 @@ func InspectHandler(store OperatorStore, inventory OperatorInventory, clock Oper
 				retry = &output.RetryResult{TaskID: request.TaskID, Operation: diagnostic.Operation, ErrorCode: diagnostic.ErrorCode}
 			}
 		}
+		plan, pendingTitle := committed.PendingTitlePlans[request.TaskID]
+		renderedConvergence := ""
+		if pendingTitle {
+			renderedConvergence = "pending_native"
+			if plan.NativeOutcome == state.NativeTitleSucceeded {
+				renderedConvergence = "native_reported_pending_canonical"
+			}
+			if plan.NativeOutcome == state.NativeTitleFailed {
+				renderedConvergence = plan.NativeErrorCode
+			}
+		}
 		eligible := recordMatchesCurrent && archiveEligibleForInspect(record, clock.Now().UTC(), cfg.ArchiveAfterDays) && cfg.ArchiveEnabled
 		return output.InspectResult{
 			TaskID:               request.TaskID,
@@ -99,6 +110,9 @@ func InspectHandler(store OperatorStore, inventory OperatorInventory, clock Oper
 			ManagedTokenPosition: managedTokenPosition,
 			ManagedTokenDisplay:  managedTokenDisplay,
 			TokenUsageFound:      tokenUsageFound,
+			PendingTitlePlan:     pendingTitle,
+			NativeTitleOutcome:   plan.NativeOutcome,
+			RenderedConvergence:  renderedConvergence,
 		}, nil
 	}
 }

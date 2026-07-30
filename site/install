@@ -196,6 +196,12 @@ verifies the published checksum, candidate health, and embedded version before
 delegating to the candidate. The official-download promise belongs in the
 opening turn above; do not repeat it as a separate progress message.
 
+## Native title convergence during guided install
+
+The person's installation consent enables only the managed title-batch protocol in the retained control task. It is not recurring consent for other native operations and must not be requested again on later control-task turns. After the bounded post-install handoff, stage the exact terminal footer, then run the fixed native title-batch program embedded in the installed ThreadBear AGENTS block inside one `functions.exec`. Drain every deterministic operation staged within the handoff window, but do not wait for unresolved semantic classification. Revalidate every operation immediately before the native setter and return only aggregate accepted, failed, drifted, and rejected operation IDs.
+
+A successful install close may claim visible title convergence only for accepted operations that ThreadBear subsequently verifies canonically. Missing native capability, failed mutation, identity disagreement, drift, or unverified canonical persistence is an explicit partial/failure result. Never expose title or manifest content to the model, create a child task, use the persistent task for unrelated work, drive the UI, restart Codex, or use private IPC/cache/database mutation.
+
 ## 3. Identify this task backstage
 
 Before downloading, installing, renaming, pinning, or changing any managed resource, feature-detect the available Codex task tooling:
@@ -816,10 +822,13 @@ outcomes below. When it is retryable, keep the healthy-install sentence, say
 plainly that ThreadBear will keep working on the aggregate retry count, and do
 not claim convergence.
 
-The background heartbeat performs managed title writes directly through the
-pinned App Server. Each title mutation is revision/title revalidated, journaled as applying and applied, verified through a fresh inventory read, journaled as
-verified, and only then followed by any same-task archive. Do not run a separate
-title worker, helper manifest, native report, child model, or replay step.
+The background heartbeat deterministically stages exact, revision/title-guarded
+title operations and never treats detached App Server persistence as Desktop
+repaint proof. The retained, opted-in control task drains staged operations
+through the fixed native title-batch program, reports only aggregate operation
+IDs, and leaves canonical verification and commit to ThreadBear. A same-task
+archive waits for accepted native application and canonical settlement. Do not
+create a title child, recurring hosted automation, or control-task relay.
 
 Feature-detect and fail closed when required App Server methods or the tool-free
 classifier boundary are absent. The ordinary App Server stays on the real Codex

@@ -42,6 +42,86 @@ func (r TitleDispatchResult) Human() string {
 	return string(data)
 }
 
+type TitleBatchItem struct {
+	OperationID      string `json:"operation_id"`
+	TaskID           string `json:"task_id"`
+	ExpectedRevision string `json:"expected_revision"`
+	ExpectedTitle    string `json:"expected_title"`
+	DesiredTitle     string `json:"desired_title"`
+}
+
+type TitleBatchDisposition struct {
+	OperationID string `json:"operation_id,omitempty"`
+	TaskID      string `json:"task_id,omitempty"`
+	Outcome     string `json:"outcome"`
+}
+
+type TitleBatchResult struct {
+	Version      int                     `json:"version"`
+	Mode         string                  `json:"mode"`
+	Plans        []TitleBatchItem        `json:"plans"`
+	Dispositions []TitleBatchDisposition `json:"dispositions"`
+}
+
+func (TitleBatchResult) result()     {}
+func (TitleBatchResult) Empty() bool { return false }
+func (r TitleBatchResult) Human() string {
+	data, _ := json.Marshal(r.normalized())
+	return string(data)
+}
+func (r TitleBatchResult) normalized() TitleBatchResult {
+	if r.Version == 0 {
+		r.Version = CurrentResultVersion
+	}
+	r.Plans = slices.Clone(r.Plans)
+	r.Dispositions = slices.Clone(r.Dispositions)
+	sort.Slice(r.Plans, func(i, j int) bool { return r.Plans[i].OperationID < r.Plans[j].OperationID })
+	sort.Slice(r.Dispositions, func(i, j int) bool { return r.Dispositions[i].OperationID < r.Dispositions[j].OperationID })
+	if r.Plans == nil {
+		r.Plans = []TitleBatchItem{}
+	}
+	if r.Dispositions == nil {
+		r.Dispositions = []TitleBatchDisposition{}
+	}
+	return r
+}
+
+type TitleBatchReportResult struct {
+	Version     int      `json:"version"`
+	AcceptedIDs []string `json:"accepted_ids"`
+	FailedIDs   []string `json:"failed_ids"`
+	DriftedIDs  []string `json:"drifted_ids"`
+	RejectedIDs []string `json:"rejected_ids"`
+}
+
+func (TitleBatchReportResult) result()     {}
+func (TitleBatchReportResult) Empty() bool { return false }
+func (r TitleBatchReportResult) Human() string {
+	data, _ := json.Marshal(r.normalized())
+	return string(data)
+}
+func (r TitleBatchReportResult) normalized() TitleBatchReportResult {
+	if r.Version == 0 {
+		r.Version = CurrentResultVersion
+	}
+	for _, values := range [][]string{r.AcceptedIDs, r.FailedIDs, r.DriftedIDs, r.RejectedIDs} {
+		slices.Sort(values)
+	}
+	if r.AcceptedIDs == nil {
+		r.AcceptedIDs = []string{}
+	}
+	if r.FailedIDs == nil {
+		r.FailedIDs = []string{}
+	}
+	if r.DriftedIDs == nil {
+		r.DriftedIDs = []string{}
+	}
+	if r.RejectedIDs == nil {
+		r.RejectedIDs = []string{}
+	}
+	return r
+}
+
 type TaskChange struct {
 	TaskID string           `json:"task_id"`
 	State  state.TaskStatus `json:"state"`
@@ -137,6 +217,8 @@ type StatusResult struct {
 	ControlTaskID          string               `json:"control_task_id"`
 	Preferences            Preferences          `json:"preferences"`
 	PendingRetries         int                  `json:"pending_retries"`
+	PendingTitlePlans      int                  `json:"pending_title_plans"`
+	NativeTitleSuccesses   int                  `json:"native_title_successes"`
 	LastUpdateCheck        *time.Time           `json:"last_update_check,omitempty"`
 	LastUpdateFailure      *state.Failure       `json:"last_update_failure,omitempty"`
 	LastReconcileFailure   *state.Failure       `json:"last_reconcile_failure,omitempty"`
@@ -156,7 +238,7 @@ func (r StatusResult) Human() string {
 	if health == "unavailable" {
 		health = "scheduler adapter unavailable (pending install unit)"
 	}
-	message := fmt.Sprintf("ThreadBear %s · LaunchAgent %s · heartbeat %s · control task %s · heartbeat interval %ds · archive %t/%dd · rename %t · auto-update %t · token display %s · AGENTS %t · classifier %s/%s/%dB · retries %d · update check %s · update failure %s · reconcile failure %s", r.InstalledVersion, health, formatTime(r.LastCompletedHeartbeat), r.ControlTaskID, r.Preferences.HeartbeatSeconds, r.Preferences.ArchiveEnabled, r.Preferences.ArchiveAfterDays, r.Preferences.RenameEnabled, r.Preferences.AutoUpdateEnabled, r.Preferences.TokenDisplay, r.Preferences.AgentsEnabled, r.Preferences.ClassifierModel, r.Preferences.ClassifierEffort, r.Preferences.ClassifierContextBudgetBytes, r.PendingRetries, formatTime(r.LastUpdateCheck), formatFailure(r.LastUpdateFailure), formatFailure(r.LastReconcileFailure))
+	message := fmt.Sprintf("ThreadBear %s · LaunchAgent %s · heartbeat %s · control task %s · heartbeat interval %ds · archive %t/%dd · rename %t · auto-update %t · token display %s · AGENTS %t · classifier %s/%s/%dB · retries %d · title plans %d (%d native pending canonical) · update check %s · update failure %s · reconcile failure %s", r.InstalledVersion, health, formatTime(r.LastCompletedHeartbeat), r.ControlTaskID, r.Preferences.HeartbeatSeconds, r.Preferences.ArchiveEnabled, r.Preferences.ArchiveAfterDays, r.Preferences.RenameEnabled, r.Preferences.AutoUpdateEnabled, r.Preferences.TokenDisplay, r.Preferences.AgentsEnabled, r.Preferences.ClassifierModel, r.Preferences.ClassifierEffort, r.Preferences.ClassifierContextBudgetBytes, r.PendingRetries, r.PendingTitlePlans, r.NativeTitleSuccesses, formatTime(r.LastUpdateCheck), formatFailure(r.LastUpdateFailure), formatFailure(r.LastReconcileFailure))
 	if r.FirstSweep != nil {
 		message += fmt.Sprintf(" · first sweep %s · deterministic %d/%d · Luna %d · batches %d/%d+%d/%d", r.FirstSweep.Phase, r.FirstSweep.MechanicallyResolved, r.FirstSweep.ChangedTasks, r.FirstSweep.LunaCandidates, r.FirstSweep.FirstPassBatchesCompleted, r.FirstSweep.FirstPassBatchesTotal, r.FirstSweep.PreviousPassBatchesCompleted, r.FirstSweep.PreviousPassBatchesTotal)
 	}
@@ -171,18 +253,21 @@ func formatFailure(failure *state.Failure) string {
 }
 
 type InspectResult struct {
-	Version              int              `json:"version"`
-	TaskID               string           `json:"task_id"`
-	CapturedRevision     string           `json:"captured_revision"`
-	State                state.TaskStatus `json:"state"`
-	Provenance           state.Provenance `json:"provenance"`
-	ManagedAction        string           `json:"managed_action,omitempty"`
-	Retry                *RetryResult     `json:"retry,omitempty"`
-	ArchiveEligible      bool             `json:"archive_eligible"`
-	TokenDisplayPosition tokens.Position  `json:"token_display_position"`
-	ManagedTokenPosition tokens.Position  `json:"managed_token_position"`
-	ManagedTokenDisplay  string           `json:"managed_token_display"`
-	TokenUsageFound      bool             `json:"token_usage_found"`
+	Version              int                      `json:"version"`
+	TaskID               string                   `json:"task_id"`
+	CapturedRevision     string                   `json:"captured_revision"`
+	State                state.TaskStatus         `json:"state"`
+	Provenance           state.Provenance         `json:"provenance"`
+	ManagedAction        string                   `json:"managed_action,omitempty"`
+	Retry                *RetryResult             `json:"retry,omitempty"`
+	ArchiveEligible      bool                     `json:"archive_eligible"`
+	TokenDisplayPosition tokens.Position          `json:"token_display_position"`
+	ManagedTokenPosition tokens.Position          `json:"managed_token_position"`
+	ManagedTokenDisplay  string                   `json:"managed_token_display"`
+	TokenUsageFound      bool                     `json:"token_usage_found"`
+	PendingTitlePlan     bool                     `json:"pending_title_plan"`
+	NativeTitleOutcome   state.NativeTitleOutcome `json:"native_title_outcome,omitempty"`
+	RenderedConvergence  string                   `json:"rendered_convergence,omitempty"`
 }
 
 func (InspectResult) result()     {}
@@ -201,7 +286,7 @@ func (r InspectResult) Human() string {
 	if r.Retry != nil {
 		retry = fmt.Sprintf("%s/%s", r.Retry.Operation, r.Retry.ErrorCode)
 	}
-	return fmt.Sprintf("%s %s · revision %s · provenance %s · next: %s · token configured %s · token applied %s/%s · token usage found %t · retry %s · archive eligible %t", r.State.Emoji(), r.TaskID, r.CapturedRevision, r.Provenance, action, r.TokenDisplayPosition, r.ManagedTokenPosition, display, r.TokenUsageFound, retry, r.ArchiveEligible)
+	return fmt.Sprintf("%s %s · revision %s · provenance %s · next: %s · token configured %s · token applied %s/%s · token usage found %t · retry %s · title pending %t/%s/%s · archive eligible %t", r.State.Emoji(), r.TaskID, r.CapturedRevision, r.Provenance, action, r.TokenDisplayPosition, r.ManagedTokenPosition, display, r.TokenUsageFound, retry, r.PendingTitlePlan, r.NativeTitleOutcome, r.RenderedConvergence, r.ArchiveEligible)
 }
 
 func (r InspectResult) normalized() InspectResult {
@@ -649,6 +734,40 @@ func validateResult(value Result) error {
 	case TitleDispatchResult:
 		if result.Allow || result.Disposition != "retired" {
 			return errors.New("title dispatch compatibility envelope is invalid")
+		}
+	case TitleBatchResult:
+		if result.Mode != "list" && result.Mode != "operation" && result.Mode != "stage" {
+			return errors.New("title batch mode is invalid")
+		}
+		seen := map[string]struct{}{}
+		for _, item := range result.Plans {
+			if err := checkID("operation_id", item.OperationID); err != nil {
+				return err
+			}
+			if err := checkID("task_id", item.TaskID); err != nil {
+				return err
+			}
+			if err := checkID("expected_revision", item.ExpectedRevision); err != nil {
+				return err
+			}
+			if item.DesiredTitle == "" {
+				return errors.New("desired title is required")
+			}
+			if _, ok := seen[item.OperationID]; ok {
+				return errors.New("duplicate title batch operation")
+			}
+			seen[item.OperationID] = struct{}{}
+		}
+	case TitleBatchReportResult:
+		seen := map[string]struct{}{}
+		for _, id := range append(append(append(slices.Clone(result.AcceptedIDs), result.FailedIDs...), result.DriftedIDs...), result.RejectedIDs...) {
+			if err := checkID("operation_id", id); err != nil {
+				return err
+			}
+			if _, ok := seen[id]; ok {
+				return errors.New("duplicate title report operation")
+			}
+			seen[id] = struct{}{}
 		}
 	case HeartbeatResult:
 		if result.Progress != nil {

@@ -747,3 +747,22 @@ func TestRetiredTitlePlanCompatibilityIsHiddenAndFailClosed(t *testing.T) {
 		t.Fatalf("got %q want %q", got, want)
 	}
 }
+
+func TestManagedTitleBatchCommandIsHiddenAndStrict(t *testing.T) {
+	request, err := parseRequest([]string{"title-batch", "--json", "--list"})
+	if err != nil || !request.TitleBatchList {
+		t.Fatalf("request=%+v err=%v", request, err)
+	}
+	operation, err := parseRequest([]string{"title-batch", "--json", "--operation", "op"})
+	if err != nil || operation.TitleBatchOperation != "op" {
+		t.Fatalf("operation=%+v err=%v", operation, err)
+	}
+	for _, args := range [][]string{{"title-batch", "--list"}, {"title-batch", "--json"}, {"title-batch", "--json", "--list", "--report"}} {
+		if _, err := parseRequest(args); err == nil {
+			t.Fatalf("accepted %v", args)
+		}
+	}
+	if strings.Contains(renderTopLevelHelp(), "title-batch") {
+		t.Fatal("managed title batch command is visible in help")
+	}
+}
