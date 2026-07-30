@@ -683,7 +683,7 @@ func validateResult(value Result) error {
 		if code == "" && optional {
 			return nil
 		}
-		if !validCode(code) {
+		if !state.ValidStableCode(code) {
 			return fmt.Errorf("%s must be a stable machine code", field)
 		}
 		return nil
@@ -988,23 +988,4 @@ func resultVersion(value Result) int {
 	default:
 		return 0
 	}
-}
-
-func validCode(value string) bool {
-	if value == "" {
-		return false
-	}
-	separator := false
-	for index, char := range value {
-		alphanumeric := char >= 'a' && char <= 'z' || char >= '0' && char <= '9'
-		if alphanumeric {
-			separator = false
-			continue
-		}
-		if char != '_' && char != '-' && char != '.' || index == 0 || separator {
-			return false
-		}
-		separator = true
-	}
-	return !separator
 }

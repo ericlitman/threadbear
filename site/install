@@ -844,10 +844,14 @@ commentary. The cell drains the first guarded batch, kickstarts exactly one
 immediate LaunchAgent continuation only when the batch carries
 `continuation_due=true`, and otherwise waits for or drains the continuation
 that is already running or complete. It uses one shared five-minute elapsed-time
-and 300-attempt budget, drains all remaining guarded plans, and stages plus
-drains `🧵🐻 complete` only after the core handoff succeeds. Whenever the final
-result is incomplete, it restages and drains the retry footer. It starts
-immediately and never waits for the five-minute cadence. Every nested
+and 300-attempt budget across every command and native setter, drains all
+remaining guarded plans, and stages plus drains `🧵🐻 complete` only after the
+core handoff succeeds. When the final result becomes incomplete before that
+deadline, it restages and drains the retry footer; after the deadline, the
+cell makes no more tool calls and reports `complete=false`. The fixed retry
+footer staged before the cell remains the conservative fallback unless the
+verified success handoff already advanced. It starts immediately and never
+waits for the five-minute cadence. Every nested
 `tools.exec_command` requires `exit_code === 0` before JSON parsing. Each batch
 operation ID is revalidated with `--operation OP_ID` immediately before the
 native setter, and only exact payload fields are passed to
@@ -859,12 +863,12 @@ The one raw-V8 `functions.exec` cell begins with this exact supported first line
 
 ```js
 // @exec: {"yield_time_ms": 120000, "max_output_tokens": 1000}
-const counts = {accepted: 0, canonically_verified: 0, failed: 0, timed_out: 0, drifted: 0, rejected: 0}; let waitsRemaining = 300; const deadlineAt = Date.now() + 300000; const command = async (cmd) => { const result = await tools.exec_command({cmd}); if (!result || result.exit_code !== 0) throw {kind: "command_failed"}; return result; }; const commandJSON = async (cmd) => { const result = await command(cmd); if (typeof result.output !== "string") throw {kind: "command_failed"}; return JSON.parse(result.output); };
+const counts = {accepted: 0, canonically_verified: 0, failed: 0, timed_out: 0, drifted: 0, rejected: 0}; let waitsRemaining = 300; const deadlineAt = Date.now() + 300000; const timedOut = () => { if (!counts.timed_out) counts.timed_out++; throw {kind: "timed_out"}; }; const requireTime = () => { if (Date.now() >= deadlineAt) timedOut(); }; const command = async (cmd) => { requireTime(); const result = await tools.exec_command({cmd}); requireTime(); if (!result || result.exit_code !== 0) throw {kind: "command_failed"}; return result; }; const commandJSON = async (cmd) => { const result = await command(cmd); if (typeof result.output !== "string") throw {kind: "command_failed"}; return JSON.parse(result.output); };
 const readyJSON = async (cmd, waitForContinuation = false) => { for (;;) {
   const value = await commandJSON(cmd);
   if (value.ready && (!value.continuation_due || !waitForContinuation)) return value;
   if (!value.ready && (!value.retryable || !["heartbeat_active", "heartbeat_cycle_active"].includes(value.error_code))) throw {kind: "not_ready"};
-  if (waitsRemaining-- <= 0 || Date.now() >= deadlineAt) { counts.timed_out++; throw {kind: "timed_out"}; }
+  if (waitsRemaining-- <= 0) timedOut();
   await command("sleep 1");
 } };
 const quote = (value) => "'" + value.replaceAll("'", "'\\''") + "'";
@@ -875,8 +879,8 @@ const drain = async (batch) => { let complete = true;
     if (operation.disposition === "drifted") { counts.drifted++; complete = false; continue; }
     if (operation.disposition !== "ready" || !["set", "report_success"].includes(operation.action)) { counts.rejected++; complete = false; continue; }
     let outcome = "succeeded", errorCode = "";
-    if (operation.action === "set") try { await tools.codex_app__set_thread_title({threadId: operation.task_id, title: operation.desired_title}); }
-    catch { outcome = "failed"; errorCode = "native_setter_failed"; counts.failed++; complete = false; }
+    if (operation.action === "set") try { requireTime(); await tools.codex_app__set_thread_title({threadId: operation.task_id, title: operation.desired_title}); requireTime(); }
+    catch (error) { if (error?.kind === "timed_out") throw error; requireTime(); outcome = "failed"; errorCode = "native_setter_failed"; counts.failed++; complete = false; }
     const payload = {reports: [{operation_id: operationID, outcome, ...(errorCode && {error_code: errorCode})}]};
     const report = await readyJSON("printf %s " + quote(JSON.stringify(payload)) + " | ~/.local/bin/threadbear title-plan --json --report");
     counts.accepted += report.accepted || 0;
@@ -900,7 +904,7 @@ if (coreComplete) try {
   await stageFooter("🧵🐻 complete");
   complete = await drain(await readyJSON(batchCommand));
 } catch (error) { if (error?.kind !== "timed_out") counts.failed++; }
-if (!complete) try {
+if (!complete && !counts.timed_out) try {
   await stageFooter("🧵🐻 next steps (agent): retry the first title handoff");
   await drain(await readyJSON(batchCommand));
 } catch (error) { if (error?.kind !== "timed_out") counts.failed++; }

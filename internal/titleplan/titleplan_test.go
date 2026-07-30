@@ -226,7 +226,13 @@ func TestRenameDisabledHidesNativeWorkButAllowsInflightReport(t *testing.T) {
 	cfg := config.Default("control")
 	cfg.RenameEnabled = false
 	inflight := plan("task", "1", "Before", "After")
-	store := &planStore{cfg: cfg, committed: pending(inflight)}
+	committed := pending(inflight)
+	committed.LastSweep = &state.SweepProgress{
+		Phase:     state.SweepPhaseDeterministic,
+		StartedAt: time.Unix(1, 0).UTC(),
+		UpdatedAt: time.Unix(1, 0).UTC(),
+	}
+	store := &planStore{cfg: cfg, committed: committed}
 	inventory := planInventory{
 		"control": {TaskID: "control", Revision: "1", Title: "Control", Source: "vscode"},
 		"task":    {TaskID: "task", Revision: "2", Title: "After", Source: "vscode"},
@@ -234,7 +240,7 @@ func TestRenameDisabledHidesNativeWorkButAllowsInflightReport(t *testing.T) {
 	if got := call(t, service(store, inventory, "ignored"), Request{Stage: true}).(output.TitlePlanResult); !got.Ready {
 		t.Fatalf("stage=%+v", got)
 	}
-	if got := call(t, service(store, inventory, ""), Request{Batch: true}).(output.TitlePlanResult); !got.Ready || len(got.OperationIDs) != 0 {
+	if got := call(t, service(store, inventory, ""), Request{Batch: true}).(output.TitlePlanResult); !got.Ready || !got.ContinuationDue || len(got.OperationIDs) != 0 {
 		t.Fatalf("batch=%+v", got)
 	}
 	if got := call(t, service(store, inventory, ""), Request{OperationID: inflight.OperationID}).(output.TitlePlanResult); !got.Ready || got.Disposition != "rejected" || got.TaskID != "" {

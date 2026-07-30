@@ -85,7 +85,7 @@ func TestCodexInstallGuideUsesRetainedNativeTitleHandoff(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, required := range []string{"background heartbeat performs no App Server\ntitle writes", "title-plan --json --stage", "title-plan --json --batch", "title-plan --json --operation", "title-plan --json --report", "exit zero alone\nis not readiness", "Continue only when `ready=true`", "at most 120 attempts", "five-minute elapsed-time\nand 300-attempt budget", "stage result\nis non-sensitive and never contains an operation ID", "kickstarts exactly one", "continuation_due=true", "all remaining guarded plans", "retry the first title handoff", "tools.codex_app__set_thread_title", "accepted, canonically verified, failed, timed-out", "`complete` boolean", cell} {
+	for _, required := range []string{"background heartbeat performs no App Server\ntitle writes", "title-plan --json --stage", "title-plan --json --batch", "title-plan --json --operation", "title-plan --json --report", "exit zero alone\nis not readiness", "Continue only when `ready=true`", "at most 120 attempts", "five-minute elapsed-time\nand 300-attempt budget across every command and native setter", "cell makes no more tool calls and reports `complete=false`", "stage result\nis non-sensitive and never contains an operation ID", "kickstarts exactly one", "continuation_due=true", "all remaining guarded plans", "retry the first title handoff", "tools.codex_app__set_thread_title", "accepted, canonically verified, failed, timed-out", "`complete` boolean", cell} {
 		if !strings.Contains(guide, required) {
 			t.Fatalf("INSTALL.md missing native title contract %q", required)
 		}

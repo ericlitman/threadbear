@@ -185,7 +185,7 @@ func (p PendingTitlePlan) Validate() error {
 			return errors.New("successful native title outcome is incomplete")
 		}
 	case NativeTitleFailed:
-		if p.NativeReportedAt == nil || !stableCode(p.NativeErrorCode) {
+		if p.NativeReportedAt == nil || !ValidStableCode(p.NativeErrorCode) {
 			return errors.New("failed native title outcome is incomplete")
 		}
 	default:
@@ -224,6 +224,10 @@ type SweepProgress struct {
 	FirstProgressAt              *time.Time `json:"first_progress_at,omitempty"`
 	UpdatedAt                    time.Time  `json:"updated_at"`
 	CompletedAt                  *time.Time `json:"completed_at,omitempty"`
+}
+
+func (p *SweepProgress) DeterministicContinuationDue() bool {
+	return p != nil && p.Phase == SweepPhaseDeterministic && p.CompletedAt == nil
 }
 
 func (p SweepProgress) Validate() error {
@@ -307,7 +311,7 @@ func (s State) Validate() error {
 		}
 	}
 	for name, failure := range map[string]*Failure{"last_update_failure": s.LastUpdateFailure, "last_reconcile_failure": s.LastReconcileFailure} {
-		if failure != nil && (!stableCode(failure.Code) || failure.Timestamp.IsZero()) {
+		if failure != nil && (!ValidStableCode(failure.Code) || failure.Timestamp.IsZero()) {
 			return fmt.Errorf("%s is incomplete", name)
 		}
 	}
@@ -380,7 +384,7 @@ func (t TaskRecord) Validate() error {
 		return errors.New("token totals require a discovered token event")
 	}
 	if t.Retry != nil {
-		if !stableCode(t.Retry.Operation) || !stableCode(t.Retry.ErrorCode) || t.Retry.Attempts == 0 || t.Retry.LastAttemptAt.IsZero() || t.Retry.NextAttemptAt.IsZero() {
+		if !ValidStableCode(t.Retry.Operation) || !ValidStableCode(t.Retry.ErrorCode) || t.Retry.Attempts == 0 || t.Retry.LastAttemptAt.IsZero() || t.Retry.NextAttemptAt.IsZero() {
 			return errors.New("retry is incomplete")
 		}
 		if t.Retry.NextAttemptAt.Before(t.Retry.LastAttemptAt) {
@@ -518,7 +522,7 @@ func (c CycleCheckpoint) Validate() error {
 		}
 	}
 	for key, diagnostic := range c.Diagnostics {
-		if !canonicalIdentifier(key) || diagnostic.TaskID != key || !stableCode(diagnostic.Operation) || !stableCode(diagnostic.ErrorCode) {
+		if !canonicalIdentifier(key) || diagnostic.TaskID != key || !ValidStableCode(diagnostic.Operation) || !ValidStableCode(diagnostic.ErrorCode) {
 			return fmt.Errorf("cycle diagnostic %q is invalid", key)
 		}
 	}
@@ -558,7 +562,7 @@ func canonicalIdentifier(value string) bool {
 	return value != "" && strings.TrimSpace(value) == value
 }
 
-func stableCode(value string) bool {
+func ValidStableCode(value string) bool {
 	if value == "" {
 		return false
 	}

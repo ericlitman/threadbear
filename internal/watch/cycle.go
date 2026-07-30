@@ -191,7 +191,7 @@ func (r *Runner) Run(ctx context.Context, dryRun bool) (output.Result, error) {
 	adoptionDue := committed.LastAnnouncedVersion == "" && r.deps.InstalledVersion != ""
 	announcementDue := committed.LastAnnouncedVersion != "" && r.deps.InstalledVersion != "" && committed.LastAnnouncedVersion != r.deps.InstalledVersion
 	reconcileDue := r.deps.InstalledVersion != "" && committed.LastReconciledVersion != r.deps.InstalledVersion
-	handoffContinuation := committed.LastSweep != nil && committed.LastSweep.Phase == state.SweepPhaseDeterministic && committed.LastSweep.CompletedAt == nil
+	handoffContinuation := committed.LastSweep.DeterministicContinuationDue()
 	deterministicHandoff := reconcileDue && !handoffContinuation
 	nativeTitleMode := r.deps.InstalledVersion != "" && (deterministicHandoff || handoffContinuation)
 	var managedResources []string
