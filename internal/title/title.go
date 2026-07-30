@@ -33,10 +33,14 @@ func Reconcile(record state.TaskRecord, nextStatus state.TaskStatus, suggestedSu
 	}
 	current := record.CapturedTitle
 	subject := ""
+	suggested := stripStatusPrefixes(suggestedSubject)
 	if managedCapturedTitle(record) {
 		subject = strings.TrimSpace(record.DurableSubject)
 		if subject == "" {
 			subject = ownedSubject(record)
+		}
+		if suggested != "" && canReachSuggestedSubject(subject, suggested, record.ManagedTokenPosition, display.Position) {
+			subject = suggested
 		}
 		oppositePosition := tokens.PositionOff
 		switch record.ManagedTokenPosition {
@@ -49,10 +53,14 @@ func Reconcile(record state.TaskRecord, nextStatus state.TaskStatus, suggestedSu
 			subject = stripOwnedTokenCopies(subject, record.ManagedTokenDisplay, oppositePosition)
 		}
 	} else {
-		subject = stripOwnedToken(stripStatusPrefixes(current), record.ManagedTokenDisplay, record.ManagedTokenPosition)
+		subject = stripStatusPrefixes(current)
+		subject = stripOwnedToken(subject, record.ManagedTokenDisplay, record.ManagedTokenPosition)
+		if suggested != "" && canReachSuggestedSubject(subject, suggested, display.Position) {
+			subject = suggested
+		}
 	}
 	if subject == "" {
-		subject = stripStatusPrefixes(suggestedSubject)
+		subject = suggested
 	}
 	statusOnly := subject == "" && isStatusOnly(current)
 	if subject == "" && !statusOnly {
@@ -75,8 +83,32 @@ func Reconcile(record state.TaskRecord, nextStatus state.TaskStatus, suggestedSu
 }
 
 func managedCapturedTitle(record state.TaskRecord) bool {
+	return managedCurrentTitle(record, record.CapturedTitle)
+}
+
+func managedCurrentTitle(record state.TaskRecord, current string) bool {
 	lastApplied := record.LastAppliedTitle
-	return lastApplied != "" && (record.CapturedTitle == lastApplied || record.CapturedTitle == PersistedTitle(lastApplied))
+	return lastApplied != "" && (current == lastApplied || current == PersistedTitle(lastApplied))
+}
+
+func SubjectNeedsClassification(record state.TaskRecord, current string, displayPosition tokens.Position) bool {
+	if !hasCanonicalStatusPrefix(current) {
+		return false
+	}
+	if managedCurrentTitle(record, current) {
+		subject := strings.TrimSpace(record.DurableSubject)
+		if subject == "" {
+			subject = ownedSubject(record)
+		}
+		if hasManagedBoundaryToken(subject, record.ManagedTokenPosition) {
+			return true
+		}
+		return displayPosition != record.ManagedTokenPosition && hasManagedBoundaryToken(subject, displayPosition)
+	}
+	if record.LastAppliedTitle != "" {
+		return false
+	}
+	return hasManagedBoundaryToken(stripStatusPrefixes(current), displayPosition)
 }
 
 func PersistedTitle(value string) string {
@@ -295,6 +327,50 @@ func stripOwnedTokenCopies(value, managed string, position tokens.Position) stri
 		}
 		value = stripped
 	}
+}
+
+func stripManagedBoundaryToken(value string, position tokens.Position) string {
+	value = strings.TrimSpace(value)
+	switch position {
+	case tokens.PositionStart:
+		token, remainder, found := strings.Cut(value, " ")
+		if found && tokens.IsDisplayValue(token) {
+			return strings.TrimSpace(remainder)
+		}
+	case tokens.PositionEnd:
+		for _, delimiter := range []string{" · out ", " · "} {
+			index := strings.LastIndex(value, delimiter)
+			if index >= 0 && tokens.IsDisplayValue(value[index+len(delimiter):]) {
+				return strings.TrimSpace(value[:index])
+			}
+		}
+	}
+	return value
+}
+
+func canReachSuggestedSubject(value, suggested string, positions ...tokens.Position) bool {
+	value = strings.TrimSpace(value)
+	seen := map[string]bool{value: true}
+	pending := []string{value}
+	for next := 0; next < len(pending); next++ {
+		candidate := pending[next]
+		if candidate == suggested {
+			return true
+		}
+		for _, position := range positions {
+			stripped := stripManagedBoundaryToken(candidate, position)
+			if stripped != candidate && !seen[stripped] {
+				seen[stripped] = true
+				pending = append(pending, stripped)
+			}
+		}
+	}
+	return false
+}
+
+func hasManagedBoundaryToken(value string, position tokens.Position) bool {
+	value = strings.TrimSpace(value)
+	return stripManagedBoundaryToken(value, position) != value
 }
 
 func ownedTokenCopies(value, managed string, position tokens.Position) int {

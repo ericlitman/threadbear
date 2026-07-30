@@ -187,25 +187,87 @@ func TestReconcileReplacesManagedEndDisplayBeforePersistedEllipsis(t *testing.T)
 	}
 }
 
-func TestReconcilePreservesSameBoundaryLegacyTokenText(t *testing.T) {
+func TestReconcileRemovesManagedBoundaryTokenContamination(t *testing.T) {
 	for _, test := range []struct {
-		name     string
-		captured string
-		position tokens.Position
-		want     string
-		subject  string
+		name      string
+		record    state.TaskRecord
+		position  tokens.Position
+		display   string
+		suggested string
+		want      string
+		subject   string
 	}{
-		{name: "start", captured: "✅ 670k 670k Release service", position: tokens.PositionStart, want: "✅ 700k 670k Release service", subject: "670k Release service"},
-		{name: "end", captured: "✅ Release service · out 670k · out 670k", position: tokens.PositionEnd, want: "✅ Release service · out 670k · 700k", subject: "Release service · out 670k"},
+		{
+			name: "same start display",
+			record: state.TaskRecord{
+				CapturedTitle: "🚨 52k 52k Run SYMPH-294 pilot", DurableSubject: "52k Run SYMPH-294 pilot",
+				LastAppliedTitle: "🚨 52k 52k Run SYMPH-294 pilot", ManagedTokenDisplay: "52k", ManagedTokenPosition: tokens.PositionStart,
+				Status: state.StatusBlocked,
+			},
+			position: tokens.PositionStart, display: "52k",
+			suggested: "Run SYMPH-294 pilot",
+			want:      "🚨 52k Run SYMPH-294 pilot", subject: "Run SYMPH-294 pilot",
+		},
+		{
+			name: "settled changed start display",
+			record: state.TaskRecord{
+				CapturedTitle: "✅ 220k 210k Improve ThreadBear onboarding", DurableSubject: "210k Improve ThreadBear onboarding",
+				LastAppliedTitle: "✅ 220k 210k Improve ThreadBear onboarding", ManagedTokenDisplay: "220k", ManagedTokenPosition: tokens.PositionStart,
+				Status: state.StatusComplete,
+			},
+			position: tokens.PositionStart, display: "220k",
+			suggested: "Improve ThreadBear onboarding",
+			want:      "✅ 220k Improve ThreadBear onboarding", subject: "Improve ThreadBear onboarding",
+		},
+		{
+			name: "settled changed end display",
+			record: state.TaskRecord{
+				CapturedTitle: "✅ Release service · 210k · 220k", DurableSubject: "Release service · 210k",
+				LastAppliedTitle: "✅ Release service · 210k · 220k", ManagedTokenDisplay: "220k", ManagedTokenPosition: tokens.PositionEnd,
+				Status: state.StatusComplete,
+			},
+			position: tokens.PositionEnd, display: "220k",
+			suggested: "Release service",
+			want:      "✅ Release service · 220k", subject: "Release service",
+		},
+		{
+			name: "contamination before legitimate numeric start subject",
+			record: state.TaskRecord{
+				CapturedTitle: "✅ 220k 220k 210k Improve ThreadBear onboarding", DurableSubject: "220k 210k Improve ThreadBear onboarding",
+				LastAppliedTitle: "✅ 220k 220k 210k Improve ThreadBear onboarding", ManagedTokenDisplay: "220k", ManagedTokenPosition: tokens.PositionStart,
+				Status: state.StatusComplete,
+			},
+			position: tokens.PositionStart, display: "220k",
+			suggested: "210k Improve ThreadBear onboarding",
+			want:      "✅ 220k 210k Improve ThreadBear onboarding", subject: "210k Improve ThreadBear onboarding",
+		},
+		{
+			name: "contamination after legitimate numeric end subject",
+			record: state.TaskRecord{
+				CapturedTitle: "✅ Release service · 210k · 220k · 220k", DurableSubject: "Release service · 210k · 220k",
+				LastAppliedTitle: "✅ Release service · 210k · 220k · 220k", ManagedTokenDisplay: "220k", ManagedTokenPosition: tokens.PositionEnd,
+				Status: state.StatusComplete,
+			},
+			position: tokens.PositionEnd, display: "220k",
+			suggested: "Release service · 210k",
+			want:      "✅ Release service · 210k · 220k", subject: "Release service · 210k",
+		},
+		{
+			name: "legitimate numeric subject",
+			record: state.TaskRecord{
+				CapturedTitle: "✅ 20k 26k Release service", DurableSubject: "26k Release service",
+				LastAppliedTitle: "✅ 20k 26k Release service", ManagedTokenDisplay: "20k", ManagedTokenPosition: tokens.PositionStart,
+				Status: state.StatusComplete,
+			},
+			position:  tokens.PositionStart,
+			display:   "20k",
+			suggested: "26k Release service",
+			want:      "✅ 20k 26k Release service",
+			subject:   "26k Release service",
+		},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			record := state.TaskRecord{
-				CapturedTitle:        test.captured,
-				LastAppliedTitle:     test.captured,
-				ManagedTokenDisplay:  "670k",
-				ManagedTokenPosition: test.position,
-			}
-			first, err := Reconcile(record, state.StatusComplete, "", "", tokens.Display{Position: test.position, Value: "700k"})
+			first, err := Reconcile(test.record, test.record.Status, test.suggested, "", tokens.Display{Position: test.position, Value: test.display})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -215,12 +277,41 @@ func TestReconcilePreservesSameBoundaryLegacyTokenText(t *testing.T) {
 			second, err := Reconcile(state.TaskRecord{
 				CapturedTitle: first.Title, DurableSubject: first.DurableSubject, LastAppliedTitle: first.Title,
 				ManagedTokenDisplay: first.ManagedTokenDisplay, ManagedTokenPosition: first.ManagedTokenPosition,
-			}, state.StatusComplete, "", "", tokens.Display{Position: test.position, Value: "700k"})
+				Status: test.record.Status,
+			}, test.record.Status, "", "", tokens.Display{Position: test.position, Value: test.display})
 			if err != nil {
 				t.Fatal(err)
 			}
 			if second != first {
 				t.Fatalf("first=%+v second=%+v", first, second)
+			}
+		})
+	}
+}
+
+func TestSubjectNeedsClassificationOnlyForUntouchedTokenBoundaries(t *testing.T) {
+	owned := state.TaskRecord{
+		CapturedTitle: "✅ 20k 26k Release service", DurableSubject: "26k Release service",
+		LastAppliedTitle: "✅ 20k 26k Release service", ManagedTokenDisplay: "20k", ManagedTokenPosition: tokens.PositionStart,
+	}
+	for _, test := range []struct {
+		name     string
+		record   state.TaskRecord
+		current  string
+		position tokens.Position
+		want     bool
+	}{
+		{name: "new status title with numeric boundary", current: "✅ 404 Investigate outage", position: tokens.PositionStart, want: true},
+		{name: "exact managed numeric subject", record: owned, current: owned.CapturedTitle, position: tokens.PositionStart, want: true},
+		{name: "Luna record can still contain legacy contamination", record: state.TaskRecord{CapturedTitle: owned.CapturedTitle, DurableSubject: owned.DurableSubject, LastAppliedTitle: owned.LastAppliedTitle, ManagedTokenDisplay: owned.ManagedTokenDisplay, ManagedTokenPosition: owned.ManagedTokenPosition, Provenance: state.ProvenanceLuna}, current: owned.CapturedTitle, position: tokens.PositionStart, want: true},
+		{name: "exact managed clean subject", record: state.TaskRecord{CapturedTitle: "✅ 20k Release service", DurableSubject: "Release service", LastAppliedTitle: "✅ 20k Release service", ManagedTokenDisplay: "20k", ManagedTokenPosition: tokens.PositionStart}, current: "✅ 20k Release service", position: tokens.PositionStart},
+		{name: "divergent user edit", record: owned, current: "✅ 20k 404 Investigate outage", position: tokens.PositionStart},
+		{name: "no status ownership", current: "404 Investigate outage", position: tokens.PositionStart},
+		{name: "other configured boundary", current: "✅ 404 Investigate outage", position: tokens.PositionEnd},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			if got := SubjectNeedsClassification(test.record, test.current, test.position); got != test.want {
+				t.Fatalf("SubjectNeedsClassification() = %t, want %t", got, test.want)
 			}
 		})
 	}
@@ -546,19 +637,22 @@ func TestReconcileRecoversCurrentDisplayWithIncompleteOrStaleOwnership(t *testin
 
 func TestReconcilePreservesUnownedNumericText(t *testing.T) {
 	for _, test := range []struct {
-		name     string
-		captured string
-		display  tokens.Display
-		want     string
+		name      string
+		captured  string
+		display   tokens.Display
+		suggested string
+		want      string
 	}{
 		{name: "different start value", captured: "✅ 94k Execute BEAR-59", display: tokens.Display{Position: tokens.PositionStart, Value: "26k"}, want: "✅ 26k 94k Execute BEAR-59"},
 		{name: "matching value in unconfigured prefix", captured: "✅ 26k Execute BEAR-59", display: tokens.Display{Position: tokens.PositionEnd, Value: "26k"}, want: "✅ 26k Execute BEAR-59 · 26k"},
 		{name: "matching ordinary suffix", captured: "✅ Execute BEAR-59 26k", display: tokens.Display{Position: tokens.PositionStart, Value: "26k"}, want: "✅ 26k Execute BEAR-59 26k"},
 		{name: "different end value", captured: "✅ Execute BEAR-59 · out 94k", display: tokens.Display{Position: tokens.PositionEnd, Value: "26k"}, want: "✅ Execute BEAR-59 · out 94k · 26k"},
 		{name: "no canonical status ownership", captured: "26k Execute BEAR-59", display: tokens.Display{Position: tokens.PositionStart, Value: "26k"}, want: "✅ 26k 26k Execute BEAR-59"},
+		{name: "classified legitimate start value", captured: "✅ 220k 210k Improve ThreadBear onboarding", display: tokens.Display{Position: tokens.PositionStart, Value: "220k"}, suggested: "210k Improve ThreadBear onboarding", want: "✅ 220k 210k Improve ThreadBear onboarding"},
+		{name: "classified legitimate end value", captured: "✅ Release service · 210k · 220k", display: tokens.Display{Position: tokens.PositionEnd, Value: "220k"}, suggested: "Release service · 210k", want: "✅ Release service · 210k · 220k"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			got, err := Reconcile(state.TaskRecord{CapturedTitle: test.captured}, state.StatusComplete, "", "", test.display)
+			got, err := Reconcile(state.TaskRecord{CapturedTitle: test.captured}, state.StatusComplete, test.suggested, "", test.display)
 			if err != nil {
 				t.Fatal(err)
 			}

@@ -517,6 +517,68 @@ func TestHeartbeatRendersOutputTokensAndLeavesUnchangedTitlesAlone(t *testing.T)
 	}
 }
 
+func TestHeartbeatRemovesManagedTokenContaminationConfirmedByClassification(t *testing.T) {
+	now := time.Date(2026, 7, 30, 12, 0, 0, 0, time.UTC)
+	task := codex.Task{TaskID: "task-a", Revision: "2", Title: "✅ 220k 210k Improve ThreadBear onboarding", Source: "vscode", RolloutPath: "/synthetic/task-a.jsonl"}
+	committed := state.New()
+	committed.BootstrapComplete = true
+	committed.LastUpdateCheck = timePointer(now)
+	previous := record(codex.Task{TaskID: task.TaskID, Revision: "1", Title: task.Title}, state.StatusComplete, now)
+	previous.DurableSubject = "210k Improve ThreadBear onboarding"
+	previous.ManagedTokenDisplay = "220k"
+	previous.ManagedTokenPosition = tokens.PositionStart
+	previous.TokenRolloutPath = task.RolloutPath
+	previous.TokenReadOffset = 100
+	previous.TokenRolloutSize = 100
+	previous.TokenUsageFound = true
+	previous.OutputTokens = 220_000
+	committed.Tasks[task.TaskID] = previous
+	runner, deps := testRunner(t, now, []codex.Task{task}, committed)
+	deps.client.latest[task.TaskID] = completedEvidence(now, "done", "ambiguous completion")
+	deps.classifier.results[task.TaskID] = status.Classification{
+		TaskID: task.TaskID, Revision: task.Revision, Status: state.StatusComplete,
+		Provenance: state.ProvenanceLuna, DurableSubject: "Improve ThreadBear onboarding",
+	}
+	deps.tokens.snapshots[task.RolloutPath] = tokens.Snapshot{
+		RolloutPath: task.RolloutPath, Offset: 120, Size: 120, OutputTokens: 220_000, TotalTokens: 433_000_000, Found: true,
+	}
+
+	if _, err := runner.Run(context.Background(), false); err != nil {
+		t.Fatal(err)
+	}
+	current, _ := deps.index.task(task.TaskID)
+	stored, _ := deps.store.store.LoadState()
+	if current.Title != "✅ 220k Improve ThreadBear onboarding" || stored.Tasks[task.TaskID].DurableSubject != "Improve ThreadBear onboarding" || len(deps.client.titles) != 1 {
+		t.Fatalf("title=%q state=%+v writes=%v", current.Title, stored.Tasks[task.TaskID], deps.client.titles)
+	}
+}
+
+func TestHeartbeatUsesLunaForUnownedTokenBoundary(t *testing.T) {
+	now := time.Date(2026, 7, 30, 12, 0, 0, 0, time.UTC)
+	task := codex.Task{TaskID: "task-a", Revision: "1", Title: "✅ 220k 210k Improve ThreadBear onboarding", Source: "vscode", RolloutPath: "/synthetic/task-a.jsonl"}
+	committed := state.New()
+	committed.BootstrapComplete = true
+	committed.LastUpdateCheck = timePointer(now)
+	runner, deps := testRunner(t, now, []codex.Task{task}, committed)
+	deps.client.latest[task.TaskID] = completedEvidence(now, "done", "done\n🧵🐻 complete")
+	deps.classifier.results[task.TaskID] = status.Classification{
+		TaskID: task.TaskID, Revision: task.Revision, Status: state.StatusComplete,
+		Provenance: state.ProvenanceLuna, DurableSubject: "Improve ThreadBear onboarding",
+	}
+	deps.tokens.snapshots[task.RolloutPath] = tokens.Snapshot{
+		RolloutPath: task.RolloutPath, Offset: 120, Size: 120, OutputTokens: 220_000, TotalTokens: 433_000_000, Found: true,
+	}
+
+	if _, err := runner.Run(context.Background(), false); err != nil {
+		t.Fatal(err)
+	}
+	current, _ := deps.index.task(task.TaskID)
+	stored, _ := deps.store.store.LoadState()
+	if current.Title != "✅ 220k Improve ThreadBear onboarding" || stored.Tasks[task.TaskID].DurableSubject != "Improve ThreadBear onboarding" || len(deps.client.titles) != 1 || deps.classifier.calls != 1 {
+		t.Fatalf("title=%q state=%+v writes=%v classifier=%d", current.Title, stored.Tasks[task.TaskID], deps.client.titles, deps.classifier.calls)
+	}
+}
+
 func TestHeartbeatClearsEmojiOnlyTitleReconcileRetry(t *testing.T) {
 	now := time.Date(2026, 7, 26, 12, 0, 0, 0, time.UTC)
 	task := codex.Task{TaskID: "legacy", Revision: "1", Title: "✅", Source: "vscode"}
@@ -587,6 +649,7 @@ func TestHeartbeatCleansRepeatedOwnedPrefixWhenMovingDisplayToEnd(t *testing.T) 
 	now := time.Date(2026, 7, 26, 12, 0, 0, 0, time.UTC)
 	task := codex.Task{TaskID: "task-a", Revision: "1", Title: "✅ 26k 26k 26k Execute BEAR-59", Source: "vscode", RolloutPath: "/synthetic/task-a.jsonl"}
 	committed := state.New()
+	committed.BootstrapComplete = true
 	committed.LastUpdateCheck = timePointer(now)
 	previous := record(task, state.StatusComplete, now)
 	previous.DurableSubject = "26k 26k Execute BEAR-59"
@@ -606,6 +669,11 @@ func TestHeartbeatCleansRepeatedOwnedPrefixWhenMovingDisplayToEnd(t *testing.T) 
 	deps.tokens.snapshots[task.RolloutPath] = tokens.Snapshot{
 		RolloutPath: task.RolloutPath, Offset: 120, Size: 120, OutputTokens: 26_123, TotalTokens: 433_000_000, Found: true,
 	}
+	deps.client.latest[task.TaskID] = completedEvidence(now, "done", "done\n🧵🐻 complete")
+	deps.classifier.results[task.TaskID] = status.Classification{
+		TaskID: task.TaskID, Revision: task.Revision, Status: state.StatusComplete,
+		Provenance: state.ProvenanceLuna, DurableSubject: "Execute BEAR-59",
+	}
 
 	if _, err := runner.Run(context.Background(), false); err != nil {
 		t.Fatal(err)
@@ -616,16 +684,16 @@ func TestHeartbeatCleansRepeatedOwnedPrefixWhenMovingDisplayToEnd(t *testing.T) 
 		t.Fatal(err)
 	}
 	owned := stored.Tasks[task.TaskID]
-	if current.Title != "✅ 26k 26k Execute BEAR-59 · 26k" || owned.DurableSubject != "26k 26k Execute BEAR-59" || owned.ManagedTokenDisplay != "26k" || owned.ManagedTokenPosition != tokens.PositionEnd || len(stored.PendingTitlePlans) != 0 || len(deps.client.titles) != 1 {
-		t.Fatalf("title=%q state=%+v writes=%v", current.Title, owned, deps.client.titles)
+	if current.Title != "✅ Execute BEAR-59 · 26k" || owned.DurableSubject != "Execute BEAR-59" || owned.ManagedTokenDisplay != "26k" || owned.ManagedTokenPosition != tokens.PositionEnd || len(stored.PendingTitlePlans) != 0 || len(deps.client.titles) != 1 || deps.classifier.calls != 1 {
+		t.Fatalf("title=%q state=%+v writes=%v classifier=%d", current.Title, owned, deps.client.titles, deps.classifier.calls)
 	}
 
 	if _, err := runner.Run(context.Background(), false); err != nil {
 		t.Fatal(err)
 	}
 	current, _ = deps.index.task(task.TaskID)
-	if current.Title != "✅ 26k 26k Execute BEAR-59 · 26k" || len(deps.client.titles) != 1 {
-		t.Fatalf("second title=%q writes=%v", current.Title, deps.client.titles)
+	if current.Title != "✅ Execute BEAR-59 · 26k" || len(deps.client.titles) != 1 || deps.classifier.calls != 1 {
+		t.Fatalf("second title=%q writes=%v classifier=%d", current.Title, deps.client.titles, deps.classifier.calls)
 	}
 }
 
@@ -2364,15 +2432,27 @@ func TestPendingTitleMigrationSettlesAlreadyAppliedAdvancedRevisionWithoutClassi
 	}
 }
 
-func TestPendingTitleMigrationPromotesValidPlanWithoutClassificationReads(t *testing.T) {
+func TestPendingTitleMigrationPreservesAndProcessesFullInventory(t *testing.T) {
 	now := time.Date(2026, 8, 2, 12, 0, 0, 0, time.UTC)
 	task := codex.Task{TaskID: "task-a", Revision: "1", Title: "Subject", Source: "vscode", RolloutPath: "/synthetic/task-a.jsonl"}
+	recordedUnrelated := codex.Task{TaskID: "task-b", Revision: "1", Title: "Unrelated", Source: "vscode", RolloutPath: "/synthetic/task-b.jsonl"}
+	unrelated := codex.Task{TaskID: "task-b", Revision: "2", Title: "Unrelated changed", Source: "vscode", RolloutPath: "/synthetic/task-b.jsonl"}
+	semantic := codex.Task{TaskID: "task-c", Revision: "1", Title: "Semantic", Source: "vscode", RolloutPath: "/synthetic/task-c.jsonl"}
+	removed := codex.Task{TaskID: "task-d", Revision: "1", Title: "Removed", Source: "vscode", RolloutPath: "/synthetic/task-d.jsonl"}
 	committed := state.New()
 	committed.BootstrapComplete = true
 	committed.LastUpdateCheck = timePointer(now)
 	committed.Tasks[task.TaskID] = record(task, state.StatusComplete, now)
+	committed.Tasks[recordedUnrelated.TaskID] = record(recordedUnrelated, state.StatusComplete, now)
+	committed.Tasks[removed.TaskID] = record(removed, state.StatusComplete, now)
 	committed.PendingTitlePlans[task.TaskID] = migratedPlan(task, "✅ Subject")
-	runner, deps := testRunner(t, now, []codex.Task{task}, committed)
+	runner, deps := testRunner(t, now, []codex.Task{task, unrelated, semantic}, committed)
+	deps.client.latest[unrelated.TaskID] = completedEvidence(now, "done", "done\n🧵🐻 complete")
+	deps.client.latest[semantic.TaskID] = completedEvidence(now, "continue", "ambiguous result")
+	deps.classifier.results[semantic.TaskID] = status.Classification{
+		TaskID: semantic.TaskID, Revision: semantic.Revision, Status: state.StatusComplete,
+		Provenance: state.ProvenanceLuna, DurableSubject: semantic.Title,
+	}
 
 	if _, err := runner.Run(context.Background(), false); err != nil {
 		t.Fatal(err)
@@ -2380,11 +2460,19 @@ func TestPendingTitleMigrationPromotesValidPlanWithoutClassificationReads(t *tes
 
 	stored, _ := deps.store.store.LoadState()
 	current, _ := deps.index.task(task.TaskID)
-	if current.Title != "✅ Subject" || stored.Tasks[task.TaskID].CapturedTitle != current.Title || len(stored.PendingTitlePlans) != 0 || len(deps.client.titles) != 1 {
-		t.Fatalf("current=%+v state=%+v titles=%v", current, stored, deps.client.titles)
+	currentUnrelated, _ := deps.index.task(unrelated.TaskID)
+	currentSemantic, _ := deps.index.task(semantic.TaskID)
+	_, removedRetained := stored.Tasks[removed.TaskID]
+	if current.Title != "✅ Subject" || currentUnrelated.Title != "✅ Unrelated changed" || currentSemantic.Title != "✅ Semantic" || stored.Tasks[task.TaskID].CapturedTitle != current.Title || stored.Tasks[unrelated.TaskID].CapturedTitle != currentUnrelated.Title || stored.Tasks[semantic.TaskID].CapturedTitle != currentSemantic.Title || removedRetained || len(stored.Tasks) != 3 || len(stored.PendingTitlePlans) != 0 || len(deps.client.titles) != 3 {
+		t.Fatalf("current=%+v unrelated=%+v semantic=%+v state=%+v titles=%v", current, currentUnrelated, currentSemantic, stored, deps.client.titles)
 	}
-	if len(deps.client.latestReads) != 0 || len(deps.client.previousReads) != 0 || len(deps.tokens.calls) != 0 || deps.classifier.calls != 0 {
+	if len(deps.client.latestReads) != 2 || len(deps.client.previousReads) != 0 || len(deps.tokens.calls) != 2 || deps.classifier.calls != 1 {
 		t.Fatalf("latest=%v previous=%v tokens=%v classifier=%d", deps.client.latestReads, deps.client.previousReads, deps.tokens.calls, deps.classifier.calls)
+	}
+
+	runHeartbeat(t, runner)
+	if len(deps.client.titles) != 3 || deps.classifier.calls != 1 {
+		t.Fatalf("idle heartbeat wrote or classified: titles=%v classifier=%d", deps.client.titles, deps.classifier.calls)
 	}
 }
 
@@ -2662,6 +2750,50 @@ func TestNativeTitleHandoffMixedExistingInstall(t *testing.T) {
 	current, _ := deps.index.task("later")
 	if current.Title != "✅ Later" || ordinary.Tasks["later"].CapturedTitle != "✅ Later" || len(ordinary.PendingTitlePlans) != 0 || len(deps.client.titles) != 1 {
 		t.Fatalf("ordinary=%+v current=%+v writes=%v", ordinary, current, deps.client.titles)
+	}
+}
+
+func TestNativeTitleHandoffDefersAmbiguousTokenBoundary(t *testing.T) {
+	now := time.Date(2026, 8, 5, 12, 0, 0, 0, time.UTC)
+	guided := codex.Task{TaskID: "guided", Revision: "1", Title: "✅ Guided", Source: "vscode"}
+	legacy := codex.Task{TaskID: "legacy", Revision: "1", Title: "✅ 220k 210k Improve ThreadBear onboarding", Source: "vscode", RolloutPath: "/synthetic/legacy.jsonl"}
+	committed := state.New()
+	committed.BootstrapComplete, committed.LastAnnouncedVersion, committed.LastReconciledVersion = true, "1.0.0", "0.9.0"
+	committed.LastUpdateCheck = timePointer(now)
+	runner, deps := testRunner(t, now, []codex.Task{guided, legacy}, committed)
+	deps.client.latest[guided.TaskID] = completedEvidence(now, "done", "done\n🧵🐻 complete")
+	deps.client.latest[legacy.TaskID] = completedEvidence(now, "done", "done\n🧵🐻 complete")
+	deps.classifier.results[legacy.TaskID] = status.Classification{
+		TaskID: legacy.TaskID, Revision: legacy.Revision, Status: state.StatusComplete,
+		Provenance: state.ProvenanceLuna, DurableSubject: "Improve ThreadBear onboarding",
+	}
+	deps.tokens.snapshots[legacy.RolloutPath] = tokens.Snapshot{
+		RolloutPath: legacy.RolloutPath, Offset: 120, Size: 120, OutputTokens: 220_000, TotalTokens: 433_000_000, Found: true,
+	}
+
+	runHeartbeat(t, runner)
+	first, _ := deps.store.store.LoadState()
+	guidedPlan := first.PendingTitlePlans[guided.TaskID]
+	if guidedPlan.DesiredTitle != guided.Title || len(first.PendingTitlePlans) != 1 || first.LastSweep == nil || first.LastSweep.LunaCandidates != 1 || deps.classifier.calls != 0 || len(deps.client.titles) != 0 {
+		t.Fatalf("first=%+v titles=%v classifier=%d", first, deps.client.titles, deps.classifier.calls)
+	}
+	if _, retained := first.Tasks[legacy.TaskID]; retained {
+		t.Fatalf("ambiguous title was committed during deterministic handoff: %+v", first.Tasks)
+	}
+
+	settlePlan(t, &deps, now, guidedPlan)
+	runHeartbeat(t, runner)
+	second, _ := deps.store.store.LoadState()
+	legacyPlan := second.PendingTitlePlans[legacy.TaskID]
+	if legacyPlan.DesiredTitle != "✅ 220k Improve ThreadBear onboarding" || len(second.PendingTitlePlans) != 1 || deps.classifier.calls != 1 || len(deps.client.titles) != 0 {
+		t.Fatalf("second=%+v titles=%v classifier=%d", second, deps.client.titles, deps.classifier.calls)
+	}
+
+	settlePlan(t, &deps, now, legacyPlan)
+	runHeartbeat(t, runner)
+	settled, _ := deps.store.store.LoadState()
+	if len(settled.PendingTitlePlans) != 0 || settled.Tasks[legacy.TaskID].CapturedTitle != legacyPlan.DesiredTitle || deps.classifier.calls != 1 || len(deps.client.titles) != 0 {
+		t.Fatalf("settled=%+v titles=%v classifier=%d", settled, deps.client.titles, deps.classifier.calls)
 	}
 }
 
