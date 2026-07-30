@@ -43,9 +43,11 @@ Do not use `sudo`. Do not edit README, the website, or the installed skill durin
   exactly this preview?”
 - Keep progress updates short and meaningful: what just finished, what happens
   next, and whether the person needs to act. Do not narrate internal sequencing.
-- A clear yes to the friendly installation question is still required. Never
-  infer consent from an unrelated reply, and never claim success until every
-  verification step passes.
+- A clear yes to the unchanged complete first-install recommendation is
+  installation consent. After any choice changes or for a reinstall, a clear
+  yes to the friendly installation question is required. Never infer consent
+  from an unrelated reply, and never claim success until every verification
+  step passes.
 
 ### Required visible state machine
 
@@ -57,23 +59,30 @@ change the words inside a state but never the order.
 2. Run every prerequisite and discovery check backstage. If any required check
    fails, skip readiness, settings, review, and consent. Use only the matching
    failure shape in section 7.
-3. On complete success, send one assistant turn containing both “This Mac and
-   Codex are ready for ThreadBear” and the complete settings card. Do not let a
-   settings question, choice, or user reply appear before that card has been
-   presented, unless the real person actually interrupts.
-4. After the card, answer questions or collect changes. When the person accepts
-   a complete settings card, show one complete friendly review. Their card
-   acceptance is not installation consent.
-5. If they change a choice at the review, keep that first review visible,
-   acknowledge the changes, and show a second complete review in a new
-   assistant turn. Ask the installation question again.
-6. Before asking the installation question, freeze a close plan from the same
-   reviewed settings: archive enabled or disabled, title maintenance enabled or
-   disabled, token position, and the two exact mapped actions. Counts may fill
-   that plan later, but installation results must not switch it back to defaults.
-7. Only a clear yes to the installation question advances to installation.
-   Send the exact one-line progress update from section 6, complete all
-   verification backstage, then send one complete success or failure close.
+3. On complete success, freeze the close plan from the complete settings card,
+   then send one assistant turn containing both “This Mac and Codex are ready
+   for ThreadBear” and that card. Do not let a settings question, choice, or user
+   reply appear before the card has been presented, unless the real person
+   actually interrupts.
+4. After the card, answer questions or collect changes. For a first install,
+   only a clear affirmative response to the unchanged complete recommended card
+   is installation consent. Advance directly to the exact one-line progress
+   update from section 6 without showing a second review or asking again.
+5. If they change a choice before consent, acknowledge the changes, show one
+   complete authoritative review in a new assistant turn, and ask the friendly
+   installation question. If they change a choice at that review, keep the
+   first review visible, acknowledge the changes, show a second complete review,
+   and ask the installation question again.
+6. Keep the close plan frozen from the same complete card or reviewed settings:
+   archive enabled or disabled, title maintenance enabled or disabled, token
+   position, and the two exact mapped actions. Counts may fill
+   that plan later, but installation results must not switch it back to
+   defaults.
+7. Only a clear yes to the unchanged recommended first-install card or to the
+   installation question after changed choices or for a reinstall advances to
+   installation. Send the exact one-line progress update from section 6,
+   complete all verification backstage, then send one complete success or
+   failure close.
 
 Before sending any visible message, check three things: it belongs to the
 current state above; it contains no backstage vocabulary; and every suggested
@@ -230,8 +239,10 @@ curl -fsSL https://threadbear.sh/install.sh | sh -s -- --dry-run "$@"
 ```
 
 Use that result to determine first install versus reinstall and capture every
-actual resulting preference. This discovery changes nothing. Keep its raw
-output backstage, then show exactly one appropriate card in the next section:
+actual resulting preference. This discovery changes nothing. For a first
+install, freeze the recommended card’s close plan from those captured settings
+before presenting it. Keep the raw output backstage, then show exactly one
+appropriate card in the next section:
 the recommendation for a first install or the current-settings card for a
 reinstall.
 
@@ -303,7 +314,7 @@ For a first install, present the recommended setup:
 >   already open keep their current reply guidance. This lets ThreadBear use
 >   lightweight checks, with a careful second look when a task is unclear.
 >
-> Would you like the recommended setup, change a choice, or have me explain any
+> Would you like to install the recommended setup, change a choice, or have me explain any
 > of them?
 
 The recognizable-home bullet is required on every first-install card, and its
@@ -392,13 +403,15 @@ The changed-status echo must never be a bare compliance paragraph; its lead-in
 must cover every requested change, including archive, title/token, and status
 choices. A question or explanation request alone does not trigger this echo. If
 the person asks about status guidance and then accepts the recommendation, do
-not add an extra echo; the card and final review are sufficient.
+not add an extra echo; the complete card is sufficient.
 
-For a first install, accepting the recommendation means leaving its default
-preferences unspecified during baseline discovery. For a reinstall, keeping
-the current card means leaving its preferences unspecified during baseline
-discovery. In both cases, add a baseline preference flag only when the person
-explicitly asks to change that preference. If they want changes, ask only about
+For a first install, accepting the unchanged recommendation means reusing the
+initial discovery result as the baseline and preserving every captured
+preference in the complete frozen list. Do not rerun a partial baseline that
+could resolve different defaults. For a reinstall, keeping the current card
+means leaving its preferences unspecified during baseline discovery. When the
+person requests changes, add a baseline preference flag only for each preference
+they explicitly asked to change. If they want changes, ask only about
 those settings. Do not interview them about the classifier model, effort, or
 context limit unless they ask to customize the advanced fallback.
 
@@ -445,12 +458,17 @@ failed candidate self-test stops before replacing a working binary. The
 candidate is temporary; ThreadBear does not retain version directories or
 rollback copies. Do not narrate this list unless verification fails.
 
-Keep the two-pass safety work backstage. The person should see one friendly
-final review, not two technical previews.
+Keep the two-pass safety work backstage. When the person accepts the unchanged
+recommended first-install card, do not repeat its complete setup as a friendly
+review. When choices changed or this is a reinstall, the person should see one
+friendly final review, not two technical previews.
 
 First, run a baseline dry-run with the task ID plus only preference changes the
-person explicitly requested. Reconstruct the values in this same shell call;
-never rely on variables surviving from an earlier tool call:
+person explicitly requested for a changed first install or a reinstall.
+Reconstruct the values in this same shell call; never rely on variables surviving
+from an earlier tool call. For an unchanged recommended first install, reuse the
+initial discovery result as this baseline instead of rerunning the partial
+command:
 
 ```sh
 CONTROL_TASK_ID='paste-exact-task-id-here'
@@ -501,17 +519,21 @@ set -- \
 curl -fsSL https://threadbear.sh/install.sh | sh -s -- --dry-run "$@"
 ```
 
-This second dry-run is the final review source. Do not show the baseline result.
-Read the complete frozen result, translate it into the single friendly review
-below, and keep the exact assignment-and-`set --` stanza for reconstruction
-after consent. The final-review and confirmed argument-construction stanzas
-must be byte-for-byte identical, and therefore semantically identical; only
-the curl mode changes from `--dry-run` to `--noninteractive --confirm`.
+This second dry-run is the final review source after changed choices or for a
+reinstall, and the backstage confirmation source for an unchanged recommended
+first install. Do not show the baseline result. Read the complete frozen result
+and keep the exact assignment-and-`set --` stanza for reconstruction after
+consent. For changed choices or a reinstall, translate it into the single
+friendly review below. The final-review and confirmed argument-construction stanzas
+must be byte-for-byte identical, and therefore semantically identical;
+only the curl mode changes from `--dry-run` to `--noninteractive --confirm`.
 
-At the same time, freeze the consumer-facing close plan from that review:
-`archive` branch, title-maintenance branch, active token position, exact archive
-action, and exact title/token action. Keep the plan backstage. After consent,
-use heartbeat counts only to fill its tidy-up outcomes. Never derive close
+At the same time, freeze the consumer-facing close plan from that result after
+changed choices or for a reinstall: `archive` branch, title-maintenance branch,
+active token position, exact archive action, and exact title/token action. For
+an unchanged recommended first install, confirm it matches the plan already
+frozen from the card. Keep the plan backstage. After consent, use heartbeat
+counts only to fill its tidy-up outcomes. Never derive close
 branches or actions again from defaults, earlier status, or a result template.
 
 For an exact release, append the same `--version N.N.N` selection to the
@@ -524,21 +546,32 @@ the complete deterministic `PreviewResult`. Add `--json` when machine-readable
 output is useful.
 
 Read the full final-review result yourself. Do not paste its raw fields into the
-conversation. Translate the person-visible choices and outcomes into a
-scannable review in this shape, adapting the details to the selected settings
-and install/reinstall result. Do not add classifier details or other backstage
+conversation. For changed choices or a reinstall, translate the person-visible
+choices and outcomes into a scannable review in this shape, adapting the
+details to the selected settings and install/reinstall result.
+Do not add classifier details or other backstage
 values merely because they are frozen. The frozen dry-run result, rather than
 an earlier status call, baseline card, or assumption, is the authoritative
-source for every visible setting shown to the person:
+source for every visible setting shown to the person. For an unchanged
+recommended first install, keep this result backstage because the
+complete card already supplied the visible settings and its clear acceptance
+already supplied installation consent:
 
 Preserve this decision order exactly. First send the readiness result and
-settings card, then wait for the person’s reply. If they accept those settings,
-run the backstage review and show the first full review below. If they request
-a change at that review instead of consenting, do not install and do not erase
-the first review from the conversation. Acknowledge all requested changes,
-rerun the backstage review, then send a second full authoritative review and
-ask the friendly installation question again. Only a clear yes after that
-second review is consent. Never invent, move, or reorder a person’s reply.
+settings card, then wait for the person’s reply. For a first install, a clear
+“yes,” “install as is,” or equivalent response to the unchanged complete
+recommended card is installation consent: send the exact one-line progress
+update from section 6, keep the backstage safety work invisible, and install
+without showing the full review below or asking a second confirmation question.
+A question, explanation request, unrelated reply, or ambiguous reply is not
+consent. If they request any change before consent, acknowledge all requested
+changes, run the backstage review, then send the complete authoritative review
+below and ask the friendly installation question. If they request a change at
+that review instead of consenting, do not install and do not erase the first
+review from the conversation. Acknowledge all requested changes, rerun the
+backstage review, then send a second full authoritative review and ask the
+friendly installation question again. Only a clear yes to the latest changed
+review is consent. Never invent, move, or reorder a person’s reply.
 
 Only after the person has seen a full review and then changes a choice does the
 next review need a short, consumer-facing delta. When the warm changed-status
@@ -659,9 +692,11 @@ Internal disposition translation:
 - `repaired`: this task becomes home while retired ThreadWatch artifacts remain untouched;
 - `will_unarchive_control_task=true`: ThreadBear’s existing home returns to the active task list.
 
-Continue only after a clear affirmative answer to the friendly installation
-question. If they want a change, update the flags, rerun the review, and ask
-again.
+For an unchanged recommended first install, continue after the clear affirmative
+answer to the complete settings card. After changed choices or for a reinstall,
+continue only after a clear affirmative answer to the friendly installation
+question. If they want another change, update the flags, rerun the review, and
+ask again.
 
 If the person says “not now” or otherwise declines after seeing the full
 review, close warmly without pressing for a reason:
@@ -683,12 +718,13 @@ reconsider.
 ## 6. Install with one calm progress update
 
 After first-install approval, say exactly: “Lovely. I’m installing ThreadBear
-now, then I’ll run its health checks and report back here.” For a reinstall,
-replace only “installing” with “refreshing.” Do not paraphrase this message or
-add claims about checks passing, installation stages, task-home setup, or the
-first tidy-up. That opening progress message remains the only conversation message until the
-installer and installation-health checks finish. Historical first-sweep
-convergence is separate: after its bounded background start is confirmed, close
+now, then I’ll run its health checks and report back here.” When the person
+accepts the unchanged recommended card, this is the next visible message. For a
+reinstall, replace only “installing” with “refreshing.” Do not paraphrase this
+message or add claims about checks passing, installation stages, task-home
+setup, or the first tidy-up. That opening progress message remains the only
+conversation message until the installer and installation-health checks
+finish. Historical first-sweep convergence is separate: after its bounded background start is confirmed, close
 successfully without waiting for Luna or mutations to finish. If a foreground
 recovery step ever exceeds 60 seconds, send a concise update naming the
 completed phase, remaining phase, and whether the person must act; never expose
@@ -696,8 +732,8 @@ per-task evidence.
 
 In the same shell call as the confirmed curl, reconstruct the exact approved
 assignment-and-argument stanza; never rely on variables or positional arguments
-from the review tool call. Replace the example values below with the frozen
-values that produced the person’s review:
+from the prior dry-run tool call. Replace the example values below with the
+frozen values that produced the accepted card or review:
 
 ```sh
 CONTROL_TASK_ID='paste-exact-task-id-here'
@@ -719,10 +755,12 @@ set -- \
 curl -fsSL https://threadbear.sh/install.sh | sh -s -- --noninteractive --confirm "$@"
 ```
 
-The assignment-and-`set --` stanza must match the final-review block byte for
-byte. Do not substitute a different task ID or preference after approval. The
+For an unchanged recommended first install, the assignment-and-`set --` stanza
+must match the frozen backstage confirmation block byte for byte. After changed
+choices or for a reinstall, it must match the final-review block byte for byte.
+Do not substitute a different task ID or preference after approval. The
 identical complete argument list prevents the person’s preference choices from
-drifting between review and confirmation. The installer revalidates the task
+drifting between consent and confirmation. The installer revalidates the task
 and managed resources before mutation and stops if a safety check fails.
 
 The install validates the control task before any filesystem or scheduler mutation, stages and self-tests managed resources, writes private config/state, enables the LaunchAgent, and posts the unchanged welcome notice exactly once for first adoption, unreadable replacement, or the exact repair. It does not call persistent `thread/start`, retitle the control task, pin it, or deliberately kickstart a heartbeat while the install lock is held.
