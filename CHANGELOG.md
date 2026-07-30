@@ -2,9 +2,11 @@
 
 ## Unreleased
 
+## v1.5.0 - 2026-07-30
+
 ### Changed
 
-- Bounded retained native title handoff to install/reconcile: one guarded plan drain conditionally kickstarts a typed ambiguity-only continuation and drains the remaining guarded plans, while ordinary later heartbeats resume direct App Server title writes.
+- Bounded retained native title handoff during install/reconcile: drain guarded plans in the Desktop task, call Luna only for typed ambiguity, then resume direct title writes on later heartbeats.
 - Bounded latest-turn and fresh rollout-tail reads to eight workers with deterministic result ordering, and updated guided install to drain native plans immediately after bounded background start.
 
 ### Fixed
