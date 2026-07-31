@@ -2,10 +2,11 @@
 
 @docs/README.md
 
-ThreadBear is a playful, token-conscious Codex task manager for macOS: a standalone Go binary driven by a LaunchAgent that keeps Codex Desktop tasks classified, usefully titled, and safely archived, while unchanged heartbeats cost zero model tokens.
+ThreadBear is a playful, token-conscious Codex title manager for macOS: one Go binary and one LaunchAgent observe Codex tasks, decide seven statuses, and safely update visible Desktop titles.
 
-- v1 work item: BEAR-1 (Linear, team BEAR), with U1–U10 execution sub-issues BEAR-5…BEAR-14. The v1 contract is `docs/plans/2026-07-23-001-feat-threadbear-plan.md` — treat it as canonical over any restatement.
+- Current work item: BEAR-100. The evergreen contract is `README.md` plus `docs/architecture.md`; dated files in `docs/plans/` are historical evidence, not current architecture.
 - Private eval corpus: `ericlitman/threadbear-eval` (real user messages — must never enter this public tree).
 - Voice: playful, bear-themed, never at the expense of operational clarity.
-- Historical ThreadWatch artifacts are out of scope for install and are ignored; control-task adoption is explicit through `threadbear install --control-task-id`.
+- Keep the complete production executable surface below 2,000 source lines and prefer below 1,000. Do not compress code to game the count.
+- Control-task adoption is explicit through `threadbear install --control-task-id`; installation never creates a persistent conversation.
 - Changelog: every PR with user-visible changes must append a concise entry under `CHANGELOG.md`'s `Unreleased` section. Release preparation renames that section to `vN.N.N - YYYY-MM-DD` and adds a fresh `Unreleased` section; the release workflow rejects stable tags without the matching version section.

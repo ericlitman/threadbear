@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+### Changed
+
+- Replaced the accumulated runtime with one small deterministic state machine: fixed-boundary rollout scanning, exact evidence guards, durable title staging, and one guarded native Desktop handoff.
+- Reserved ephemeral Luna medium calls for unchanged legacy ambiguity and separated sub-second inventory scan measurements from the three-to-five-minute worst-case native handoff.
+- Reset persistence to one private, atomically written `core.json` format and conservatively adopted existing non-status title text as user-owned.
+
+### Removed
+
+- Removed task archiving, token-count title decoration, automatic updates, configuration matrices, migration/checkpoint machinery, background title writes, replica orchestration, and the public commands that existed only for those features.
+
 ## v1.5.1 - 2026-07-30
 
 ### Fixed

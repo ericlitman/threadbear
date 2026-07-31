@@ -75,16 +75,6 @@ jobs:
             -e 's#{{xml .StderrPath}}#/tmp/threadbear.stderr.log#g' \
             assets/org.litman.threadbear.plist.tmpl > /tmp/org.litman.threadbear.plist
           plutil -lint /tmp/org.litman.threadbear.plist
-      - name: Prepare embedded release notes
-        if: steps.release_tag.outputs.publish == 'true'
-        run: |
-          awk '
-            /^[-*] / {
-              print
-              count++
-              if (count == 3) { exit }
-            }
-          ' release-notes.md > internal/update/notes.txt
       - name: Build Darwin release binaries
         run: |
           mkdir -p dist
