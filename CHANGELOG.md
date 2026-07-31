@@ -2,8 +2,11 @@
 
 ## Unreleased
 
+## v2.0.0 - 2026-07-31
+
 ### Changed
 
+- Restored the pre-reset public homepage and guided-install experience while keeping the minimal runtime and current hosted bootstrap intact.
 - Replaced the accumulated runtime with one small deterministic state machine: fixed-boundary rollout scanning, exact evidence guards, durable title staging, and one guarded native Desktop handoff.
 - Reserved ephemeral Luna medium calls for unchanged legacy ambiguity and separated sub-second inventory scan measurements from the three-to-five-minute worst-case native handoff.
 - Reset persistence to one private, atomically written `core.json` format and conservatively adopted existing non-status title text as user-owned.
