@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## v2.1.0 - 2026-07-31
+
 ### Changed
 
 - Replaced the v2 heartbeat, retained control task, title queue, and LaunchAgent with two native current-task title calls per ordinary turn, expanded and verified by two deterministic hooks.
