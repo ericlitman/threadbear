@@ -410,7 +410,7 @@ func TestHeartbeatAndAppServerAreDeadlineBound(t *testing.T) {
 		t.Fatalf("heartbeat limit = %s", heartbeatLimit)
 	}
 	command := filepath.Join(t.TempDir(), "codex")
-	if err := os.WriteFile(command, []byte("#!/bin/sh\nsleep 5\n"), 0o700); err != nil {
+	if err := os.WriteFile(command, []byte("#!/bin/sh\nsleep 5 &\nwait\n"), 0o700); err != nil {
 		t.Fatal(err)
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
