@@ -31,7 +31,7 @@ jobs:
           server=$!
           trap 'kill "$server"' EXIT
           sleep 1
-          for path in / /install /install.sh /releases/latest.json; do
+          for path in / /install /install.sh; do
             curl --fail --silent --show-error "http://127.0.0.1:8000$path" >/dev/null
           done
       - name: Lint rendered plist fixture

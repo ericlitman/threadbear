@@ -129,7 +129,7 @@ if ! selftest_output=$("$candidate" self-test --candidate 2>&1); then
 	echo "threadbear: the check named above is the reason. If it mentions installed_state, a previous install may have left partial state in ~/.local/share/threadbear." >&2
 	exit 1
 fi
-embedded=$("$candidate" version --json | sed -n 's/.*"installed_version":"\([^"]*\)".*/\1/p')
+embedded=$("$candidate" version --json | sed -n 's/.*"version":"\([^"]*\)".*/\1/p')
 if [ "$embedded" != "$selected_version" ]; then
 	echo "threadbear: candidate version mismatch" >&2
 	exit 1

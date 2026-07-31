@@ -2,873 +2,163 @@ package main
 
 import (
 	"context"
-	"crypto/rand"
-	"encoding/hex"
 	"encoding/json"
-	"errors"
 	"flag"
 	"fmt"
 	"io"
 	"os"
-	"os/exec"
-	"path/filepath"
-	"runtime"
-	"strconv"
-	"strings"
-	"sync"
 	"time"
-
-	"github.com/ericlitman/threadbear/assets"
-	"github.com/ericlitman/threadbear/internal/app"
-	"github.com/ericlitman/threadbear/internal/codex"
-	"github.com/ericlitman/threadbear/internal/codex/appserver"
-	"github.com/ericlitman/threadbear/internal/config"
-	"github.com/ericlitman/threadbear/internal/install"
-	"github.com/ericlitman/threadbear/internal/launchagent"
-	"github.com/ericlitman/threadbear/internal/output"
-	"github.com/ericlitman/threadbear/internal/state"
-	statusresolver "github.com/ericlitman/threadbear/internal/status"
-	"github.com/ericlitman/threadbear/internal/titleplan"
-	"github.com/ericlitman/threadbear/internal/tokens"
-	updatepkg "github.com/ericlitman/threadbear/internal/update"
-	"github.com/ericlitman/threadbear/internal/watch"
 )
 
 var version = "dev"
-var resolveCodexExecutableSpec = codex.ResolveExecutableSpec
 
-func main() {
-	os.Exit(run(context.Background(), os.Args[1:], os.Stdout, os.Stderr))
+const heartbeatLimit = 4*time.Minute + 30*time.Second
+
+const helpText = `ThreadBear keeps Codex task titles useful with a deterministic, low-token heartbeat.
+
+Usage:
+  threadbear <command> [flags]
+
+Commands:
+  install      Preview or install the managed runtime
+  heartbeat    Scan changed tasks and stage guarded title decisions
+  status       Show runtime health and the latest scan
+  self-test    Validate a release candidate
+  uninstall    Remove ThreadBear while preserving current titles
+  version      Show the installed version
+
+Run threadbear <command> --help for command flags.
+`
+
+var commandHelp = map[string]string{
+	"install":   "Usage: threadbear install [--control-task-id ID] [--dry-run] [--noninteractive --confirm] [--json]\n",
+	"heartbeat": "Usage: threadbear heartbeat [--dry-run] [--json]\n",
+	"status":    "Usage: threadbear status [--json]\n",
+	"self-test": "Usage: threadbear self-test [--candidate] [--json]\n",
+	"uninstall": "Usage: threadbear uninstall --noninteractive --confirm [--json]\n",
+	"version":   "Usage: threadbear version [--json]\n",
 }
 
+func main() { os.Exit(run(context.Background(), os.Args[1:], os.Stdout, os.Stderr)) }
+
 func run(ctx context.Context, args []string, stdout, stderr io.Writer) int {
-	if len(args) == 3 && args[0] == "managed-assets" && args[1] == "--candidate" && args[2] == "--json" {
-		if err := json.NewEncoder(stdout).Encode(embeddedManagedAssets()); err != nil {
-			fmt.Fprintf(stderr, "ThreadBear couldn't export managed assets: %v\n", err)
-			return 1
+	if len(args) == 0 || args[0] == "--help" || args[0] == "-h" {
+		io.WriteString(stdout, helpText)
+		if len(args) == 0 {
+			return 2
 		}
 		return 0
 	}
-	if help, code, ok := requestedHelp(args); ok {
-		if _, err := io.WriteString(stdout, help); err != nil {
-			fmt.Fprintf(stderr, "ThreadBear couldn't write help: %v\n", err)
-			return 1
+	if args[0] == "help" {
+		if len(args) == 2 {
+			io.WriteString(stdout, commandHelp[args[1]])
+		} else {
+			io.WriteString(stdout, helpText)
 		}
-		return code
+		return 0
 	}
-	request, err := parseRequest(args)
-	format := output.FormatHuman
-	if request.JSON {
-		format = output.FormatJSON
+	command := args[0]
+	if len(args) == 2 && (args[1] == "--help" || args[1] == "-h") {
+		io.WriteString(stdout, commandHelp[command])
+		return 0
 	}
-	if err != nil {
-		if errors.Is(err, flag.ErrHelp) {
-			spec, ok := commandSpecFor(request.Command)
-			if !ok {
-				return 2
-			}
-			if _, writeErr := io.WriteString(stdout, renderCommandHelp(spec)); writeErr != nil {
-				fmt.Fprintf(stderr, "ThreadBear couldn't write help: %v\n", writeErr)
-				return 1
-			}
-			return 0
-		}
-		result := output.ErrorResult{Operation: "parse", ErrorCode: "invalid_arguments"}
-		if errors.Is(err, app.ErrUnknownCommand) {
-			result.Operation = "dispatch"
-			result.ErrorCode = "unknown_command"
-			if format == output.FormatHuman {
-				if _, writeErr := io.WriteString(stdout, unknownCommandMessage(request.Command)); writeErr != nil {
-					fmt.Fprintf(stderr, "ThreadBear couldn't write its result: %v\n", writeErr)
-					return 1
-				}
-				return 2
-			}
-		}
-		if writeErr := output.Write(stdout, format, result); writeErr != nil {
-			fmt.Fprintf(stderr, "ThreadBear couldn't write its result: %v\n", writeErr)
-			return 1
-		}
-		return 2
-	}
-	service, closeService, err := newOperatorService(version, stdout, stderr, format, request)
-	if err != nil {
-		result := output.ErrorResult{Operation: string(request.Command), ErrorCode: "dependency_unavailable"}
-		if writeErr := output.Write(stdout, format, result); writeErr != nil {
-			fmt.Fprintf(stderr, "ThreadBear couldn't write its result: %v\n", writeErr)
-		}
-		return 1
-	}
-	defer closeService()
-	result, dispatchErr := service.Dispatch(ctx, request)
-	if err := output.Write(stdout, format, result); err != nil {
-		fmt.Fprintf(stderr, "ThreadBear couldn't write its result: %v\n", err)
-		return 1
-	}
-	if dispatchErr != nil {
-		if errorResult, ok := result.(output.ErrorResult); ok && errorResult.ErrorCode == "control_task_id_required" {
+	flags := flag.NewFlagSet(command, flag.ContinueOnError)
+	flags.SetOutput(stderr)
+	asJSON := flags.Bool("json", false, "write JSON output")
+	var result any
+	var err error
+	switch command {
+	case "install":
+		control := flags.String("control-task-id", "", "adopt active Codex task ID")
+		dry := flags.Bool("dry-run", false, "validate and print effects without mutation")
+		noninteractive := flags.Bool("noninteractive", false, "run without prompts")
+		confirm := flags.Bool("confirm", false, "confirm the previewed installation")
+		flags.String("version", "", "installer-selected release version")
+		if flags.Parse(args[1:]) == nil {
+			result, err = install(ctx, *control, *dry, *noninteractive && *confirm)
+		} else {
 			return 2
 		}
-		return 1
-	}
-	return 0
-}
-
-func classifierParallelism() int {
-	if os.Getenv("THREADBEAR_CLASSIFIER_MODE") == "bounded" {
+	case "heartbeat":
+		dry := flags.Bool("dry-run", false, "scan without models or state writes")
+		if flags.Parse(args[1:]) == nil {
+			heartbeatCtx, cancel := context.WithTimeout(ctx, heartbeatLimit)
+			defer cancel()
+			result, err = heartbeat(heartbeatCtx, *dry)
+		} else {
+			return 2
+		}
+	case "status":
+		if flags.Parse(args[1:]) == nil {
+			result, err = status()
+		} else {
+			return 2
+		}
+	case "self-test":
+		flags.Bool("candidate", false, "validate this binary before installation")
+		if flags.Parse(args[1:]) == nil {
+			result, err = selfTest()
+		} else {
+			return 2
+		}
+	case "uninstall":
+		noninteractive := flags.Bool("noninteractive", false, "run without prompts")
+		confirm := flags.Bool("confirm", false, "confirm the previewed uninstall")
+		if flags.Parse(args[1:]) == nil {
+			result, err = uninstall(ctx, *noninteractive && *confirm)
+		} else {
+			return 2
+		}
+	case "version":
+		if flags.Parse(args[1:]) == nil {
+			if *asJSON {
+				result = map[string]any{"version": version}
+			} else {
+				fmt.Fprintf(stdout, "ThreadBear %s\n", version)
+				return 0
+			}
+		} else {
+			return 2
+		}
+	case "title-plan":
+		stage := flags.Bool("stage", false, "stage a guarded retained-task footer")
+		batch := flags.Bool("batch", false, "list the next guarded operations")
+		operation := flags.String("operation", "", "revalidate an operation")
+		report := flags.Bool("report", false, "commit verified native outcomes")
+		if flags.Parse(args[1:]) != nil {
+			return 2
+		}
+		mode := ""
+		switch {
+		case *stage:
+			mode = "stage"
+		case *batch:
+			mode = "batch"
+		case *operation != "":
+			mode = "operation"
+		case *report:
+			mode = "report"
+		}
+		result, err = titlePlan(ctx, mode, *operation, os.Stdin)
+	default:
+		fmt.Fprintf(stderr, "unknown command %q\n\n%s", command, helpText)
 		return 2
 	}
-	return 1
-}
-
-func newOperatorService(installedVersion string, stdout, stderr io.Writer, format output.Format, request app.Request) (*app.Service, func(), error) {
-	home, err := os.UserHomeDir()
 	if err != nil {
-		return nil, func() {}, err
-	}
-	codexHome, err := codex.ResolveCodexHome()
-	if err != nil {
-		return nil, func() {}, err
-	}
-	paths := install.PathsForHomes(home, codexHome)
-	executable, err := os.Executable()
-	if err != nil {
-		return nil, func() {}, err
-	}
-	autoUpdater := updatepkg.Replacer{ExecutablePath: paths.Binary, InstalledVersion: installedVersion}
-	store := state.NewStore(paths.StateDirectory)
-	inventory := &lazyInventory{codexHome: codexHome}
-	appServers := appServerRuntime{store: store, home: home, codexHome: codexHome}
-	clock := systemClock{}
-	launch, err := launchagent.New(launchagent.Options{
-		Home: home, CodexHome: codexHome, BinaryPath: paths.Binary, PlistPath: paths.LaunchAgent,
-		StdoutPath: paths.LaunchAgentStdout, StderrPath: paths.LaunchAgentStderr,
-	})
-	if err != nil {
-		return nil, func() {}, err
-	}
-	managed := managedAgents{surfaces: install.ManagedSurfaceSet{AgentsPath: paths.Agents, SkillPath: paths.Skill}}
-	runner, err := watch.New(watch.Dependencies{
-		Store: store, Inventory: inventory, AppServer: appServerFactory{runtime: appServers}, ClassifierSessions: appserver.ClassifierSessionFactory{Process: appServers.process, OperatorCodexHome: codexHome, RootParent: paths.StateDirectory}, Clock: clock, ManagedSurfaces: managed,
-		InstalledVersion: installedVersion, NewCycleID: newCycleID, UpdateChecker: heartbeatUpdateChecker{checker: updatepkg.Checker{}},
-		Updater: autoUpdater, ReleaseNotes: updatepkg.ReleaseNotes,
-		NewClassifier: func(runner statusresolver.EphemeralRunner, cfg config.Config) (watch.Classifier, error) {
-			return statusresolver.NewClassifier(runner, statusresolver.ClassifierConfig{Model: cfg.ClassifierModel, Effort: string(cfg.ClassifierEffort), ContextBudgetBytes: cfg.ClassifierContextBudgetBytes, MaxParallelBatches: classifierParallelism()})
-		},
-	})
-	if err != nil {
-		return nil, func() {}, err
-	}
-	diskStore := install.NewDiskStore(paths)
-	scheduler := productionScheduler{adapter: launch}
-	installFactory := func(interactive bool) (install.Installer, func() error, error) {
-		executableSpec := &codex.ExecutableSpec{}
-		controlTasks := &appServerControlTasks{open: func(ctx context.Context) (*appserver.Client, error) {
-			return openAppServerPinned(ctx, *executableSpec, codexHome, home)
-		}, executableSpec: executableSpec}
-		installer := install.Installer{
-			Paths: paths, Store: diskStore, Scheduler: scheduler, ControlTasks: controlTasks,
-			Binary:                     install.FileBinaryInstaller{Source: executable},
-			SelfTester:                 install.CoreSelfTester{Probe: install.RuntimeProbe{}, Store: diskStore},
-			ResolveCodexExecutableSpec: resolveCodexExecutableSpec,
-			InstalledVersion:           installedVersion,
+		if *asJSON {
+			json.NewEncoder(stdout).Encode(map[string]any{"ready": false, "error": err.Error()})
+		} else {
+			fmt.Fprintln(stderr, "ThreadBear:", err)
 		}
-		if !interactive {
-			installer.Previewer = func(preview install.Preview) error {
-				return output.Write(stderr, format, output.PreviewResult{Command: "install", Effects: []string{"agents", "binary", "config", "control_task", "launchagent", "skill", "state"}, Details: preview.Lines})
-			}
-			return installer, func() error { return nil }, nil
+		return 1
+	}
+	if *asJSON {
+		if json.NewEncoder(stdout).Encode(result) != nil {
+			return 1
 		}
-		prompter, err := install.OpenTTYPrompter()
-		if err != nil {
-			return install.Installer{}, func() error { return nil }, installPrompterFailure(err)
-		}
-		installer.Prompter = prompter
-		return installer, prompter.Close, nil
-	}
-	uninstallFactory := func(interactive bool) (install.Uninstaller, func() error, error) {
-		uninstaller := install.Uninstaller{
-			Paths: paths, Store: diskStore, Scheduler: scheduler, ControlTasks: appServerControlTasks{open: appServers.open},
-			TitleCleaner: activeTitleCleaner{inventory: inventory, open: func(ctx context.Context) (titleCleanupClient, error) {
-				return appServers.open(ctx)
-			}},
-		}
-		if !interactive {
-			uninstaller.Previewer = func(preview install.Preview) error {
-				return output.Write(stderr, format, output.PreviewResult{Command: "uninstall", Effects: []string{"agents", "binary", "control_task", "launchagent", "skill", "state", "titles"}, Details: preview.Lines})
-			}
-			return uninstaller, func() error { return nil }, nil
-		}
-		prompter, err := install.OpenTTYPrompter()
-		if err != nil {
-			return install.Uninstaller{}, func() error { return nil }, err
-		}
-		uninstaller.Prompter = prompter
-		return uninstaller, prompter.Close, nil
-	}
-	titlePlanCompatibility := titleplan.Service{Store: store, Inventory: inventory, Input: os.Stdin, ThreadID: func() string { return os.Getenv("CODEX_THREAD_ID") }, Now: time.Now}
-	service := app.NewWithOperatorCommands(installedVersion, app.OperatorDependencies{
-		Store: store, Inventory: inventory, Clock: clock, LaunchAgent: launch, TitlePlanCompatibility: titlePlanCompatibility,
-		ManagedAgents: managed, Unarchiver: appServerUnarchiver{runtime: appServers}, Heartbeat: runner,
-		Preview: func(preview output.PreviewResult) error {
-			if request.NonInteractive {
-				return output.Write(stderr, format, preview)
-			}
-			return writeMutationPreview(stderr, format, preview)
-		},
-		Confirm: func() (bool, error) {
-			prompter, err := install.OpenTTYPrompter()
-			if err != nil {
-				return false, err
-			}
-			defer prompter.Close()
-			return prompter.Confirm(true)
-		},
-		Install: app.InstallHandler(installFactory), SelfTest: app.SelfTestHandler(runtimeSelfTest{paths: paths, launchAgent: launch}),
-		Update: updatepkg.Replacer{
-			ExecutablePath: paths.Binary, InstalledVersion: installedVersion, ManagedSurfaces: managed.surfaces,
-			Preview: func(preview updatepkg.ReplacementPreview) error {
-				result := output.PreviewResult{Command: "update", Effects: preview.Resources, Details: preview.Details}
-				if request.NonInteractive {
-					return output.Write(stderr, format, result)
-				}
-				return writeMutationPreview(stderr, format, result)
-			},
-			AgentsEnabled: func() (bool, error) {
-				cfg, err := store.LoadConfig()
-				return cfg.AgentsEnabled, err
-			},
-			CurrentAssets: embeddedManagedAssets(),
-		},
-		Uninstall: app.UninstallHandler(uninstallFactory),
-	})
-	return service, func() { inventory.Close() }, nil
-}
-
-func resolveStateDirectory() (string, error) {
-	if !strings.HasPrefix(config.StateDirectory, "~/") {
-		return filepath.Abs(config.StateDirectory)
-	}
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return "", err
-	}
-	return filepath.Join(home, strings.TrimPrefix(config.StateDirectory, "~/")), nil
-}
-
-type lazyInventory struct {
-	mu        sync.Mutex
-	index     *codex.Index
-	codexHome string
-}
-
-func (i *lazyInventory) Inventory(ctx context.Context, controlTaskID string) (codex.Inventory, error) {
-	i.mu.Lock()
-	defer i.mu.Unlock()
-	if i.index == nil {
-		sqliteHome, err := codex.ResolveSQLiteHome(i.codexHome)
-		if err != nil {
-			return codex.Inventory{}, err
-		}
-		index, err := codex.OpenIndex(sqliteHome)
-		if err != nil {
-			return codex.Inventory{}, err
-		}
-		i.index = index
-	}
-	return i.index.Inventory(ctx, controlTaskID)
-}
-
-func (i *lazyInventory) Task(ctx context.Context, controlTaskID, taskID string) (codex.Task, bool, error) {
-	i.mu.Lock()
-	defer i.mu.Unlock()
-	if i.index == nil {
-		sqliteHome, err := codex.ResolveSQLiteHome(i.codexHome)
-		if err != nil {
-			return codex.Task{}, false, err
-		}
-		index, err := codex.OpenIndex(sqliteHome)
-		if err != nil {
-			return codex.Task{}, false, err
-		}
-		i.index = index
-	}
-	return i.index.Task(ctx, controlTaskID, taskID)
-}
-
-func (i *lazyInventory) Close() error {
-	i.mu.Lock()
-	defer i.mu.Unlock()
-	if i.index == nil {
-		return nil
-	}
-	err := i.index.Close()
-	i.index = nil
-	return err
-}
-
-type systemClock struct{}
-
-func (systemClock) Now() time.Time { return time.Now() }
-
-type appServerRuntime struct {
-	store     interface{ LoadConfig() (config.Config, error) }
-	home      string
-	codexHome string
-}
-
-func (r appServerRuntime) process() (appserver.ProcessSpec, error) {
-	cfg, err := r.store.LoadConfig()
-	if err != nil {
-		return appserver.ProcessSpec{}, err
-	}
-	spec, err := configuredExecutableSpec(r.home, cfg, os.Getenv("PATH"))
-	if err != nil {
-		return appserver.ProcessSpec{}, err
-	}
-	return appserver.PinnedProcessSpec(spec.Path, r.codexHome, r.home, spec.SpawnPath)
-}
-
-func configuredExecutableSpec(home string, cfg config.Config, pathValue string) (codex.ExecutableSpec, error) {
-	if cfg.CodexExecutable == "" {
-		return resolveCodexExecutableSpec(home, pathValue)
-	}
-	if cfg.CodexSpawnPath == "" {
-		return codex.DeriveExecutableSpec(home, cfg.CodexExecutable, pathValue)
-	}
-	spec := codex.ExecutableSpec{Path: cfg.CodexExecutable, SpawnPath: cfg.CodexSpawnPath}
-	if err := codex.ValidateExecutableSpec(spec); err != nil {
-		return codex.ExecutableSpec{}, err
-	}
-	return spec, nil
-}
-
-func (r appServerRuntime) open(ctx context.Context) (*appserver.Client, error) {
-	process, err := r.process()
-	if err != nil {
-		return nil, err
-	}
-	capabilities, err := appserver.DiscoverCapabilities(ctx, process)
-	if err != nil {
-		return nil, err
-	}
-	return appserver.Start(ctx, process, capabilities)
-}
-
-type appServerFactory struct{ runtime appServerRuntime }
-
-func (f appServerFactory) Open(ctx context.Context) (watch.AppServer, error) {
-	return f.runtime.open(ctx)
-}
-
-type heartbeatUpdateChecker struct{ checker updatepkg.Checker }
-
-func (c heartbeatUpdateChecker) Check(ctx context.Context, installedVersion string) (watch.UpdateStatus, error) {
-	status, err := c.checker.Check(ctx, installedVersion)
-	return watch.UpdateStatus{LatestVersion: status.LatestVersion, Newer: status.Newer}, err
-}
-
-func newCycleID() string {
-	data := make([]byte, 16)
-	if _, err := rand.Read(data); err == nil {
-		return hex.EncodeToString(data)
-	}
-	return strconv.FormatInt(time.Now().UTC().UnixNano(), 10)
-}
-
-type appServerUnarchiver struct{ runtime appServerRuntime }
-
-func (u appServerUnarchiver) Unarchive(ctx context.Context, taskID string) error {
-	client, err := u.runtime.open(ctx)
-	if err != nil {
-		return err
-	}
-	_, unarchiveErr := client.Unarchive(ctx, taskID)
-	return errors.Join(unarchiveErr, client.Close())
-}
-
-func openAppServerPinned(ctx context.Context, spec codex.ExecutableSpec, codexHome, home string) (*appserver.Client, error) {
-	process, err := appserver.PinnedProcessSpec(spec.Path, codexHome, home, spec.SpawnPath)
-	if err != nil {
-		return nil, err
-	}
-	capabilities, err := appserver.DiscoverCapabilities(ctx, process)
-	if err != nil {
-		return nil, err
-	}
-	return appserver.Start(ctx, process, capabilities)
-}
-
-func parseRequest(args []string) (app.Request, error) {
-	if len(args) == 0 {
-		return app.Request{}, fmt.Errorf("choose a command")
-	}
-	request := app.Request{Command: app.Command(args[0]), JSON: containsFlag(args[1:], "--json")}
-	spec, ok := commandSpecFor(request.Command)
-	if !ok {
-		return request, fmt.Errorf("%w: %q", app.ErrUnknownCommand, request.Command)
-	}
-	flags := newCommandFlagSet(spec, &request)
-	commandArgs := args[1:]
-	if request.Command == app.CommandInspect || request.Command == app.CommandRestore {
-		commandArgs = flagsBeforePositionals(commandArgs, "--json", "-h", "--help")
-	}
-	if err := flags.Parse(commandArgs); err != nil {
-		return request, err
-	}
-	remaining := flags.Args()
-	switch request.Command {
-	case app.CommandInspect, app.CommandRestore:
-		if len(remaining) != 1 {
-			return request, fmt.Errorf("%s requires exactly one task ID", request.Command)
-		}
-		request.TaskID = remaining[0]
-	default:
-		if len(remaining) != 0 {
-			return request, fmt.Errorf("%s does not accept positional arguments", request.Command)
-		}
-	}
-	if err := request.Validate(); err != nil {
-		return request, err
-	}
-	return request, nil
-}
-
-func containsFlag(args []string, target string) bool {
-	for _, arg := range args {
-		if arg == target {
-			return true
-		}
-	}
-	return false
-}
-
-func flagsBeforePositionals(args []string, known ...string) []string {
-	isKnown := func(value string) bool {
-		for _, flagName := range known {
-			if value == flagName {
-				return true
-			}
-		}
-		return false
-	}
-	ordered := make([]string, 0, len(args))
-	for _, arg := range args {
-		if isKnown(arg) {
-			ordered = append(ordered, arg)
-		}
-	}
-	for _, arg := range args {
-		if !isKnown(arg) {
-			ordered = append(ordered, arg)
-		}
-	}
-	return ordered
-}
-
-func registerConfigureFlags(flags *flag.FlagSet, patch *app.ConfigPatch) {
-	flags.Var(optionalBool{target: &patch.ArchiveEnabled}, "archive", "enable or disable automatic archiving")
-	flags.Var(optionalBool{target: &patch.RenameEnabled}, "rename", "enable or disable managed titles")
-	flags.Var(optionalBool{target: &patch.AutoUpdateEnabled}, "auto-update", "enable or disable automatic ThreadBear updates")
-	flags.Func("token-display", "show output tokens in managed titles: `off|start|end`", func(value string) error {
-		parsed := tokens.Position(value)
-		patch.TokenDisplay = &parsed
-		return nil
-	})
-	flags.Var(optionalBool{target: &patch.AgentsEnabled}, "agents", "enable or disable managed AGENTS content")
-	flags.Func("heartbeat-seconds", "set the heartbeat interval in positive `SECONDS`", func(value string) error {
-		parsed, err := strconv.Atoi(value)
-		if err != nil {
-			return err
-		}
-		patch.HeartbeatSeconds = &parsed
-		return nil
-	})
-	flags.Func("archive-after-days", "set complete-task archive age in positive `DAYS`", func(value string) error {
-		parsed, err := strconv.Atoi(value)
-		if err != nil {
-			return err
-		}
-		patch.ArchiveAfterDays = &parsed
-		return nil
-	})
-	flags.Func("classifier-model", "set non-empty classifier `MODEL` without surrounding whitespace", func(value string) error {
-		patch.ClassifierModel = &value
-		return nil
-	})
-	flags.Func("classifier-effort", "set classifier reasoning effort: `low|medium|high|xhigh`", func(value string) error {
-		parsed := config.ClassifierEffort(value)
-		patch.ClassifierEffort = &parsed
-		return nil
-	})
-	flags.Func("classifier-context-budget-bytes", "set classifier context budget in positive `BYTES`", func(value string) error {
-		parsed, err := strconv.Atoi(value)
-		if err != nil {
-			return err
-		}
-		patch.ClassifierContextBudgetBytes = &parsed
-		return nil
-	})
-}
-
-func registerLifecycleFlags(flags *flag.FlagSet, request *app.Request) {
-	registerNonInteractiveFlags(flags, request)
-	flags.BoolVar(&request.Confirm, "confirm", false, "assert confirmation for noninteractive use")
-}
-
-func registerNonInteractiveFlags(flags *flag.FlagSet, request *app.Request) {
-	flags.BoolVar(&request.NonInteractive, "noninteractive", false, "do not prompt")
-	flags.BoolVar(&request.NonInteractive, "non-interactive", false, "do not prompt")
-}
-
-type optionalBool struct {
-	target **bool
-}
-
-func (f optionalBool) String() string {
-	if f.target == nil || *f.target == nil {
-		return ""
-	}
-	return strconv.FormatBool(**f.target)
-}
-
-func (f optionalBool) Set(value string) error {
-	parsed, err := strconv.ParseBool(value)
-	if err != nil {
-		return err
-	}
-	*f.target = &parsed
-	return nil
-}
-
-func (optionalBool) IsBoolFlag() bool { return true }
-
-var _ install.Scheduler = productionScheduler{}
-var _ install.ControlTasks = appServerControlTasks{}
-
-type productionScheduler struct{ adapter *launchagent.Adapter }
-
-func (s productionScheduler) Stage(ctx context.Context, cfg config.Config) (bool, error) {
-	return s.adapter.Stage(ctx, cfg)
-}
-func (s productionScheduler) Enable(ctx context.Context) (bool, error) {
-	return s.adapter.EnableWithoutKickstart(ctx)
-}
-func (s productionScheduler) VerifyHealthy(ctx context.Context) error {
-	healthy, err := s.adapter.Healthy(ctx)
-	if err != nil {
-		return err
-	}
-	if !healthy {
-		return errors.New("LaunchAgent is not healthy")
-	}
-	return nil
-}
-func (s productionScheduler) Loaded(ctx context.Context) (bool, error) {
-	return s.adapter.Loaded(ctx)
-}
-func (s productionScheduler) Remove(ctx context.Context) error { return s.adapter.Remove(ctx) }
-
-type appServerControlTasks struct {
-	open           func(context.Context) (*appserver.Client, error)
-	executableSpec *codex.ExecutableSpec
-}
-
-func (a *appServerControlTasks) SetCodexExecutableSpec(spec codex.ExecutableSpec) {
-	if a.executableSpec != nil {
-		*a.executableSpec = spec
-	}
-}
-
-func (a appServerControlTasks) ReadControlTask(ctx context.Context, taskID string) (install.ControlTask, error) {
-	client, err := a.open(ctx)
-	if err != nil {
-		return install.ControlTask{}, err
-	}
-	thread, readErr := client.ReadThread(ctx, taskID)
-	return install.ControlTask{ID: thread.ID, Archived: thread.Status.Type == "archived"}, errors.Join(readErr, client.Close())
-}
-
-func (a appServerControlTasks) UnarchiveControlTask(ctx context.Context, taskID string) (bool, error) {
-	client, err := a.open(ctx)
-	if err != nil {
-		return false, err
-	}
-	thread, readErr := client.ReadThread(ctx, taskID)
-	if readErr != nil {
-		return false, errors.Join(readErr, client.Close())
-	}
-	if thread.Status.Type != "archived" {
-		return false, client.Close()
-	}
-	_, unarchiveErr := client.Unarchive(ctx, taskID)
-	return unarchiveErr == nil, errors.Join(unarchiveErr, client.Close())
-}
-
-func (a appServerControlTasks) PostWelcome(ctx context.Context, taskID, text string) error {
-	client, err := a.open(ctx)
-	if err != nil {
-		return err
-	}
-	return errors.Join(postWelcomeOnce(ctx, client, taskID, text), client.Close())
-}
-
-type welcomeControlTaskClient interface {
-	ReadPersistedAssistantMessage(context.Context, string, string) (appserver.PersistedMessageResult, error)
-	InsertNotice(context.Context, string, string) error
-}
-
-func postWelcomeOnce(ctx context.Context, client welcomeControlTaskClient, taskID, text string) error {
-	delivered, err := client.ReadPersistedAssistantMessage(ctx, taskID, text)
-	if err != nil {
-		return err
-	}
-	if delivered.Found {
-		return nil
-	}
-	return client.InsertNotice(ctx, taskID, text)
-}
-
-func (a appServerControlTasks) ArchiveControlTask(ctx context.Context, taskID string) (bool, error) {
-	client, err := a.open(ctx)
-	if err != nil {
-		return false, err
-	}
-	changed, archiveErr := archiveControlTask(ctx, client, taskID)
-	return changed, errors.Join(archiveErr, client.Close())
-}
-
-type archiveControlTaskClient interface {
-	ReadThread(context.Context, string) (appserver.Thread, error)
-	Archive(context.Context, string) error
-}
-
-func archiveControlTask(ctx context.Context, client archiveControlTaskClient, taskID string) (bool, error) {
-	thread, err := client.ReadThread(ctx, taskID)
-	if err != nil {
-		return false, err
-	}
-	if thread.Status.Type == "archived" {
-		return false, nil
-	}
-	if err := client.Archive(ctx, taskID); err != nil {
-		return false, err
-	}
-	return true, nil
-}
-
-func installPrompterFailure(err error) error {
-	return install.Fail("open_prompter", fmt.Errorf("supported install: open a Codex task and follow https://threadbear.sh/install; installing agents use --noninteractive --confirm; interactive prompter failed: %w", err))
-}
-
-func writeMutationPreview(fallback io.Writer, format output.Format, preview output.PreviewResult) error {
-	tty, err := os.OpenFile("/dev/tty", os.O_WRONLY, 0)
-	if err == nil {
-		defer tty.Close()
-		return output.Write(tty, format, preview)
-	}
-	return output.Write(fallback, format, preview)
-}
-
-type managedAgents struct{ surfaces install.ManagedSurfaceSet }
-
-func embeddedManagedAssets() install.ManagedAssets {
-	return install.ManagedAssets{Agents: assets.AgentsManagedContent, Skill: assets.SkillManagedContent}
-}
-
-func (m managedAgents) Apply(enabled bool) (bool, error) {
-	result, err := m.surfaces.Reconcile(enabled, embeddedManagedAssets())
-	return result.Changed, err
-}
-
-func (m managedAgents) Repair(enabled bool) ([]string, error) {
-	result, err := m.surfaces.Reconcile(enabled, embeddedManagedAssets())
-	return result.Resources, err
-}
-
-func (m managedAgents) Preview(enabled bool) (app.ManagedAgentsPreview, error) {
-	mutations, err := m.surfaces.Preview(enabled, embeddedManagedAssets())
-	preview := app.ManagedAgentsPreview{}
-	for _, mutation := range mutations {
-		if mutation.Changed {
-			preview.Changed = true
-			preview.Resources = append(preview.Resources, mutation.Resource)
-			preview.Details = append(preview.Details, mutation.Detail)
-		}
-	}
-	return preview, err
-}
-
-func (m managedAgents) Snapshot() (any, error) {
-	return m.surfaces.Snapshot()
-}
-
-func (m managedAgents) Restore(value any) error {
-	snapshot, ok := value.(install.ManagedSnapshot)
-	if !ok {
-		return errors.New("invalid managed surface snapshot")
-	}
-	return m.surfaces.Restore(snapshot)
-}
-
-func managedSurfaceCheck(name string, err error) output.CheckResult {
-	check := output.CheckResult{Name: name, OK: err == nil}
-	if err == nil {
-		return check
-	}
-	switch {
-	case errors.Is(err, install.ErrMalformedManagedBlock):
-		check.ErrorCode = "managed_surface_malformed"
-		check.Remedy = "replace or move aside the malformed managed file so it has no invalid ThreadBear markers, then rerun update or configure"
-	case errors.Is(err, install.ErrManagedSurfaceStale):
-		check.ErrorCode = "managed_surface_stale"
-		check.Remedy = "run threadbear update or threadbear configure"
-	case errors.Is(err, install.ErrUnsafeManagedPath):
-		check.ErrorCode = "managed_surface_unsafe_path"
-		check.Remedy = "replace the unsafe or symlinked managed path with a regular file, then rerun update or configure"
-	default:
-		check.ErrorCode = "managed_surface_unavailable"
-		check.Remedy = "fix managed file access or permissions, then rerun update or configure"
-	}
-	return check
-}
-
-type runtimeSelfTest struct {
-	paths       install.Paths
-	launchAgent app.LaunchAgent
-}
-
-func validateInstalledState(paths install.Paths) error {
-	info, err := os.Stat(paths.StateDirectory)
-	if errors.Is(err, os.ErrNotExist) {
-		return nil
-	}
-	if err != nil {
-		return err
-	}
-	if !info.IsDir() {
-		return errors.New("state directory is not a directory")
-	}
-	store := install.NewDiskStore(paths)
-	cfg, configErr := store.LoadConfig()
-	committed, stateErr := store.LoadState()
-	if errors.Is(configErr, os.ErrNotExist) && errors.Is(stateErr, os.ErrNotExist) {
-		return nil
-	}
-	if configErr != nil {
-		return fmt.Errorf("load installed config: %w", configErr)
-	}
-	if err := cfg.Validate(); err != nil {
-		return fmt.Errorf("validate installed config: %w", err)
-	}
-	if stateErr != nil {
-		return fmt.Errorf("load installed state: %w", stateErr)
-	}
-	if err := committed.Validate(); err != nil {
-		return fmt.Errorf("validate installed state: %w", err)
-	}
-	return nil
-}
-
-func (s runtimeSelfTest) Run(ctx context.Context, candidate bool) output.SelfTestResult {
-	checks := make([]output.CheckResult, 0, 8)
-	add := func(name string, err error) {
-		check := output.CheckResult{Name: name, OK: err == nil}
-		if err != nil {
-			check.ErrorCode = "unavailable"
-		}
-		checks = append(checks, check)
-	}
-	platformErr := error(nil)
-	if runtime.GOOS != "darwin" || runtime.GOARCH != "arm64" && runtime.GOARCH != "amd64" {
-		platformErr = errors.New("unsupported platform")
-	} else if major, err := macOSMajor(); err != nil || major < 12 {
-		platformErr = errors.New("macOS 12 or newer is required")
-	}
-	add("platform", platformErr)
-	executable, err := os.Executable()
-	if !candidate {
-		executable = s.paths.Binary
-	}
-	if err == nil {
-		var info os.FileInfo
-		info, err = os.Stat(executable)
-		if err == nil && (!info.Mode().IsRegular() || info.Mode().Perm()&0o100 == 0) {
-			err = errors.New("executable is unhealthy")
-		}
-	}
-	add("executable", err)
-	var codexSpec codex.ExecutableSpec
-	var codexErr error
-	if candidate {
-		codexSpec, codexErr = resolveCodexExecutableSpec(s.paths.Home, os.Getenv("PATH"))
 	} else {
-		var installedConfig config.Config
-		installedConfig, codexErr = install.NewDiskStore(s.paths).LoadConfig()
-		if codexErr == nil {
-			codexSpec, codexErr = configuredExecutableSpec(s.paths.Home, installedConfig, os.Getenv("PATH"))
-		}
+		data, _ := json.MarshalIndent(result, "", "  ")
+		fmt.Fprintln(stdout, string(data))
 	}
-	if codexErr == nil {
-		codexErr = codex.VerifyExecutableSpec(s.paths.Home, codexSpec)
-	}
-	add("codex_executable", codexErr)
-	if candidate {
-		add("installed_state", validateInstalledState(s.paths))
-		ok := true
-		for _, check := range checks {
-			ok = ok && check.OK
-		}
-		return output.SelfTestResult{OK: ok, Checks: checks}
-	}
-	stateInfo, stateErr := os.Stat(s.paths.StateDirectory)
-	if stateErr == nil && (!stateInfo.IsDir() || stateInfo.Mode().Perm()&0o077 != 0) {
-		stateErr = errors.New("state directory is not private")
-	}
-	if stateErr == nil {
-		probe, probeErr := os.CreateTemp(s.paths.StateDirectory, ".self-test-*")
-		if probeErr == nil {
-			probeErr = errors.Join(probe.Close(), os.Remove(probe.Name()))
-		}
-		stateErr = probeErr
-	}
-	add("state_directory", stateErr)
-	store := install.NewDiskStore(s.paths)
-	cfg, err := store.LoadConfig()
-	if err == nil {
-		err = cfg.Validate()
-	}
-	add("config", err)
-	committed, err := store.LoadState()
-	if err == nil {
-		err = committed.Validate()
-	}
-	add("state", err)
-	info, err := os.Stat(s.paths.CodexHome)
-	if err == nil && !info.IsDir() {
-		err = errors.New("Codex home is not a directory")
-	}
-	add("codex", err)
-	err = install.VerifyManagedSurface(s.paths.Agents, cfg.AgentsEnabled, []byte(assets.AgentsManagedContent))
-	checks = append(checks, managedSurfaceCheck("agents", err))
-	err = install.VerifyManagedSurface(s.paths.Skill, true, []byte(assets.SkillManagedContent))
-	checks = append(checks, managedSurfaceCheck("skill", err))
-	healthy, err := s.launchAgent.Healthy(ctx)
-	if err == nil && !healthy {
-		err = errors.New("LaunchAgent is unhealthy")
-	}
-	add("launchagent", err)
-	ok := true
-	for _, check := range checks {
-		ok = ok && check.OK
-	}
-	return output.SelfTestResult{OK: ok, Checks: checks}
-}
-
-func macOSMajor() (int, error) {
-	data, err := exec.Command("/usr/bin/sw_vers", "-productVersion").Output()
-	if err != nil {
-		return 0, err
-	}
-	return strconv.Atoi(strings.Split(strings.TrimSpace(string(data)), ".")[0])
+	return 0
 }

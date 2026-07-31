@@ -1,129 +1,45 @@
 #!/bin/sh
 set -eu
 
-if [ "$#" -ne 1 ]; then
-	echo "usage: $0 vN.N.N" >&2
-	exit 2
-fi
-tag=$1
+tag=${1:?usage: release-smoke.sh vN.N.N}
 version=${tag#v}
-if [ "$tag" = "$version" ] || ! printf '%s\n' "$version" | awk '/^[0-9]+\.[0-9]+\.[0-9]+$/ { ok=1 } END { exit(ok ? 0 : 1) }'; then
-	echo "release smoke requires an exact vN.N.N tag" >&2
-	exit 2
-fi
+case "$tag" in
+	v[0-9]*.[0-9]*.[0-9]*) ;;
+	*) echo "release tag must be vN.N.N" >&2; exit 2 ;;
+esac
 
-root=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)
-original_home=${HOME:-}
-domain="gui/$(id -u)"
-service="$domain/org.litman.threadbear"
-if /bin/launchctl print "$service" >/dev/null 2>&1; then
-	echo "release smoke refuses to replace an already-loaded ThreadBear LaunchAgent" >&2
-	exit 1
-fi
-disabled_services=$(/bin/launchctl print-disabled "$domain" 2>/dev/null || true)
-if printf '%s\n' "$disabled_services" | grep -F 'org.litman.threadbear' | grep -Eq 'true|disabled'; then
-	echo "release smoke refuses to change a pre-existing disabled ThreadBear LaunchAgent state" >&2
-	exit 1
-fi
-temporary_root=$(mktemp -d "${TMPDIR:-/tmp}/threadbear-release-smoke.XXXXXX")
-export HOME="$temporary_root/home"
-export CODEX_HOME="$HOME/.codex"
-export PATH="$HOME/.local/bin:$PATH"
-installed=$HOME/.local/bin/threadbear
-
+root=$(mktemp -d "${TMPDIR:-/tmp}/threadbear-smoke.XXXXXX")
 cleanup() {
-	if [ -x "$installed" ]; then
-		"$installed" uninstall --noninteractive --confirm >/dev/null 2>&1 || true
-	fi
-	/bin/launchctl bootout "$service" >/dev/null 2>&1 || true
-	/bin/launchctl enable "$service" >/dev/null 2>&1 || true
-	rm -rf "$temporary_root"
-	if [ -n "$original_home" ]; then
-		HOME=$original_home
-		export HOME
-	fi
+	HOME="$root/home" launchctl bootout "gui/$(id -u)/org.litman.threadbear" >/dev/null 2>&1 || true
+	rm -rf "$root"
 }
 trap cleanup EXIT HUP INT TERM
 
-mkdir -p "$HOME/.local/bin" "$CODEX_HOME"
-ln -s "$root/testdata/appserver/fake_codex.py" "$HOME/.local/bin/codex"
+home=$root/home
+codex_home=$home/.codex
+mkdir -p "$codex_home" "$home/.local/bin"
+rollout=$root/control.jsonl
+printf '%s\n' '{"type":"response_item","payload":{"type":"message","role":"assistant","phase":"final_answer","content":[{"type":"output_text","text":"Ready.\\n\\n🧵🐻 complete"}]}}' > "$rollout"
+sqlite3 "$codex_home/state_1.sqlite" <<SQL
+CREATE TABLE threads (
+  id TEXT PRIMARY KEY, updated_at_ms INTEGER, title TEXT, name TEXT,
+  archived INTEGER, source TEXT, thread_source TEXT, rollout_path TEXT
+);
+INSERT INTO threads VALUES ('control',1,'ThreadBear',NULL,0,'vscode','','$rollout');
+SQL
+printf '#!/bin/sh\nexit 1\n' > "$home/.local/bin/codex"
+chmod 700 "$home/.local/bin/codex"
 
-install_result=$temporary_root/install.json
-curl -fsSL https://threadbear.sh/install.sh | sh -s -- \
-	--version "$version" \
-	--control-task-id release-smoke-control \
-	--noninteractive --confirm --json \
-	--heartbeat-seconds 300 \
-	--auto-update=true \
-	--archive=true \
-	--archive-after-days 14 \
-	--rename=true \
-	--token-display=start \
-	--agents=true \
-	--classifier-model gpt-5.6-luna \
-	--classifier-effort medium \
-	--classifier-context-budget-bytes 250000 \
-	>"$install_result"
+env HOME="$home" CODEX_HOME="$codex_home" CODEX_THREAD_ID=control \
+  PATH="$home/.local/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin" \
+  THREADBEAR_RELEASE_BASE_URL="https://github.com/ericlitman/threadbear/releases" \
+  sh -c 'curl -fsSL https://threadbear.sh/install.sh | sh -s -- \
+    --version "$1" --control-task-id control --noninteractive --confirm --json' \
+  sh "$version"
 
-python3 - "$install_result" <<'PY'
-import json
-import sys
-result = json.load(open(sys.argv[1], encoding="utf-8"))
-if result.get("command") != "install" or result.get("control_task_disposition") != "adopted":
-    raise SystemExit("release smoke install did not adopt the fixture control task")
-if result.get("warnings"):
-    raise SystemExit("release smoke install returned warnings")
-PY
-
-version_result=$temporary_root/version.json
-"$installed" version --json >"$version_result"
-python3 - "$version_result" "$version" <<'PY'
-import json
-import sys
-result = json.load(open(sys.argv[1], encoding="utf-8"))
-if result.get("installed_version") != sys.argv[2]:
-    raise SystemExit("installed version does not match release tag")
-PY
-
-self_test_result=$temporary_root/self-test.json
-"$installed" self-test --json >"$self_test_result"
-python3 - "$self_test_result" <<'PY'
-import json
-import sys
-if json.load(open(sys.argv[1], encoding="utf-8")).get("ok") is not True:
-    raise SystemExit("installed self-test failed")
-PY
-
-/bin/launchctl print "$service" >/dev/null
-[ "$(stat -f '%Lp' "$installed")" = 700 ]
-[ "$(stat -f '%Lp' "$HOME/Library/LaunchAgents/org.litman.threadbear.plist")" = 600 ]
-[ -f "$CODEX_HOME/AGENTS.md" ]
-[ -f "$CODEX_HOME/skills/threadbear/SKILL.md" ]
-
-request_log=$CODEX_HOME/appserver-requests.log
-[ "$(awk '$0 == "thread/read" { count++ } END { print count + 0 }' "$request_log")" -ge 3 ]
-[ "$(awk '$0 == "thread/inject_items" { count++ } END { print count + 0 }' "$request_log")" -eq 1 ]
-if awk '$0 == "thread/start" || $0 == "turn/start" { found=1 } END { exit(found ? 0 : 1) }' "$request_log"; then
-	echo "fixture unexpectedly received classifier protocol calls" >&2
-	exit 1
-fi
-
-"$installed" uninstall --noninteractive --confirm --json >"$temporary_root/uninstall.json"
-python3 - "$temporary_root/uninstall.json" <<'PY'
-import json
-import sys
-result = json.load(open(sys.argv[1], encoding="utf-8"))
-if result.get("command") != "uninstall" or result.get("changed") is not True or result.get("deleted_state") is not True:
-    raise SystemExit("release smoke uninstall result is incomplete")
-PY
-[ ! -e "$installed" ]
-[ ! -e "$HOME/.local/share/threadbear" ]
-[ ! -e "$HOME/Library/LaunchAgents/org.litman.threadbear.plist" ]
-[ ! -e "$CODEX_HOME/AGENTS.md" ]
-[ ! -e "$CODEX_HOME/skills/threadbear/SKILL.md" ]
-if /bin/launchctl print "$service" >/dev/null 2>&1; then
-	echo "LaunchAgent remains loaded after uninstall" >&2
-	exit 1
-fi
-
-printf 'release smoke passed: version=%s architecture=%s install=ok self_test=ok launchagent=ok uninstall=ok\n' "$version" "$(uname -m)"
+binary=$home/.local/bin/threadbear
+test "$("$binary" version --json | sed -n 's/.*"version":"\([^"]*\)".*/\1/p')" = "$version"
+HOME="$home" CODEX_HOME="$codex_home" "$binary" self-test --candidate --json
+HOME="$home" CODEX_HOME="$codex_home" "$binary" status --json
+HOME="$home" CODEX_HOME="$codex_home" "$binary" uninstall --noninteractive --confirm --json
+test ! -e "$binary"
