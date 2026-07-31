@@ -66,9 +66,9 @@ func TestPublishedInstallGuideKeepsFirstConsentTurnVisible(t *testing.T) {
 	for _, required := range []string{
 		"Codex collapses commentary after a turn finishes.",
 		"commentary copies do not satisfy this contract",
-		"durable terminal final answer (`phase: final_answer`)",
-		"include the complete orientation above, the readiness sentence, the full recommendation card, and the consent question",
-		"Do not end the turn with only the consent question.",
+		"Every terminal final answer in this first turn must be self-contained.",
+		"If every check and the dry run succeeds, `phase: final_answer` must include the complete orientation above, the readiness sentence, the full recommendation card, and the consent question.",
+		"Do not end a successful turn with only the consent question.",
 		"compose one terminal final answer with no later tool call or commentary",
 		"every recommendation bullet, and consent question must all be present in `phase: final_answer`",
 		"do not follow it with a question-only final answer",
@@ -80,6 +80,24 @@ func TestPublishedInstallGuideKeepsFirstConsentTurnVisible(t *testing.T) {
 
 	if strings.Contains(guide, "Continue in the same response with the full card") {
 		t.Error("published install guide retains the ambiguous response-boundary rule")
+	}
+}
+
+func TestPublishedInstallGuideDoesNotRequestConsentAfterFailedChecks(t *testing.T) {
+	data, err := os.ReadFile(filepath.Join("..", "..", "INSTALL.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	guide := string(data)
+
+	for _, required := range []string{
+		"If any check fails, keep the complete orientation and truthful failure visible in `phase: final_answer`",
+		"do not claim readiness, show the recommendation card, or ask for consent",
+		"Only after every check and the dry run succeeds, compose one terminal final answer",
+	} {
+		if !strings.Contains(guide, required) {
+			t.Errorf("published install guide is missing truthful failure-turn contract %q", required)
+		}
 	}
 }
 

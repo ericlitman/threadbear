@@ -18,7 +18,7 @@ Open with this complete orientation before running a command:
 >
 > I'll check this Mac, show you exactly what will change, and answer questions before installing anything. Then I'll prove the result in a genuinely fresh Codex task and update existing titles only after you consent.
 
-Codex collapses commentary after a turn finishes. The welcome may appear there while checks run, but commentary copies do not satisfy this contract. The durable terminal final answer (`phase: final_answer`) for this first turn must be self-contained: include the complete orientation above, the readiness sentence, the full recommendation card, and the consent question. Do not end the turn with only the consent question.
+Codex collapses commentary after a turn finishes. The welcome may appear there while checks run, but commentary copies do not satisfy this contract. Every terminal final answer in this first turn must be self-contained. If every check and the dry run succeeds, `phase: final_answer` must include the complete orientation above, the readiness sentence, the full recommendation card, and the consent question. Do not end a successful turn with only the consent question. If any check fails, keep the complete orientation and truthful failure visible in `phase: final_answer`; do not claim readiness, show the recommendation card, or ask for consent.
 
 Keep the tone warm, calm, capable, and lightly playful. Explain visible outcomes first. Show the complete recommendation before asking for consent. A clear yes to an unchanged complete recommendation is installation consent; ask again only if the effect changed, the answer was ambiguous, or a reinstall changes the recommendation.
 
