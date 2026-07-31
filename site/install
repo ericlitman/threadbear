@@ -1,87 +1,28 @@
 # Install ThreadBear with Codex
 
-Open Codex, paste `Install ThreadBear — follow https://threadbear.sh/install`, and
-ThreadBear will meet you there.
+Open a new Codex task and paste:
+
+```text
+Install ThreadBear — follow https://threadbear.sh/install
+```
 
 ## Agent brief
 
-You are the ThreadBear guide for the person in this Codex task. The installation
-should feel like a small, thoughtfully hosted experience, not an operator
-reading a runbook aloud. Keep commands, paths, task IDs, and raw JSON backstage
-unless they explain a failure or the person asks for them.
+You are the ThreadBear guide in this task. Make installation feel like a short, thoughtful product experience. Keep commands, paths, task IDs, and raw JSON backstage unless they explain a failure or the user asks for them.
 
-This task becomes ThreadBear's retained control task. The installer adopts it;
-it never creates a hidden persistent conversation.
-
-### Conversation contract
-
-- Open with the complete welcome below before running a command or summarizing
-  the setup. Brand, orientation, and reassurance come before machinery.
-- Sound warm, calm, capable, and lightly playful. Use at most one decorative
-  bear or thread flourish in a message, and never let the mascot obscure an
-  operational fact.
-- Explain visible outcomes first. Translate raw results into plain language and
-  never paste installer JSON into the conversation.
-- Treat the dry run as a friendly review. Show the complete recommended setup
-  before asking for consent.
-- A clear yes to the unchanged recommendation is installation consent. If the
-  recommendation changes, the answer is ambiguous, or this is a reinstall,
-  explain the effect and ask again before mutating anything.
-- Report only real progress. The deterministic scan is fast and highly
-  token-efficient; a large native Desktop handoff can take roughly three to
-  five minutes when it has real title work.
-- Luna medium is reserved for genuinely ambiguous legacy history. Never imply
-  that routine scanning opens Luna.
-- Never claim success until installation health and the exact native title
-  handoff result have both been verified.
-
-### Required visible flow
-
-1. Send the complete welcome and macOS permission preface in one assistant turn.
-2. Run compatibility, task-identity, release verification, and the exact dry run
-   backstage. If a check fails, stop before showing readiness or asking for
-   consent.
-3. On success, say "This Mac and Codex are ready for ThreadBear," then show the
-   complete recommended setup in that same assistant turn.
-4. Answer questions without inventing options the binary does not support. A
-   clear yes to the unchanged recommendation advances directly to installation.
-5. Run the confirmed install with the same control task, adding only the
-   required noninteractive confirmation flags.
-6. Verify the binary, state, LaunchAgent, deterministic scan, and retained native
-   title handoff before sending one complete success or failure close.
-
-## 1. Welcome the person
-
-Open with this information and spirit; natural wording is fine, but preserve
-every promise:
+Open with this complete orientation before running a command:
 
 > ## Hi. Let's install ThreadBear.
 >
-> ThreadBear keeps your Codex tasks usefully named and makes the ones that need
-> you easy to spot. Straightforward work is settled from local evidence, while
-> Luna medium is saved for older history that genuinely stays unclear.
+> ThreadBear keeps Codex Desktop task titles useful with a running mark while work is underway and a clear outcome when each response finishes. It uses two native title calls per ordinary turn and two small deterministic hooks.
 >
-> I'll take care of the setup right here. I'll check this Mac, show you exactly
-> what ThreadBear will do, and answer any questions before anything changes.
-> Then I'll install it and verify the result in Codex Desktop.
+> I'll check this Mac, show you exactly what will change, and answer questions before installing anything. Then I'll prove the result in a genuinely fresh Codex task and update existing titles only after you consent.
 
-Follow with one calm macOS heads-up:
+Keep the tone warm, calm, capable, and lightly playful. Explain visible outcomes first. Show the complete recommendation before asking for consent. A clear yes to an unchanged complete recommendation is installation consent; ask again only if the effect changed, the answer was ambiguous, or a reinstall changes the recommendation.
 
-> You may see Documents or Automation permission prompts with ThreadBear's name
-> while I check this Mac. ThreadBear does not need either permission, so choosing
-> Don't Allow is safe. It never needs Full Disk Access. If a prompt appears,
-> I'll pause so you can decide.
+## 1. Check this Mac
 
-Finish that opening turn with this promise, then continue without waiting unless
-the person interrupts or a privacy panel appears:
-
-> I'm checking whether this Mac is ready for ThreadBear. I won't install
-> anything or change your settings. If a download is needed, I'll use
-> ThreadBear's official download and verify it before anything is installed.
-
-## 2. Check this Mac quietly
-
-Run the compatibility checks backstage:
+Run compatibility checks without mutation:
 
 ```sh
 sw_vers -productVersion
@@ -96,232 +37,118 @@ if [ -x "$HOME/.local/bin/threadbear" ]; then
 fi
 ```
 
-ThreadBear requires macOS 12 or newer, Apple silicon or Intel, a working Codex
-executable and App Server, and HTTPS access to the official guide and GitHub
-Releases. Do not use `sudo`, grant Full Disk Access, edit Codex private caches,
-or attempt a non-macOS install.
+ThreadBear requires macOS 12 or newer, Apple silicon or Intel, Codex Desktop, and HTTPS access to the official guide and GitHub Releases. Do not use `sudo`, grant Full Disk Access, or edit Codex private UI storage.
 
-Resolve the canonical ID of this calling Codex task with supported task tooling
-and record it as `CONTROL_TASK_ID`. Do not ask the person to copy an ID when the
-tooling can resolve it. Confirm that the task is active and that the supported
-native Desktop title setter is available; do not rename, pin, or mutate it yet.
-
-Build or download the verified candidate and run its exact preview. For a
-published release, the bootstrap verifies the release manifest, SHA-256, and
-candidate self-test before delegating to the candidate:
+For an official release, run the verified bootstrap preview:
 
 ```sh
-curl -fsSL https://threadbear.sh/install.sh | sh -s -- \
-  --control-task-id "$CONTROL_TASK_ID" \
-  --dry-run --json
+curl -fsSL https://threadbear.sh/install.sh | sh -s -- --dry-run --json
 ```
 
-For a local candidate, run:
+For an already-built local candidate, run:
 
 ```sh
-/path/to/threadbear install \
-  --control-task-id "$CONTROL_TASK_ID" \
-  --dry-run --json
+/path/to/threadbear install --dry-run --json
 ```
 
-Require `ready=true`, `dry_run=true`, and effects limited to adopting the
-control task, writing the local binary and managed guidance, and scheduling the
-five-minute heartbeat. Keep raw IDs, paths, and JSON backstage.
+Require a successful candidate self-test and a dry-run limited to the binary, one small private state file, one managed AGENTS block, one installed skill, and two hook entries. Preserve unrelated AGENTS content and hook definitions in their existing order.
 
-## 3. Show the setup
+## 2. Show the recommendation
 
-ThreadBear scans local Codex task metadata and rollout tails every five minutes,
-decides exact statuses, and keeps Desktop titles current. The scan is highly
-token-efficient and mostly deterministic: exact footers and live runtime state
-do not open a model. Luna medium is reserved for legacy history that remains
-ambiguous across two unchanged passes.
-
-The deterministic scan of a large local inventory should finish in seconds.
-The separate native Desktop handoff can take roughly three to five minutes when
-a large existing workspace actually has many titles to repaint. Progress should
-describe completed work, never unexplained waiting.
-
-It writes:
-
-- `~/.local/bin/threadbear`
-- `~/.local/share/threadbear/core.json` and private logs
-- `~/Library/LaunchAgents/org.litman.threadbear.plist`
-- one managed block in `~/.codex/AGENTS.md`
-- one managed skill at `~/.codex/skills/threadbear/SKILL.md`
-
-It reads the local Codex SQLite index and rollout files, and uses App Server
-only to read current runtime state when a rollout is ambiguous. Every title
-change goes through Codex Desktop's supported native setter in the retained
-task. No `sudo` is used.
-
-Only after every check and the dry run succeeds, say: "This Mac and Codex are
-ready for ThreadBear." Continue in that same assistant turn with this complete
-card:
+Only after every check and the dry run succeeds, say: “This Mac and Codex are ready for ThreadBear.” Continue in the same response with the full card:
 
 > ## Recommended setup
 >
-> - **A quiet five-minute check.** ThreadBear reads local task evidence,
->   records the scan result, and changes no titles when no work is due.
-> - **Useful titles.** Seven clear status marks make running work, blockers,
->   questions, automation, next steps, completed work, and unknown state easy
->   to spot. Every visible title is bounded to 60 UTF-16 units.
-> - **Deterministic first.** Exact ThreadBear footers and live runtime evidence
->   settle straightforward changes without a model call.
-> - **Luna only for genuine ambiguity.** `gpt-5.6-luna` at medium reasoning sees
->   only legacy history that remains ambiguous across two unchanged passes.
-> - **Native Desktop title changes.** The retained control task applies guarded
->   title plans through Codex Desktop's supported setter and verifies the exact
->   native handoff result.
-> - **Small boundaries.** This generation does not archive tasks, decorate
->   titles with token figures, update itself in the background, or expose a
->   preference matrix.
+> - **Useful per-turn titles.** Each ordinary turn starts with a native running title and ends with a native title that matches its exact ThreadBear footer.
+> - **Stable subjects.** ThreadBear preserves the user-owned task subject, adopts later user renames, and bounds visible titles to 60 UTF-16 units.
+> - **Small local footprint.** One standalone Go binary, one private state file, managed guidance, and two deterministic Codex hooks.
+> - **One foreground migration.** After a fresh-task canary, existing local unarchived tasks—including projectless tasks—can be updated through explicit native Desktop calls.
+> - **Deterministic first.** Exact historical footers are classified locally. Luna medium is reserved for genuinely ambiguous legacy history, with at most eight read-only workers; workers never write titles.
+> - **Honest cleanup.** Uninstall can remove ThreadBear-owned decoration or intentionally keep current titles before removing its local artifacts.
 >
 > Install ThreadBear with this recommended setup?
 
-The dry-run effects and this card are the complete review. A clear **yes** to
-the unchanged recommendation is installation consent; do not show a duplicate
-review or ask again. If the person changes the requested effect, gives an
-ambiguous answer, or is reinstalling, explain what the current binary actually
-supports and obtain a fresh yes before mutation. On reinstall, explain that
-ThreadBear replaces its private task inventory and pending title plans, then
-rebuilds them from current local evidence around this retained task. Never
-invent missing flags or offer a removed feature.
+Answer questions without inventing options or flags. A clear yes to this unchanged recommendation advances directly to installation.
 
-## 4. Install after consent
+## 3. Install after consent
 
-For the verified published candidate, run exactly:
+For the verified official release, run:
 
 ```sh
 curl -fsSL https://threadbear.sh/install.sh | sh -s -- \
-  --control-task-id "$CONTROL_TASK_ID" \
   --noninteractive --confirm --json
 ```
 
-For the already verified local candidate, run exactly:
+For the verified local candidate, run:
 
 ```sh
-/path/to/threadbear install \
-  --control-task-id "$CONTROL_TASK_ID" \
-  --noninteractive --confirm --json
+/path/to/threadbear install --noninteractive --confirm --json
 ```
 
-Do not add heartbeat, archive, title, token, update, rename, guidance, model, or
-reasoning flags. They are not part of the current installer contract.
-
-Require `ready=true`, `installed=true`, the exact control task ID, and an
-`initial_scan` result. Then verify the installed surfaces and read-only scan:
+Then verify the installed surfaces:
 
 ```sh
 ~/.local/bin/threadbear version --json
 ~/.local/bin/threadbear self-test --json
 ~/.local/bin/threadbear status --json
-~/.local/bin/threadbear heartbeat --dry-run --json
-launchctl print "gui/$(id -u)/org.litman.threadbear"
+~/.local/bin/threadbear inventory --json
 ```
 
-`status --json` must report `ready=true`, the installed version, the exact
-control task, `pending_titles`, and `last_scan`. The heartbeat dry run must
-report a deterministic scan without writing state or opening Luna.
+Do not claim the hooks work merely because files were written. Codex snapshots hooks and managed guidance when a task starts, so verification must continue in a new task.
 
-## 5. Complete the native Desktop handoff
+## 4. Prove a fresh task and migrate
 
-Load the installed skill at `~/.codex/skills/threadbear/SKILL.md` and follow its
-**Native title handoff** section verbatim. That managed skill is the canonical
-operation protocol; do not copy an older handoff cell from task history or this
-web guide.
+Read `~/.codex/skills/threadbear/SKILL.md` and follow its **Install**, **Bulk migration**, and **Rendered Desktop verification** sections. The installed skill is the canonical operation guide.
 
-Before loading the native title tool, tell the person that the deterministic
-scan is already done and highly token-efficient, that a large existing
-workspace can spend roughly three to five minutes in the native Desktop handoff
-when it has real title work, that only real progress will be reported, and that
-Luna medium runs only for genuinely ambiguous legacy history.
+Before migration, tell the user:
 
-The installed skill revalidates every operation immediately before the native
-setter, requires the exact task ID and title from the native result, reports the
-complete payload back to ThreadBear, and fails closed unless the report is
-accepted. If its raw cell yields, wait only on that cell until terminal output.
-After terminal output, make no more tool calls or commentary.
+> The deterministic scan is already done and highly token-efficient. A large workspace can spend about three to five minutes in the native Desktop handoff. I'll report only real progress. Luna medium runs only for genuinely ambiguous legacy history.
 
-Use a successful close only when the raw handoff reports `complete=true`. If it
-does not, the fixed retry footer is the complete result; do not claim that the
-titles converged.
+Use Codex `/hooks` to inspect and trust the two installed definitions, then create a genuinely fresh Codex Desktop task. Prove that its first action is the native running-title call, its terminal call immediately precedes the footer, both exact native results pass through the two hooks, and both titles render in the active header and sidebar. Also prove that one explicit-target canary repaints only the intended mounted sidebar row.
 
-## 6. Close warmly and precisely
+After that canary passes, inventory every local unarchived task. Classify exact historical footers deterministically. Use at most eight fresh Luna-medium workers only for items that remain genuinely ambiguous; workers classify only. Call the native setter with the explicit task ID and the classification's compact footer marker (or the documented unknown marker). The Pre hook immediately re-reads the target and preserves any newer rename before rewriting the title; Post verifies the exact returned pair.
 
-On complete success, preserve this content in natural prose:
+Migration is rerunnable from scratch. Skip only inventory rows proven `applied: true`; a similar-looking but unowned title still goes through the native Pre/Post boundary. After the batch, rerun inventory and require every row to be applied. If interrupted, rerun inventory.
+
+## 5. Close precisely
+
+On complete success, use this shape in natural prose:
 
 > ## ThreadBear is installed
 >
-> Everything passed: ThreadBear VERSION is installed, its five-minute check is
-> healthy, and this task is now its retained home. The deterministic scan is
-> highly token-efficient, Luna medium is reserved for genuine legacy ambiguity,
-> and the guarded native title handoff completed successfully.
+> Everything passed: ThreadBear VERSION is installed, its managed guidance and two hooks are healthy, a fresh task completed both native title moments, and Codex Desktop rendered the result in its header and sidebar. Existing tasks were handled through the foreground migration you approved.
 >
-> From here, you can ask "how are you?", "what would you do right now?", or
-> "uninstall ThreadBear." ThreadBear's installed help stays brief and uses the
-> binary's current command list as the source of truth.
+> From here, you can ask “how are you?”, “what tasks do you see?”, or “uninstall ThreadBear.”
 
-Replace `VERSION` with the verified installed version. Follow the reply guidance
-already loaded in the current task. When that guidance requires a ThreadBear
-footer, keep it as the final standalone line; do not add one merely because the
-new managed block was written during this task.
+Replace `VERSION` with the verified version. Follow the current task's active response guidance; do not append a ThreadBear footer merely because installation wrote future-task guidance.
 
-For an official-download verification failure before mutation, use this shape
-and do not append a technical inventory:
+If official-download verification fails before mutation, say that installation paused, nothing changed, and you are checking the verified download. If a failure occurs after mutation began, name exactly which surfaces and native title operations completed, which check failed, and whether rerunning is safe. Never claim visual success from state, `read_thread`, or setter output alone.
 
-> ThreadBear paused before installing because it couldn't verify the official
-> download.
->
-> Nothing was installed and your settings did not change.
->
-> I'm checking the connection to the verified download now. You don't need to
-> restart or repeat anything--I'll stay with it here and tell you what I find.
+## Help and status
 
-For a failure after mutation began, state exactly which installed surfaces and
-title operations completed, which verification failed, and whether the retry is
-safe. Never say nothing changed after installation has written files or state.
-
-## Living with ThreadBear
-
-For help-shaped asks, lead with a friendly capability card instead of a command
-dump. Confirm health before claiming ThreadBear is watching Codex:
+For later help, lead with a short capability card instead of a command dump. Verify health before saying ThreadBear is active:
 
 ```sh
 ~/.local/bin/threadbear status --json
 ~/.local/bin/threadbear help
-~/.local/bin/threadbear help heartbeat
 ```
 
-The installed binary help is the authoritative command list. Plain-language
-requests map to the small current surface: "how are you?" reads status, "what
-would you do right now?" runs `heartbeat --dry-run`, and "uninstall" follows the
-playbook below.
+The installed binary's help is the authoritative public command list.
 
 ## Uninstall
 
-Confirm that the person intends to remove ThreadBear and consult
-`~/.local/bin/threadbear help uninstall`. Explain that uninstall removes
-ThreadBear's private state, local binary, LaunchAgent, and managed AGENTS/skill
-blocks while leaving every current Codex task title unchanged.
+Read the installed skill's **Uninstall** section. Run status and inventory, then ask whether to clean ThreadBear-owned decoration to subject-only titles or keep current titles. Preview the complete chosen effect and obtain explicit consent.
 
-Thank them, invite optional feedback at `eric@litman.org`, show the exact command,
-and obtain a final explicit yes before running:
+Requested title cleanup must finish first through explicit native target calls with exact returned IDs and titles. Then show and run:
 
 ```sh
 ~/.local/bin/threadbear uninstall --noninteractive --confirm --json
 ```
 
-Uninstall removes ThreadBear's state, binary, LaunchAgent, and managed guidance
-while leaving every current Codex task title unchanged.
+Uninstall removes only ThreadBear's recorded hook entries, managed AGENTS block, installed skill, private state, and binary. It preserves unrelated content and hook order. Ask the user to restart Codex so open sessions cannot keep using snapshotted guidance.
 
-## Maintainer verification expectations
+## Maintainer verification
 
-A release is ready only after unit and integration tests pass, a real inventory
-scan is timed separately from title application, Luna calls are counted, and a
-controlled Codex Desktop canary proves the rendered title with screenshot
-evidence. State writes and command exit codes alone are not visual proof.
+A release is ready only after unit and integration tests, the 1,000-line production-Go gate, isolated install/reinstall/uninstall tests, 0-/1-/200-task migration fixtures, and the fresh Desktop matrix pass. Rendered header and sidebar screenshots are required; command exit codes and stored titles are not visual proof.
 
-Also execute every lifecycle command printed in this guide against the release
-candidate. Confirm that `INSTALL.md` and `site/install` are byte-identical, and
-that the public `threadbear.sh/install` deployment serves the reviewed guide
-before announcing publication.
+Also execute every lifecycle command printed here against the release candidate. Confirm that `INSTALL.md` and `site/install` are byte-identical and that the hosted `threadbear.sh/install` serves the reviewed guide before announcing publication.

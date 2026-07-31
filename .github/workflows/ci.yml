@@ -18,6 +18,14 @@ jobs:
         with:
           go-version-file: go.mod
           cache: true
+      - name: Check Go formatting and production size
+        run: |
+          files=$(find . -type f -name '*.go' ! -path './.git/*' ! -path './.worktrees/*' | sort)
+          test -z "$(printf '%s\n' "$files" | xargs gofmt -l)"
+          production=$(printf '%s\n' "$files" | awk '!/_test\.go$/')
+          lines=$(printf '%s\n' "$production" | xargs wc -l | awk 'END { print $1 }')
+          echo "production Go lines: $lines"
+          test "$lines" -le 1000
       - run: go test ./...
       - run: go vet ./...
       - run: CGO_ENABLED=0 GOOS=darwin GOARCH=arm64 go build -o /tmp/threadbear_darwin_arm64 ./cmd/threadbear
@@ -34,17 +42,3 @@ jobs:
           for path in / /install /install.sh; do
             curl --fail --silent --show-error "http://127.0.0.1:8000$path" >/dev/null
           done
-      - name: Lint rendered plist fixture
-        run: |
-          sed \
-            -e 's#{{xml .Label}}#org.litman.threadbear#g' \
-            -e 's#{{xml .BinaryPath}}#/tmp/threadbear#g' \
-            -e 's#{{.StartInterval}}#300#g' \
-            -e 's#{{xml .Home}}#/tmp/threadbear-home#g' \
-            -e 's#{{xml .CodexHome}}#/tmp/threadbear-home/.codex#g' \
-            -e 's#{{xml .Path}}#/usr/bin:/bin#g' \
-            -e 's#{{xml .LCAll}}#C#g' \
-            -e 's#{{xml .StdoutPath}}#/tmp/threadbear.stdout.log#g' \
-            -e 's#{{xml .StderrPath}}#/tmp/threadbear.stderr.log#g' \
-            assets/org.litman.threadbear.plist.tmpl > /tmp/org.litman.threadbear.plist
-          plutil -lint /tmp/org.litman.threadbear.plist

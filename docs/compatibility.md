@@ -1,19 +1,11 @@
 # Compatibility
 
-ThreadBear supports macOS 12 or newer on Apple silicon and Intel, Codex Desktop
-tasks indexed with `source='vscode'`, Codex App Server `thread/read`, and the
-Codex Desktop native title setter exposed to the retained task.
+ThreadBear supports macOS 12 or newer on Apple silicon and Intel, Codex Desktop tasks indexed in the current local `state_N.sqlite`, Codex `PreToolUse` and `PostToolUse` hooks, and the native current-task and explicit-target title setter.
 
-The SQLite dependency is read-only. ThreadBear selects the highest local
-`state_N.sqlite` database and requires the current `threads` columns used by the
-task index. An unsupported schema fails closed without title mutation.
+The hook matcher is the plain literal `codex_appset_thread_title`. The anchored-regex form is not supported because Codex 0.146.0 treated it as match-all. Hook installation preserves unrelated definitions and their array order.
 
-Visible titles are at most 60 UTF-16 units. The native handoff must return the
-exact requested task ID and title, and the task index must then expose that
-title. ThreadBear does not write Desktop caches, private UI databases, or
-invented compatibility state.
+ThreadBear reads the highest local Codex state database and fails closed when the required thread schema, calling session ID, current title, hook payload, or exact native result is unavailable. It does not write the Codex database, Desktop caches, or private UI storage.
 
-The supported public commands are `install`, `heartbeat`, `status`,
-`self-test`, `uninstall`, and `version`. The former configuration, lifecycle,
-archive, inspect, update, and restore commands were removed with their product
-scope rather than retained as adapters.
+Visible titles are at most 60 UTF-16 units and never split a surrogate pair. Native setter success is the runtime acknowledgement. Each release must separately prove the rendered active header and sidebar in a fresh Codex Desktop task.
+
+The supported public commands are `install`, `inventory`, `status`, `self-test`, `uninstall`, and `version`.

@@ -1,242 +1,196 @@
 package main
 
 import (
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
-	"fmt"
+	"golang.org/x/sys/unix"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
 	"unicode/utf16"
-	"unicode/utf8"
-
-	"golang.org/x/sys/unix"
 )
 
-const stateFormat = 1
+const stateFormat = 3
 
+type pendingProposal struct {
+	ToolUseID   string `json:"tool_use_id"`
+	BaseSubject string `json:"base_subject"`
+	Prior       string `json:"prior"`
+	Proposed    string `json:"proposed"`
+	Status      string `json:"status"`
+	Action      string `json:"action,omitempty"`
+}
+type taskState struct {
+	Subject string           `json:"subject"`
+	Last    string           `json:"last,omitempty"`
+	Status  string           `json:"status,omitempty"`
+	Action  string           `json:"action,omitempty"`
+	Pending *pendingProposal `json:"pending,omitempty"`
+}
 type state struct {
-	Format          int                   `json:"format"`
-	ControlTaskID   string                `json:"control_task_id"`
-	CodexPath       string                `json:"codex_path"`
-	NativeBootstrap bool                  `json:"native_bootstrap"`
-	Tasks           map[string]taskRecord `json:"tasks"`
-	Plans           map[string]plan       `json:"plans"`
-	LastScan        scanStats             `json:"last_scan"`
+	Format int                  `json:"format"`
+	Tasks  map[string]taskState `json:"tasks"`
 }
-
-type taskRecord struct {
-	Revision        int64  `json:"revision"`
-	Title           string `json:"title"`
-	RolloutPath     string `json:"rollout_path"`
-	RolloutSize     int64  `json:"rollout_size"`
-	Evidence        string `json:"evidence"`
-	Status          string `json:"status"`
-	Subject         string `json:"subject"`
-	Action          string `json:"action,omitempty"`
-	LastApplied     string `json:"last_applied,omitempty"`
-	AmbiguousPasses int    `json:"ambiguous_passes,omitempty"`
-}
-
-type plan struct {
-	ID            string `json:"id"`
-	TaskID        string `json:"task_id"`
-	Revision      int64  `json:"revision"`
-	TurnID        string `json:"turn_id,omitempty"`
-	ExpectedTitle string `json:"expected_title"`
-	DesiredTitle  string `json:"desired_title"`
-	Evidence      string `json:"evidence"`
-	Status        string `json:"status"`
-	Subject       string `json:"subject"`
-	Action        string `json:"action,omitempty"`
-	Epoch         int64  `json:"epoch"`
-}
-
-type scanStats struct {
-	Tasks         int   `json:"tasks"`
-	Changed       int   `json:"changed"`
-	Deterministic int   `json:"deterministic"`
-	Ambiguous     int   `json:"ambiguous"`
-	Luna          int   `json:"luna"`
-	Staged        int   `json:"staged"`
-	ScanMillis    int64 `json:"scan_millis"`
-}
-
-func freshState(control string) state {
-	return state{Format: stateFormat, ControlTaskID: control, NativeBootstrap: true, Tasks: map[string]taskRecord{}, Plans: map[string]plan{}}
-}
-
+type footer struct{ Status, Action string }
 type store struct{ dir string }
 
 func newStore(dir string) store { return store{dir: dir} }
-func (s store) path() string    { return filepath.Join(s.dir, "core.json") }
-
+func (s store) path() string    { return filepath.Join(s.dir, "native.json") }
 func (s store) lock() (*os.File, error) {
-	if info, err := os.Lstat(s.dir); err == nil && (info.Mode()&os.ModeSymlink != 0 || !info.IsDir()) {
-		return nil, errors.New("ThreadBear state path is not a real directory")
-	} else if err != nil && !errors.Is(err, os.ErrNotExist) {
-		return nil, err
-	}
 	if err := os.MkdirAll(s.dir, 0o700); err != nil {
 		return nil, err
 	}
-	if err := os.Chmod(s.dir, 0o700); err != nil {
-		return nil, err
-	}
-	f, err := os.OpenFile(filepath.Join(s.dir, "core.lock"), os.O_CREATE|os.O_RDWR, 0o600)
-	if err == nil {
-		err = unix.Flock(int(f.Fd()), unix.LOCK_EX)
-	}
+	dir, err := unix.Open(s.dir, unix.O_RDONLY|unix.O_DIRECTORY|unix.O_NOFOLLOW, 0)
 	if err != nil {
-		if f != nil {
-			f.Close()
-		}
 		return nil, err
+	}
+	defer unix.Close(dir)
+	if err = unix.Fchmod(dir, 0o700); err != nil {
+		return nil, err
+	}
+	fd, err := unix.Openat(dir, "native.lock", unix.O_CREAT|unix.O_RDWR|unix.O_NOFOLLOW, 0o600)
+	if err != nil {
+		return nil, err
+	}
+	f := os.NewFile(uintptr(fd), "native.lock")
+	info, statErr := f.Stat()
+	if statErr != nil || !info.Mode().IsRegular() {
+		return nil, errors.Join(errors.New("ThreadBear lock is not a regular file"), statErr, f.Close())
+	}
+	if err = errors.Join(unix.Fchmod(fd, 0o600), unix.Flock(fd, unix.LOCK_EX)); err != nil {
+		return nil, errors.Join(err, f.Close())
 	}
 	return f, nil
 }
-
-func unlock(f *os.File) error {
-	return errors.Join(unix.Flock(int(f.Fd()), unix.LOCK_UN), f.Close())
-}
-
-func (s store) load() (state, error) {
-	if info, err := os.Lstat(s.path()); err == nil && (info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() || info.Mode().Perm() != 0o600) {
-		return state{}, errors.New("ThreadBear state is not a regular file")
-	} else if err != nil {
+func (s store) read() (state, error) {
+	fd, err := unix.Open(s.path(), unix.O_RDONLY|unix.O_NOFOLLOW, 0)
+	if err != nil {
 		return state{}, err
 	}
-	data, err := os.ReadFile(s.path())
+	f := os.NewFile(uintptr(fd), s.path())
+	defer f.Close()
+	info, err := f.Stat()
+	if err != nil {
+		return state{}, err
+	}
+	if info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() || info.Mode().Perm() != 0o600 {
+		return state{}, errors.New("ThreadBear state is not a private regular file")
+	}
+	data, err := io.ReadAll(f)
 	if err != nil {
 		return state{}, err
 	}
 	var value state
-	if err := json.Unmarshal(data, &value); err != nil {
-		return state{}, err
-	}
-	if value.Format != stateFormat || strings.TrimSpace(value.ControlTaskID) == "" {
-		return state{}, fmt.Errorf("unsupported ThreadBear state format %d", value.Format)
-	}
-	if value.Tasks == nil {
-		value.Tasks = map[string]taskRecord{}
-	}
-	if value.Plans == nil {
-		value.Plans = map[string]plan{}
+	if err := json.Unmarshal(data, &value); err != nil || value.Format != stateFormat || value.Tasks == nil {
+		return state{}, errors.New("unsupported or corrupt ThreadBear state format")
 	}
 	return value, nil
 }
-
+func (s store) update(change func(*state) (bool, error)) (err error) {
+	lock, err := s.lock()
+	if err != nil {
+		return err
+	}
+	defer func() { err = errors.Join(err, unix.Flock(int(lock.Fd()), unix.LOCK_UN), lock.Close()) }()
+	value, err := s.read()
+	created := errors.Is(err, os.ErrNotExist)
+	if created {
+		value = state{Format: stateFormat, Tasks: map[string]taskState{}}
+	} else if err != nil {
+		return err
+	}
+	changed, err := change(&value)
+	if err != nil {
+		return err
+	}
+	if !created && !changed {
+		return nil
+	}
+	return s.save(value)
+}
 func (s store) save(value state) error {
-	data, err := json.MarshalIndent(value, "", "  ")
+	data, err := json.Marshal(value)
 	if err != nil {
 		return err
 	}
-	data = append(data, '\n')
-	if err := os.MkdirAll(s.dir, 0o700); err != nil {
-		return err
+	return writeAtomic(s.path(), append(data, '\n'), 0o600)
+}
+func canonicalSubject(current string, previous taskState) string {
+	if current == previous.Last && previous.Subject != "" {
+		return previous.Subject
 	}
-	f, err := os.CreateTemp(s.dir, ".core-*")
-	if err != nil {
-		return err
+	if pending := previous.Pending; pending != nil && pending.BaseSubject != "" && (current == pending.Prior || current == pending.Proposed) {
+		return pending.BaseSubject
 	}
-	name := f.Name()
-	ok := false
-	defer func() {
-		f.Close()
-		if !ok {
-			os.Remove(name)
+	return strings.Join(strings.Fields(current), " ")
+}
+func parseFooter(message string) (footer, bool) {
+	lines := strings.Split(strings.TrimRight(message, "\r\n"), "\n")
+	line := lines[len(lines)-1]
+	if strings.Contains(strings.Join(lines[:len(lines)-1], "\n"), "🧵🐻 ") {
+		return footer{}, false
+	}
+	if line == "🧵🐻 complete" || line == "🧵🐻 automation" {
+		return footer{Status: strings.TrimPrefix(line, "🧵🐻 ")}, true
+	}
+	remainder := strings.TrimPrefix(line, "🧵🐻 ")
+	statusText, ownerAction, ok := strings.Cut(remainder, " (")
+	owner, action, ownerOK := strings.Cut(ownerAction, "): ")
+	statuses := map[string]string{"next steps": "next_steps", "needs input": "needs_input", "blocked": "blocked"}
+	status, statusOK := statuses[statusText]
+	if remainder == line || !ok || !ownerOK || !statusOK || strings.TrimSpace(action) != action || len(strings.Fields(action)) < 2 {
+		return footer{}, false
+	}
+	if status == "needs_input" && owner != "you" || status == "blocked" && owner != "external" ||
+		status == "next_steps" && owner != "you" && owner != "agent" && owner != "external" {
+		return footer{}, false
+	}
+	return footer{Status: status, Action: action}, true
+}
+
+var statusIcons = map[string]string{"running": "⏳", "blocked": "🚨", "needs_input": "🙋", "automation": "🤖", "next_steps": "➡️", "complete": "✅", "unknown": "❔"}
+
+func renderTitle(status, subject, action string) string {
+	icon := statusIcons[status]
+	if icon == "" {
+		icon = statusIcons["unknown"]
+	}
+	subject, action = strings.TrimSpace(subject), strings.TrimSpace(action)
+	if status == "complete" || status == "automation" {
+		action = ""
+	}
+	prefix := strings.TrimSpace(icon + " " + subject)
+	if action == "" {
+		return truncateUTF16(prefix, 60)
+	}
+	suffix := " → " + action
+	if utf16Len(prefix+suffix) <= 60 {
+		return prefix + suffix
+	}
+	if subject != "" {
+		subjectBudget := 60 - utf16Len(icon+" ") - utf16Len(suffix)
+		if subjectBudget > 0 {
+			return icon + " " + truncateUTF16(subject, subjectBudget) + suffix
 		}
-	}()
-	if err = f.Chmod(0o600); err == nil {
-		_, err = f.Write(data)
+		subject, action = "…", truncateUTF16(action, 60-utf16Len(icon+" … → "))
+		return icon + " " + subject + " → " + action
 	}
-	if err == nil {
-		err = f.Sync()
-	}
-	if closeErr := f.Close(); err == nil {
-		err = closeErr
-	}
-	if err == nil {
-		err = os.Rename(name, s.path())
-	}
-	if err != nil {
-		return err
-	}
-	ok = true
-	d, err := os.Open(s.dir)
-	if err != nil {
-		return err
-	}
-	return errors.Join(d.Sync(), d.Close())
+	action = truncateUTF16(action, 60-utf16Len(icon+" → "))
+	return icon + " → " + action
 }
-
-var statusEmoji = map[string]string{
-	"running": "⏳", "blocked": "🚨", "needs_input": "🙋", "automation": "🤖",
-	"next_steps": "➡️", "complete": "✅", "unknown": "❔",
-}
-
-func title(status, subject, action string) string {
-	value := statusEmoji[status]
-	if subject = strings.TrimSpace(subject); subject != "" {
-		value += " " + subject
-	}
-	if action != "" {
-		value += " — " + strings.TrimSpace(action)
-	}
-	if utf16Len(value) <= 60 {
+func truncateUTF16(value string, limit int) string {
+	units := utf16.Encode([]rune(value))
+	if len(units) <= limit {
 		return value
 	}
-	units := 0
-	end := 0
-	for i, r := range value {
-		width := utf16.RuneLen(r)
-		if units+width > 59 {
-			break
-		}
-		units += width
-		end = i + utf8.RuneLen(r)
+	if limit < 1 {
+		return ""
 	}
-	return strings.TrimSpace(value[:end]) + "…"
+	units = units[:limit-1]
+	if len(units) > 0 && units[len(units)-1] >= 0xd800 && units[len(units)-1] <= 0xdbff {
+		units = units[:len(units)-1]
+	}
+	return strings.TrimSpace(string(utf16.Decode(units))) + "…"
 }
-
 func utf16Len(value string) int { return len(utf16.Encode([]rune(value))) }
-
-func subject(value string) string {
-	value = strings.TrimSpace(value)
-	for {
-		removed := false
-		for _, mark := range statusEmoji {
-			if strings.HasPrefix(value, mark+" ") {
-				value = strings.TrimSpace(strings.TrimPrefix(value, mark))
-				removed = true
-				break
-			}
-		}
-		if !removed {
-			return value
-		}
-	}
-}
-
-func planID(value plan) string {
-	copy := value
-	copy.ID = ""
-	data, _ := json.Marshal(copy)
-	sum := sha256.Sum256(data)
-	return hex.EncodeToString(sum[:16])
-}
-
-func decide(task indexedTask, result analysis) (taskRecord, plan) {
-	owned := subject(task.Title)
-	record := taskRecord{Revision: task.Revision, Title: task.Title, RolloutPath: task.RolloutPath, RolloutSize: result.Size, Evidence: result.Evidence, Status: result.Status, Subject: owned, Action: result.Action}
-	desired := title(result.Status, owned, result.Action)
-	value := plan{TaskID: task.ID, Revision: task.Revision, ExpectedTitle: task.Title, DesiredTitle: desired, Evidence: result.Evidence, Status: result.Status, Subject: owned, Action: result.Action, Epoch: result.Size}
-	value.ID = planID(value)
-	return record, value
-}
-
-func lunaEligible(record taskRecord, evidence string) bool {
-	return record.Evidence != "" && record.Evidence == evidence && record.AmbiguousPasses >= 2
-}

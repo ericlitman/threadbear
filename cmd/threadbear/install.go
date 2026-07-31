@@ -1,20 +1,18 @@
 package main
 
 import (
-	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
-	"html"
+	"github.com/ericlitman/threadbear/assets"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"reflect"
 	"runtime"
+	"slices"
 	"strings"
-	"text/template"
-	"time"
-
-	"github.com/ericlitman/threadbear/assets"
 )
 
 const (
@@ -23,6 +21,9 @@ const (
 	blockEnd    = "<!-- END THREADBEAR MANAGED BLOCK -->"
 )
 
+type lifecyclePaths struct{ binary, agents, skill, hooks, plist string }
+type rawObject map[string]json.RawMessage
+
 func codexHome() string {
 	if value := os.Getenv("CODEX_HOME"); value != "" {
 		return value
@@ -30,210 +31,280 @@ func codexHome() string {
 	home, _ := os.UserHomeDir()
 	return filepath.Join(home, ".codex")
 }
-
 func stateDir() string {
-	if value := os.Getenv("THREADBEAR_STATE_DIR"); value != "" {
-		return value
-	}
 	home, _ := os.UserHomeDir()
 	return filepath.Join(home, ".local", "share", "threadbear")
 }
-
-func installPaths() (binary, agents, skill, plist string) {
+func installPaths() lifecyclePaths {
 	home, _ := os.UserHomeDir()
-	return filepath.Join(home, ".local", "bin", "threadbear"),
-		filepath.Join(codexHome(), "AGENTS.md"),
-		filepath.Join(codexHome(), "skills", "threadbear", "SKILL.md"),
-		filepath.Join(home, "Library", "LaunchAgents", launchLabel+".plist")
+	return lifecyclePaths{filepath.Join(home, ".local/bin/threadbear"), filepath.Join(codexHome(), "AGENTS.md"), filepath.Join(codexHome(), "skills/threadbear/SKILL.md"), filepath.Join(codexHome(), "hooks.json"), filepath.Join(home, "Library/LaunchAgents", launchLabel+".plist")}
 }
-
-func install(ctx context.Context, control string, dry, confirmed bool) (any, error) {
-	if control == "" {
-		return nil, errors.New("install requires --control-task-id")
+func install(ctx context.Context, dry, confirmed bool) (any, error) {
+	p := installPaths()
+	hooks, write, err := editHooks(p.hooks, p.binary, true)
+	if err != nil {
+		return nil, err
 	}
-	task, found, err := oneTask(ctx, control)
-	if err != nil || !found {
-		return nil, errors.New("control task must be an existing active Codex task")
-	}
-	binary, agents, skill, plist := installPaths()
-	preview := []string{"adopt control task " + task.ID, "write " + binary, "manage " + agents, "manage " + skill, "schedule five-minute heartbeat"}
 	if dry {
-		return map[string]any{"ready": true, "dry_run": true, "effects": preview}, nil
+		return map[string]any{"ready": true, "dry_run": true}, nil
 	}
 	if !confirmed {
 		return nil, errors.New("install requires --noninteractive --confirm after its preview")
 	}
-	domain := fmt.Sprintf("gui/%d", os.Getuid())
-	if err := bootout(ctx, domain); err != nil {
+	legacy, err := readLegacyState(filepath.Join(stateDir(), "core.json"))
+	if err != nil {
 		return nil, err
 	}
-	codexPath, err := exec.LookPath("codex")
-	if err != nil {
-		return nil, errors.New("Codex executable is unavailable")
+	if err = stopLegacyService(ctx); err != nil {
+		return nil, err
 	}
-	codexPath, _ = filepath.Abs(codexPath)
+	err = newStore(stateDir()).update(func(value *state) (bool, error) {
+		changed := false
+		for id, task := range legacy {
+			if old, ok := value.Tasks[id]; !ok || old.Subject == "" {
+				value.Tasks[id] = task
+				changed = true
+			}
+		}
+		return changed, nil
+	})
+	if err != nil {
+		return nil, err
+	}
 	source, err := os.Executable()
 	if err != nil {
 		return nil, err
 	}
-	if err := copyAtomic(source, binary, 0o755); err != nil {
-		return nil, err
-	}
-	if err := writeManaged(agents, assets.AgentsManagedContent); err != nil {
-		return nil, err
-	}
-	if err := writeManaged(skill, assets.SkillManagedContent); err != nil {
-		return nil, err
-	}
-	disk := newStore(stateDir())
-	lock, err := disk.lock()
+	binary, err := os.ReadFile(source)
 	if err != nil {
 		return nil, err
 	}
-	value := freshState(control)
-	value.CodexPath = codexPath
-	err = disk.save(value)
-	unlock(lock)
-	if err != nil {
-		return nil, err
+	if err = writeAtomic(p.binary, binary, 0o755); err == nil {
+		err = manageBlock(p.agents, assets.AgentsManagedContent)
 	}
-	initial, err := heartbeat(ctx, false)
-	if err != nil {
-		return nil, fmt.Errorf("initial deterministic scan: %w", err)
-	}
-	home, _ := os.UserHomeDir()
-	logDir := filepath.Join(stateDir(), "logs")
-	_ = os.MkdirAll(logDir, 0o700)
-	spec := map[string]any{
-		"Label": launchLabel, "BinaryPath": binary, "StartInterval": 300, "Home": home, "CodexHome": codexHome(),
-		"Path": filepath.Dir(codexPath) + ":/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin", "LCAll": "C",
-		"StdoutPath": filepath.Join(logDir, "heartbeat.stdout.log"), "StderrPath": filepath.Join(logDir, "heartbeat.stderr.log"),
-	}
-	tmpl, err := template.New("plist").Funcs(template.FuncMap{"xml": html.EscapeString}).Parse(assets.LaunchAgentPlistTemplate)
-	var rendered bytes.Buffer
 	if err == nil {
-		err = tmpl.Execute(&rendered, spec)
+		err = writeAtomic(p.skill, []byte(assets.SkillManagedContent), 0o600)
 	}
-	if err != nil {
-		return nil, err
+	if err == nil && write {
+		err = writeAtomic(p.hooks, hooks, 0o600)
 	}
-	if err := writeAtomic(plist, rendered.Bytes(), 0o600); err != nil {
-		return nil, err
+	if err == nil {
+		err = removeFiles(p.plist, filepath.Join(stateDir(), "core.json"), filepath.Join(stateDir(), "core.lock"))
 	}
-	if output, err := exec.CommandContext(ctx, "launchctl", "bootstrap", domain, plist).CombinedOutput(); err != nil {
-		return nil, fmt.Errorf("load LaunchAgent: %w: %s", err, strings.TrimSpace(string(output)))
-	}
-	return map[string]any{"ready": true, "installed": true, "control_task_id": control, "initial_scan": initial.Stats, "effects": preview}, nil
+	return map[string]any{"ready": err == nil, "installed": err == nil}, err
 }
-
 func uninstall(ctx context.Context, confirmed bool) (any, error) {
 	if !confirmed {
 		return nil, errors.New("uninstall requires --noninteractive --confirm")
 	}
-	if !safeRemovalRoot(stateDir()) {
-		return nil, errors.New("refusing unsafe ThreadBear state removal path")
-	}
-	binary, agents, skill, plist := installPaths()
-	domain := fmt.Sprintf("gui/%d", os.Getuid())
-	if err := bootout(ctx, domain); err != nil {
-		return nil, err
-	}
-	disk := newStore(stateDir())
-	lock, err := disk.lock()
+	p := installPaths()
+	hooks, write, err := editHooks(p.hooks, p.binary, false)
 	if err != nil {
 		return nil, err
 	}
-	lockHeld := true
-	defer func() {
-		if lockHeld {
-			_ = unlock(lock)
-		}
-	}()
-	_, err = disk.load()
-	if err != nil {
-		return nil, errors.New("ThreadBear is not installed")
+	if err = validateFile(p.skill, assets.SkillManagedContent); err == nil {
+		err = stopLegacyService(ctx)
 	}
-	if err := removeManaged(agents); err != nil {
-		return nil, err
+	if err == nil {
+		err = manageBlock(p.agents, "")
 	}
-	if err := removeManaged(skill); err != nil {
-		return nil, err
+	if err == nil && write && len(hooks) == 0 {
+		err = os.Remove(p.hooks)
+	} else if err == nil && write {
+		err = writeAtomic(p.hooks, hooks, 0o600)
 	}
-	for _, path := range []string{plist, binary} {
-		if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
-			return nil, err
-		}
+	if err == nil {
+		err = removeFiles(p.plist, p.binary, p.skill)
 	}
-	if err := unlock(lock); err != nil {
-		return nil, err
+	if err == nil {
+		err = os.RemoveAll(stateDir())
 	}
-	lockHeld = false
-	if err := os.RemoveAll(stateDir()); err != nil {
-		return nil, err
-	}
-	return map[string]any{"ready": true, "uninstalled": true}, nil
+	return map[string]any{"ready": err == nil, "uninstalled": err == nil}, err
 }
-
-func safeRemovalRoot(path string) bool {
-	clean := filepath.Clean(path)
-	home, _ := os.UserHomeDir()
-	return filepath.IsAbs(clean) && clean != "/" && clean != filepath.Clean(home) &&
-		clean != filepath.Clean(codexHome()) && len(strings.Split(strings.Trim(clean, string(filepath.Separator)), string(filepath.Separator))) >= 3
-}
-
-func writeManaged(path, content string) error {
-	old, err := os.ReadFile(path)
-	if err != nil && !errors.Is(err, os.ErrNotExist) {
-		return err
+func status() (any, error) {
+	p := installPaths()
+	_, changed, err := editHooks(p.hooks, p.binary, true)
+	if err == nil && changed {
+		err = errors.New("native title hooks are incomplete")
 	}
-	text := string(old)
-	block := blockStart + "\n" + strings.TrimSpace(content) + "\n" + blockEnd
-	if start := strings.Index(text, blockStart); start >= 0 {
-		end := strings.Index(text[start:], blockEnd)
-		if end < 0 {
-			return errors.New("unterminated ThreadBear managed block")
+	for _, path := range []string{p.binary, p.agents, p.skill} {
+		if err == nil {
+			_, err = os.Stat(path)
 		}
-		text = text[:start] + block + text[start+end+len(blockEnd):]
+	}
+	if err == nil {
+		err = validateFile(p.skill, assets.SkillManagedContent)
+	}
+	if err == nil {
+		err = validateManagedBlock(p.agents)
+	}
+	if err == nil {
+		_, err = newStore(stateDir()).read()
+	}
+	return map[string]any{"ready": err == nil, "version": version}, err
+}
+func selfTest() (any, error) {
+	if runtime.GOOS != "darwin" || assets.AgentsManagedContent == "" || assets.SkillManagedContent == "" || version == "" {
+		return nil, errors.New("candidate is incomplete or unsupported")
+	}
+	return map[string]any{"ready": true, "version": version}, nil
+}
+func editHooks(path, binary string, add bool) ([]byte, bool, error) {
+	data, err := os.ReadFile(path)
+	missing := errors.Is(err, os.ErrNotExist)
+	if missing && !add {
+		return nil, false, nil
+	}
+	if err != nil && !missing {
+		return nil, false, err
+	}
+	root, events := rawObject{}, rawObject{}
+	if !missing && (json.Unmarshal(data, &root) != nil || root == nil) {
+		return nil, false, errors.New("hooks.json must contain an object")
+	}
+	if raw, ok := root["hooks"]; ok && (json.Unmarshal(raw, &events) != nil || events == nil) {
+		return nil, false, errors.New("hooks.json hooks must be an object")
+	}
+	owner := ownedHookJSON(binary)
+	changed := missing
+	for _, event := range []string{"PreToolUse", "PostToolUse"} {
+		var groups []json.RawMessage
+		if raw, ok := events[event]; ok && (json.Unmarshal(raw, &groups) != nil || groups == nil) {
+			return nil, false, fmt.Errorf("hooks.json %s must be an array", event)
+		}
+		kept := slices.DeleteFunc(groups, func(group json.RawMessage) bool { return sameJSON(group, owner) })
+		owners := len(groups) - len(kept)
+		if add {
+			kept = append(kept, owner)
+		}
+		changed = changed || owners != 1 && add || owners != 0 && !add
+		if raw, _ := json.Marshal(kept); len(kept) == 0 {
+			delete(events, event)
+		} else {
+			events[event] = raw
+		}
+	}
+	if !changed {
+		return data, false, nil
+	}
+	if !add && len(events) == 0 {
+		delete(root, "hooks")
 	} else {
-		if text != "" && !strings.HasSuffix(text, "\n") {
-			text += "\n"
-		}
-		text += block + "\n"
+		root["hooks"], _ = json.Marshal(events)
 	}
-	return writeAtomic(path, []byte(text), 0o600)
+	if !add && len(root) == 0 {
+		return nil, true, nil
+	}
+	data, err = json.MarshalIndent(root, "", "  ")
+	return append(data, '\n'), true, err
+}
+func ownedHookJSON(binary string) json.RawMessage {
+	data, _ := json.Marshal(map[string]any{"matcher": "codex_appset_thread_title", "hooks": []any{map[string]any{"type": "command", "command": quoteCommand(binary), "timeout": 5}}})
+	return data
+}
+func sameJSON(a, b []byte) bool {
+	var left, right any
+	if json.Unmarshal(a, &left) != nil || json.Unmarshal(b, &right) != nil {
+		return false
+	}
+	return reflect.DeepEqual(left, right)
+}
+func quoteCommand(binary string) string {
+	return "'" + strings.ReplaceAll(binary, "'", "'\"'\"'") + "' hook"
+}
+func readLegacyState(path string) (map[string]taskState, error) {
+	data, err := os.ReadFile(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	var legacy struct {
+		Tasks map[string]struct {
+			Subject string `json:"subject"`
+			Last    string `json:"last_applied"`
+		} `json:"tasks"`
+	}
+	if err = json.Unmarshal(data, &legacy); err != nil {
+		return nil, fmt.Errorf("read legacy state: %w", err)
+	}
+	result := map[string]taskState{}
+	for id, task := range legacy.Tasks {
+		if strings.TrimSpace(task.Subject) != "" {
+			result[id] = taskState{Subject: task.Subject, Last: task.Last}
+		}
+	}
+	return result, nil
 }
 
-func removeManaged(path string) error {
+var stopLegacyService = func(ctx context.Context) error {
+	output, err := exec.CommandContext(ctx, "launchctl", "bootout", fmt.Sprintf("gui/%d/%s", os.Getuid(), launchLabel)).CombinedOutput()
+	message := strings.ToLower(string(output))
+	if err != nil && !strings.Contains(message, "no such process") && !strings.Contains(message, "could not find service") && !strings.Contains(message, "service not found") {
+		return fmt.Errorf("stop legacy LaunchAgent: %w: %s", err, strings.TrimSpace(string(output)))
+	}
+	return nil
+}
+
+func validateFile(path, content string) error {
 	data, err := os.ReadFile(path)
 	if errors.Is(err, os.ErrNotExist) {
 		return nil
 	}
-	if err != nil {
+	valid := string(data) == content
+	if err == nil && !valid {
+		return errors.New("managed file was modified: " + path)
+	}
+	return err
+}
+func validateManagedBlock(path string) error {
+	data, err := os.ReadFile(path)
+	text := string(data)
+	valid := strings.Count(text, blockStart) == 1 && strings.Count(text, blockEnd) == 1 && strings.Contains(text, managedBlock())
+	if err == nil && !valid {
+		return errors.New("managed file was modified: " + path)
+	}
+	return err
+}
+func managedBlock() string {
+	return blockStart + "\n" + strings.TrimSpace(assets.AgentsManagedContent) + "\n" + blockEnd
+}
+func manageBlock(path, content string) error {
+	data, err := os.ReadFile(path)
+	if errors.Is(err, os.ErrNotExist) && content == "" {
+		return nil
+	}
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
 		return err
 	}
 	text := string(data)
 	start, end := strings.Index(text, blockStart), strings.Index(text, blockEnd)
-	if start < 0 && end < 0 {
-		return nil
-	}
-	if start < 0 || end < start {
+	if strings.Count(text, blockStart) > 1 || strings.Count(text, blockEnd) > 1 || start < 0 != (end < 0) || end >= 0 && end < start {
 		return errors.New("invalid ThreadBear managed block")
 	}
-	text = strings.TrimSpace(text[:start] + text[end+len(blockEnd):])
-	if text == "" {
+	if content != "" {
+		block := managedBlock()
+		if start >= 0 {
+			text = text[:start] + block + text[end+len(blockEnd):]
+		} else {
+			if text != "" && !strings.HasSuffix(text, "\n") {
+				text += "\n"
+			}
+			text += block + "\n"
+		}
+	} else if start >= 0 {
+		after := text[end+len(blockEnd):]
+		if strings.HasSuffix(text[:start], "\n") && strings.HasPrefix(after, "\n") {
+			after = after[1:]
+		}
+		text = text[:start] + after
+	}
+	if strings.TrimSpace(text) == "" {
 		return os.Remove(path)
 	}
-	return writeAtomic(path, []byte(text+"\n"), 0o600)
+	return writeAtomic(path, []byte(text), 0o600)
 }
-
-func copyAtomic(source, destination string, mode os.FileMode) error {
-	data, err := os.ReadFile(source)
-	if err != nil {
-		return err
-	}
-	return writeAtomic(destination, data, mode)
-}
-
 func writeAtomic(path string, data []byte, mode os.FileMode) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return err
@@ -244,56 +315,24 @@ func writeAtomic(path string, data []byte, mode os.FileMode) error {
 	}
 	name := f.Name()
 	defer os.Remove(name)
-	if err = f.Chmod(mode); err == nil {
+	err = f.Chmod(mode)
+	if err == nil {
 		_, err = f.Write(data)
 	}
 	if err == nil {
 		err = f.Sync()
 	}
 	err = errors.Join(err, f.Close())
-	if err != nil {
-		return err
+	if err == nil {
+		err = os.Rename(name, path)
 	}
-	return os.Rename(name, path)
+	return err
 }
-
-func selfTest() (any, error) {
-	if runtime.GOOS != "darwin" || assets.AgentsManagedContent == "" || assets.SkillManagedContent == "" || version == "" {
-		return nil, errors.New("candidate is incomplete or unsupported")
-	}
-	return map[string]any{"ready": true, "version": version}, nil
-}
-
-func status() (any, error) {
-	value, err := newStore(stateDir()).load()
-	if err != nil {
-		return nil, err
-	}
-	binary, _, _, plist := installPaths()
-	for _, path := range []string{binary, plist} {
-		info, statErr := os.Lstat(path)
-		if statErr != nil || info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() {
-			return nil, fmt.Errorf("installed runtime is incomplete: %s", path)
+func removeFiles(paths ...string) error {
+	for _, path := range paths {
+		if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
+			return err
 		}
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	domain := fmt.Sprintf("gui/%d", os.Getuid())
-	if output, printErr := exec.CommandContext(ctx, "launchctl", "print", domain+"/"+launchLabel).CombinedOutput(); printErr != nil {
-		return nil, fmt.Errorf("LaunchAgent is not healthy: %s", strings.TrimSpace(string(output)))
-	}
-	return map[string]any{"ready": true, "version": version, "control_task_id": value.ControlTaskID, "pending_titles": len(value.Plans), "last_scan": value.LastScan}, nil
-}
-
-func bootout(ctx context.Context, domain string) error {
-	output, err := exec.CommandContext(ctx, "launchctl", "bootout", domain+"/"+launchLabel).CombinedOutput()
-	if err == nil {
-		return nil
-	}
-	message := strings.ToLower(string(output))
-	if strings.Contains(message, "no such process") || strings.Contains(message, "could not find service") ||
-		strings.Contains(message, "service not found") {
-		return nil
-	}
-	return fmt.Errorf("stop LaunchAgent: %w: %s", err, strings.TrimSpace(string(output)))
+	return nil
 }

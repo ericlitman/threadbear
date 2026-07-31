@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="description" content="ThreadBear is a playful, token-conscious Codex title manager for macOS.">
-  <title>ThreadBear — tidy Codex tasks, deterministic first</title>
+  <title>ThreadBear — tidy Codex tasks, turn by turn</title>
   <style>
     :root { color-scheme: light; --ink:#241b17; --muted:#675950; --cream:#fff8e8; --honey:#f5b942; --brown:#6b4226; --leaf:#2f6f55; }
     * { box-sizing: border-box; }
@@ -32,7 +32,7 @@
   <header>
     <div class="eyebrow">A local task-state bear for macOS</div>
     <h1>ThreadBear</h1>
-    <p class="lede">Keeps Codex Desktop tasks classified and usefully titled. Evidence-settled heartbeats need no model tokens; Luna medium handles repeated ambiguity.</p>
+    <p class="lede">Keeps Codex Desktop tasks usefully titled with two native calls per ordinary turn.</p>
     <pre><code>Install ThreadBear — follow https://threadbear.sh/install</code></pre>
     <p>Paste that prompt into a new Codex task for a guided preview, approval, install, and verification.</p>
     <p>macOS 12+ · Apple silicon and Intel · no sudo · standalone pure-Go binary</p>
@@ -43,22 +43,22 @@
       <a href="https://github.com/ericlitman/threadbear/blob/main/docs/compatibility.md">Compatibility</a>
     </nav>
   </header>
-  <h2>Attention before inference</h2>
+  <h2>Small by design</h2>
   <div class="grid">
-    <div class="card"><strong>Settled scans cost no model tokens</strong>ThreadBear reads bounded local evidence every five minutes and skips Luna whenever structured evidence settles the work.</div>
-    <div class="card"><strong>Structured evidence wins</strong>Runtime, errors, automation state, and valid agent footers settle work before semantic fallback.</div>
-    <div class="card"><strong>Unresolved work stays small</strong>Only unresolved legacy evidence that stays byte-identical across repeated passes enters a fresh, non-persisted Luna medium session—never years of control-task history.</div>
-    <div class="card"><strong>Mutations recheck first</strong>Every native title operation rechecks task identity and title, then fails closed if it detects drift.</div>
+    <div class="card"><strong>Running, then resolved</strong>Each turn starts with a native running title and ends with the title that matches its exact status footer.</div>
+    <div class="card"><strong>Your subject stays yours</strong>ThreadBear preserves user renames and owns only the status and action decoration it previously committed.</div>
+    <div class="card"><strong>Two deterministic hooks</strong>Small Pre and Post hooks expand and verify native title calls without adding a model call or narration.</div>
+    <div class="card"><strong>Foreground and finished</strong>Installation migrates existing titles once; ordinary work stays inside the task turn.</div>
   </div>
   <h2>Seven visible states</h2>
   <p class="states" aria-label="running, blocked, needs input, automation, next steps, complete, unknown">⏳ 🚨 🙋 🤖 ➡️ ✅ ❔</p>
   <p>Each mark is followed by user-owned subject text, and the complete visible title is bounded to 60 UTF-16 units.</p>
   <h2>Small, private footprint</h2>
-  <p>ThreadBear installs at <code>~/.local/bin/threadbear</code>, keeps one private <code>core.json</code> under <code>~/.local/share/threadbear</code>, and runs the user LaunchAgent <code>org.litman.threadbear</code>.</p>
-  <p>v1 binaries are not Developer ID signed or notarized. The installer verifies the published SHA-256 checksum and candidate self-test before installation.</p>
+  <p>ThreadBear installs at <code>~/.local/bin/threadbear</code>, keeps one small private state file under <code>~/.local/share/threadbear</code>, and adds one managed instruction block, one skill, and two Codex hook entries.</p>
+  <p>Release binaries are not Developer ID signed or notarized. The installer verifies the published SHA-256 checksum and candidate self-test before installation.</p>
   <h2>Honest boundaries</h2>
-  <p>ThreadBear observes tasks, stages guarded decisions, and changes titles only through Codex Desktop's native setter. It does not archive tasks, decorate titles with token counts, update itself in the background, edit Desktop caches, click through the UI, or maintain a configuration framework.</p>
-  <footer>MIT licensed. Built for tidy threads and quiet heartbeats. 🧵🐻</footer>
+  <p>ThreadBear changes titles only through Codex Desktop's native setter. A foreground, rerunnable install migration handles existing tasks; at most eight Luna-medium workers may classify genuinely ambiguous legacy history, and they never write titles. ThreadBear does not archive tasks, add token counts, update itself, or edit Desktop caches.</p>
+  <footer>MIT licensed. Built for tidy threads and small bears. 🧵🐻</footer>
 </main>
 </body>
 </html>

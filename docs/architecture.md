@@ -1,33 +1,26 @@
 # Architecture
 
-ThreadBear is one executable and one versioned JSON state file. The production
-path is a four-stage state machine:
+ThreadBear is one small Go executable, one private atomic JSON file, one managed instruction block, one installed skill, and two Codex hook entries.
 
-1. **Scan.** Under one private flock, read the current Codex index and each
-   changed rollout to a fixed complete-line boundary. Exact footers and
-   structured errors become decisions; unresolved evidence records an exact
-   path, boundary, digest, revision, and title.
-2. **Resolve.** Release the lock. Read live App Server state for unresolved
-   tasks. Active and waiting tasks resolve deterministically. Only evidence
-   that remains byte-identical across a later pass may enter an ephemeral,
-   read-only Luna medium call.
-3. **Commit.** Reacquire the lock, reread the index and evidence, and discard
-   any stale runtime or semantic result. A durable plan binds the evidence,
-   full user-owned subject, status, action, expected title, desired title, and
-   issuance epoch.
-4. **Apply.** The retained task drains plans in fixed batches. Each operation
-   revalidates current evidence and title, calls the supported native Desktop
-   setter, checks its exact task-and-title result, and commits only after the
-   Codex index exposes the desired title. Drift is preserved rather than
-   overwritten.
+## Ordinary turn
 
-Background heartbeats stop after the commit stage; they never write a title.
-The native retained-task endpoint exposes durable plans in batches of eight.
-Codex Desktop performs the supported setter; ThreadBear accepts a report only
-after both the native result and current Codex task index match exactly.
-The setter has no compare-and-set primitive, so a user rename in the narrow
-interval after revalidation and before mutation cannot be made atomic.
+1. Managed guidance makes the native current-task title setter the turn's first action with the compact input `⏳ ThreadBear is working` and no explicit task ID.
+2. `PreToolUse` reads the calling task's current title from the local Codex index, preserves the stable user-owned subject, records one pending proposal, and rewrites the title input to `⏳ <subject>`.
+3. `PostToolUse` accepts only the exact returned task ID and rewritten title, then commits the subject and rendering.
+4. Immediately before the final response, the task calls the same native setter with its exact ThreadBear footer. The hooks expand and commit the matching terminal title; the response ends with that footer.
 
-`core.json` has an explicit format number and is written through a mode-0600
-temporary file, `fsync`, rename, and directory `fsync`. The reset does not
-reinterpret the former `config.json` or `state.json` schemas.
+Each title moment may be retried once. There is no Stop hook: an interrupted turn keeps its running title until the next ordinary turn naturally replaces it.
+
+## Ownership and state
+
+The canonical title is `<status icon> <user-owned subject>[ → <managed action>]`. ThreadBear owns only a leading status and action suffix from its last exact committed rendering. Any different current title is a user rename and becomes the complete subject, even if it contains an icon or arrow.
+
+State is keyed by task ID and contains the canonical subject, last verified rendering, and at most one pending proposal. A pending proposal lets a later call recognize setter success when Post was lost. State is private, locked, and atomically replaced.
+
+The visible title is limited to 60 UTF-16 units. Rendering truncates displayed subject before displayed action without changing canonical state.
+
+## Installation and migration
+
+Installation writes the binary, state, guidance, skill, and two hook entries while preserving unrelated managed files and hook order. A foreground Codex task inventories all local unarchived tasks, classifies exact footers deterministically, and uses Luna medium only for genuinely ambiguous v2 history. Immediately before each explicit-target native write, the helper re-reads the target and adopts any newer rename.
+
+Migration is rerunnable from scratch and skips only inventory rows proven `applied: true` from exact committed ownership state. It persists no migration workflow. Rendered active-header and sidebar verification belongs in release QA.
