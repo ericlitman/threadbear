@@ -9,6 +9,7 @@ import (
 	"io"
 	"os/exec"
 	"sync/atomic"
+	"syscall"
 )
 
 type appClient struct {
@@ -31,6 +32,7 @@ func openApp(ctx context.Context, codexPath string) (*appClient, error) {
 		codexPath = "codex"
 	}
 	cmd := exec.CommandContext(ctx, codexPath, "app-server", "--listen", "stdio://")
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	in, err := cmd.StdinPipe()
 	if err != nil {
 		return nil, err
@@ -109,6 +111,7 @@ func (c *appClient) readThread(id string) (appThread, error) {
 func (c *appClient) close() error {
 	_ = c.in.Close()
 	if c.cmd.Process != nil {
+		_ = syscall.Kill(-c.cmd.Process.Pid, syscall.SIGKILL)
 		_ = c.cmd.Process.Kill()
 	}
 	return c.cmd.Wait()
