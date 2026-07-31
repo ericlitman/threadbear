@@ -3,6 +3,7 @@ module github.com/ericlitman/threadbear
 go 1.26
 
 require (
+	github.com/BurntSushi/toml v1.5.0
 	golang.org/x/sys v0.46.0
 	modernc.org/sqlite v1.54.0
 )

@@ -33,7 +33,9 @@ chmod 700 "$home/.local/bin/codex"
 env HOME="$home" CODEX_HOME="$codex_home" CODEX_THREAD_ID=control \
   PATH="$home/.local/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin" \
   THREADBEAR_RELEASE_BASE_URL="https://github.com/ericlitman/threadbear/releases" \
-  sh install.sh --version "$version" --control-task-id control --noninteractive --confirm --json
+  sh -c 'curl -fsSL https://threadbear.sh/install.sh | sh -s -- \
+    --version "$1" --control-task-id control --noninteractive --confirm --json' \
+  sh "$version"
 
 binary=$home/.local/bin/threadbear
 test "$("$binary" version --json | sed -n 's/.*"version":"\([^"]*\)".*/\1/p')" = "$version"

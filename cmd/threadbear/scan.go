@@ -18,6 +18,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/BurntSushi/toml"
 	_ "modernc.org/sqlite"
 )
 
@@ -51,7 +52,10 @@ func inventory(ctx context.Context, control string) ([]indexedTask, error) {
 }
 
 func openIndex() (*sql.DB, error) {
-	home := sqliteHome()
+	home, err := sqliteHome()
+	if err != nil {
+		return nil, err
+	}
 	matches, _ := filepath.Glob(filepath.Join(home, "state_*.sqlite"))
 	sort.Slice(matches, func(i, j int) bool { return stateNumber(matches[i]) < stateNumber(matches[j]) })
 	if len(matches) == 0 {
@@ -65,25 +69,33 @@ func openIndex() (*sql.DB, error) {
 	return db, nil
 }
 
-func sqliteHome() string {
+func sqliteHome() (string, error) {
 	base := codexHome()
-	if data, err := os.ReadFile(filepath.Join(base, "config.toml")); err == nil {
-		for _, line := range strings.Split(string(data), "\n") {
-			key, raw, ok := strings.Cut(strings.TrimSpace(line), "=")
-			if ok && strings.TrimSpace(key) == "sqlite_home" {
-				if value, err := strconv.Unquote(strings.TrimSpace(raw)); err == nil {
-					if !filepath.IsAbs(value) {
-						value = filepath.Join(base, value)
-					}
-					return value
-				}
-			}
+	data, err := os.ReadFile(filepath.Join(base, "config.toml"))
+	if err == nil {
+		var config struct {
+			SQLiteHome *string `toml:"sqlite_home"`
 		}
+		if err := toml.Unmarshal(data, &config); err != nil {
+			return "", fmt.Errorf("parse Codex config: %w", err)
+		}
+		if config.SQLiteHome != nil {
+			value := strings.TrimSpace(*config.SQLiteHome)
+			if value == "" {
+				return "", errors.New("Codex sqlite_home is empty")
+			}
+			if !filepath.IsAbs(value) {
+				value = filepath.Join(base, value)
+			}
+			return value, nil
+		}
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return "", fmt.Errorf("read Codex config: %w", err)
 	}
 	if value := os.Getenv("CODEX_SQLITE_HOME"); value != "" {
-		return value
+		return value, nil
 	}
-	return base
+	return base, nil
 }
 
 func oneTask(ctx context.Context, id string) (indexedTask, bool, error) {

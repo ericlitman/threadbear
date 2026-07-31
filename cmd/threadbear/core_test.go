@@ -144,6 +144,27 @@ func TestRuntimePrecedence(t *testing.T) {
 	}
 }
 
+func TestSQLiteHomeFollowsCodexTOML(t *testing.T) {
+	for _, config := range []string{
+		`sqlite_home = "state" # local database`,
+		`"sqlite_home" = 'state'`,
+		`sqlite_home = """state"""`,
+	} {
+		t.Run(config, func(t *testing.T) {
+			base := t.TempDir()
+			t.Setenv("CODEX_HOME", base)
+			t.Setenv("CODEX_SQLITE_HOME", filepath.Join(base, "wrong"))
+			if err := os.WriteFile(filepath.Join(base, "config.toml"), []byte(config), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			got, err := sqliteHome()
+			if err != nil || got != filepath.Join(base, "state") {
+				t.Fatalf("sqliteHome() = %q, %v", got, err)
+			}
+		})
+	}
+}
+
 func TestDryRunScansWithoutCreatingState(t *testing.T) {
 	root := t.TempDir()
 	db, err := sql.Open("sqlite", filepath.Join(root, "state_1.sqlite"))
