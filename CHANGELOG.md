@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Fixed
+
+- Kept the guided installer welcome, readiness result, complete recommendation, and consent question visible together after the first turn finishes.
+
 ## v2.1.0 - 2026-07-31
 
 ### Changed

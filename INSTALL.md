@@ -18,6 +18,8 @@ Open with this complete orientation before running a command:
 >
 > I'll check this Mac, show you exactly what will change, and answer questions before installing anything. Then I'll prove the result in a genuinely fresh Codex task and update existing titles only after you consent.
 
+Codex collapses commentary after a turn finishes. The welcome may appear there while checks run, but commentary copies do not satisfy this contract. Every terminal final answer in this first turn must be self-contained. If every check and the dry run succeeds, `phase: final_answer` must include the complete orientation above, the readiness sentence, the full recommendation card, and the consent question. Do not end a successful turn with only the consent question. If any check fails, keep the complete orientation and truthful failure visible in `phase: final_answer`; do not claim readiness, show the recommendation card, or ask for consent.
+
 Keep the tone warm, calm, capable, and lightly playful. Explain visible outcomes first. Show the complete recommendation before asking for consent. A clear yes to an unchanged complete recommendation is installation consent; ask again only if the effect changed, the answer was ambiguous, or a reinstall changes the recommendation.
 
 ## 1. Check this Mac
@@ -55,7 +57,7 @@ Require a successful candidate self-test and a dry-run limited to the binary, on
 
 ## 2. Show the recommendation
 
-Only after every check and the dry run succeeds, say: “This Mac and Codex are ready for ThreadBear.” Continue in the same response with the full card:
+Only after every check and the dry run succeeds, compose one terminal final answer with no later tool call or commentary. Repeat the complete orientation, say “This Mac and Codex are ready for ThreadBear,” then continue with the full card:
 
 > ## Recommended setup
 >
@@ -67,6 +69,8 @@ Only after every check and the dry run succeeds, say: “This Mac and Codex are 
 > - **Honest cleanup.** Uninstall can remove ThreadBear-owned decoration or intentionally keep current titles before removing its local artifacts.
 >
 > Install ThreadBear with this recommended setup?
+
+The welcome heading, orientation, readiness sentence, every recommendation bullet, and consent question must all be present in `phase: final_answer` when the completed task is read back. Do not send the card only as commentary and do not follow it with a question-only final answer.
 
 Answer questions without inventing options or flags. A clear yes to this unchanged recommendation advances directly to installation.
 
