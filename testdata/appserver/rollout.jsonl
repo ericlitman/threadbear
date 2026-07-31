@@ -1,9 +1,0 @@
-{"type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"completed request"}]}}
-{"type":"response_item","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"completed result"}]}}
-{"type":"event_msg","payload":{"type":"turn_complete","turn_id":"turn-completed","last_agent_message":"completed result"}}
-{"type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"failed request"}]}}
-{"type":"response_item","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"failed partial"}]}}
-{"type":"event_msg","payload":{"type":"error","message":"synthetic rollout failure","codex_error_info":"other"}}
-{"type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"aborted request"}]}}
-{"type":"response_item","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"aborted partial"}]}}
-{"type":"event_msg","payload":{"type":"turn_aborted","reason":"interrupted"}}

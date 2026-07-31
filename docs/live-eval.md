@@ -1,11 +1,9 @@
 # Live evaluation
 
-Use a mixed corpus with exact complete, needs-input, blocked, automation,
-active, malformed-footer, interrupted, and legacy-prose cases. Prove that the
-first pass calls no model and that only byte-identical ambiguity from a later
-pass can call `gpt-5.6-luna` at medium effort.
+Run release QA in genuinely fresh Codex Desktop tasks so hook and managed-guidance snapshots cannot mask installation defects.
 
-For the Desktop canary, choose one retained task, record its exact current
-title, stage one guarded change, apply it through the supported native setter,
-and verify the rendered sidebar title in the accessibility tree. Capture a
-screenshot, then restore the original title through the same guarded path.
+Prove complete, all three next-step owners, needs input, blocked, automation, tool-free, continued, stopped, long-subject, duplicate-title, user-rename, and hook-failure turns. For each ordinary turn, record that the native running call was the first action, the terminal call immediately preceded the final response, the exact footer was final, and each failed call was attempted at most twice.
+
+Rendered proof is mandatory. Verify the running and terminal titles in both the active header and sidebar before their corresponding boundaries. Use one explicit-target migration canary and prove that only the intended mounted row repaints. Confirm that Stop removes the official spinner, leaves the running title, and creates no additional ThreadBear turn. Capture privacy-safe screenshots.
+
+Exercise installation against 0-, 1-, and 200-task inventories, including projectless tasks, exact historical footers, genuine ambiguity, v2-owned decoration, user-authored icons and arrows, concurrent rename/archive, interruption, and clean rerun. Luna-medium workers must be used only for genuine ambiguity, never write titles, and never exceed eight active workers.

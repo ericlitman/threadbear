@@ -1,0 +1,12 @@
+ThreadBear keeps Codex task titles useful with native per-turn updates.
+
+Usage:
+  threadbear <command> [flags]
+
+Commands:
+  install      Preview or install ThreadBear
+  inventory    Classify local unarchived tasks for guided setup
+  status       Check the installed helper and hooks
+  self-test    Validate a release candidate
+  uninstall    Remove ThreadBear while keeping current titles
+  version      Show the installed version

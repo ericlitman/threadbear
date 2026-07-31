@@ -44,9 +44,10 @@ func TestPublishedInstallGuideMatchesCurrentCLI(t *testing.T) {
 	for _, required := range []string{
 		"## Hi. Let's install ThreadBear.",
 		"## Recommended setup",
-		"--control-task-id \"$CONTROL_TASK_ID\"",
 		"--noninteractive --confirm --json",
-		"~/.local/bin/threadbear heartbeat --dry-run --json",
+		"~/.local/bin/threadbear inventory --json",
+		"genuinely fresh Codex Desktop task",
+		"two native title calls per ordinary turn",
 		"~/.local/bin/threadbear uninstall --noninteractive --confirm --json",
 	} {
 		if !strings.Contains(text, required) {
@@ -71,6 +72,9 @@ func TestHomepageDoesNotPromiseRemovedCapabilities(t *testing.T) {
 		"exits silently",
 		"update-check",
 		"version-change",
+		"LaunchAgent",
+		"heartbeat",
+		"control task",
 	} {
 		if strings.Contains(page, removedClaim) {
 			t.Errorf("homepage contains removed capability claim %q", removedClaim)

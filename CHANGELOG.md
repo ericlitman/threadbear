@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+### Changed
+
+- Replaced the v2 heartbeat, retained control task, title queue, and LaunchAgent with two native current-task title calls per ordinary turn, expanded and verified by two deterministic hooks.
+- Made installation and v2 title migration foreground, consented, rerunnable flows with fresh-task and rendered Desktop verification.
+
+### Removed
+
+- Removed background title processing, runtime Luna classification, Stop repair, durable title plans, and App Server title writes.
+
 ## v2.0.0 - 2026-07-31
 
 ### Changed

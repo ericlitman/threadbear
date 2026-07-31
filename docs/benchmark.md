@@ -1,13 +1,9 @@
 # Benchmark
 
-Run a mutation-free local scan with:
+Run the read-only local inventory with:
 
 ```sh
-THREADBEAR_CONTROL_TASK_ID="$CODEX_THREAD_ID" \
-THREADBEAR_STATE_DIR="$(mktemp -d)" \
-threadbear heartbeat --dry-run --json
+threadbear inventory --json
 ```
 
-Report inventory size, deterministic and ambiguous counts, scan milliseconds,
-model calls, and title-application milliseconds separately. A dry run never
-creates state, opens App Server, calls Luna, or changes a title.
+Report task count, deterministic count, ambiguous count, and elapsed time. Inventory reads the Codex index and settled rollout tails; it does not write titles, call a model, or create migration work.

@@ -1,6 +1,6 @@
 # Status footer convention
 
-A terminal Codex response may end with exactly one of these lines:
+Every terminal Codex response under ThreadBear guidance ends with exactly one of these forms:
 
 ```text
 🧵🐻 complete
@@ -12,12 +12,16 @@ A terminal Codex response may end with exactly one of these lines:
 🧵🐻 automation
 ```
 
-The footer must be the final non-empty line, cannot be quoted or duplicated,
-and an owner-bearing action must contain a concrete multiword instruction.
-ThreadBear accepts only the bindings shown above: `needs input` belongs to the
-user, `blocked` belongs to an external condition, and `next steps` may belong
-to the user, agent, or an external actor.
+The footer is the final non-empty line, is not quoted or duplicated, and uses a concrete multiword action when an owner is present. `needs input` belongs to the user, `blocked` belongs to an external condition, and `next steps` may belong to the user, agent, or an external actor.
 
-Exact accepted footers are deterministic. Legacy prose without an exact footer
-remains unknown until live runtime state resolves it or unchanged ambiguity is
-sent to Luna medium.
+The same exact line is passed to the native current-task title setter immediately before the final response. ThreadBear maps it deterministically:
+
+| Footer | Visible title |
+| --- | --- |
+| `complete` | `✅ <subject>` |
+| `next steps (…)` | `➡️ <subject> → <action>` |
+| `needs input (you)` | `🙋 <subject> → <action>` |
+| `blocked (external)` | `🚨 <subject> → <action>` |
+| `automation` | `🤖 <subject>` |
+
+At turn start, `⏳ ThreadBear is working` maps to `⏳ <subject>`. `❔` is reserved for legacy items that remain unknown during installation; ordinary turns do not emit it.
