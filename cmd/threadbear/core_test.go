@@ -27,7 +27,7 @@ func testIndex(t *testing.T) (string, *sql.DB) {
 	t.Cleanup(func() { db.Close() })
 	_, err = db.Exec(`CREATE TABLE threads (
 		id TEXT PRIMARY KEY, updated_at_ms INTEGER, title TEXT, name TEXT, archived INTEGER,
-		source TEXT, thread_source TEXT, rollout_path TEXT, first_user_message TEXT)`)
+		source TEXT, thread_source TEXT, rollout_path TEXT, first_user_message TEXT, preview TEXT)`)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -42,28 +42,35 @@ func addTask(t *testing.T, db *sql.DB, root, id, title string, name any, source 
 	if err := os.WriteFile(rollout, nil, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := db.Exec(`INSERT INTO threads VALUES (?,1,?,?,?,?,'',?,'')`, id, title, name, archived, source, rollout); err != nil {
+	if _, err := db.Exec(`INSERT INTO threads VALUES (?,1,?,?,?,?,'',?,'',?)`, id, title, name, archived, source, rollout, id); err != nil {
 		t.Fatal(err)
 	}
 	return rollout
 }
 
-func TestInventoryIncludesEveryUnarchivedSourceAndExactTask(t *testing.T) {
+func TestInventoryMatchesNativeAddressableTasks(t *testing.T) {
 	root, db := testIndex(t)
 	addTask(t, db, root, "desktop", "generated", "renamed", "vscode", 0)
-	addTask(t, db, root, "exec", "exec title", nil, "exec", 0)
 	addTask(t, db, root, "cli", "", nil, "cli", 0)
+	addTask(t, db, root, "mcp", "mcp title", nil, "mcp", 0)
+	addTask(t, db, root, "exec", "exec title", nil, "exec", 0)
+	addTask(t, db, root, "empty", "empty preview", nil, "vscode", 0)
 	addTask(t, db, root, "archived", "old", nil, "vscode", 1)
+	if _, err := db.Exec(`UPDATE threads SET preview='' WHERE id='empty'`); err != nil {
+		t.Fatal(err)
+	}
 	tasks, err := inventory(context.Background())
-	if err != nil || len(tasks) != 3 || tasks[0].ID != "cli" || tasks[1].ID != "desktop" || tasks[1].Title != "renamed" {
+	if err != nil || len(tasks) != 2 || tasks[0].ID != "cli" || tasks[1].ID != "desktop" || tasks[1].Title != "renamed" {
 		t.Fatalf("inventory = %#v, %v", tasks, err)
 	}
 	got, found, err := oneTask(context.Background(), "desktop")
 	if err != nil || !found || got.Title != "renamed" {
 		t.Fatalf("oneTask = %#v, %v, %v", got, found, err)
 	}
-	if _, found, _ := oneTask(context.Background(), "archived"); found {
-		t.Fatal("archived task was addressable")
+	for _, id := range []string{"mcp", "exec", "empty", "archived"} {
+		if _, found, _ := oneTask(context.Background(), id); found {
+			t.Fatalf("%s task was addressable", id)
+		}
 	}
 	readOnly, err := openIndex()
 	if err != nil {
@@ -351,7 +358,7 @@ func TestPostMismatchFailsClosed(t *testing.T) {
 
 func TestBulkMarkerRereadsExplicitTargetAndAdoptsRename(t *testing.T) {
 	root, db := testIndex(t)
-	addTask(t, db, root, "target", "Bulk subject", nil, "exec", 0)
+	addTask(t, db, root, "target", "Bulk subject", nil, "vscode", 0)
 	_ = newStore(stateDir()).update(func(*state) (bool, error) { return false, nil })
 	pre := hookPayload("PreToolUse", "installer", "bulk-1", map[string]any{"threadId": "target", "title": "🧵🐻 complete"}, nil)
 	var output bytes.Buffer

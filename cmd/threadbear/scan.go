@@ -26,7 +26,7 @@ func inventory(ctx context.Context) ([]indexedTask, error) {
 	}
 	defer db.Close()
 	rows, err := db.QueryContext(ctx, `SELECT id, COALESCE(name,title,''), COALESCE(rollout_path,''), COALESCE(name,''), COALESCE(first_user_message,'')
-		FROM threads WHERE archived=0 ORDER BY id`)
+		FROM threads WHERE archived=0 AND preview<>'' AND source IN ('vscode','cli') ORDER BY id`)
 	if err != nil {
 		return nil, fmt.Errorf("read Codex task index: %w", err)
 	}
@@ -52,7 +52,7 @@ func oneTask(ctx context.Context, id string) (indexedTask, bool, error) {
 	defer db.Close()
 	var task indexedTask
 	err = db.QueryRowContext(ctx, `SELECT id, COALESCE(name,title,''), COALESCE(rollout_path,''), COALESCE(name,''), COALESCE(first_user_message,'')
-		FROM threads WHERE id=? AND archived=0`, id).Scan(&task.ID, &task.Title, &task.RolloutPath, &task.Name, &task.FirstMessage)
+		FROM threads WHERE id=? AND archived=0 AND preview<>'' AND source IN ('vscode','cli')`, id).Scan(&task.ID, &task.Title, &task.RolloutPath, &task.Name, &task.FirstMessage)
 	if errors.Is(err, sql.ErrNoRows) {
 		return indexedTask{}, false, nil
 	}

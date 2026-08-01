@@ -5,7 +5,7 @@ Usage:
 
 Commands:
   install      Preview or install ThreadBear
-  inventory    Classify local unarchived tasks for guided setup
+  inventory    Classify native-addressable tasks for guided setup
   migration    Record the single installation migration controller phase
   status       Check the installed helper, hooks, and migration phase
   self-test    Validate a release candidate
