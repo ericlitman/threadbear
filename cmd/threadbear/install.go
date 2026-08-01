@@ -25,8 +25,7 @@ func codexHome() string {
 	if value := os.Getenv("CODEX_HOME"); value != "" {
 		return value
 	}
-	home, _ := os.UserHomeDir()
-	return filepath.Join(home, ".codex")
+	return filepath.Join(homeDir(), ".codex")
 }
 func homeDir() string  { home, _ := os.UserHomeDir(); return home }
 func stateDir() string { return filepath.Join(homeDir(), ".local", "share", "threadbear") }
@@ -141,11 +140,8 @@ func status() (any, error) {
 		}
 	}
 	value, stateErr := newStore(stateDir()).read()
-	if err == nil {
-		err = stateErr
-	}
-	phase := value.Phase
-	return map[string]any{"ready": err == nil && phase == phaseMigrationComplete && value.MainTaskID != "", "installed": err == nil, "version": version, "phase": phase, "main_task_id": value.MainTaskID, "controller_task_id": value.ControllerTaskID}, err
+	err = errors.Join(err, validateFile(p.skill, assets.SkillManagedContent), validateFile(p.agents, managedBlock()), stateErr)
+	return map[string]any{"ready": err == nil && value.Phase == phaseMigrationComplete && value.MainTaskID != "", "installed": err == nil, "version": version, "phase": value.Phase, "main_task_id": value.MainTaskID, "controller_task_id": value.ControllerTaskID}, err
 }
 func selfTest() (any, error) {
 	if runtime.GOOS != "darwin" || assets.AgentsManagedContent == "" || assets.SkillManagedContent == "" || version == "" {
@@ -218,13 +214,18 @@ func validateFile(path, content string) error {
 	if errors.Is(err, os.ErrNotExist) {
 		return nil
 	}
-	if err == nil && string(data) != content {
+	text := string(data)
+	valid := text == content
+	if strings.HasPrefix(content, blockStart) {
+		valid = strings.Count(text, blockStart) == 1 && strings.Count(text, blockEnd) == 1 && strings.Contains(text, content)
+	}
+	if err == nil && !valid {
 		return errors.New("managed file was modified: " + path)
 	}
 	return err
 }
 func managedBlock() string {
-	return blockStart + "\n" + strings.TrimSpace(assets.AgentsManagedContent) + "\n" + blockEnd
+	return strings.Join([]string{blockStart, strings.TrimSpace(assets.AgentsManagedContent), blockEnd}, "\n")
 }
 func manageBlock(path, content string) error {
 	data, err := os.ReadFile(path)

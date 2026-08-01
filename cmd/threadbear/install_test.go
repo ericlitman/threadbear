@@ -87,6 +87,30 @@ func TestInstallDryRunAndConfirmationDoNotMutate(t *testing.T) {
 	}
 }
 
+func TestStatusRejectsModifiedManagedGuidance(t *testing.T) {
+	p := isolatedLifecycle(t)
+	if _, err := install("main", false, true); err != nil {
+		t.Fatal(err)
+	}
+	agents, _ := os.ReadFile(p.agents)
+	skill, _ := os.ReadFile(p.skill)
+	for name, change := range map[string]func(){
+		"agents": func() {
+			mustWrite(t, p.agents, strings.Replace(string(agents), "# ThreadBear", "# ThreadBear edited", 1))
+		},
+		"skill": func() { mustWrite(t, p.skill, string(skill)+"edited\n") },
+	} {
+		t.Run(name, func(t *testing.T) {
+			change()
+			if _, err := status(); err == nil {
+				t.Fatalf("status accepted modified %s", name)
+			}
+			mustWrite(t, p.agents, string(agents))
+			mustWrite(t, p.skill, string(skill))
+		})
+	}
+}
+
 func TestMalformedHooksFailBeforeLifecycleMutation(t *testing.T) {
 	p := isolatedLifecycle(t)
 	malformed := []byte(`{"hooks":{"PreToolUse":{"not":"an array"}}}`)
