@@ -94,7 +94,7 @@ func preTitle(ctx context.Context, event hookInput, out io.Writer) error {
 		}
 		return nil
 	}
-	proposed, err := stageTitle(ctx, target, result.Status, result.Action, seed, event.ToolUseID)
+	proposed, err := stageTitle(ctx, target, result.Status, result.Action, seed, event.SessionID, event.ToolUseID)
 	if err != nil {
 		return err
 	}
@@ -103,7 +103,7 @@ func preTitle(ctx context.Context, event hookInput, out io.Writer) error {
 		"hookEventName": "PreToolUse", "permissionDecision": "allow", "updatedInput": event.ToolInput,
 	}})
 }
-func stageTitle(ctx context.Context, id, status, action, seed, toolUseID string) (string, error) {
+func stageTitle(ctx context.Context, id, status, action, seed, caller, toolUseID string) (string, error) {
 	task, found, err := oneTask(ctx, id)
 	if err != nil || !found {
 		return "", errors.Join(err, errors.New("task is not active in Codex"))
@@ -120,6 +120,9 @@ func stageTitle(ctx context.Context, id, status, action, seed, toolUseID string)
 			}
 			if subject == "" && status == "running" {
 				subject = seed
+			}
+			if subject == "" && saved.Phase == phaseMigrationRunning && saved.ControllerTaskID == caller && caller != id {
+				subject = current
 			}
 			if subject == "" {
 				return false, errors.New("fresh task has no subject owner")

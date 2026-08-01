@@ -284,6 +284,44 @@ func TestRestartFirstMessageProjectionPreservesOwnership(t *testing.T) {
 	}
 }
 
+func TestRunningMigrationControllerOwnsHistoricalFirstMessage(t *testing.T) {
+	root, db := testIndex(t)
+	first := "echo hello"
+	addTask(t, db, root, "target", first, nil, "vscode", 0)
+	if _, err := db.Exec(`UPDATE threads SET first_user_message=? WHERE id='target'`, first); err != nil {
+		t.Fatal(err)
+	}
+	if err := newStore(stateDir()).update(func(saved *state) (bool, error) {
+		saved.MainTaskID, saved.ControllerTaskID, saved.Phase = "main", "controller", phaseMigrationRunning
+		return true, nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	var output bytes.Buffer
+	pre := hookPayload("PreToolUse", "other", "denied", map[string]any{"threadId": "target", "title": unknownMarker}, nil)
+	if err := hook(context.Background(), strings.NewReader(pre), &output); err != nil || !strings.Contains(output.String(), `"permissionDecision":"deny"`) {
+		t.Fatalf("non-controller ownerless migration was not denied: %q, %v", output.String(), err)
+	}
+	output.Reset()
+	pre = hookPayload("PreToolUse", "controller", "allowed", map[string]any{"threadId": "target", "title": unknownMarker}, nil)
+	if err := hook(context.Background(), strings.NewReader(pre), &output); err != nil {
+		t.Fatal(err)
+	}
+	proposed := rewrittenTitle(t, output.Bytes())
+	if proposed != "❔ echo hello" {
+		t.Fatalf("controller migration title = %q", proposed)
+	}
+	response, _ := json.Marshal(map[string]string{"threadId": "target", "title": proposed})
+	post := hookPayload("PostToolUse", "controller", "allowed", map[string]any{"threadId": "target", "title": proposed}, string(response))
+	if err := hook(context.Background(), strings.NewReader(post), &bytes.Buffer{}); err != nil {
+		t.Fatal(err)
+	}
+	saved, _ := newStore(stateDir()).read()
+	if got := saved.Tasks["target"]; got.Subject != first || got.Last != proposed || got.Pending != nil {
+		t.Fatalf("controller migration ownership = %#v", got)
+	}
+}
+
 func TestPostMismatchFailsClosed(t *testing.T) {
 	root, db := testIndex(t)
 	addTask(t, db, root, "task", "Subject", nil, "vscode", 0)

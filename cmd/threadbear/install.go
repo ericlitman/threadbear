@@ -206,9 +206,7 @@ func sameJSON(a, b []byte) bool {
 	var left, right any
 	return json.Unmarshal(a, &left) == nil && json.Unmarshal(b, &right) == nil && reflect.DeepEqual(left, right)
 }
-func quoteCommand(binary string) string {
-	return "'" + strings.ReplaceAll(binary, "'", "'\"'\"'") + "' hook"
-}
+func quoteCommand(s string) string { return "'" + strings.ReplaceAll(s, "'", "'\"'\"'") + "' hook" }
 func validateFile(path, content string) error {
 	data, err := os.ReadFile(path)
 	if errors.Is(err, os.ErrNotExist) {
