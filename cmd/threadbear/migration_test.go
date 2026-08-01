@@ -13,7 +13,7 @@ import (
 func TestMigrationInventoryAtZeroOneAndTwoHundredTasks(t *testing.T) {
 	t.Run("zero", func(t *testing.T) {
 		_, _ = testIndex(t)
-		items, err := migrationInventory(context.Background())
+		items, _, _, err := migrationInventory(context.Background())
 		if err != nil || len(items) != 0 {
 			t.Fatalf("migrationInventory() = %#v, %v", items, err)
 		}
@@ -23,7 +23,7 @@ func TestMigrationInventoryAtZeroOneAndTwoHundredTasks(t *testing.T) {
 		root, db := testIndex(t)
 		path := addTask(t, db, root, "only", "Ship the release", nil, "vscode", 0)
 		writeMigrationRollout(t, path, "🧵🐻 next steps (you): approve the release")
-		items, err := migrationInventory(context.Background())
+		items, _, _, err := migrationInventory(context.Background())
 		if err != nil || len(items) != 1 {
 			t.Fatalf("migrationInventory() = %#v, %v", items, err)
 		}
@@ -69,11 +69,11 @@ func TestMigrationInventoryAtZeroOneAndTwoHundredTasks(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		first, err := migrationInventory(context.Background())
+		first, _, _, err := migrationInventory(context.Background())
 		if err != nil || len(first) != 200 {
 			t.Fatalf("migrationInventory() count = %d, %v", len(first), err)
 		}
-		second, err := migrationInventory(context.Background())
+		second, _, _, err := migrationInventory(context.Background())
 		if err != nil || !reflect.DeepEqual(second, first) {
 			t.Fatalf("idempotent rerun differs: %v\nfirst: %#v\nsecond: %#v", err, first, second)
 		}

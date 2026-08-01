@@ -44,8 +44,14 @@ func TestPublishedInstallGuideMatchesCurrentCLI(t *testing.T) {
 	for _, required := range []string{
 		"## Hi. Let's install ThreadBear.",
 		"## Recommended setup",
+		"--control-task-id",
 		"--noninteractive --confirm --json",
 		"~/.local/bin/threadbear inventory --json",
+		"migration_running",
+		"migration_complete",
+		"exactly one ephemeral migration-controller task",
+		"codex_app__set_thread_title",
+		"codex_app__set_thread_pinned",
 		"genuinely fresh Codex Desktop task",
 		"two native title calls per ordinary turn",
 		"~/.local/bin/threadbear uninstall --noninteractive --confirm --json",
@@ -53,6 +59,9 @@ func TestPublishedInstallGuideMatchesCurrentCLI(t *testing.T) {
 		if !strings.Contains(text, required) {
 			t.Errorf("published install guide is missing %q", required)
 		}
+	}
+	if strings.Contains(text, "foreground migration") {
+		t.Error("published install guide still assigns migration to the persistent task")
 	}
 }
 
@@ -124,5 +133,32 @@ func TestHomepageDoesNotPromiseRemovedCapabilities(t *testing.T) {
 		if strings.Contains(page, removedClaim) {
 			t.Errorf("homepage contains removed capability claim %q", removedClaim)
 		}
+	}
+}
+
+func TestShippedLogicStaysBelowAbsoluteLineCeiling(t *testing.T) {
+	root := filepath.Join("..", "..")
+	paths, err := filepath.Glob(filepath.Join(root, "cmd", "threadbear", "*.go"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	paths = append(paths, filepath.Join(root, "install.sh"), filepath.Join(root, "site", "install.sh"))
+	count := 0
+	for _, path := range paths {
+		if strings.HasSuffix(path, "_test.go") {
+			continue
+		}
+		data, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		count += bytes.Count(data, []byte{'\n'})
+		if len(data) > 0 && data[len(data)-1] != '\n' {
+			count++
+		}
+	}
+	t.Logf("shipped executable logic: %d lines (target 1000, absolute ceiling 1500)", count)
+	if count > 1500 {
+		t.Fatalf("shipped executable logic is %d lines; absolute ceiling is 1500", count)
 	}
 }

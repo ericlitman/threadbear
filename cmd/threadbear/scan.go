@@ -83,7 +83,7 @@ func openIndex() (*sql.DB, error) {
 func sqliteHome() (string, error) {
 	base := codexHome()
 	var config struct {
-		SQLiteHome *string `toml:"sqlite_home"`
+		SQLiteHome string `toml:"sqlite_home"`
 	}
 	if _, err := toml.DecodeFile(filepath.Join(base, "config.toml"), &config); err != nil {
 		if errors.Is(err, os.ErrNotExist) {
@@ -91,12 +91,9 @@ func sqliteHome() (string, error) {
 		}
 		return "", fmt.Errorf("parse Codex config: %w", err)
 	}
-	if config.SQLiteHome == nil {
-		return base, nil
-	}
-	value := strings.TrimSpace(*config.SQLiteHome)
+	value := strings.TrimSpace(config.SQLiteHome)
 	if value == "" {
-		return "", errors.New("Codex sqlite_home is empty")
+		return base, nil
 	}
 	if !filepath.IsAbs(value) {
 		value = filepath.Join(base, value)
@@ -104,7 +101,6 @@ func sqliteHome() (string, error) {
 	return value, nil
 }
 
-// rolloutFooter reads only the settled tail; classification never sends history to a model.
 func rolloutFooter(path string) (footer, bool) {
 	if path == "" {
 		return footer{}, false
@@ -131,7 +127,6 @@ func rolloutFooter(path string) (footer, bool) {
 		data = data[bytes.IndexByte(data, '\n')+1:]
 	}
 	lines := bytes.Split(data, []byte{'\n'})
-	// The final fragment is either empty or an in-flight JSONL write.
 	for i := len(lines) - 2; i >= 0; i-- {
 		var item struct {
 			Type    string `json:"type"`
@@ -171,19 +166,21 @@ type inventoryItem struct {
 	Applied       bool   `json:"applied"`
 }
 
-func migrationInventory(ctx context.Context) ([]inventoryItem, error) {
+func migrationInventory(ctx context.Context) ([]inventoryItem, int, state, error) {
 	tasks, err := inventory(ctx)
 	if err != nil {
-		return nil, err
+		return nil, 0, state{}, err
 	}
-	known := state{Tasks: map[string]taskState{}}
-	if saved, readErr := newStore(stateDir()).read(); readErr == nil {
-		known = saved
-	} else if !errors.Is(readErr, os.ErrNotExist) {
-		return nil, readErr
+	known, readErr := currentStateOrEmpty()
+	if readErr != nil {
+		return nil, 0, state{}, readErr
 	}
 	items := make([]inventoryItem, 0, len(tasks))
+	remaining := 0
 	for _, task := range tasks {
+		if task.ID == known.MainTaskID || task.ID == known.ControllerTaskID {
+			continue
+		}
 		record := known.Tasks[task.ID]
 		subject := canonicalSubject(task.Title, record)
 		result, ok := rolloutFooter(task.RolloutPath)
@@ -196,12 +193,12 @@ func migrationInventory(ctx context.Context) ([]inventoryItem, error) {
 			}
 		}
 		desired := renderTitle(result.Status, subject, result.Action)
-		items = append(items, inventoryItem{
-			TaskID: task.ID, Title: task.Title, Subject: subject, Status: result.Status,
-			Action: result.Action, Deterministic: ok,
-		})
+		items = append(items, inventoryItem{TaskID: task.ID, Title: task.Title, Subject: subject, Status: result.Status, Action: result.Action, Deterministic: ok})
 		last := &items[len(items)-1]
 		last.Applied = record.Pending == nil && record.Last == task.Title && record.Last == desired
+		if !last.Applied {
+			remaining++
+		}
 	}
-	return items, nil
+	return items, remaining, known, nil
 }
