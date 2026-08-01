@@ -1,7 +1,6 @@
 package main
 
 import (
-	"context"
 	"encoding/json"
 	"os"
 	"os/exec"
@@ -14,31 +13,15 @@ import (
 )
 
 func TestInstallReinstallAndUninstallPreserveForeignHooks(t *testing.T) {
-	p, stopped := isolatedLifecycle(t)
+	p := isolatedLifecycle(t)
 	foreignAgents := "# Mine\nkeep this exactly\n"
 	mustWrite(t, p.agents, foreignAgents)
 	preA := json.RawMessage(`{"matcher":"Bash","hooks":[{"type":"command","command":"a"}],"extension":{"n":1}}`)
 	preB := json.RawMessage(`{"hooks":[{"command":"b","timeout":99,"type":"command"}]}`)
 	postA := json.RawMessage(`{"matcher":"","hooks":[{"type":"command","command":"c"}]}`)
 	writeHookFixture(t, p.hooks, preA, preB, postA)
-	mustWrite(t, p.plist, "old heartbeat")
-	mustWrite(t, filepath.Join(stateDir(), "core.json"), `{"tasks":{"kept":{"subject":"Stable subject","last_applied":"✅ Stable subject"},"ignored":{"subject":""}}}`)
-
-	if _, err := install(context.Background(), false, true); err != nil {
+	if _, err := install("installer", false, true); err != nil {
 		t.Fatal(err)
-	}
-	if *stopped != 1 {
-		t.Fatalf("legacy service stops = %d, want 1", *stopped)
-	}
-	if _, err := os.Stat(p.plist); !os.IsNotExist(err) {
-		t.Fatalf("legacy plist survived: %v", err)
-	}
-	if _, err := os.Stat(filepath.Join(stateDir(), "core.json")); !os.IsNotExist(err) {
-		t.Fatalf("legacy state survived: %v", err)
-	}
-	stateData, err := os.ReadFile(filepath.Join(stateDir(), "native.json"))
-	if err != nil || !strings.Contains(string(stateData), `"Stable subject"`) || strings.Contains(string(stateData), `"ignored"`) {
-		t.Fatalf("legacy ownership migration = %q, err %v", stateData, err)
 	}
 	assertHookOrder(t, p.hooks, "PreToolUse", []json.RawMessage{preA, preB}, p.binary)
 	assertHookOrder(t, p.hooks, "PostToolUse", []json.RawMessage{postA}, p.binary)
@@ -53,24 +36,27 @@ func TestInstallReinstallAndUninstallPreserveForeignHooks(t *testing.T) {
 	if err := manageBlock(p.agents, ""); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := status(); err == nil {
-		t.Fatal("status accepted a missing AGENTS managed block")
-	}
 	if err := manageBlock(p.agents, assets.AgentsManagedContent); err != nil {
 		t.Fatal(err)
 	}
 
-	if _, err := install(context.Background(), false, true); err != nil {
+	if _, err := install("installer", false, true); err != nil {
 		t.Fatal(err)
 	}
 	secondHooks, _ := os.ReadFile(p.hooks)
 	if !reflect.DeepEqual(firstHooks, secondHooks) {
 		t.Fatal("reinstall rewrote an already-correct hooks.json")
 	}
-	if _, err := uninstall(context.Background(), true); err != nil {
+	if err := newStore(stateDir()).update(func(value *state) (bool, error) {
+		value.Phase = phaseMigrationComplete
+		return true, nil
+	}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := uninstall(context.Background(), true); err != nil {
+	if _, err := uninstall(true); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := uninstall(true); err != nil {
 		t.Fatalf("repeated uninstall: %v", err)
 	}
 	assertHookOrder(t, p.hooks, "PreToolUse", []json.RawMessage{preA, preB}, "")
@@ -87,15 +73,12 @@ func TestInstallReinstallAndUninstallPreserveForeignHooks(t *testing.T) {
 }
 
 func TestInstallDryRunAndConfirmationDoNotMutate(t *testing.T) {
-	p, stopped := isolatedLifecycle(t)
-	if _, err := install(context.Background(), true, false); err != nil {
+	p := isolatedLifecycle(t)
+	if _, err := install("installer", true, false); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := install(context.Background(), false, false); err == nil {
+	if _, err := install("installer", false, false); err == nil {
 		t.Fatal("unconfirmed install succeeded")
-	}
-	if *stopped != 0 {
-		t.Fatal("preview or rejected install stopped the legacy service")
 	}
 	for _, path := range []string{p.binary, p.agents, p.skill, p.hooks, stateDir()} {
 		if _, err := os.Stat(path); !os.IsNotExist(err) {
@@ -104,15 +87,36 @@ func TestInstallDryRunAndConfirmationDoNotMutate(t *testing.T) {
 	}
 }
 
+func TestStatusRejectsModifiedManagedGuidance(t *testing.T) {
+	p := isolatedLifecycle(t)
+	if _, err := install("main", false, true); err != nil {
+		t.Fatal(err)
+	}
+	agents, _ := os.ReadFile(p.agents)
+	skill, _ := os.ReadFile(p.skill)
+	for name, change := range map[string]func(){
+		"agents": func() {
+			mustWrite(t, p.agents, strings.Replace(string(agents), "# ThreadBear", "# ThreadBear edited", 1))
+		},
+		"skill": func() { mustWrite(t, p.skill, string(skill)+"edited\n") },
+	} {
+		t.Run(name, func(t *testing.T) {
+			change()
+			if _, err := status(); err == nil {
+				t.Fatalf("status accepted modified %s", name)
+			}
+			mustWrite(t, p.agents, string(agents))
+			mustWrite(t, p.skill, string(skill))
+		})
+	}
+}
+
 func TestMalformedHooksFailBeforeLifecycleMutation(t *testing.T) {
-	p, stopped := isolatedLifecycle(t)
+	p := isolatedLifecycle(t)
 	malformed := []byte(`{"hooks":{"PreToolUse":{"not":"an array"}}}`)
 	mustWrite(t, p.hooks, string(malformed))
-	if _, err := install(context.Background(), false, true); err == nil {
+	if _, err := install("installer", false, true); err == nil {
 		t.Fatal("install accepted wrong-shaped hooks")
-	}
-	if *stopped != 0 {
-		t.Fatal("failed install stopped the legacy service")
 	}
 	got, _ := os.ReadFile(p.hooks)
 	if !reflect.DeepEqual(got, malformed) {
@@ -122,72 +126,11 @@ func TestMalformedHooksFailBeforeLifecycleMutation(t *testing.T) {
 		t.Fatal("failed install copied the binary")
 	}
 	mustWrite(t, p.binary, "sentinel")
-	if _, err := uninstall(context.Background(), true); err == nil {
+	if _, err := uninstall(true); err == nil {
 		t.Fatal("uninstall accepted wrong-shaped hooks")
 	}
 	if got, _ := os.ReadFile(p.binary); string(got) != "sentinel" {
 		t.Fatal("failed uninstall mutated installation")
-	}
-}
-
-func TestStatusRequiresExactManagedAgentsBlock(t *testing.T) {
-	p, _ := isolatedLifecycle(t)
-	if _, err := install(context.Background(), false, true); err != nil {
-		t.Fatal(err)
-	}
-	canonical, err := os.ReadFile(p.agents)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := status(); err != nil {
-		t.Fatalf("canonical status: %v", err)
-	}
-
-	variants := map[string]string{
-		"edited":    strings.Replace(string(canonical), "# ThreadBear", "# ThreadBear edited", 1),
-		"empty":     blockStart + "\n" + blockEnd + "\n",
-		"duplicate": string(canonical) + string(canonical),
-		"reversed":  blockEnd + "\n" + strings.TrimSpace(assets.AgentsManagedContent) + "\n" + blockStart + "\n",
-	}
-	for name, value := range variants {
-		t.Run(name, func(t *testing.T) {
-			mustWrite(t, p.agents, value)
-			if _, err := status(); err == nil {
-				t.Fatalf("status accepted %s managed AGENTS block", name)
-			}
-			mustWrite(t, p.agents, string(canonical))
-		})
-	}
-}
-
-func TestMalformedLegacyStateFailsBeforeLifecycleMutation(t *testing.T) {
-	p, stopped := isolatedLifecycle(t)
-	legacyPath := filepath.Join(stateDir(), "core.json")
-	malformed := []byte(`{"tasks":`)
-	mustWrite(t, legacyPath, string(malformed))
-	mustWrite(t, p.plist, "legacy service sentinel")
-	mustWrite(t, p.hooks, `{"owner":"unchanged"}`)
-
-	if _, err := install(context.Background(), false, true); err == nil {
-		t.Fatal("install accepted malformed legacy state")
-	}
-	if *stopped != 0 {
-		t.Fatalf("failed install stopped the legacy service %d times", *stopped)
-	}
-	for path, want := range map[string][]byte{
-		legacyPath: malformed,
-		p.plist:    []byte("legacy service sentinel"),
-		p.hooks:    []byte(`{"owner":"unchanged"}`),
-	} {
-		got, err := os.ReadFile(path)
-		if err != nil || !reflect.DeepEqual(got, want) {
-			t.Fatalf("failed install changed %s: got %q, err %v", path, got, err)
-		}
-	}
-	for _, path := range []string{p.binary, p.agents, p.skill, filepath.Join(stateDir(), "native.json")} {
-		if _, err := os.Stat(path); !os.IsNotExist(err) {
-			t.Fatalf("failed install created %s: %v", path, err)
-		}
 	}
 }
 
@@ -212,13 +155,13 @@ func TestOwnedHookQuotesBinaryPath(t *testing.T) {
 }
 
 func TestUninstallRemovesOwnedOnlyHooksFile(t *testing.T) {
-	p, _ := isolatedLifecycle(t)
+	p := isolatedLifecycle(t)
 	data, _, err := editHooks(p.hooks, p.binary, true)
 	if err != nil {
 		t.Fatal(err)
 	}
 	mustWrite(t, p.hooks, string(data))
-	if _, err := uninstall(context.Background(), true); err != nil {
+	if _, err := uninstall(true); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := os.Stat(p.hooks); !os.IsNotExist(err) {
@@ -226,16 +169,12 @@ func TestUninstallRemovesOwnedOnlyHooksFile(t *testing.T) {
 	}
 }
 
-func isolatedLifecycle(t *testing.T) (lifecyclePaths, *int) {
+func isolatedLifecycle(t *testing.T) lifecyclePaths {
 	t.Helper()
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	t.Setenv("CODEX_HOME", filepath.Join(home, ".codex"))
-	oldStop := stopLegacyService
-	stopped := 0
-	stopLegacyService = func(context.Context) error { stopped++; return nil }
-	t.Cleanup(func() { stopLegacyService = oldStop })
-	return installPaths(), &stopped
+	return installPaths()
 }
 
 func writeHookFixture(t *testing.T, path string, preA, preB, postA json.RawMessage) {

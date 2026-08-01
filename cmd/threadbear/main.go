@@ -39,22 +39,27 @@ func run(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io.
 	var action func() (any, error)
 	switch command {
 	case "install":
+		controlTaskID := flags.String("control-task-id", "", "active task that becomes ThreadBear's persistent home")
 		dry := flags.Bool("dry-run", false, "preview without mutation")
 		noninteractive := flags.Bool("noninteractive", false, "run without prompts")
 		confirm := flags.Bool("confirm", false, "confirm the previewed installation")
 		flags.String("version", "", "installer-selected release version")
-		action = func() (any, error) { return install(ctx, *dry, *noninteractive && *confirm) }
+		action = func() (any, error) { return install(*controlTaskID, *dry, *noninteractive && *confirm) }
 	case "inventory":
 		action = func() (any, error) {
-			items, err := migrationInventory(ctx)
+			items, remaining, value, err := migrationInventory(ctx)
 			deterministic := 0
 			for _, item := range items {
 				if item.Deterministic {
 					deterministic++
 				}
 			}
-			return map[string]any{"ready": err == nil, "count": len(items), "deterministic": deterministic, "ambiguous": len(items) - deterministic, "tasks": items}, err
+			return map[string]any{"ready": err == nil && remaining == 0 && value.Phase == phaseMigrationComplete, "count": len(items), "deterministic": deterministic, "ambiguous": len(items) - deterministic, "applied": len(items) - remaining, "remaining": remaining, "phase": value.Phase, "main_task_id": value.MainTaskID, "controller_task_id": value.ControllerTaskID, "tasks": items}, err
 		}
+	case "migration":
+		phase := flags.String("phase", "", "migration phase: migration_running, migration_complete, or migration_failed")
+		controllerTaskID := flags.String("controller-task-id", "", "ephemeral migration controller task")
+		action = func() (any, error) { return transitionMigration(ctx, *phase, *controllerTaskID) }
 	case "status":
 		action = status
 	case "self-test":
@@ -63,7 +68,7 @@ func run(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io.
 	case "uninstall":
 		noninteractive := flags.Bool("noninteractive", false, "run without prompts")
 		confirm := flags.Bool("confirm", false, "confirm the previewed uninstall")
-		action = func() (any, error) { return uninstall(ctx, *noninteractive && *confirm) }
+		action = func() (any, error) { return uninstall(*noninteractive && *confirm) }
 	case "version":
 		action = func() (any, error) { return map[string]any{"version": version}, nil }
 	default:

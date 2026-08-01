@@ -11,7 +11,7 @@ import (
 	"unicode/utf16"
 )
 
-const stateFormat = 3
+const stateFormat, phaseMigrationRunning, phaseMigrationComplete, phaseMigrationFailed = 3, "migration_running", "migration_complete", "migration_failed"
 
 type pendingProposal struct {
 	ToolUseID   string `json:"tool_use_id"`
@@ -29,14 +29,18 @@ type taskState struct {
 	Pending *pendingProposal `json:"pending,omitempty"`
 }
 type state struct {
-	Format int                  `json:"format"`
-	Tasks  map[string]taskState `json:"tasks"`
+	Format           int                  `json:"format"`
+	MainTaskID       string               `json:"main_task_id,omitempty"`
+	ControllerTaskID string               `json:"controller_task_id,omitempty"`
+	Phase            string               `json:"phase,omitempty"`
+	Tasks            map[string]taskState `json:"tasks"`
 }
 type footer struct{ Status, Action string }
 type store struct{ dir string }
 
 func newStore(dir string) store { return store{dir: dir} }
 func (s store) path() string    { return filepath.Join(s.dir, "native.json") }
+
 func (s store) lock() (*os.File, error) {
 	if err := os.MkdirAll(s.dir, 0o700); err != nil {
 		return nil, err
@@ -82,7 +86,7 @@ func (s store) read() (state, error) {
 		return state{}, err
 	}
 	var value state
-	if err := json.Unmarshal(data, &value); err != nil || value.Format != stateFormat || value.Tasks == nil {
+	if err := json.Unmarshal(data, &value); err != nil || value.Format != stateFormat || value.Tasks == nil || value.Phase != "" && value.Phase != phaseMigrationRunning && value.Phase != phaseMigrationComplete && value.Phase != phaseMigrationFailed {
 		return state{}, errors.New("unsupported or corrupt ThreadBear state format")
 	}
 	return value, nil
@@ -137,13 +141,11 @@ func parseFooter(message string) (footer, bool) {
 	remainder := strings.TrimPrefix(line, "🧵🐻 ")
 	statusText, ownerAction, ok := strings.Cut(remainder, " (")
 	owner, action, ownerOK := strings.Cut(ownerAction, "): ")
-	statuses := map[string]string{"next steps": "next_steps", "needs input": "needs_input", "blocked": "blocked"}
-	status, statusOK := statuses[statusText]
+	status, statusOK := map[string]string{"next steps": "next_steps", "needs input": "needs_input", "blocked": "blocked"}[statusText]
 	if remainder == line || !ok || !ownerOK || !statusOK || strings.TrimSpace(action) != action || len(strings.Fields(action)) < 2 {
 		return footer{}, false
 	}
-	if status == "needs_input" && owner != "you" || status == "blocked" && owner != "external" ||
-		status == "next_steps" && owner != "you" && owner != "agent" && owner != "external" {
+	if status == "needs_input" && owner != "you" || status == "blocked" && owner != "external" || status == "next_steps" && owner != "you" && owner != "agent" && owner != "external" {
 		return footer{}, false
 	}
 	return footer{Status: status, Action: action}, true

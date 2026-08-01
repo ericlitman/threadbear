@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Changed
+
+- Made the initiating task ThreadBear's persistent home and moved installation migration to one resumable, serial native-title controller with honest phase reporting.
+
 ### Fixed
 
 - Kept the guided installer welcome, readiness result, complete recommendation, and consent question visible together after the first turn finishes.

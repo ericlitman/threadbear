@@ -6,7 +6,15 @@ Usage:
 Commands:
   install      Preview or install ThreadBear
   inventory    Classify local unarchived tasks for guided setup
-  status       Check the installed helper and hooks
+  migration    Record the single installation migration controller phase
+  status       Check the installed helper, hooks, and migration phase
   self-test    Validate a release candidate
   uninstall    Remove ThreadBear while keeping current titles
   version      Show the installed version
+
+Install flags:
+  --control-task-id ID  Persist the initiating task as ThreadBear's home
+
+Migration flags:
+  --phase PHASE         migration_running, migration_complete, or migration_failed
+  --controller-task-id ID
