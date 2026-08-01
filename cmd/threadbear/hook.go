@@ -12,6 +12,7 @@ import (
 const (
 	titleTool     = "codex_appset_thread_title"
 	runningMarker = "⏳ ThreadBear is working"
+	homeTitle     = "🧵🐻 ThreadBear 🐻🧵"
 	unknownMarker = "❔ ThreadBear could not classify"
 	maxHookBytes  = 1 << 20
 )
@@ -78,6 +79,9 @@ func preTitle(ctx context.Context, event hookInput, out io.Writer) error {
 	title, target, err := titleTarget(event)
 	if err != nil {
 		return err
+	}
+	if title == homeTitle {
+		return nil
 	}
 	result, terminal := parseFooter(title)
 	seed, seeded := strings.CutPrefix(title, runningMarker+": ")

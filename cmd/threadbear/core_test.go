@@ -196,7 +196,12 @@ func TestFreshRunningSubjectSeedFailsClosedAndThenStaysOwned(t *testing.T) {
 	if err != nil || len(stateBefore.Tasks) != 0 {
 		t.Fatalf("fresh state = %#v, %v", stateBefore, err)
 	}
-	for _, marker := range []string{runningMarker, runningMarker + ":", runningMarker + ": ", runningMarker + ": bad  spacing", runningMarker + ": " + strings.Repeat("x", 59)} {
+	var homeOutput bytes.Buffer
+	homePre := hookPayload("PreToolUse", "task", "home", map[string]any{"title": homeTitle}, nil)
+	if err := hook(context.Background(), strings.NewReader(homePre), &homeOutput); err != nil || homeOutput.Len() != 0 {
+		t.Fatalf("persistent home title was not passed through: %q, %v", homeOutput.String(), err)
+	}
+	for _, marker := range []string{runningMarker, runningMarker + ":", runningMarker + ": ", runningMarker + ": bad  spacing", runningMarker + ": " + strings.Repeat("x", 59), homeTitle + " extra"} {
 		var output bytes.Buffer
 		pre := hookPayload("PreToolUse", "task", marker, map[string]any{"title": marker}, nil)
 		if err := hook(context.Background(), strings.NewReader(pre), &output); err != nil || !strings.Contains(output.String(), `"permissionDecision":"deny"`) {
