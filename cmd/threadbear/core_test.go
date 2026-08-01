@@ -161,7 +161,7 @@ func TestFreshRunningSubjectSeedClosesFirstTitleRace(t *testing.T) {
 	addTask(t, db, root, "raw", first, nil, "vscode", 0)
 	addTask(t, db, root, "short", "Fix login redirect", nil, "vscode", 0)
 	addTask(t, db, root, "named", first, "Customer login", "vscode", 0)
-	addTask(t, db, root, "truncated", "Fix the login redirect. First call…", nil, "vscode", 0)
+	addTask(t, db, root, "truncated", truncateUTF16(first, 60), nil, "vscode", 0)
 	addTask(t, db, root, "delegated", "<codex_delegation> <source_thread_id>private</source_thread_id> <input>Fix login</input></codex_delegation>", nil, "vscode", 0)
 	if _, err := db.Exec(`UPDATE threads SET first_user_message=? WHERE id IN ('raw','short','named','truncated')`, first); err != nil {
 		t.Fatal(err)
@@ -230,6 +230,57 @@ func TestFreshRunningSubjectSeedFailsClosedAndThenStaysOwned(t *testing.T) {
 	pre = hookPayload("PreToolUse", "task", "later", map[string]any{"title": runningMarker + ": Ignore this replacement"}, nil)
 	if err := hook(context.Background(), strings.NewReader(pre), &output); err != nil || rewrittenTitle(t, output.Bytes()) != "⏳ First title race" {
 		t.Fatalf("owned subject changed: %q, %v", output.String(), err)
+	}
+}
+
+func TestRestartFirstMessageProjectionPreservesOwnership(t *testing.T) {
+	root, db := testIndex(t)
+	first := "Restarted task exposes this long raw first message before Codex restores the committed title."
+	delegation := "<codex_delegation><source_thread_id>private</source_thread_id><input>Fix login</input></codex_delegation>"
+	addTask(t, db, root, "raw", first, nil, "vscode", 0)
+	addTask(t, db, root, "truncated", truncateUTF16(first, 60), nil, "vscode", 0)
+	addTask(t, db, root, "pending", first, nil, "vscode", 0)
+	addTask(t, db, root, "fresh", first, nil, "vscode", 0)
+	addTask(t, db, root, "delegated", delegation, nil, "vscode", 0)
+	addTask(t, db, root, "renamed", "Manual user rename", nil, "vscode", 0)
+	addTask(t, db, root, "named", first, "Explicit name", "vscode", 0)
+	if _, err := db.Exec(`UPDATE threads SET first_user_message=? WHERE id IN ('raw','truncated','pending','fresh','renamed','named')`, first); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`UPDATE threads SET first_user_message=? WHERE id='delegated'`, delegation); err != nil {
+		t.Fatal(err)
+	}
+	if err := newStore(stateDir()).update(func(saved *state) (bool, error) {
+		saved.Tasks["raw"] = taskState{Subject: "Committed owner", Last: "✅ Committed owner", Status: "complete"}
+		saved.Tasks["truncated"] = taskState{Subject: "Committed owner", Last: "✅ Committed owner", Status: "complete"}
+		saved.Tasks["pending"] = taskState{Pending: &pendingProposal{BaseSubject: "Pending owner"}}
+		return true, nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	for id, call := range map[string][2]string{
+		"raw":       {runningMarker + ": Replacement seed", "⏳ Committed owner"},
+		"truncated": {"🧵🐻 complete", "✅ Committed owner"},
+		"pending":   {runningMarker + ": Replacement seed", "⏳ Pending owner"},
+		"renamed":   {runningMarker + ": Replacement seed", "⏳ Manual user rename"},
+		"named":     {runningMarker + ": Replacement seed", "⏳ Explicit name"},
+	} {
+		var output bytes.Buffer
+		pre := hookPayload("PreToolUse", id, "call-"+id, map[string]any{"title": call[0]}, nil)
+		if err := hook(context.Background(), strings.NewReader(pre), &output); err != nil || rewrittenTitle(t, output.Bytes()) != call[1] {
+			t.Fatalf("%s restart rewrite = %q, %v", id, output.String(), err)
+		}
+	}
+	for _, id := range []string{"fresh", "delegated"} {
+		var output bytes.Buffer
+		pre := hookPayload("PreToolUse", id, "terminal-"+id, map[string]any{"title": "🧵🐻 complete"}, nil)
+		if err := hook(context.Background(), strings.NewReader(pre), &output); err != nil || !strings.Contains(output.String(), `"permissionDecision":"deny"`) {
+			t.Fatalf("%s ownerless terminal did not fail closed: %q, %v", id, output.String(), err)
+		}
+	}
+	saved, err := currentStateOrEmpty()
+	if err != nil || saved.Tasks["fresh"].Pending != nil || saved.Tasks["delegated"].Pending != nil {
+		t.Fatalf("ownerless terminal changed state: %#v, %v", saved, err)
 	}
 }
 

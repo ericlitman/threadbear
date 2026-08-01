@@ -100,7 +100,6 @@ func sqliteHome() (string, error) {
 	}
 	return value, nil
 }
-
 func rolloutFooter(path string) (footer, bool) {
 	if path == "" {
 		return footer{}, false

@@ -9,13 +9,8 @@ import (
 	"strings"
 )
 
-const (
-	titleTool     = "codex_appset_thread_title"
-	runningMarker = "⏳ ThreadBear is working"
-	homeTitle     = "🧵🐻 ThreadBear 🐻🧵"
-	unknownMarker = "❔ ThreadBear could not classify"
-	maxHookBytes  = 1 << 20
-)
+const titleTool, runningMarker, homeTitle = "codex_appset_thread_title", "⏳ ThreadBear is working", "🧵🐻 ThreadBear 🐻🧵"
+const unknownMarker, maxHookBytes = "❔ ThreadBear could not classify", 1 << 20
 
 type hookInput struct {
 	Event        string                     `json:"hook_event_name"`
@@ -110,19 +105,25 @@ func preTitle(ctx context.Context, event hookInput, out io.Writer) error {
 }
 func stageTitle(ctx context.Context, id, status, action, seed, toolUseID string) (string, error) {
 	task, found, err := oneTask(ctx, id)
-	if !found {
-		err = errors.Join(err, errors.New("task is not active in Codex"))
-	}
-	if err != nil {
-		return "", err
+	if err != nil || !found {
+		return "", errors.Join(err, errors.New("task is not active in Codex"))
 	}
 	var proposed string
 	err = newStore(stateDir()).update(func(saved *state) (bool, error) {
 		record := saved.Tasks[id]
-		subject := canonicalSubject(task.Title, record)
 		current, first := strings.Join(strings.Fields(task.Title), " "), strings.Join(strings.Fields(task.FirstMessage), " ")
-		if status == "running" && record.Subject == "" && record.Pending == nil && task.Name == "" && first != "" && (current == first || strings.HasSuffix(current, "…") && strings.HasPrefix(first, strings.TrimSuffix(current, "…"))) {
-			subject = seed
+		subject := canonicalSubject(task.Title, record)
+		if task.Name == "" && first != "" && (current == first || current == truncateUTF16(first, 60)) {
+			subject = record.Subject
+			if record.Pending != nil && record.Pending.BaseSubject != "" {
+				subject = record.Pending.BaseSubject
+			}
+			if subject == "" && status == "running" {
+				subject = seed
+			}
+			if subject == "" {
+				return false, errors.New("fresh task has no subject owner")
+			}
 		}
 		proposed = renderTitle(status, subject, action)
 		record.Pending = &pendingProposal{ToolUseID: toolUseID, BaseSubject: subject, Prior: task.Title, Proposed: proposed, Status: status, Action: action}

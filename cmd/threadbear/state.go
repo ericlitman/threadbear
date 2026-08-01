@@ -40,7 +40,6 @@ type store struct{ dir string }
 
 func newStore(dir string) store { return store{dir: dir} }
 func (s store) path() string    { return filepath.Join(s.dir, "native.json") }
-
 func (s store) lock() (*os.File, error) {
 	if err := os.MkdirAll(s.dir, 0o700); err != nil {
 		return nil, err
