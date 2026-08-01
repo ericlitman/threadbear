@@ -105,11 +105,8 @@ func (s store) update(change func(*state) (bool, error)) (err error) {
 		return err
 	}
 	changed, err := change(&value)
-	if err != nil {
+	if err != nil || !created && !changed {
 		return err
-	}
-	if !created && !changed {
-		return nil
 	}
 	return s.save(value)
 }

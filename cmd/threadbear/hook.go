@@ -27,13 +27,10 @@ type hookInput struct {
 
 func readBoundedJSON(r io.Reader, value any) error {
 	data, err := io.ReadAll(io.LimitReader(r, maxHookBytes+1))
-	if err != nil {
-		return err
-	}
 	if len(data) > maxHookBytes {
-		return errors.New("input exceeds 1 MiB")
+		return errors.Join(err, errors.New("input exceeds 1 MiB"))
 	}
-	return json.Unmarshal(data, value)
+	return errors.Join(err, json.Unmarshal(data, value))
 }
 func stringField(values map[string]json.RawMessage, key string, required bool) (string, error) {
 	raw, ok := values[key]
@@ -47,15 +44,12 @@ func stringField(values map[string]json.RawMessage, key string, required bool) (
 	return value, nil
 }
 func titleTarget(event hookInput) (string, string, error) {
-	title, err := stringField(event.ToolInput, "title", true)
-	if err != nil {
-		return "", "", err
-	}
-	target, err := stringField(event.ToolInput, "threadId", false)
+	title, titleErr := stringField(event.ToolInput, "title", true)
+	target, targetErr := stringField(event.ToolInput, "threadId", false)
 	if target == "" {
 		target = event.SessionID
 	}
-	return title, target, err
+	return title, target, errors.Join(titleErr, targetErr)
 }
 func hook(ctx context.Context, in io.Reader, out io.Writer) error {
 	var event hookInput
@@ -86,18 +80,22 @@ func preTitle(ctx context.Context, event hookInput, out io.Writer) error {
 		return err
 	}
 	result, terminal := parseFooter(title)
-	if title == runningMarker {
+	seed, seeded := strings.CutPrefix(title, runningMarker+": ")
+	if seeded && (seed == "" || seed != strings.Join(strings.Fields(seed), " ") || utf16Len(seed) > 58) {
+		return errors.New("invalid running subject seed")
+	}
+	if seeded {
 		result, terminal = footer{Status: "running"}, true
 	} else if title == unknownMarker {
 		result, terminal = footer{Status: "unknown"}, true
 	}
 	if !terminal {
-		if strings.HasPrefix(title, "🧵🐻 ") {
-			return errors.New("invalid ThreadBear footer marker")
+		if strings.HasPrefix(title, runningMarker) || strings.HasPrefix(title, "🧵🐻 ") {
+			return errors.New("invalid ThreadBear marker")
 		}
 		return nil
 	}
-	proposed, err := stageTitle(ctx, target, result.Status, result.Action, event.ToolUseID)
+	proposed, err := stageTitle(ctx, target, result.Status, result.Action, seed, event.ToolUseID)
 	if err != nil {
 		return err
 	}
@@ -106,20 +104,23 @@ func preTitle(ctx context.Context, event hookInput, out io.Writer) error {
 		"hookEventName": "PreToolUse", "permissionDecision": "allow", "updatedInput": event.ToolInput,
 	}})
 }
-func stageTitle(ctx context.Context, id, status, action, toolUseID string) (string, error) {
+func stageTitle(ctx context.Context, id, status, action, seed, toolUseID string) (string, error) {
 	task, found, err := oneTask(ctx, id)
+	if !found {
+		err = errors.Join(err, errors.New("task is not active in Codex"))
+	}
 	if err != nil {
 		return "", err
-	}
-	if !found {
-		return "", errors.New("task is not active in Codex")
 	}
 	var proposed string
 	err = newStore(stateDir()).update(func(saved *state) (bool, error) {
 		record := saved.Tasks[id]
 		subject := canonicalSubject(task.Title, record)
+		current, first := strings.Join(strings.Fields(task.Title), " "), strings.Join(strings.Fields(task.FirstMessage), " ")
+		if status == "running" && record.Subject == "" && record.Pending == nil && task.Name == "" && first != "" && (current == first || strings.HasSuffix(current, "…") && strings.HasPrefix(first, strings.TrimSuffix(current, "…"))) {
+			subject = seed
+		}
 		proposed = renderTitle(status, subject, action)
-		record.Subject = subject
 		record.Pending = &pendingProposal{ToolUseID: toolUseID, BaseSubject: subject, Prior: task.Title, Proposed: proposed, Status: status, Action: action}
 		saved.Tasks[id] = record
 		return true, nil

@@ -24,4 +24,4 @@ The same exact line is passed to the native current-task title setter immediatel
 | `blocked (external)` | `🚨 <subject> → <action>` |
 | `automation` | `🤖 <subject>` |
 
-At turn start, `⏳ ThreadBear is working` maps to `⏳ <subject>`. `❔` is reserved for legacy items that remain unknown during installation; ordinary turns do not emit it.
+At turn start, `⏳ ThreadBear is working: <concise subject>` maps to `⏳ <subject>`. The seed is used only when a fresh task still exposes its raw first message; established subjects and user renames win. `❔` is reserved for legacy items that remain unknown during installation; ordinary turns do not emit it.

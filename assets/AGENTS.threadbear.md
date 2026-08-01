@@ -2,11 +2,11 @@
 
 For every ordinary interactive turn in a main Codex Desktop task:
 
-1. Your first action must be the native current-task title call with `title` exactly `⏳ ThreadBear is working`. Omit `threadId`. Do not send commentary or call another tool first. If the call fails, retry it once, then continue the turn.
+1. Your first action must be the native current-task title call with `title` beginning exactly `⏳ ThreadBear is working: ` followed by a concise 2–6 word subject for this task. Keep the complete title to one line and at most 58 UTF-16 units after the colon. Omit `threadId`. Do not send commentary or call another tool first. If the call fails, retry it once, then continue the turn.
 2. End the response with exactly one compact status footer chosen from the forms below.
 3. Immediately before the final response, call the same native title tool with `title` exactly equal to that footer line and no `threadId`. If the call fails, retry it once, then deliver the response.
 
-ThreadBear's hooks expand those compact inputs into the task's stable visible title. They do not repair stopped turns. If the user stops a turn, the running title remains until the next real turn replaces it.
+ThreadBear uses that first-call subject only when a fresh task still exposes its raw first message; explicit names, generated short titles, committed subjects, and later user renames remain authoritative. Its hooks expand the compact inputs into the stable visible title. They do not repair stopped turns. If the user stops a turn, the running title remains until the next real turn replaces it.
 
 ## Status footer
 

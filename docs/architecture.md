@@ -4,8 +4,8 @@ ThreadBear is one small Go executable, one private atomic JSON file, one managed
 
 ## Ordinary turn
 
-1. Managed guidance makes the native current-task title setter the turn's first action with the compact input `⏳ ThreadBear is working` and no explicit task ID.
-2. `PreToolUse` reads the calling task's current title from the local Codex index, preserves the stable user-owned subject, records one pending proposal, and rewrites the title input to `⏳ <subject>`.
+1. Managed guidance makes the native current-task title setter the turn's first action with `⏳ ThreadBear is working: <concise subject>` and no explicit task ID. The same model already answering the user supplies the subject; ThreadBear adds no model call.
+2. `PreToolUse` reads the current title, explicit name, and first message from the local Codex index. It preserves an explicit name, a generated short title, exact prior ownership, or a later user rename. Only when an unowned title is still the raw or truncated first message does it adopt the reserved subject handoff. A missing or malformed handoff fails closed.
 3. `PostToolUse` accepts only the exact returned task ID and rewritten title, then commits the subject and rendering.
 4. Immediately before the final response, the task calls the same native setter with its exact ThreadBear footer. The hooks expand and commit the matching terminal title; the response ends with that footer.
 
@@ -13,7 +13,7 @@ Each title moment may be retried once. There is no Stop hook: an interrupted tur
 
 ## Ownership and state
 
-The canonical title is `<status icon> <user-owned subject>[ → <managed action>]`. ThreadBear owns only a leading status and action suffix from its last exact committed rendering. Any different current title is a user rename and becomes the complete subject, even if it contains an icon or arrow.
+The canonical title is `<status icon> <user-owned subject>[ → <managed action>]`. ThreadBear owns only a leading status and action suffix from its last exact committed rendering. Any different current title is a user rename and becomes the complete subject, even if it contains an icon or arrow. A first-call seed is ignored after ownership exists.
 
 State is keyed by task ID and contains the persistent main-task ID, the single migration-controller ID, one migration phase, the canonical subject, the last verified rendering, and at most one pending proposal. A pending proposal lets a later call recognize setter success when Post was lost. State is private, locked, and atomically replaced. Ordinary title proposals are never queued for later repair.
 
