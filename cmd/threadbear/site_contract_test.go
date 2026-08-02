@@ -137,6 +137,24 @@ func TestHomepageDoesNotPromiseRemovedCapabilities(t *testing.T) {
 	}
 }
 
+func TestManagedCleanupContractIsShipped(t *testing.T) {
+	root := filepath.Join("..", "..", "assets")
+	for path, required := range map[string][]string{
+		filepath.Join(root, "skill", "SKILL.md"):    {"## Title cleanup", "🧵🐻 strip title icons", "For uninstall, target the control task last"},
+		filepath.Join(root, "AGENTS.threadbear.md"): {"A confirmed uninstall turn is the sole exception", "respond without another title call or ThreadBear footer"},
+	} {
+		data, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, text := range required {
+			if !strings.Contains(string(data), text) {
+				t.Errorf("%s is missing %q", path, text)
+			}
+		}
+	}
+}
+
 func TestShippedLogicStaysBelowAbsoluteLineCeiling(t *testing.T) {
 	root := filepath.Join("..", "..")
 	paths, err := filepath.Glob(filepath.Join(root, "cmd", "threadbear", "*.go"))

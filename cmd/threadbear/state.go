@@ -1,12 +1,14 @@
 package main
 
 import (
+	"cmp"
 	"encoding/json"
 	"errors"
 	"golang.org/x/sys/unix"
 	"io"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"unicode/utf16"
 )
@@ -107,14 +109,11 @@ func (s store) update(change func(*state) (bool, error)) (err error) {
 	if err != nil || !created && !changed {
 		return err
 	}
-	return s.save(value)
-}
-func (s store) save(value state) error {
 	data, err := json.Marshal(value)
-	if err != nil {
-		return err
+	if err == nil {
+		err = writeAtomic(s.path(), append(data, '\n'), 0o600)
 	}
-	return writeAtomic(s.path(), append(data, '\n'), 0o600)
+	return err
 }
 func canonicalSubject(current string, previous taskState) string {
 	if current == previous.Last && previous.Subject != "" {
@@ -147,35 +146,18 @@ func parseFooter(message string) (footer, bool) {
 	return footer{Status: status, Action: action}, true
 }
 
-var statusIcons = map[string]string{"running": "⏳", "blocked": "🚨", "needs_input": "🙋", "automation": "🤖", "next_steps": "➡️", "complete": "✅", "unknown": "❔"}
+var statusIcons = map[string]string{"running": "⏳", "blocked": "🚨", "needs_input": "🙋", "automation": "🤖", "next_steps": "➡️", "complete": "✅", "unknown": "❔", "cleanup": " "}
+var statusPrefix = regexp.MustCompile(`^(?:(?:⏳|🚨|🙋|🤖|➡️?|✅|❔) *)+`)
 
+func stripStatusIcons(title string) string { return statusPrefix.ReplaceAllString(title, "") }
 func renderTitle(status, subject, action string) string {
-	icon := statusIcons[status]
-	if icon == "" {
-		icon = statusIcons["unknown"]
-	}
+	icon := cmp.Or(statusIcons[status], statusIcons["unknown"])
 	subject, action = strings.TrimSpace(subject), strings.TrimSpace(action)
-	if status == "complete" || status == "automation" {
-		action = ""
+	prefix := truncateUTF16(strings.TrimSpace(icon+" "+subject), 60)
+	if budget := 60 - len(utf16.Encode([]rune(prefix+" → "))); action != "" && status != "complete" && status != "automation" && budget > 0 {
+		return prefix + " → " + truncateUTF16(action, budget)
 	}
-	prefix := strings.TrimSpace(icon + " " + subject)
-	if action == "" {
-		return truncateUTF16(prefix, 60)
-	}
-	suffix := " → " + action
-	if utf16Len(prefix+suffix) <= 60 {
-		return prefix + suffix
-	}
-	if subject != "" {
-		subjectBudget := 60 - utf16Len(icon+" ") - utf16Len(suffix)
-		if subjectBudget > 0 {
-			return icon + " " + truncateUTF16(subject, subjectBudget) + suffix
-		}
-		subject, action = "…", truncateUTF16(action, 60-utf16Len(icon+" … → "))
-		return icon + " " + subject + " → " + action
-	}
-	action = truncateUTF16(action, 60-utf16Len(icon+" → "))
-	return icon + " → " + action
+	return prefix
 }
 func truncateUTF16(value string, limit int) string {
 	units := utf16.Encode([]rune(value))
@@ -191,4 +173,3 @@ func truncateUTF16(value string, limit int) string {
 	}
 	return strings.TrimSpace(string(utf16.Decode(units))) + "…"
 }
-func utf16Len(value string) int { return len(utf16.Encode([]rune(value))) }

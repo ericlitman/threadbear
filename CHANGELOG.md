@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Fixed
+
+- Prevented uninstall/reinstall migration from compounding leading status icons, added on-demand control-task icon cleanup, and preserved durable subjects by truncating only appended next-step actions.
+
 ## v2.1.2 - 2026-08-02
 
 ### Fixed

@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"os"
+	"strings"
 	"testing"
 )
 
@@ -89,10 +90,37 @@ func TestUninstallRefusesActiveMigration(t *testing.T) {
 	if _, err := install("main", false, true); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := uninstall(true); err == nil {
+	if _, err := uninstall(context.Background(), true); err == nil {
 		t.Fatal("uninstall accepted an active migration")
 	}
 	if _, err := os.Stat(p.binary); err != nil {
 		t.Fatalf("blocked uninstall removed the binary: %v", err)
+	}
+}
+
+func TestUninstallRefusesDecoratedActiveTitles(t *testing.T) {
+	root, db := testIndex(t)
+	p := installPaths()
+	addTask(t, db, root, "target", "✅ ✅ Target", nil, "vscode", 0)
+	if _, err := install("main", false, true); err != nil {
+		t.Fatal(err)
+	}
+	if err := newStore(stateDir()).update(func(value *state) (bool, error) {
+		value.Phase = phaseMigrationComplete
+		return true, nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := uninstall(context.Background(), true); err == nil || !strings.Contains(err.Error(), "requires title cleanup") {
+		t.Fatalf("decorated uninstall = %v", err)
+	}
+	if _, err := os.Stat(p.binary); err != nil {
+		t.Fatalf("blocked uninstall removed the binary: %v", err)
+	}
+	if _, err := db.Exec(`UPDATE threads SET title='Target' WHERE id='target'`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := uninstall(context.Background(), true); err != nil {
+		t.Fatal(err)
 	}
 }

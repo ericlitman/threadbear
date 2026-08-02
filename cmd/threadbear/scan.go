@@ -92,10 +92,10 @@ func sqliteHome() (string, error) {
 		return "", fmt.Errorf("parse Codex config: %w", err)
 	}
 	value := strings.TrimSpace(config.SQLiteHome)
-	if value == "" {
-		return base, nil
-	}
-	if !filepath.IsAbs(value) {
+	switch {
+	case value == "":
+		value = base
+	case !filepath.IsAbs(value):
 		value = filepath.Join(base, value)
 	}
 	return value, nil
@@ -192,10 +192,9 @@ func migrationInventory(ctx context.Context) ([]inventoryItem, int, state, error
 			}
 		}
 		desired := renderTitle(result.Status, subject, result.Action)
-		items = append(items, inventoryItem{TaskID: task.ID, Title: task.Title, Subject: subject, Status: result.Status, Action: result.Action, Deterministic: ok})
-		last := &items[len(items)-1]
-		last.Applied = record.Pending == nil && record.Last == task.Title && record.Last == desired
-		if !last.Applied {
+		applied := record.Pending == nil && record.Last == task.Title && record.Last == desired
+		items = append(items, inventoryItem{TaskID: task.ID, Title: task.Title, Subject: subject, Status: result.Status, Action: result.Action, Deterministic: ok, Applied: applied})
+		if !applied {
 			remaining++
 		}
 	}

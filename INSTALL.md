@@ -70,7 +70,7 @@ Only after every check and the dry run succeeds, compose one terminal final answ
 > - **One persistent home and one controller.** The initiating task becomes `🧵🐻 ThreadBear 🐻🧵`; after the fresh-task canary it starts exactly one ephemeral migration controller and returns promptly.
 > - **Deterministic first.** Exact historical footers are classified locally. Luna medium is reserved for genuinely ambiguous legacy history, with at most eight read-only workers; workers never write titles.
 > - **Honest migration status.** Installation reports `migration_running` until the controller's native writes and final inventory prove every task applied; failures remain visible and resumable.
-> - **Honest cleanup.** Uninstall can remove ThreadBear-owned decoration or intentionally keep current titles before removing its local artifacts.
+> - **Honest cleanup.** Uninstall strips leading ThreadBear status icons from active titles through verified native calls before removing its local artifacts; the same cleanup is available on demand from the persistent ThreadBear task.
 >
 > Install ThreadBear with this recommended setup?
 
@@ -160,15 +160,15 @@ The installed binary's help is the authoritative public command list.
 
 ## Uninstall
 
-Read the installed skill's **Uninstall** section. Run status and inventory, then ask whether to clean ThreadBear-owned decoration to subject-only titles or keep current titles. Preview the complete chosen effect and obtain explicit consent.
+Read the installed skill's **Title cleanup** and **Uninstall** sections. Run status and inventory, preview the complete icon-cleanup and artifact-removal effect, and obtain explicit consent.
 
-Requested title cleanup must finish first through explicit native target calls with exact returned IDs and titles. Then show and run:
+Title cleanup must finish first through serial explicit native target calls with exact returned IDs and titles. Clean the persistent ThreadBear task last. Then show and run:
 
 ```sh
 ~/.local/bin/threadbear uninstall --noninteractive --confirm --json
 ```
 
-Uninstall refuses while `phase:migration_running`; stop the controller first. It removes only ThreadBear's recorded hook entries, managed AGENTS block, installed skill, private state, and binary. It preserves unrelated content and hook order. Ask the user to restart Codex so open sessions cannot keep using snapshotted guidance.
+Uninstall refuses while `phase:migration_running`; stop the controller first. It removes only ThreadBear's recorded hook entries, managed AGENTS block, installed skill, private state, and binary. It preserves unrelated content and hook order. After removal, make no terminal title call and append no ThreadBear footer, because either would decorate the cleaned control-task title again. Ask the user to restart Codex so open sessions cannot keep using snapshotted guidance.
 
 ## Maintainer verification
 

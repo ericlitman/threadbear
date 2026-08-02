@@ -6,8 +6,11 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"unicode/utf16"
 	"unicode/utf8"
 )
+
+func utf16Len(value string) int { return len(utf16.Encode([]rune(value))) }
 
 func TestNativeStateStoreInitializesPrivatelyAndRoundTrips(t *testing.T) {
 	dir := filepath.Join(t.TempDir(), "state")
@@ -178,7 +181,23 @@ func TestParseFooterExactGrammar(t *testing.T) {
 	}
 }
 
-func TestRenderTitleContractAndActionPriority(t *testing.T) {
+func TestStripStatusIcons(t *testing.T) {
+	for title, want := range map[string]string{
+		"✅ ✅ ❔ hello":        "hello",
+		"✅✅❔hello":           "hello",
+		"➡ task":             "task",
+		"❔ ❔ ❔":              "",
+		"➡️ 🙋 task → action": "task → action",
+		"🎉 ✅ user title":     "🎉 ✅ user title",
+		"text ✅ suffix":      "text ✅ suffix",
+	} {
+		if got := stripStatusIcons(title); got != want {
+			t.Errorf("stripStatusIcons(%q) = %q, want %q", title, got, want)
+		}
+	}
+}
+
+func TestRenderTitleContractAndSubjectPriority(t *testing.T) {
 	for name, values := range map[string][4]string{
 		"running":    {"running", "Ship BEAR-102", "", "⏳ Ship BEAR-102"},
 		"next steps": {"next_steps", "Ship BEAR-102", "approve the release", "➡️ Ship BEAR-102 → approve the release"},
@@ -193,12 +212,18 @@ func TestRenderTitleContractAndActionPriority(t *testing.T) {
 		})
 	}
 	got := renderTitle("next_steps", strings.Repeat("s", 100), "keep this action")
-	if utf16Len(got) > 60 || !strings.HasSuffix(got, " → keep this action") || !strings.Contains(got, "…") {
-		t.Fatalf("subject-first truncation = %q (%d units)", got, utf16Len(got))
+	want := renderTitle("next_steps", strings.Repeat("s", 100), "")
+	if got != want || utf16Len(got) != 60 {
+		t.Fatalf("action displaced durable subject: %q, want %q", got, want)
 	}
 	got = renderTitle("blocked", "keep subject", strings.Repeat("a", 100))
-	if utf16Len(got) > 60 || !strings.HasPrefix(got, "🚨 … → ") || !strings.HasSuffix(got, "…") {
+	if utf16Len(got) > 60 || !strings.HasPrefix(got, "🚨 keep subject → ") || !strings.HasSuffix(got, "…") {
 		t.Fatalf("long action truncation = %q (%d units)", got, utf16Len(got))
+	}
+	subject := strings.Repeat("d", 45)
+	got = renderTitle("next_steps", subject, "this action must be truncated before the subject")
+	if !strings.HasPrefix(got, "➡️ "+subject+" → ") || utf16Len(got) != 60 || !strings.HasSuffix(got, "…") {
+		t.Fatalf("bounded action displaced subject: %q (%d units)", got, utf16Len(got))
 	}
 }
 

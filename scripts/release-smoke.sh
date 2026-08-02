@@ -89,5 +89,16 @@ HOME="$home" CODEX_HOME="$codex_home" "$binary" migration \
 status=$(HOME="$home" CODEX_HOME="$codex_home" "$binary" status --json)
 printf '%s\n' "$status" | grep -F '"ready":true' >/dev/null
 printf '%s\n' "$status" | grep -F '"phase":"migration_complete"' >/dev/null
+
+pre='{"hook_event_name":"PreToolUse","session_id":"release-smoke-home","tool_name":"codex_appset_thread_title","tool_use_id":"release-smoke-cleanup","tool_input":{"threadId":"release-smoke","title":"🧵🐻 strip title icons"}}'
+prepared=$(printf '%s\n' "$pre" | HOME="$home" CODEX_HOME="$codex_home" "$binary" hook)
+expected_title='Release smoke seeded subject'
+printf '%s\n' "$prepared" | grep -F '"permissionDecision":"allow"' >/dev/null
+printf '%s\n' "$prepared" | grep -F "\"title\":\"$expected_title\"" >/dev/null
+sqlite3 "$codex_home/state_1.sqlite" "UPDATE threads SET title = '$expected_title' WHERE id = 'release-smoke';"
+post='{"hook_event_name":"PostToolUse","session_id":"release-smoke-home","tool_name":"codex_appset_thread_title","tool_use_id":"release-smoke-cleanup","tool_input":{"threadId":"release-smoke","title":"Release smoke seeded subject"},"tool_response":"{\"threadId\":\"release-smoke\",\"title\":\"Release smoke seeded subject\"}"}'
+printf '%s\n' "$post" | HOME="$home" CODEX_HOME="$codex_home" "$binary" hook
+grep -E '"subject"[[:space:]]*:[[:space:]]*"Release smoke seeded subject"' "$state" >/dev/null
+grep -E '"last"[[:space:]]*:[[:space:]]*"Release smoke seeded subject"' "$state" >/dev/null
 HOME="$home" CODEX_HOME="$codex_home" "$binary" uninstall --noninteractive --confirm --json
 test ! -e "$binary"

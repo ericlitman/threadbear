@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"os"
 	"os/exec"
@@ -53,10 +54,10 @@ func TestInstallReinstallAndUninstallPreserveForeignHooks(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := uninstall(true); err != nil {
+	if _, err := uninstall(context.Background(), true); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := uninstall(true); err != nil {
+	if _, err := uninstall(context.Background(), true); err != nil {
 		t.Fatalf("repeated uninstall: %v", err)
 	}
 	assertHookOrder(t, p.hooks, "PreToolUse", []json.RawMessage{preA, preB}, "")
@@ -126,7 +127,7 @@ func TestMalformedHooksFailBeforeLifecycleMutation(t *testing.T) {
 		t.Fatal("failed install copied the binary")
 	}
 	mustWrite(t, p.binary, "sentinel")
-	if _, err := uninstall(true); err == nil {
+	if _, err := uninstall(context.Background(), true); err == nil {
 		t.Fatal("uninstall accepted wrong-shaped hooks")
 	}
 	if got, _ := os.ReadFile(p.binary); string(got) != "sentinel" {
@@ -161,7 +162,7 @@ func TestUninstallRemovesOwnedOnlyHooksFile(t *testing.T) {
 		t.Fatal(err)
 	}
 	mustWrite(t, p.hooks, string(data))
-	if _, err := uninstall(true); err != nil {
+	if _, err := uninstall(context.Background(), true); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := os.Stat(p.hooks); !os.IsNotExist(err) {
@@ -171,9 +172,7 @@ func TestUninstallRemovesOwnedOnlyHooksFile(t *testing.T) {
 
 func isolatedLifecycle(t *testing.T) lifecyclePaths {
 	t.Helper()
-	home := t.TempDir()
-	t.Setenv("HOME", home)
-	t.Setenv("CODEX_HOME", filepath.Join(home, ".codex"))
+	testIndex(t)
 	return installPaths()
 }
 

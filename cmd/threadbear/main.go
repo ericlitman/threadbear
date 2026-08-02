@@ -68,7 +68,7 @@ func run(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io.
 	case "uninstall":
 		noninteractive := flags.Bool("noninteractive", false, "run without prompts")
 		confirm := flags.Bool("confirm", false, "confirm the previewed uninstall")
-		action = func() (any, error) { return uninstall(*noninteractive && *confirm) }
+		action = func() (any, error) { return uninstall(ctx, *noninteractive && *confirm) }
 	case "version":
 		action = func() (any, error) { return map[string]any{"version": version}, nil }
 	default:
