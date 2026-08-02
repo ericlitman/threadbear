@@ -1,0 +1,620 @@
+{
+  "schema_version": 1,
+  "updated_at": "2026-08-02",
+  "canonical_for": "ThreadBear title-path architecture and live experiments",
+  "capabilities": [
+    {
+      "id": "TB-CAP-DIRECT-REPAINT",
+      "premise": "A standalone App Server title write repaints a mounted Codex Desktop task when the result is representable and materially different within the persisted boundary.",
+      "status": "conditional",
+      "supported_by": [
+        "TB-EXP-0059-003"
+      ],
+      "contradicted_by": [
+        "TB-EXP-0059-001"
+      ],
+      "decision": "The 60 UTF-16-unit representation change reconciles the earlier stale-row observation. Reuse this result only for the standalone thread/name/set path and still require rendered proof.",
+      "next_preflight": null
+    },
+    {
+      "id": "TB-CAP-NATIVE-HOOK-PARTICIPATION",
+      "premise": "A current-task native setter nested in functions.exec participates in ThreadBear PreToolUse and PostToolUse hooks.",
+      "status": "unresolved",
+      "supported_by": [
+        "TB-EXP-0102-001",
+        "TB-EXP-0102-002",
+        "TB-EXP-0102-003",
+        "TB-EXP-0104-001",
+        "TB-EXP-0104-002"
+      ],
+      "contradicted_by": [
+        "TB-EXP-0107-002",
+        "TB-EXP-0108-001"
+      ],
+      "decision": "Dynamic lookup has been ruled out as the local changed variable. Do not resume hook-dependent architecture; the only justified next probe varies installed hook trust while holding the current candidate and call shape fixed.",
+      "next_preflight": "TB-PRE-0108-002"
+    },
+    {
+      "id": "TB-CAP-FRESH-SUBJECT-OWNERSHIP",
+      "premise": "A fresh task's first exposed title or message is always a stable user-owned subject.",
+      "status": "rejected",
+      "supported_by": [],
+      "contradicted_by": [
+        "TB-EXP-0104-003"
+      ],
+      "decision": "Repeated fresh and delegated tasks must prove stable subject ownership before a candidate can advance to migration or release, even when native hook calls themselves succeed.",
+      "next_preflight": null
+    }
+  ],
+  "experiments": [
+    {
+      "id": "TB-EXP-0059-001",
+      "date": "2026-07-28",
+      "issue": "BEAR-59",
+      "preflight_id": null,
+      "question": "Does a detached App Server thread/name/set repaint an already mounted Codex Desktop task row?",
+      "invariant": "Canonical persistence and rendered Desktop convergence are separate boundaries.",
+      "environment": {
+        "threadbear_version": "1.3.0",
+        "git_sha": "unknown: the live binary SHA was not recorded",
+        "codex_version": "Desktop 26.721.41059; embedded CLI 0.146.0-alpha.3.1; detached CLI 0.145.0",
+        "codex_source": "vscode",
+        "host": "local macOS",
+        "task_state": "resumed visible task",
+        "restart_state": "no restart or refresh",
+        "hook_fingerprint": "not applicable: detached App Server write",
+        "guidance_fingerprint": "not applicable: heartbeat path"
+      },
+      "invocation": {
+        "outer_tool": "standalone ThreadBear process",
+        "code": "detached App Server thread/name/set with an explicit target ID",
+        "native_tool_identity": "thread/name/set",
+        "target_identity_mode": "explicit target"
+      },
+      "evidence": [
+        "linear:BEAR-59#description"
+      ],
+      "result": {
+        "status": "observed",
+        "summary": "The index and detached server reported the new title, but the already mounted Desktop row stayed stale.",
+        "timing_ms": "unknown: latency was not the measured variable for this stale-row observation",
+        "hook_participation": "none",
+        "rendered_proof": "mounted row remained unchanged"
+      },
+      "confidence": "high",
+      "applicability": "Detached App Server writes only; does not describe Codex-hosted native setters.",
+      "supersedes": [],
+      "conflicts": [
+        "TB-EXP-0059-003"
+      ]
+    },
+    {
+      "id": "TB-EXP-0059-002",
+      "date": "2026-07-30",
+      "issue": "BEAR-59",
+      "preflight_id": null,
+      "question": "Can a retained Codex-hosted task repaint a mounted row through the supported native setter?",
+      "invariant": "Visible title actuation must remain inside the Codex Desktop host.",
+      "environment": {
+        "threadbear_version": "1.5.0 candidate",
+        "git_sha": "665650e8a980d29afd7b52e4db4a399e3f4534e4",
+        "codex_version": "0.146.0 family",
+        "codex_source": "vscode",
+        "host": "local macOS",
+        "task_state": "retained visible projectless task",
+        "restart_state": "unknown: not recorded",
+        "hook_fingerprint": "managed source-task native batch",
+        "guidance_fingerprint": "unknown: exact asset hash not recorded"
+      },
+      "invocation": {
+        "outer_tool": "functions.exec",
+        "code": "managed source-task native batch with exact explicit target operations",
+        "native_tool_identity": "codex_appset_thread_title",
+        "target_identity_mode": "explicit target"
+      },
+      "evidence": [
+        "linear:BEAR-59#comment-d7cd9272",
+        "github-pr:91",
+        "git:665650e8a980d29afd7b52e4db4a399e3f4534e4"
+      ],
+      "result": {
+        "status": "observed",
+        "summary": "The native result, canonical state, and mounted Desktop row converged immediately; the same path restored the prior title.",
+        "timing_ms": "unknown: live proof recorded immediate convergence, not a numeric latency",
+        "hook_participation": "managed native batch boundary",
+        "rendered_proof": "mounted row repainted"
+      },
+      "confidence": "high",
+      "applicability": "Codex-hosted explicit-target native writes; does not supersede the detached-writer failure.",
+      "supersedes": [],
+      "conflicts": []
+    },
+    {
+      "id": "TB-EXP-0059-003",
+      "date": "2026-07-28",
+      "issue": "BEAR-59",
+      "preflight_id": null,
+      "question": "Does the ordinary standalone App Server writer repaint mounted and unloaded tasks when the title differs within Codex's persisted boundary?",
+      "invariant": "Before adding another actuation path, prove that the proposed title is representable and visibly distinct on the normal writer.",
+      "environment": {
+        "threadbear_version": "v1.4.0 release lineage",
+        "git_sha": "a3dcdc0798737d4cbd1cde249a4922751649cabd",
+        "codex_version": "CLI 0.146.0-alpha.3.1",
+        "codex_source": "vscode",
+        "host": "local macOS",
+        "task_state": "active and unloaded tasks",
+        "restart_state": "no restart required",
+        "hook_fingerprint": "not applicable: standalone App Server write",
+        "guidance_fingerprint": "not applicable: deterministic heartbeat path"
+      },
+      "invocation": {
+        "outer_tool": "standalone ThreadBear process",
+        "code": "ordinary thread/name/set with a deterministic title bounded to 60 UTF-16 units, followed by mounted Desktop inspection",
+        "native_tool_identity": "thread/name/set",
+        "target_identity_mode": "explicit inventory task ID"
+      },
+      "evidence": [
+        "linear:BEAR-59#description",
+        "codex-rollout:019faa73-f593-7950-9786-9882941e89fa",
+        "github-pr:80",
+        "git:a3dcdc0798737d4cbd1cde249a4922751649cabd"
+      ],
+      "result": {
+        "status": "observed",
+        "summary": "Titles that differed inside the 60 UTF-16-unit limit repainted active and unloaded tasks immediately. Earlier overlong proposals had differed only beyond the persisted prefix, creating a false cache diagnosis.",
+        "timing_ms": "unknown: live proof recorded immediate repaint, not a numeric latency",
+        "hook_participation": "none",
+        "rendered_proof": "mounted Desktop task repainted; unnecessary shared-daemon and model-actuator machinery was removed"
+      },
+      "confidence": "high",
+      "applicability": "Standalone bounded thread/name/set only. This reconciles TB-EXP-0059-001 by isolating representability; it does not establish current-task native hook participation.",
+      "supersedes": [],
+      "conflicts": [
+        "TB-EXP-0059-001"
+      ]
+    },
+    {
+      "id": "TB-EXP-0102-001",
+      "date": "2026-07-31",
+      "issue": "BEAR-102",
+      "preflight_id": null,
+      "question": "Does a nested current-task native setter call participate in a PreToolUse rewrite?",
+      "invariant": "A current-task native setter may be rewritten synchronously before actuation.",
+      "environment": {
+        "threadbear_version": "manual capability harness",
+        "git_sha": "unknown: uncommitted hook harness",
+        "codex_version": "CLI 0.146.0-alpha.9.2",
+        "codex_source": "vscode",
+        "host": "local macOS",
+        "task_state": "genuinely fresh delegated task",
+        "restart_state": "new task after hook edit; no app restart",
+        "hook_fingerprint": "PreToolUse matcher .*; PostToolUse not present in the task snapshot",
+        "guidance_fingerprint": "one-shot capability instruction"
+      },
+      "invocation": {
+        "outer_tool": "functions.exec",
+        "code": "const match = ALL_TOOLS.find(({name}) => name === \"codex_app__set_thread_title\" || name.endsWith(\"__set_thread_title\") || name === \"set_thread_title\"); const result = await tools[match.name]({title: \"🧪 BEAR-102 HOOK ORIGINAL\"}); text(result);",
+        "native_tool_identity": "codex_appset_thread_title",
+        "target_identity_mode": "current task by omitted threadId"
+      },
+      "evidence": [
+        "codex-rollout:019fb969-5940-7451-90ab-aff6fdfc5ff9",
+        "linear:BEAR-102#comment-c87ce7d4"
+      ],
+      "result": {
+        "status": "observed",
+        "summary": "PreToolUse received the canonical native identity, rewrote the title, and the outer call returned that rewritten title.",
+        "timing_ms": "600",
+        "hook_participation": "PreToolUse observed; PostToolUse absent from this task snapshot",
+        "rendered_proof": "not recorded for this probe"
+      },
+      "confidence": "high",
+      "applicability": "Proves Pre rewrite for the broad matcher and dynamic lookup shape; it does not prove Post or matcher isolation.",
+      "supersedes": [],
+      "conflicts": [
+        "TB-EXP-0107-002",
+        "TB-EXP-0108-001"
+      ]
+    },
+    {
+      "id": "TB-EXP-0102-002",
+      "date": "2026-07-31",
+      "issue": "BEAR-102",
+      "preflight_id": null,
+      "question": "Does a fresh nested current-task setter run both PreToolUse and PostToolUse and return the rewrite?",
+      "invariant": "The native result and Post payload must contain the exact Pre-rewritten input.",
+      "environment": {
+        "threadbear_version": "manual capability harness",
+        "git_sha": "unknown: uncommitted hook harness",
+        "codex_version": "CLI 0.146.0-alpha.9.2",
+        "codex_source": "vscode",
+        "host": "local macOS",
+        "task_state": "genuinely fresh delegated task",
+        "restart_state": "new task after both hook edits; no app restart",
+        "hook_fingerprint": "PreToolUse and PostToolUse matcher .*; five-second command timeout",
+        "guidance_fingerprint": "one-shot capability instruction"
+      },
+      "invocation": {
+        "outer_tool": "functions.exec",
+        "code": "const match = ALL_TOOLS.find(({name}) => name.endsWith(\"set_thread_title\")); const result = await tools[match.name]({title:\"🧪 BEAR-102 HOOK ORIGINAL\"}); text(result);",
+        "native_tool_identity": "codex_appset_thread_title",
+        "target_identity_mode": "current task by omitted threadId"
+      },
+      "evidence": [
+        "codex-rollout:019fb96b-3df1-7852-b2d2-0400b7372fa8",
+        "linear:BEAR-102#comment-c87ce7d4"
+      ],
+      "result": {
+        "status": "observed",
+        "summary": "Exactly one Pre and one Post event recorded the canonical native identity; Post received the rewritten input and exact rewritten native result.",
+        "timing_ms": "700",
+        "hook_participation": "PreToolUse and PostToolUse observed",
+        "rendered_proof": "a later call in the same task returned and rendered the rewritten acknowledgement"
+      },
+      "confidence": "high",
+      "applicability": "Proves synchronous Pre/Post participation under a broad matcher; does not by itself prove literal matcher isolation.",
+      "supersedes": [],
+      "conflicts": [
+        "TB-EXP-0107-002",
+        "TB-EXP-0108-001"
+      ]
+    },
+    {
+      "id": "TB-EXP-0102-003",
+      "date": "2026-07-31",
+      "issue": "BEAR-102",
+      "preflight_id": null,
+      "question": "Does the literal canonical matcher isolate and rewrite a fresh nested current-task setter?",
+      "invariant": "The hook matcher must select only the canonical native title tool.",
+      "environment": {
+        "threadbear_version": "manual capability harness",
+        "git_sha": "unknown: uncommitted hook harness",
+        "codex_version": "CLI 0.146.0-alpha.9.2",
+        "codex_source": "vscode",
+        "host": "local macOS",
+        "task_state": "genuinely fresh task",
+        "restart_state": "new task after literal matcher edit; no app restart",
+        "hook_fingerprint": "PreToolUse and PostToolUse matcher codex_appset_thread_title",
+        "guidance_fingerprint": "one-shot capability instruction"
+      },
+      "invocation": {
+        "outer_tool": "functions.exec",
+        "code": "const match = ALL_TOOLS.find(({name}) => name === \"set_thread_title\" || name.endsWith(\"__set_thread_title\")); const result = await tools[match.name]({title: \"🧪 BEAR-102 HOOK RENDER ACK\"}); text(result);",
+        "native_tool_identity": "codex_appset_thread_title",
+        "target_identity_mode": "current task by omitted threadId"
+      },
+      "evidence": [
+        "codex-rollout:019fb97d-bc67-7650-aecd-80f6d71a1465",
+        "linear:BEAR-102#comment-c87ce7d4"
+      ],
+      "result": {
+        "status": "observed",
+        "summary": "The literal matcher selected only the native setter, rewrote the input, and the outer call returned the rewritten title.",
+        "timing_ms": "3000",
+        "hook_participation": "PreToolUse and PostToolUse observed",
+        "rendered_proof": "active header and mounted sidebar acknowledgement recorded by the parent canary"
+      },
+      "confidence": "high",
+      "applicability": "Strongest BEAR-102 hook mechanism record; still conditional on its hook snapshot and installed configuration.",
+      "supersedes": [],
+      "conflicts": [
+        "TB-EXP-0107-002",
+        "TB-EXP-0108-001"
+      ]
+    },
+    {
+      "id": "TB-EXP-0104-001",
+      "date": "2026-08-01",
+      "issue": "BEAR-104",
+      "preflight_id": null,
+      "question": "Does an installed candidate rewrite direct-property native calls and render stable running and terminal titles?",
+      "invariant": "Installed Pre/Post hooks must expand compact markers without replacing the durable subject.",
+      "environment": {
+        "threadbear_version": "2.1.0-bear104.2",
+        "git_sha": "4ec6a325dc87a70b773396f684346d6096587a8f",
+        "codex_version": "CLI 0.146.0-alpha.9.2",
+        "codex_source": "vscode",
+        "host": "local macOS",
+        "task_state": "fresh hook task and explicit mounted target",
+        "restart_state": "fresh task after candidate install",
+        "hook_fingerprint": "installed PreToolUse and PostToolUse matcher codex_appset_thread_title; exact hash not recorded",
+        "guidance_fingerprint": "candidate managed asset at Git SHA 4ec6a325dc87a70b773396f684346d6096587a8f"
+      },
+      "invocation": {
+        "outer_tool": "functions.exec",
+        "code": "const r = await tools.codex_app__set_thread_title({title:\"⏳ ThreadBear is working\"}); text(JSON.stringify(r));",
+        "native_tool_identity": "codex_appset_thread_title",
+        "target_identity_mode": "current task by omitted threadId; separate explicit-target isolation call"
+      },
+      "evidence": [
+        "codex-rollout:019fbb2f-7a55-7653-ba5e-ef2d977d0418",
+        "linear:BEAR-104#comment-34965f66",
+        "github-pr:101",
+        "git:4ec6a325dc87a70b773396f684346d6096587a8f"
+      ],
+      "result": {
+        "status": "observed",
+        "summary": "Direct-property current-task calls produced expanded stable titles; one explicit target repainted in isolation; Stop retained running state.",
+        "timing_ms": "unknown: exact operation timing not retained in the issue comment",
+        "hook_participation": "PreToolUse and PostToolUse observed",
+        "rendered_proof": "active header and mounted sidebar recorded"
+      },
+      "confidence": "high",
+      "applicability": "Installed candidate evidence that direct property access can participate; conflicts with a later direct-property no-hook observation.",
+      "supersedes": [],
+      "conflicts": [
+        "TB-EXP-0107-002",
+        "TB-EXP-0108-001"
+      ]
+    },
+    {
+      "id": "TB-EXP-0104-002",
+      "date": "2026-08-01",
+      "issue": "BEAR-104",
+      "preflight_id": null,
+      "question": "Does the corrected installed candidate keep dynamic-lookup native operations hooked and rendered after restart?",
+      "invariant": "The exact candidate must preserve authority, isolation, Stop behavior, rendering, and bounded latency after restart.",
+      "environment": {
+        "threadbear_version": "2.1.0-bear104.5",
+        "git_sha": "204b13388a667173e151dabf486bd833099596c5",
+        "codex_version": "CLI 0.146.0-alpha.9.2",
+        "codex_source": "vscode",
+        "host": "local macOS",
+        "task_state": "fresh direct, delegated, continued, and controlled tasks",
+        "restart_state": "clean Codex restart recorded",
+        "hook_fingerprint": "installed PreToolUse and PostToolUse matcher codex_appset_thread_title; five-second timeout",
+        "guidance_fingerprint": "candidate managed asset at Git SHA 204b13388a667173e151dabf486bd833099596c5"
+      },
+      "invocation": {
+        "outer_tool": "functions.exec",
+        "code": "const candidates = ALL_TOOLS.filter(x => x.name.includes(\"title\") && /thread|task/i.test(`${x.name} ${x.description}`)); const result = await tools[candidates[0].name]({title:\"<managed marker>\"}); text(result);",
+        "native_tool_identity": "codex_appset_thread_title",
+        "target_identity_mode": "current task by omitted threadId; separate explicit-target call"
+      },
+      "evidence": [
+        "codex-rollout:019fbeb2-a35a-7b12-96fb-189a0891ea18",
+        "linear:BEAR-104#comment-198c1420",
+        "linear:BEAR-104#comment-e35d010b",
+        "git:204b13388a667173e151dabf486bd833099596c5"
+      ],
+      "result": {
+        "status": "observed",
+        "summary": "The retained 20-turn matrix recorded 40 successful hooked native operations with preserved subjects, target isolation, Stop recovery, and rendering.",
+        "timing_ms": "p95 795; max 863",
+        "hook_participation": "PreToolUse and PostToolUse observed",
+        "rendered_proof": "active header and mounted sidebar recorded"
+      },
+      "confidence": "high",
+      "applicability": "Exact 2.1.0-bear104.5 candidate and dynamic lookup shape after restart; not a universal statement about later snapshots.",
+      "supersedes": [],
+      "conflicts": [
+        "TB-EXP-0107-002",
+        "TB-EXP-0108-001"
+      ]
+    },
+    {
+      "id": "TB-EXP-0104-003",
+      "date": "2026-08-01",
+      "issue": "BEAR-104",
+      "preflight_id": null,
+      "question": "Does a genuinely fresh user or delegated task expose a stable subject before ThreadBear's first-turn ownership capture?",
+      "invariant": "A transient raw prompt or delegation envelope must never become the durable task subject.",
+      "environment": {
+        "threadbear_version": "2.1.0-bear104.2",
+        "git_sha": "262f53cbda455f490364f1e78af4ce63433113c9",
+        "codex_version": "CLI 0.146.0-alpha.9.2",
+        "codex_source": "vscode",
+        "host": "local macOS",
+        "task_state": "genuinely fresh user and delegated tasks",
+        "restart_state": "clean Codex restart after candidate install",
+        "hook_fingerprint": "installed PreToolUse and PostToolUse matcher codex_appset_thread_title; exact hash not retained",
+        "guidance_fingerprint": "installed skill SHA-256 96b442d80dab0013fbe77599958e698e132c65870d7669205a6b4805f72d3888; AGENTS and hook hashes not retained"
+      },
+      "invocation": {
+        "outer_tool": "functions.exec",
+        "code": "current-task native running and terminal calls with omitted threadId in repeated fresh user and delegated tasks",
+        "native_tool_identity": "codex_appset_thread_title",
+        "target_identity_mode": "current task by omitted threadId"
+      },
+      "evidence": [
+        "linear:BEAR-104#comment-e0e18459",
+        "codex-rollout:019fbb49-4be0-7bf2-ba48-390a6ac4c9cd",
+        "github-pr:101",
+        "git:262f53cbda455f490364f1e78af4ce63433113c9"
+      ],
+      "result": {
+        "status": "observed",
+        "summary": "One fresh task captured a short generated subject, another persisted the full first message, and a delegated task persisted the delegation envelope. Pre and Post hooks executed, but subject ownership remained timing-dependent.",
+        "timing_ms": "not the measured variable",
+        "hook_participation": "PreToolUse and PostToolUse observed",
+        "rendered_proof": "fresh rendered tasks exposed the mismatched durable subjects; lifecycle work stopped before migration"
+      },
+      "confidence": "high",
+      "applicability": "Any design that treats the first exposed title or message as stable subject ownership. One passing fresh task cannot supersede the failing user and delegated cases.",
+      "supersedes": [],
+      "conflicts": []
+    },
+    {
+      "id": "TB-EXP-0107-001",
+      "date": "2026-08-02",
+      "issue": "BEAR-107",
+      "preflight_id": null,
+      "question": "Where does the released ordinary current-task title call spend more than a minute?",
+      "invariant": "One ordinary title operation must return in less than five seconds and reach the native mutation boundary.",
+      "environment": {
+        "threadbear_version": "2.1.3",
+        "git_sha": "4b8b96df04f73ae47551bf06317c7ae5ea988da5",
+        "codex_version": "CLI 0.146.0-alpha.9.2",
+        "codex_source": "vscode",
+        "host": "local macOS",
+        "task_state": "fresh ordinary task",
+        "restart_state": "unknown: restart state not isolated",
+        "hook_fingerprint": "installed literal matcher; five-second PreToolUse and PostToolUse timeouts",
+        "guidance_fingerprint": "v2.1.3 managed asset"
+      },
+      "invocation": {
+        "outer_tool": "functions.exec",
+        "code": "const r = await tools.codex_app__set_thread_title({title:\"⏳ ThreadBear is working: random fact\"}); text(r);",
+        "native_tool_identity": "codex_appset_thread_title",
+        "target_identity_mode": "current task by omitted threadId"
+      },
+      "evidence": [
+        "codex-rollout:019fc3ba-881a-7793-beb3-32e6add413de",
+        "linear:BEAR-107#comment-f4d5083f",
+        "git:4b8b96df04f73ae47551bf06317c7ae5ea988da5"
+      ],
+      "result": {
+        "status": "observed",
+        "summary": "PreToolUse staged a proposal and released its lock; Codex issued ten fast list reads but no thread/name/set, and the call was terminated after more than 69 seconds.",
+        "timing_ms": "greater than 69000; retry greater than 11000",
+        "hook_participation": "PreToolUse observed; PostToolUse absent",
+        "rendered_proof": "no ThreadBear icon rendered"
+      },
+      "confidence": "high",
+      "applicability": "Released v2.1.3 latency path; does not establish why later fresh bounded calls skipped hooks.",
+      "supersedes": [],
+      "conflicts": []
+    },
+    {
+      "id": "TB-EXP-0107-002",
+      "date": "2026-08-02",
+      "issue": "BEAR-107",
+      "preflight_id": null,
+      "question": "After installing the bounded prototype and restarting Codex, do direct-property nested setter calls participate in ThreadBear hooks?",
+      "invariant": "A bounded call is useful only if the installed title semantics still participate and render.",
+      "environment": {
+        "threadbear_version": "2.1.4-dev-bear107",
+        "git_sha": "uncommitted prototype on 4b8b96df04f73ae47551bf06317c7ae5ea988da5",
+        "codex_version": "Desktop 26.727.51351; CLI 0.146.0-alpha.9.2",
+        "codex_source": "vscode",
+        "host": "local macOS",
+        "task_state": "genuinely fresh task",
+        "restart_state": "clean Codex restart after prototype install",
+        "hook_fingerprint": "literal matcher codex_appset_thread_title; one-second Pre and Post; semantic group SHA-256 621714ec7c61726b23427e5be673e11e65b059b632b68d5ed67786899c6dddb5",
+        "guidance_fingerprint": "managed AGENTS SHA-256 2b84cc426508232ef20fb14f149c58261e157e01c355ddb7e45cd85656dcc151"
+      },
+      "invocation": {
+        "outer_tool": "functions.exec",
+        "code": "const result = await Promise.race([tools.codex_app__set_thread_title({title:\"⏳ ThreadBear is working: Fresh restart canary\"}).then(value => ({status:\"returned\", value})).catch(error => ({status:\"failed\", error:String(error)})), new Promise(resolve => setTimeout(() => resolve({status:\"timeout\"}), 4000))]); text(result);",
+        "native_tool_identity": "unknown: no hook event recorded the canonical identity",
+        "target_identity_mode": "current task by omitted threadId"
+      },
+      "evidence": [
+        "codex-rollout:019fc42e-64db-7261-af5c-312826167bfb",
+        "linear:BEAR-108#description"
+      ],
+      "result": {
+        "status": "observed",
+        "summary": "The call returned its literal compact input in about 0.6 seconds; no ThreadBear Pre/Post state appeared and the compact footer rendered literally.",
+        "timing_ms": "600 running; 600 terminal",
+        "hook_participation": "no ThreadBear PreToolUse or PostToolUse state observed",
+        "rendered_proof": "literal compact title rendered"
+      },
+      "confidence": "high",
+      "applicability": "Exact installed prototype, hook snapshot, and direct-property bounded shape only. Hook participation remains unresolved globally.",
+      "supersedes": [],
+      "conflicts": [
+        "TB-EXP-0102-001",
+        "TB-EXP-0102-002",
+        "TB-EXP-0102-003",
+        "TB-EXP-0104-001",
+        "TB-EXP-0104-002"
+      ]
+    },
+    {
+      "id": "TB-EXP-0108-001",
+      "date": "2026-08-02",
+      "issue": "BEAR-108",
+      "preflight_id": "TB-PRE-0108-001",
+      "question": "Does exact historical dynamic ALL_TOOLS lookup restore hook participation in the current post-restart environment?",
+      "invariant": "A mechanism conclusion must isolate invocation lookup before changing title architecture.",
+      "environment": {
+        "threadbear_version": "2.1.4-dev-bear107",
+        "git_sha": "uncommitted prototype on 4b8b96df04f73ae47551bf06317c7ae5ea988da5",
+        "codex_version": "Desktop 26.727.51351; CLI 0.146.0-alpha.9.2",
+        "codex_source": "vscode",
+        "host": "local macOS",
+        "task_state": "genuinely fresh task",
+        "restart_state": "same post-restart application session as TB-EXP-0107-002",
+        "hook_fingerprint": "literal matcher codex_appset_thread_title; one-second Pre and Post; semantic group SHA-256 621714ec7c61726b23427e5be673e11e65b059b632b68d5ed67786899c6dddb5",
+        "guidance_fingerprint": "same installed managed AGENTS SHA-256 2b84cc426508232ef20fb14f149c58261e157e01c355ddb7e45cd85656dcc151; one-probe exception supplied the dynamic call"
+      },
+      "invocation": {
+        "outer_tool": "functions.exec",
+        "code": "const match = ALL_TOOLS.find(({name}) => name === \"set_thread_title\" || name.endsWith(\"__set_thread_title\")); if (!match) throw new Error(\"Native task title setter is unavailable\"); const result = await tools[match.name]({title: \"⏳ ThreadBear is working: Dynamic lookup probe\"}); text(result);",
+        "native_tool_identity": "unknown: no hook event recorded the canonical identity",
+        "target_identity_mode": "current task by omitted threadId"
+      },
+      "evidence": [
+        "codex-rollout:019fc445-e75b-7a11-baf0-1cb43c5a6939",
+        "linear:BEAR-108#comment-9a8bf254"
+      ],
+      "result": {
+        "status": "observed",
+        "summary": "The exact dynamic lookup call returned the literal compact input; ThreadBear state contained no task entry. Invocation lookup is ruled out as the local cause of skipped hooks.",
+        "timing_ms": "700 outer cell; native thread/name/set 9 ms",
+        "hook_participation": "no ThreadBear PreToolUse or PostToolUse state observed",
+        "rendered_proof": "literal compact title persisted; rendered header/sidebar were not captured for this minimal mechanism probe"
+      },
+      "confidence": "high",
+      "applicability": "Rules out direct-property versus dynamic lookup as the changed variable in the current environment only. The historical contradiction remains unresolved across hook snapshot, trust state, installed configuration, and Desktop build.",
+      "supersedes": [],
+      "conflicts": [
+        "TB-EXP-0102-001",
+        "TB-EXP-0102-002",
+        "TB-EXP-0102-003",
+        "TB-EXP-0104-001",
+        "TB-EXP-0104-002"
+      ]
+    }
+  ],
+  "preflights": [
+    {
+      "id": "TB-PRE-0108-001",
+      "issue": "BEAR-108",
+      "capability_id": "TB-CAP-NATIVE-HOOK-PARTICIPATION",
+      "status": "closed",
+      "consulted": [
+        "TB-EXP-0102-001",
+        "TB-EXP-0102-002",
+        "TB-EXP-0102-003",
+        "TB-EXP-0104-001",
+        "TB-EXP-0104-002",
+        "TB-EXP-0107-002"
+      ],
+      "remaining_unknown": "Whether dynamic ALL_TOOLS lookup changes hook participation in the current post-restart environment compared with the direct-property call in TB-EXP-0107-002.",
+      "single_changed_variable": "Nested invocation lookup: use the exact historical ALL_TOOLS find plus tools[match.name] shape instead of direct tools.codex_app__set_thread_title property access.",
+      "held_constant": "Installed 2.1.4-dev-bear107 binary; Desktop 26.727.51351 and CLI 0.146.0-alpha.9.2; local host; current-task target by omitted threadId; one-second literal ThreadBear hook groups with semantic SHA-256 621714ec7c61726b23427e5be673e11e65b059b632b68d5ed67786899c6dddb5; same post-restart application session; genuinely fresh task.",
+      "predicted_outcomes": [
+        "If dynamic lookup controls the effective native tool identity in this environment, the hook will rewrite the synthetic input and both Pre and Post evidence will appear.",
+        "If invocation lookup is not the cause in this environment, the native call will return the literal synthetic input and no ThreadBear Pre/Post evidence will appear. This rules out invocation shape locally but does not resolve other historical snapshot or configuration differences."
+      ],
+      "stop_condition": "Stop after one current-task native call and its read-only hook/state inspection. Do not run a terminal call, retry, second variable, architecture change, or release matrix. Record either result as a new experiment and close this preflight before drawing any conclusion.",
+      "result_experiment_id": "TB-EXP-0108-001"
+    },
+    {
+      "id": "TB-PRE-0108-002",
+      "issue": "BEAR-108",
+      "capability_id": "TB-CAP-NATIVE-HOOK-PARTICIPATION",
+      "status": "pending",
+      "consulted": [
+        "TB-EXP-0102-001",
+        "TB-EXP-0102-002",
+        "TB-EXP-0102-003",
+        "TB-EXP-0104-001",
+        "TB-EXP-0104-002",
+        "TB-EXP-0107-002",
+        "TB-EXP-0108-001"
+      ],
+      "remaining_unknown": "Whether the current no-hook observations are caused by the exact installed hook groups not being inspected and trusted in the restarted Codex session before the fresh task snapshot was created.",
+      "single_changed_variable": "Hook trust state: inspect and explicitly trust the unchanged installed PreToolUse and PostToolUse groups through Codex /hooks before creating one new fresh dynamic-lookup task.",
+      "held_constant": "Installed 2.1.4-dev-bear107 binary; Desktop 26.727.51351 and CLI 0.146.0-alpha.9.2; local host; dynamic ALL_TOOLS lookup; current-task target by omitted threadId; one-second literal ThreadBear hook groups with semantic SHA-256 621714ec7c61726b23427e5be673e11e65b059b632b68d5ed67786899c6dddb5; no reinstall, source edit, or second call.",
+      "predicted_outcomes": [
+        "If trust state explains the current contradiction, the one fresh call will produce both hook records and return a ThreadBear-rewritten title under the unchanged installed fingerprint.",
+        "If the trusted fresh call still returns the literal input with no hook record, trust state is ruled out locally and hook-dependent BEAR-107 architecture remains blocked; Desktop build or hook registration becomes the next unresolved boundary."
+      ],
+      "stop_condition": "Stop after one bounded current-task call, its exact result, ThreadBear state inspection, and rendered-header/sidebar observation. Do not reinstall, retry, vary another field, resume architecture, or run the release matrix.",
+      "result_experiment_id": ""
+    }
+  ]
+}
