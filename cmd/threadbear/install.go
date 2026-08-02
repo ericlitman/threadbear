@@ -206,9 +206,7 @@ func sameJSON(a, b []byte) bool {
 	var left, right any
 	return json.Unmarshal(a, &left) == nil && json.Unmarshal(b, &right) == nil && reflect.DeepEqual(left, right)
 }
-func quoteCommand(binary string) string {
-	return "'" + strings.ReplaceAll(binary, "'", "'\"'\"'") + "' hook"
-}
+func quoteCommand(s string) string { return "'" + strings.ReplaceAll(s, "'", "'\"'\"'") + "' hook" }
 func validateFile(path, content string) error {
 	data, err := os.ReadFile(path)
 	if errors.Is(err, os.ErrNotExist) {
@@ -270,8 +268,7 @@ func writeAtomic(path string, data []byte, mode os.FileMode) error {
 	if err != nil {
 		return err
 	}
-	name := f.Name()
-	defer os.Remove(name)
+	defer os.Remove(f.Name())
 	err = f.Chmod(mode)
 	if err == nil {
 		_, err = f.Write(data)
@@ -279,11 +276,10 @@ func writeAtomic(path string, data []byte, mode os.FileMode) error {
 	if err == nil {
 		err = f.Sync()
 	}
-	err = errors.Join(err, f.Close())
-	if err == nil {
-		err = os.Rename(name, path)
+	if err = errors.Join(err, f.Close()); err != nil {
+		return err
 	}
-	return err
+	return os.Rename(f.Name(), path)
 }
 func removeFiles(paths ...string) error {
 	for _, path := range paths {

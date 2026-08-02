@@ -53,6 +53,7 @@ func TestPublishedInstallGuideMatchesCurrentCLI(t *testing.T) {
 		"codex_app__set_thread_title",
 		"codex_app__set_thread_pinned",
 		"genuinely fresh Codex Desktop task",
+		"⏳ ThreadBear is working: <concise subject>",
 		"two native title calls per ordinary turn",
 		"~/.local/bin/threadbear uninstall --noninteractive --confirm --json",
 	} {

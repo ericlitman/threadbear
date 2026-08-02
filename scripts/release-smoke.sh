@@ -24,11 +24,13 @@ printf '%s\n' \
 sqlite3 "$codex_home/state_1.sqlite" <<SQL
 CREATE TABLE threads (
   id TEXT PRIMARY KEY, updated_at_ms INTEGER, title TEXT, name TEXT,
-  archived INTEGER, source TEXT, thread_source TEXT, rollout_path TEXT
+  archived INTEGER, source TEXT, thread_source TEXT, rollout_path TEXT,
+  first_user_message TEXT, preview TEXT
 );
 INSERT INTO threads VALUES (
-  'release-smoke', 1, 'Release smoke subject', NULL,
-  0, 'cli', 'cli', '$rollout'
+  'release-smoke', 1, 'Release smoke raw first message with extra instructions', NULL,
+  0, 'cli', 'cli', '$rollout', 'Release smoke raw first message with extra instructions',
+  'Release smoke raw first message with extra instructions'
 );
 SQL
 
@@ -49,21 +51,30 @@ printf '%s\n' "$inventory" | grep -F '"deterministic":1' >/dev/null
 printf '%s\n' "$inventory" | grep -F '"task_id":"release-smoke"' >/dev/null
 printf '%s\n' "$inventory" | grep -F '"status":"complete"' >/dev/null
 
+pre='{"hook_event_name":"PreToolUse","session_id":"release-smoke","tool_name":"codex_appset_thread_title","tool_use_id":"release-smoke-running","tool_input":{"title":"⏳ ThreadBear is working: Release smoke seeded subject"}}'
+prepared=$(printf '%s\n' "$pre" | HOME="$home" CODEX_HOME="$codex_home" "$binary" hook)
+expected_title='⏳ Release smoke seeded subject'
+printf '%s\n' "$prepared" | grep -F '"permissionDecision":"allow"' >/dev/null
+printf '%s\n' "$prepared" | grep -F "\"title\":\"$expected_title\"" >/dev/null
+sqlite3 "$codex_home/state_1.sqlite" "UPDATE threads SET title = '$expected_title' WHERE id = 'release-smoke';"
+post='{"hook_event_name":"PostToolUse","session_id":"release-smoke","tool_name":"codex_appset_thread_title","tool_use_id":"release-smoke-running","tool_input":{"title":"⏳ Release smoke seeded subject"},"tool_response":"{\"threadId\":\"release-smoke\",\"title\":\"⏳ Release smoke seeded subject\"}"}'
+printf '%s\n' "$post" | HOME="$home" CODEX_HOME="$codex_home" "$binary" hook
+
 pre='{"hook_event_name":"PreToolUse","session_id":"release-smoke","tool_name":"codex_appset_thread_title","tool_use_id":"release-smoke-final","tool_input":{"title":"🧵🐻 complete"}}'
 prepared=$(printf '%s\n' "$pre" | HOME="$home" CODEX_HOME="$codex_home" "$binary" hook)
-expected_title='✅ Release smoke subject'
+expected_title='✅ Release smoke seeded subject'
 printf '%s\n' "$prepared" | grep -F '"permissionDecision":"allow"' >/dev/null
 printf '%s\n' "$prepared" | grep -F "\"title\":\"$expected_title\"" >/dev/null
 
 sqlite3 "$codex_home/state_1.sqlite" \
 	"UPDATE threads SET title = '$expected_title' WHERE id = 'release-smoke';"
-post='{"hook_event_name":"PostToolUse","session_id":"release-smoke","tool_name":"codex_appset_thread_title","tool_use_id":"release-smoke-final","tool_input":{"title":"✅ Release smoke subject"},"tool_response":"{\"threadId\":\"release-smoke\",\"title\":\"✅ Release smoke subject\"}"}'
+post='{"hook_event_name":"PostToolUse","session_id":"release-smoke","tool_name":"codex_appset_thread_title","tool_use_id":"release-smoke-final","tool_input":{"title":"✅ Release smoke seeded subject"},"tool_response":"{\"threadId\":\"release-smoke\",\"title\":\"✅ Release smoke seeded subject\"}"}'
 printf '%s\n' "$post" | HOME="$home" CODEX_HOME="$codex_home" "$binary" hook
 
 state=$home/.local/share/threadbear/native.json
 grep -F '"release-smoke"' "$state" >/dev/null
-grep -E '"subject"[[:space:]]*:[[:space:]]*"Release smoke subject"' "$state" >/dev/null
-grep -E '"last"[[:space:]]*:[[:space:]]*"✅ Release smoke subject"' "$state" >/dev/null
+grep -E '"subject"[[:space:]]*:[[:space:]]*"Release smoke seeded subject"' "$state" >/dev/null
+grep -E '"last"[[:space:]]*:[[:space:]]*"✅ Release smoke seeded subject"' "$state" >/dev/null
 if grep -F '"pending"' "$state" >/dev/null; then
 	echo "release smoke title remained pending" >&2
 	exit 1

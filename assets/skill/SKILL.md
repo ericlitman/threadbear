@@ -29,9 +29,10 @@ Show a command before running it. Ask for explicit consent before any lifecycle 
 3. Show the recommended setup and ask once for consent. A clear yes to the unchanged complete recommendation is installation consent. Ask again only if the recommendation changed, the answer was ambiguous, or this is a reinstall with a different effect.
 4. Run the confirmed install with the same ID and verify `version`, `self-test`, and `status`. On reinstall, omit the flag only when `status --json` already reports the persisted main task; never replace it with the launching task.
 5. Before any migration, use `codex_app__set_thread_title` to set the initiating task to exactly `🧵🐻 ThreadBear 🐻🧵`, use `codex_app__set_thread_pinned` to pin it, and prove that exact title in the active header and mounted sidebar.
-6. Use Codex `/hooks` to inspect and trust the two installed definitions. Then open a genuinely fresh Codex Desktop task and prove the first native call, the terminal native call, and the exact hook results before changing existing titles. Existing sessions may retain the hook snapshot they started with.
-7. After the canary passes, create exactly one ephemeral migration controller, record it with `migration --phase migration_running`, and end the persistent task promptly. The persistent task never performs, awaits, or polls bulk migration.
-8. Give the controller the **Migration controller** protocol below. Do not claim completion until it records `migration_complete` after final inventory convergence.
+6. Use Codex `/hooks` to inspect and trust the two installed definitions. Then open a genuinely fresh Codex Desktop task and prove its first native call carries the reserved `⏳ ThreadBear is working: <concise subject>` handoff, the terminal native call matches its footer, and both exact hook results pass before changing existing titles. Existing sessions may retain the hook snapshot they started with.
+7. Confirm the read-only ThreadBear inventory count matches Codex's native task catalog on the verified Codex version. A mismatch stops migration; do not add runtime repair or a second writer.
+8. After the canary passes, create exactly one ephemeral migration controller, record it with `migration --phase migration_running`, and end the persistent task promptly. The persistent task never performs, awaits, or polls bulk migration.
+9. Give the controller the **Migration controller** protocol below. Do not claim completion until it records `migration_complete` after final inventory convergence.
 
 For a large existing workspace, say this before migration:
 
@@ -43,7 +44,7 @@ Do not claim success until the installed checks, fresh-task canary, exact native
 
 `status --json` checks the installed binary, managed files, hooks, and state readability. It reports `installed:true` while artifacts are present, but `ready:true` only for `phase:migration_complete`. It does not mutate titles.
 
-`inventory --json` reads every local, unarchived Codex task across source shapes, including projectless tasks, excluding the persisted main and controller IDs. Treat its deterministic classifications, `status`, `action`, and `applied` evidence as authoritative. Do not infer ThreadBear ownership from an icon or arrow alone.
+`inventory --json` reads every native-addressable, unarchived Desktop or CLI task, including projectless tasks, excluding the persisted main and controller IDs. It excludes rollout-only internal records that Codex's native title setter cannot rename. Treat its deterministic classifications, `status`, `action`, and `applied` evidence as authoritative. Do not infer ThreadBear ownership from an icon or arrow alone.
 
 ## Migration controller
 

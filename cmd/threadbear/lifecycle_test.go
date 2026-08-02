@@ -10,7 +10,7 @@ func TestMigrationInventoryExcludesMainAndController(t *testing.T) {
 	root, db := testIndex(t)
 	addTask(t, db, root, "main", "ThreadBear", nil, "vscode", 0)
 	addTask(t, db, root, "controller", "Migration controller", nil, "vscode", 0)
-	targetRollout := addTask(t, db, root, "target", "Target", nil, "exec", 0)
+	targetRollout := addTask(t, db, root, "target", "Target", nil, "vscode", 0)
 	writeMigrationRollout(t, targetRollout, "🧵🐻 complete")
 	if err := newStore(stateDir()).update(func(value *state) (bool, error) {
 		value.MainTaskID, value.ControllerTaskID, value.Phase = "main", "controller", phaseMigrationRunning
@@ -28,7 +28,7 @@ func TestMigrationControllerRequiresAppliedFinalConvergence(t *testing.T) {
 	root, db := testIndex(t)
 	addTask(t, db, root, "main", "ThreadBear", nil, "vscode", 0)
 	addTask(t, db, root, "controller", "Migration controller", nil, "vscode", 0)
-	targetRollout := addTask(t, db, root, "target", "Target", nil, "exec", 0)
+	targetRollout := addTask(t, db, root, "target", "Target", nil, "vscode", 0)
 	writeMigrationRollout(t, targetRollout, "🧵🐻 complete")
 	if err := newStore(stateDir()).update(func(value *state) (bool, error) {
 		value.MainTaskID, value.ControllerTaskID, value.Phase = "main", "controller", phaseMigrationRunning

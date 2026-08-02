@@ -2,12 +2,15 @@
 
 ## Unreleased
 
+## v2.1.1 - 2026-08-02
+
 ### Changed
 
 - Made the initiating task ThreadBear's persistent home and moved installation migration to one resumable, serial native-title controller with honest phase reporting.
 
 ### Fixed
 
+- Prevented fresh tasks from freezing a raw first message or delegated envelope as their stable subject by carrying a concise seed in the mandatory first native title call.
 - Kept the guided installer welcome, readiness result, complete recommendation, and consent question visible together after the first turn finishes.
 
 ## v2.1.0 - 2026-07-31

@@ -1,10 +1,10 @@
 # Compatibility
 
-ThreadBear supports macOS 12 or newer on Apple silicon and Intel, Codex Desktop tasks indexed in the current local `state_N.sqlite`, Codex `PreToolUse` and `PostToolUse` hooks, and the native current-task and explicit-target title setter.
+ThreadBear supports macOS 12 or newer on Apple silicon and Intel, Codex Desktop tasks indexed in the current local `state_N.sqlite`, Codex `PreToolUse` and `PostToolUse` hooks, and the native current-task and explicit-target title setter. The native task-catalog contract is verified against Codex 0.146.0.
 
 The hook matcher is the plain literal `codex_appset_thread_title`. The anchored-regex form is not supported because Codex 0.146.0 treated it as match-all. Hook installation preserves unrelated definitions and their array order.
 
-ThreadBear reads the highest local Codex state database and fails closed when the required thread schema, calling session ID, current title, hook payload, or exact native result is unavailable. It does not write the Codex database, Desktop caches, or private UI storage.
+ThreadBear reads the highest local Codex state database and fails closed when the required thread schema, calling session ID, current title, hook payload, or exact native result is unavailable. Inventory mirrors the verified native catalog: unarchived records with a nonempty preview and source `vscode` or `cli`. A release or migration must stop if a read-only inventory-count canary differs from the live native task catalog. ThreadBear does not run an app-server subprocess or write the Codex database, Desktop caches, or private UI storage.
 
 Visible titles are at most 60 UTF-16 units and never split a surrogate pair. Native setter success is the runtime acknowledgement. Each release must separately prove the rendered active header and sidebar in a fresh Codex Desktop task.
 

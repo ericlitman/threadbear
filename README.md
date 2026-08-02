@@ -32,7 +32,7 @@ threadbear uninstall
 threadbear version
 ```
 
-Every command accepts `--json`. `inventory` is read-only and includes every local unarchived task across source shapes, including projectless tasks, excluding the persisted main and controller tasks. `status` reports `ready:true` only after `migration_complete`; the installed binary's `help` output is authoritative.
+Every command accepts `--json`. `inventory` is read-only and includes every native-addressable unarchived Desktop or CLI task, including projectless tasks, excluding the persisted main and controller tasks. Rollout-only internal records that Codex's native title setter cannot rename are excluded. `status` reports `ready:true` only after `migration_complete`; the installed binary's `help` output is authoritative.
 
 ## Boundaries
 
