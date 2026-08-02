@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -13,10 +14,7 @@ import (
 	"strings"
 )
 
-const (
-	blockStart = "<!-- BEGIN THREADBEAR MANAGED BLOCK -->"
-	blockEnd   = "<!-- END THREADBEAR MANAGED BLOCK -->"
-)
+const blockStart, blockEnd = "<!-- BEGIN THREADBEAR MANAGED BLOCK -->", "<!-- END THREADBEAR MANAGED BLOCK -->"
 
 type lifecyclePaths struct{ binary, agents, skill, hooks string }
 type rawObject map[string]json.RawMessage
@@ -93,7 +91,7 @@ func install(controlTaskID string, dry, confirmed bool) (any, error) {
 	}
 	return map[string]any{"ready": err == nil && value.Phase == phaseMigrationComplete, "installed": err == nil, "main_task_id": value.MainTaskID, "controller_task_id": value.ControllerTaskID, "phase": value.Phase, "controller_required": err == nil && value.Phase == phaseMigrationRunning && value.ControllerTaskID == ""}, err
 }
-func uninstall(confirmed bool) (any, error) {
+func uninstall(ctx context.Context, confirmed bool) (any, error) {
 	if !confirmed {
 		return nil, errors.New("uninstall requires --noninteractive --confirm")
 	}
@@ -103,6 +101,15 @@ func uninstall(confirmed bool) (any, error) {
 	}
 	if value.Phase == phaseMigrationRunning {
 		return nil, errors.New("cannot uninstall while installation migration is running; stop the controller first")
+	}
+	if value.MainTaskID != "" {
+		tasks, scanErr := inventory(ctx)
+		if scanErr != nil {
+			return nil, scanErr
+		}
+		if slices.ContainsFunc(tasks, func(task indexedTask) bool { return stripStatusIcons(task.Title) != task.Title }) {
+			return nil, errors.New("uninstall requires title cleanup from the ThreadBear control task")
+		}
 	}
 	p := installPaths()
 	hooks, write, err := editHooks(p.hooks, p.binary, false)

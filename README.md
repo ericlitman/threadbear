@@ -12,7 +12,7 @@ ThreadBear keeps Codex Desktop task titles useful in the turn that is doing the 
 | ✅ | complete |
 | ❔ | unknown legacy state |
 
-The canonical shape is `<mark> <subject>[ → <action>]`. ThreadBear owns only decoration it previously committed. User renames are adopted intact, and every rendered title is bounded to Codex Desktop's 60 UTF-16-unit limit.
+The canonical shape is `<mark> <subject>[ → <action>]`. ThreadBear owns only decoration it previously committed. User renames are adopted intact, and every rendered title is bounded to Codex Desktop's 60 UTF-16-unit limit. When next steps do not fit, ThreadBear preserves the standalone subject display and truncates or omits only the action.
 
 ## Install
 
@@ -33,6 +33,8 @@ threadbear version
 ```
 
 Every command accepts `--json`. `inventory` is read-only and includes every native-addressable unarchived Desktop or CLI task, including projectless tasks, excluding the persisted main and controller tasks. Rollout-only internal records that Codex's native title setter cannot rename are excluded. `status` reports `ready:true` only after `migration_complete`; the installed binary's `help` output is authoritative.
+
+From the persistent ThreadBear task, ask to “strip title icons” at any time. The control task serially removes all leading ThreadBear status marks through the same native setter and exact Pre/Post verification used by ordinary turns. Guided uninstall always completes that cleanup before removing ThreadBear's local state and hooks.
 
 ## Boundaries
 

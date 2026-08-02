@@ -1,6 +1,7 @@
 package main
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
@@ -9,7 +10,7 @@ import (
 	"strings"
 )
 
-const titleTool, runningMarker, homeTitle = "codex_appset_thread_title", "⏳ ThreadBear is working", "🧵🐻 ThreadBear 🐻🧵"
+const titleTool, runningMarker, homeTitle, cleanupMarker = "codex_appset_thread_title", "⏳ ThreadBear is working", "🧵🐻 ThreadBear 🐻🧵", "🧵🐻 strip title icons"
 const unknownMarker, maxHookBytes = "❔ ThreadBear could not classify", 1 << 20
 
 type hookInput struct {
@@ -80,13 +81,15 @@ func preTitle(ctx context.Context, event hookInput, out io.Writer) error {
 	}
 	result, terminal := parseFooter(title)
 	seed, seeded := strings.CutPrefix(title, runningMarker+": ")
-	if seeded && (seed == "" || seed != strings.Join(strings.Fields(seed), " ") || utf16Len(seed) > 58) {
+	if seeded && (seed == "" || seed != strings.Join(strings.Fields(seed), " ") || seed != truncateUTF16(seed, 58)) {
 		return errors.New("invalid running subject seed")
 	}
 	if seeded {
 		result, terminal = footer{Status: "running"}, true
 	} else if title == unknownMarker {
 		result, terminal = footer{Status: "unknown"}, true
+	} else if title == cleanupMarker {
+		result, terminal = footer{Status: "cleanup"}, true
 	}
 	if !terminal {
 		if strings.HasPrefix(title, runningMarker) || strings.HasPrefix(title, "🧵🐻 ") {
@@ -113,7 +116,15 @@ func stageTitle(ctx context.Context, id, status, action, seed, caller, toolUseID
 		record := saved.Tasks[id]
 		current, first := strings.Join(strings.Fields(task.Title), " "), strings.Join(strings.Fields(task.FirstMessage), " ")
 		subject := canonicalSubject(task.Title, record)
-		if task.Name == "" && first != "" && (current == first || current == truncateUTF16(first, 60)) {
+		if record.Subject == "" && saved.Phase == phaseMigrationRunning && saved.ControllerTaskID == caller && caller != id {
+			subject = stripStatusIcons(subject)
+		}
+		if status == "cleanup" {
+			if saved.MainTaskID != caller {
+				return false, errors.New("title cleanup requires the ThreadBear control task")
+			}
+			subject = cmp.Or(stripStatusIcons(task.Title), "Untitled task")
+		} else if task.Name == "" && first != "" && (current == first || current == truncateUTF16(first, 60)) {
 			subject = record.Subject
 			if record.Pending != nil && record.Pending.BaseSubject != "" {
 				subject = record.Pending.BaseSubject
@@ -122,7 +133,7 @@ func stageTitle(ctx context.Context, id, status, action, seed, caller, toolUseID
 				subject = seed
 			}
 			if subject == "" && saved.Phase == phaseMigrationRunning && saved.ControllerTaskID == caller && caller != id {
-				subject = current
+				subject = stripStatusIcons(current)
 			}
 			if subject == "" {
 				return false, errors.New("fresh task has no subject owner")

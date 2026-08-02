@@ -19,6 +19,7 @@ Show a command before running it. Ask for explicit consent before any lifecycle 
 | --- | --- |
 | "How are you?" | `~/.local/bin/threadbear status --json` |
 | "What tasks do you see?" | `~/.local/bin/threadbear inventory --json` |
+| "Strip title icons" | Follow **Title cleanup** below from the persisted ThreadBear task. |
 | "Install ThreadBear" | Follow **Install** below. |
 | "Uninstall ThreadBear" | Follow **Uninstall** below. |
 
@@ -79,13 +80,24 @@ Command success, state, and `read_thread` are not visual proof. In Codex Desktop
 
 Capture privacy-safe evidence when preparing a release.
 
+## Title cleanup
+
+Title cleanup is an on-demand, idempotent control-task operation. It removes every consecutive leading ThreadBear status icon while preserving ordinary emoji and every remaining title byte. A later ordinary turn may add one current status icon again; cleanup prevents old decoration from becoming part of the durable subject.
+
+1. Run `status --json` and verify this task's exact ID equals `main_task_id`. If it does not, continue in the persisted ThreadBear task; no other task may request cleanup.
+2. Run `inventory --json`. Add the active persisted controller task, if any, to the target set; the inventory intentionally excludes it and the main task.
+3. Select every active title beginning with one or more exact ThreadBear status icons: `⏳`, `🚨`, `🙋`, `🤖`, `➡️`, `✅`, or `❔`. Ordinary leading emoji are not decoration.
+4. In stable order, re-read one target and require its exact planned title. Call the native title setter with that explicit `threadId` and title exactly `🧵🐻 strip title icons`. The Pre hook re-reads the target, strips every leading ThreadBear status icon, uses `Untitled task` only when no subject remains, and stages the result through normal ownership state. Require the exact returned task ID/title and re-read the live title before continuing. Never retry an unknown result blindly.
+5. Re-run the complete inventory plus controller read. Finish only when every selected title has no leading ThreadBear status icon and every native result reconciles. On drift, mismatch, or inaccessible state, stop with artifacts and private ownership state intact so the same control task can safely resume.
+
+For ordinary on-demand cleanup, do not target the active control task: its required terminal call will leave exactly one current status icon. For uninstall, target the control task last, immediately before removing ThreadBear, and use the uninstall-turn exception in the managed guidance.
+
 ## Uninstall
 
 1. Run `help`, `status --json`, and `inventory --json`. If `phase:migration_running`, stop the controller and let it record `migration_failed` before uninstalling.
-2. Ask whether to clean ThreadBear-owned decoration to subject-only titles or keep current titles. Preview the chosen effect and obtain a clear yes.
-   Keeping titles makes those decorated strings user-owned; a later reinstall preserves them literally.
-3. For cleanup, re-read and update each explicit task through the native setter before removing any artifacts. Require exact returned IDs and titles. A changed title that is not the last committed ThreadBear rendering is user-owned and must not be cleaned.
+2. Explain that uninstall first strips all leading ThreadBear status icons from active titles, then removes the local artifacts. Preview the complete effect and obtain a clear yes.
+3. Follow **Title cleanup** for every regular and controller task. Re-read and clean this persisted ThreadBear task last. Any drift, unknown result, or remaining decorated title stops uninstall before artifacts or ownership state are removed.
 4. Run the confirmed uninstall. It refuses while migration is running, then removes only ThreadBear's recorded hook entries, managed AGENTS block, installed skill, private state, and binary while preserving unrelated content and hook order.
-5. Ask the user to restart Codex so already-open sessions cannot keep using snapshotted guidance.
+5. Use the managed uninstall-turn exception: make no terminal title call and append no ThreadBear footer. Ask the user to restart Codex so already-open sessions cannot keep using snapshotted guidance.
 
-Thank the user and invite optional feedback at `eric@litman.org`. Never remove artifacts before requested title cleanup has completed.
+Thank the user and invite optional feedback at `eric@litman.org`. Never remove artifacts before title cleanup has completed.

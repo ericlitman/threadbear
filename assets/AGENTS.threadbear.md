@@ -21,3 +21,5 @@ Use the matching literal example as the footer's shape:
 - Healthy scheduled or automated work with nothing pending: `🧵🐻 automation`
 
 The footer must be the final non-empty line. Never write the literal placeholder words `STATUS`, `OWNER`, or `ACTION`. Report the turn's actual disposition. Use `complete` unless the substantive response already establishes one clear, concrete, warranted next step. Generic offers, speculative possibilities, and mentions of recorded work do not qualify.
+
+A confirmed uninstall turn is the sole exception to the terminal-title call and footer. After the control task has stripped title icons from every active task, stripped its own title last, and the uninstall command has removed the managed hooks and guidance, respond without another title call or ThreadBear footer so the clean control-task title is not decorated again.
