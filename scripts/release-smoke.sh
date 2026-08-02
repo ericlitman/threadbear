@@ -38,12 +38,14 @@ env HOME="$home" CODEX_HOME="$codex_home" \
   PATH="$home/.local/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin" \
   THREADBEAR_RELEASE_BASE_URL="https://github.com/ericlitman/threadbear/releases" \
   sh -c 'curl -fsSL https://threadbear.sh/install.sh | sh -s -- \
-    --version "$1" --noninteractive --confirm --json' \
+    --version "$1" --control-task-id release-smoke-home --noninteractive --confirm --json' \
   sh "$version"
 
 binary=$home/.local/bin/threadbear
 test "$("$binary" version --json | sed -n 's/.*"version":"\([^"]*\)".*/\1/p')" = "$version"
 HOME="$home" CODEX_HOME="$codex_home" "$binary" self-test --candidate --json
+HOME="$home" CODEX_HOME="$codex_home" "$binary" migration \
+	--phase migration_running --controller-task-id release-smoke-controller --json
 HOME="$home" CODEX_HOME="$codex_home" "$binary" status --json
 inventory=$(HOME="$home" CODEX_HOME="$codex_home" "$binary" inventory --json)
 printf '%s\n' "$inventory" | grep -F '"count":1' >/dev/null
@@ -81,5 +83,11 @@ if grep -F '"pending"' "$state" >/dev/null; then
 fi
 inventory=$(HOME="$home" CODEX_HOME="$codex_home" "$binary" inventory --json)
 printf '%s\n' "$inventory" | grep -F '"applied":true' >/dev/null
+printf '%s\n' "$inventory" | grep -F '"remaining":0' >/dev/null
+HOME="$home" CODEX_HOME="$codex_home" "$binary" migration \
+	--phase migration_complete --controller-task-id release-smoke-controller --json
+status=$(HOME="$home" CODEX_HOME="$codex_home" "$binary" status --json)
+printf '%s\n' "$status" | grep -F '"ready":true' >/dev/null
+printf '%s\n' "$status" | grep -F '"phase":"migration_complete"' >/dev/null
 HOME="$home" CODEX_HOME="$codex_home" "$binary" uninstall --noninteractive --confirm --json
 test ! -e "$binary"
