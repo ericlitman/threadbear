@@ -28,6 +28,8 @@ jobs:
           test "$lines" -le 1000
       - run: go test ./...
       - run: go vet ./...
+      - name: Validate experiment registry
+        run: python3 scripts/validate-experiments.py
       - run: CGO_ENABLED=0 GOOS=darwin GOARCH=arm64 go build -o /tmp/threadbear_darwin_arm64 ./cmd/threadbear
       - run: CGO_ENABLED=0 GOOS=darwin GOARCH=amd64 go build -o /tmp/threadbear_darwin_amd64 ./cmd/threadbear
       - run: sh -n install.sh

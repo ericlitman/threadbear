@@ -1,0 +1,74 @@
+{
+  "cases": [
+    {
+      "name": "duplicate experiment ID",
+      "mutation": "duplicate-experiment-id",
+      "expected_error": "duplicate experiment id"
+    },
+    {
+      "name": "missing evidence",
+      "mutation": "missing-evidence",
+      "expected_error": "evidence must contain at least 1 value"
+    },
+    {
+      "name": "invalid conflict link",
+      "mutation": "invalid-conflict-link",
+      "expected_error": "conflicts references unknown experiment"
+    },
+    {
+      "name": "empty changed variable",
+      "mutation": "empty-changed-variable",
+      "expected_error": "changed_variable must be a non-empty string"
+    },
+    {
+      "name": "duplicate JSON key",
+      "mutation": "duplicate-json-key",
+      "expected_error": "duplicate JSON key"
+    },
+    {
+      "name": "forbidden privacy key",
+      "mutation": "forbidden-privacy-key",
+      "expected_error": "forbidden privacy key"
+    },
+    {
+      "name": "forbidden privacy text",
+      "mutation": "forbidden-privacy-text",
+      "expected_error": "forbidden public-registry material"
+    },
+    {
+      "name": "closed preflight missing result",
+      "mutation": "closed-preflight-missing-result",
+      "expected_error": "must reference a result experiment"
+    },
+    {
+      "name": "closed preflight unrelated result",
+      "mutation": "closed-preflight-wrong-result",
+      "expected_error": "result must belong to the same issue"
+    },
+    {
+      "name": "pending preflight names result",
+      "mutation": "pending-preflight-with-result",
+      "expected_error": "cannot reference a result experiment"
+    },
+    {
+      "name": "next preflight is already complete",
+      "mutation": "completed-next-preflight",
+      "expected_error": "must reference a pending preflight"
+    },
+    {
+      "name": "next preflight is shared",
+      "mutation": "shared-next-preflight",
+      "expected_error": "claimed by more than one capability"
+    },
+    {
+      "name": "bare unknown sentinel",
+      "mutation": "bare-unknown",
+      "expected_error": "must use 'unknown: <reason>'"
+    },
+    {
+      "name": "capability evidence overlap",
+      "mutation": "capability-evidence-overlap",
+      "expected_error": "both support and contradiction"
+    }
+  ]
+}
