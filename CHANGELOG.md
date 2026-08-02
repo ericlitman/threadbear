@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+## v2.1.2 - 2026-08-02
+
+### Fixed
+
+- Made the published release smoke honor the distinct first-install home and migration-controller contracts before verifying migration and native hook finalization.
+
 ## v2.1.1 - 2026-08-02
 
 ### Changed
