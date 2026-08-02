@@ -19,20 +19,21 @@
     {
       "id": "TB-CAP-NATIVE-HOOK-PARTICIPATION",
       "premise": "A current-task native setter nested in functions.exec participates in ThreadBear PreToolUse and PostToolUse hooks.",
-      "status": "unresolved",
+      "status": "conditional",
       "supported_by": [
         "TB-EXP-0102-001",
         "TB-EXP-0102-002",
         "TB-EXP-0102-003",
         "TB-EXP-0104-001",
-        "TB-EXP-0104-002"
+        "TB-EXP-0104-002",
+        "TB-EXP-0108-002"
       ],
       "contradicted_by": [
         "TB-EXP-0107-002",
         "TB-EXP-0108-001"
       ],
-      "decision": "Dynamic lookup has been ruled out as the local changed variable. Do not resume hook-dependent architecture; the only justified next probe varies installed hook trust while holding the current candidate and call shape fixed.",
-      "next_preflight": "TB-PRE-0108-002"
+      "decision": "With the exact installed candidate, Desktop build, call shape, and hook fingerprint held constant, explicitly trusting both installed groups before the fresh task restored PreToolUse and PostToolUse participation. TB-EXP-0107-002 and TB-EXP-0108-001 remain valid contradictory records for the untrusted snapshot, so hook participation is conditional on trusted registration rather than globally reliable. A hook-dependent architecture may proceed only if that trust boundary is explicit and the exact-candidate release matrix still proves rendered behavior.",
+      "next_preflight": null
     },
     {
       "id": "TB-CAP-FRESH-SUBJECT-OWNERSHIP",
@@ -518,7 +519,8 @@
         "TB-EXP-0102-002",
         "TB-EXP-0102-003",
         "TB-EXP-0104-001",
-        "TB-EXP-0104-002"
+        "TB-EXP-0104-002",
+        "TB-EXP-0108-002"
       ]
     },
     {
@@ -564,7 +566,51 @@
         "TB-EXP-0102-002",
         "TB-EXP-0102-003",
         "TB-EXP-0104-001",
-        "TB-EXP-0104-002"
+        "TB-EXP-0104-002",
+        "TB-EXP-0108-002"
+      ]
+    },
+    {
+      "id": "TB-EXP-0108-002",
+      "date": "2026-08-02",
+      "issue": "BEAR-108",
+      "preflight_id": "TB-PRE-0108-002",
+      "question": "Does explicitly trusting the unchanged installed hook groups before a fresh task restore ThreadBear participation for the exact dynamic-lookup current-task call?",
+      "invariant": "Hook trust must be isolated from invocation shape, installed candidate, hook fingerprint, and Desktop build before hook-dependent architecture resumes.",
+      "environment": {
+        "threadbear_version": "2.1.4-dev-bear107",
+        "git_sha": "uncommitted prototype on 4b8b96df04f73ae47551bf06317c7ae5ea988da5",
+        "codex_version": "Desktop 26.727.51351; CLI 0.146.0-alpha.9.2",
+        "codex_source": "vscode",
+        "host": "local macOS",
+        "task_state": "genuinely fresh worktree task after explicit hook trust",
+        "restart_state": "same application session and installed candidate as TB-EXP-0108-001; both unchanged groups inspected and explicitly trusted through Codex /hooks before task creation",
+        "hook_fingerprint": "literal matcher codex_appset_thread_title; one-second Pre and Post; semantic group SHA-256 621714ec7c61726b23427e5be673e11e65b059b632b68d5ed67786899c6dddb5",
+        "guidance_fingerprint": "same installed managed guidance as TB-EXP-0108-001; one-probe exception supplied the bounded dynamic call"
+      },
+      "invocation": {
+        "outer_tool": "functions.exec",
+        "code": "const match = ALL_TOOLS.find(({name}) => name === \"set_thread_title\" || name.endsWith(\"__set_thread_title\")); if (!match) throw Error(\"Native task title setter is unavailable\"); const startTimestamp = Date.now(); const result = await Promise.race([tools[match.name]({title:\"⏳ ThreadBear is working: Trusted dynamic probe\"}).then(value => ({status:\"returned\", value})).catch(error => ({status:\"failed\", error:String(error)})), new Promise(resolve => setTimeout(() => resolve({status:\"timeout\"}), 4000))]); const endTimestamp = Date.now(); text(JSON.stringify({matchedToolName:match.name,status:result.status,...(result.status === \"returned\" ? {value:result.value} : {}),...(result.status === \"failed\" ? {error:result.error} : {}),startTimestamp,endTimestamp,elapsedMs:endTimestamp-startTimestamp}));",
+        "native_tool_identity": "codex_appset_thread_title",
+        "target_identity_mode": "current task by omitted threadId"
+      },
+      "evidence": [
+        "codex-rollout:019fc48c-b5c5-71a3-a584-791c83b4c26a",
+        "linear:BEAR-107#comment-153c67f9"
+      ],
+      "result": {
+        "status": "observed",
+        "summary": "The one trusted fresh dynamic-lookup call matched codex_app__set_thread_title and returned the exact rewritten title ⏳ Run dynamic title probe. ThreadBear state committed subject Run dynamic title probe, last title ⏳ Run dynamic title probe, and running status with no pending proposal.",
+        "timing_ms": "898 outer cell; native substep was not instrumented separately",
+        "hook_participation": "PreToolUse rewrote the synthetic input and PostToolUse committed the returned title, evidenced by the exact rewritten native result and committed no-pending task state",
+        "rendered_proof": "active header and ThreadBear sidebar row both displayed exact title ⏳ Run dynamic title probe after return"
+      },
+      "confidence": "high",
+      "applicability": "Exact installed candidate, Desktop build, trusted hook groups, dynamic lookup, and current-task target only. The untrusted no-hook observations remain valid, and this capability record does not replace exact-candidate rendered release QA.",
+      "supersedes": [],
+      "conflicts": [
+        "TB-EXP-0107-002",
+        "TB-EXP-0108-001"
       ]
     }
   ],
@@ -596,7 +642,7 @@
       "id": "TB-PRE-0108-002",
       "issue": "BEAR-108",
       "capability_id": "TB-CAP-NATIVE-HOOK-PARTICIPATION",
-      "status": "pending",
+      "status": "closed",
       "consulted": [
         "TB-EXP-0102-001",
         "TB-EXP-0102-002",
@@ -614,7 +660,7 @@
         "If the trusted fresh call still returns the literal input with no hook record, trust state is ruled out locally and hook-dependent BEAR-107 architecture remains blocked; Desktop build or hook registration becomes the next unresolved boundary."
       ],
       "stop_condition": "Stop after one bounded current-task call, its exact result, ThreadBear state inspection, and rendered-header/sidebar observation. Do not reinstall, retry, vary another field, resume architecture, or run the release matrix.",
-      "result_experiment_id": ""
+      "result_experiment_id": "TB-EXP-0108-002"
     }
   ]
 }
