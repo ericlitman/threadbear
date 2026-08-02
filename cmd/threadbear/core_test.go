@@ -13,7 +13,7 @@ import (
 	_ "modernc.org/sqlite"
 )
 
-func testIndex(t *testing.T) (string, *sql.DB) {
+func testIndex(t testing.TB) (string, *sql.DB) {
 	t.Helper()
 	root := t.TempDir()
 	codex := filepath.Join(root, "codex")
@@ -36,7 +36,7 @@ func testIndex(t *testing.T) (string, *sql.DB) {
 	return root, db
 }
 
-func addTask(t *testing.T, db *sql.DB, root, id, title string, name any, source string, archived int) string {
+func addTask(t testing.TB, db *sql.DB, root, id, title string, name any, source string, archived int) string {
 	t.Helper()
 	rollout := filepath.Join(root, id+".jsonl")
 	if err := os.WriteFile(rollout, nil, 0o600); err != nil {
@@ -159,6 +159,51 @@ func TestOrdinaryHooksRewriteVerifyAndRecoverLostPost(t *testing.T) {
 	}
 	if got := rewrittenTitle(t, output.Bytes()); got != "⏳ Stable subject" {
 		t.Fatalf("lost-Post recovery duplicated ownership: %q", got)
+	}
+}
+
+func BenchmarkOrdinaryPreToolUse(b *testing.B) {
+	root, db := testIndex(b)
+	addTask(b, db, root, "task", "Stable subject", nil, "vscode", 0)
+	if err := newStore(stateDir()).update(func(*state) (bool, error) { return false, nil }); err != nil {
+		b.Fatal(err)
+	}
+	payload := hookPayload("PreToolUse", "task", "benchmark-pre", map[string]any{"title": runningMarker + ": Stable subject"}, nil)
+	var output bytes.Buffer
+	b.ResetTimer()
+	for b.Loop() {
+		output.Reset()
+		if err := hook(context.Background(), strings.NewReader(payload), &output); err != nil {
+			b.Fatal(err)
+		}
+	}
+}
+
+func BenchmarkOrdinaryPostToolUse(b *testing.B) {
+	root, db := testIndex(b)
+	addTask(b, db, root, "task", "Stable subject", nil, "vscode", 0)
+	if err := newStore(stateDir()).update(func(*state) (bool, error) { return false, nil }); err != nil {
+		b.Fatal(err)
+	}
+	pre := hookPayload("PreToolUse", "task", "benchmark-post", map[string]any{"title": runningMarker + ": Stable subject"}, nil)
+	var output bytes.Buffer
+	if err := hook(context.Background(), strings.NewReader(pre), &output); err != nil {
+		b.Fatal(err)
+	}
+	proposed := rewrittenTitle(b, output.Bytes())
+	response, _ := json.Marshal(map[string]string{"threadId": "task", "title": proposed})
+	post := hookPayload("PostToolUse", "task", "benchmark-post", map[string]any{"title": proposed}, string(response))
+	b.ResetTimer()
+	for b.Loop() {
+		b.StopTimer()
+		output.Reset()
+		if err := hook(context.Background(), strings.NewReader(pre), &output); err != nil {
+			b.Fatal(err)
+		}
+		b.StartTimer()
+		if err := hook(context.Background(), strings.NewReader(post), &bytes.Buffer{}); err != nil {
+			b.Fatal(err)
+		}
 	}
 }
 
@@ -485,7 +530,7 @@ func hookPayload(event, session, call string, input map[string]any, response any
 	return string(data)
 }
 
-func rewrittenTitle(t *testing.T, data []byte) string {
+func rewrittenTitle(t testing.TB, data []byte) string {
 	t.Helper()
 	var value struct {
 		Hook struct {

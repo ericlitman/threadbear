@@ -225,9 +225,27 @@ func assertHookOrder(t *testing.T, path, event string, foreign []json.RawMessage
 				Timeout       int
 			} `json:"hooks"`
 		}
-		if json.Unmarshal(root.Hooks[event][len(foreign)], &owner) != nil || owner.Matcher != titleTool || len(owner.Hooks) != 1 || owner.Hooks[0].Type != "command" || owner.Hooks[0].Command != quoteCommand(binary) || owner.Hooks[0].Timeout != 5 {
+		if json.Unmarshal(root.Hooks[event][len(foreign)], &owner) != nil || owner.Matcher != titleTool || len(owner.Hooks) != 1 || owner.Hooks[0].Type != "command" || owner.Hooks[0].Command != quoteCommand(binary) || owner.Hooks[0].Timeout != 1 {
 			t.Fatalf("%s owned hook contract = %+v", event, owner)
 		}
+	}
+}
+
+func TestManagedGuidanceBoundsEachNativeTitleCall(t *testing.T) {
+	guidance := assets.AgentsManagedContent
+	for _, required := range []string{
+		"const result = await Promise.race([",
+		"tools.codex_app__set_thread_title({title:\"REPLACE WITH THE REQUIRED TITLE\"})",
+		"new Promise(resolve => setTimeout(() => resolve({status:\"timeout\"}), 4000))",
+		"Make exactly one native attempt.",
+		"never retry or await that promise",
+	} {
+		if !strings.Contains(guidance, required) {
+			t.Errorf("managed guidance is missing bounded-call contract %q", required)
+		}
+	}
+	if strings.Contains(guidance, "retry it once") {
+		t.Fatal("managed guidance still permits a second native attempt")
 	}
 }
 

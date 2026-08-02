@@ -206,7 +206,7 @@ func editHooks(path, binary string, add bool) ([]byte, bool, error) {
 	return append(data, '\n'), true, err
 }
 func ownedHookJSON(binary string) json.RawMessage {
-	data, _ := json.Marshal(map[string]any{"matcher": "codex_appset_thread_title", "hooks": []any{map[string]any{"type": "command", "command": quoteCommand(binary), "timeout": 5}}})
+	data, _ := json.Marshal(map[string]any{"matcher": "codex_appset_thread_title", "hooks": []any{map[string]any{"type": "command", "command": quoteCommand(binary), "timeout": 1}}})
 	return data
 }
 func sameJSON(a, b []byte) bool {
