@@ -25,11 +25,12 @@ sqlite3 "$codex_home/state_1.sqlite" <<SQL
 CREATE TABLE threads (
   id TEXT PRIMARY KEY, updated_at_ms INTEGER, title TEXT, name TEXT,
   archived INTEGER, source TEXT, thread_source TEXT, rollout_path TEXT,
-  first_user_message TEXT
+  first_user_message TEXT, preview TEXT
 );
 INSERT INTO threads VALUES (
   'release-smoke', 1, 'Release smoke raw first message with extra instructions', NULL,
-  0, 'cli', 'cli', '$rollout', 'Release smoke raw first message with extra instructions'
+  0, 'cli', 'cli', '$rollout', 'Release smoke raw first message with extra instructions',
+  'Release smoke raw first message with extra instructions'
 );
 SQL
 
