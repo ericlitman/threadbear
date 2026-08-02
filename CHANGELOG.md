@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## v2.1.1 - 2026-08-02
+
 ### Changed
 
 - Made the initiating task ThreadBear's persistent home and moved installation migration to one resumable, serial native-title controller with honest phase reporting.
