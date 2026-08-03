@@ -51,6 +51,7 @@
     <div class="card"><strong>Two deterministic hooks</strong>Small Pre and Post hooks expand and verify native title calls without adding a model call or narration.</div>
     <div class="card"><strong>Foreground and finished</strong>Installation migrates existing titles once; ordinary work stays inside the task turn.</div>
     <div class="card"><strong>Quiet housekeeping</strong>One hourly Luna helper stays silent on no-op runs and tucks away eligible completed tasks after 14 quiet days.</div>
+    <div class="card"><strong>A verified new coat</strong>The same helper runs the update check last and installs only a checksummed, self-tested official release.</div>
   </div>
   <h2>Seven visible states</h2>
   <p class="states" aria-label="running, blocked, needs input, automation, next steps, complete, unknown">⏳ 🚨 🙋 🤖 ➡️ ✅ ❔</p>
@@ -59,7 +60,7 @@
   <p>ThreadBear installs at <code>~/.local/bin/threadbear</code>, keeps one small private state file under <code>~/.local/share/threadbear</code>, and adds one managed instruction block, one skill, and two Codex hook entries.</p>
   <p>Release binaries are not Developer ID signed or notarized. The installer verifies the published SHA-256 checksum and candidate self-test before installation.</p>
   <h2>Honest boundaries</h2>
-  <p>ThreadBear changes titles only through Codex Desktop's native setter and archives only through Codex's native task control. One background, rerunnable controller handles existing titles while the main ThreadBear task stays selected; adaptive waves of read-only Luna-medium workers may classify genuinely ambiguous legacy history, and workers never write titles. The hourly helper follows a deterministic archive plan, never archives active work, and can restore only tasks ThreadBear archived. ThreadBear installs no LaunchAgent, does not add token counts or update itself yet, and never edits Desktop caches.</p>
+  <p>ThreadBear changes titles only through Codex Desktop's native setter and archives only through Codex's native task control. One background, rerunnable controller handles existing titles while the main ThreadBear task stays selected; adaptive waves of read-only Luna-medium workers may classify genuinely ambiguous legacy history, and workers never write titles. The hourly helper follows a deterministic archive plan, never archives active work, and can restore only tasks ThreadBear archived. After archive work is reconciled, it checks the exact official manifest and installs a verified official release only after URL, architecture, SHA-256, embedded-version, and candidate self-test checks pass. ThreadBear installs no LaunchAgent, adds no token counts, and never edits Desktop caches.</p>
   <footer>MIT licensed. Built for tidy threads and small bears. 🧵🐻</footer>
 </main>
 </body>

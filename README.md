@@ -27,6 +27,7 @@ threadbear install
 threadbear inventory
 threadbear migration
 threadbear maintenance
+threadbear update
 threadbear status
 threadbear self-test
 threadbear uninstall
@@ -35,10 +36,10 @@ threadbear version
 
 Every command accepts `--json`. `inventory` is read-only and includes every native-addressable unarchived local Codex Desktop or CLI task, including projectless tasks, excluding the persisted main and controller tasks. Rollout-only internal records and older signed-in ChatGPT chat-history rows that Codex's native title setter cannot enumerate or rename are excluded. Those chat-history rows may remain unchanged in the Desktop sidebar even after local migration completes. `status` reports `ready:true` only after `migration_complete`; the installed binary's `help` output is authoritative.
 
-From the persistent ThreadBear task, ask to “strip title icons” at any time. The control task serially removes all leading ThreadBear status marks through the same native setter and exact Pre/Post verification used by ordinary turns. The same task's hourly Luna helper can archive only deterministically eligible, ThreadBear-owned complete user tasks after 14 quiet days, and restore only archives recorded in its private ownership ledger. Guided uninstall always pauses that helper and completes title cleanup before removing ThreadBear's local state, hooks, and owned automation.
+From the persistent ThreadBear task, ask to “strip title icons” or “check for updates now” at any time. The control task serially removes all leading ThreadBear status marks through the same native setter and exact Pre/Post verification used by ordinary turns. The same task's hourly Luna helper can archive only deterministically eligible, ThreadBear-owned complete user tasks after 14 quiet days, restore only archives recorded in its private ownership ledger, and run the deterministic verified update check last. Guided uninstall always pauses that helper and completes title cleanup before removing ThreadBear's local state, hooks, and owned automation.
 
 ## Boundaries
 
-ThreadBear installs no daemon or LaunchAgent. One explicitly consented hourly Codex heartbeat runs maintenance from the persistent Luna-medium task and stays quiet on no-op runs. The CLI alone selects archive candidates, stages one operation, and reconciles ownership; Luna calls Codex's supported native archive control and never edits private UI storage or interprets prose to add targets. ThreadBear does not add token counts or update itself in the background yet, and it adds no model call or narration to ordinary turns. Installation uses one serial native-writing controller and adaptive waves of read-only Luna-medium workers only when genuinely ambiguous history cannot be classified deterministically; workers classify and never write titles.
+ThreadBear installs no daemon or LaunchAgent. One explicitly consented hourly Codex heartbeat runs maintenance from the persistent Luna-medium task and stays quiet on no-op runs. The CLI alone selects archive candidates, stages one operation, reconciles ownership, and chooses the exact Darwin asset from the official release manifest. Luna calls supported native controls and communicates typed results; it never edits private UI storage, interprets prose to add targets, or chooses/downloads/checksums a release. Updates refuse while archive work is pending, verify repository URLs, SHA-256, embedded version, candidate self-test, candidate install, and installed status, and never downgrade. ThreadBear adds no token counts, model call, or narration to ordinary turns. Installation uses one serial native-writing controller and adaptive waves of read-only Luna-medium workers only when genuinely ambiguous history cannot be classified deterministically; workers classify and never write titles.
 
 See [architecture](docs/architecture.md), [compatibility](docs/compatibility.md), and the [status footer convention](docs/status-convention.md).

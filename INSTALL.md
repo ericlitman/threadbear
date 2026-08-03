@@ -72,6 +72,7 @@ Only after every check and the dry run succeeds, compose one terminal final answ
 > - Deterministic classification first; Luna medium only for ambiguity.
 > - A small Luna helper checks in hourly, then stays quiet when there is nothing to do.
 > - Finished tasks can curl up in the archive after 14 quiet days—and come back whenever you need them.
+> - ThreadBear keeps itself fresh from verified releases and tells you when it has a new coat.
 >
 > Install ThreadBear with this recommended setup?
 
@@ -108,7 +109,7 @@ The install result must show `installed:true`, the exact `main_task_id`, and `ph
 
 Inventory and migration cover local Codex Desktop and CLI tasks that the native explicit-target title setter can address. They do not enumerate or rename older signed-in ChatGPT chat-history rows that may also appear in the Desktop sidebar. Disclose that boundary before migration and never describe zero local inventory rows as proof that every visible sidebar row changed.
 
-Create or update one paused hourly heartbeat automation through the native automation control. Its exact ID is `threadbear-maintenance`, its name is “ThreadBear maintenance,” and its target is `MAIN_TASK_ID`. Its prompt is: “Follow the installed ThreadBear skill's Maintenance section. Reconcile archive work first, process eligible archives serially through native controls, and stay quiet when nothing changes.” Reuse only an existing automation whose ID, name, kind, and target all match; an ID collision with anything else stops installation without changing that automation. Do not create a cron job or a second maintenance schedule. A reinstall already at `migration_complete` may keep it active.
+Create or update one paused hourly heartbeat automation through the native automation control. Its exact ID is `threadbear-maintenance`, its name is “ThreadBear maintenance,” and its target is `MAIN_TASK_ID`. Its prompt is: “Follow the installed ThreadBear skill's Maintenance section. Reconcile archive work first, process eligible archives serially through native controls, run the verified update check last, and stay quiet when nothing changes.” Reuse only an existing automation whose ID, name, kind, and target all match; an ID collision with anything else stops installation without changing that automation. Do not create a cron job or a second maintenance schedule. A reinstall already at `migration_complete` may keep it active.
 
 If the native automation call fails, say that ThreadBear's local title helper is installed but its housekeeping helper is not, and stop before claiming completion. Do not ask the user to create or repair the automation manually.
 
@@ -150,7 +151,7 @@ On complete success, use this shape in natural prose:
 
 > ## ThreadBear is installed
 >
-> Everything passed: ThreadBear VERSION is installed, its managed guidance, two hooks, and hourly Luna helper are healthy, this task is its persistent home, and the migration controller completed with zero remaining native-addressable local Codex task titles. Older signed-in ChatGPT chat-history rows were outside this migration and may remain unchanged in the sidebar.
+> Everything passed: ThreadBear VERSION is installed, its managed guidance, two hooks, verified updates, and hourly Luna helper are healthy, this task is its persistent home, and the migration controller completed with zero remaining native-addressable local Codex task titles. Older signed-in ChatGPT chat-history rows were outside this migration and may remain unchanged in the sidebar.
 >
 > From here, you can ask “how are you?”, “what tasks do you see?”, or “uninstall ThreadBear.”
 
@@ -165,9 +166,10 @@ For later help, lead with a short capability card instead of a command dump. Ver
 ```sh
 ~/.local/bin/threadbear status --json
 ~/.local/bin/threadbear help
+~/.local/bin/threadbear update --json
 ```
 
-The installed binary's help is the authoritative public command list. Cross-check the exact `threadbear-maintenance` heartbeat with the native automation control before describing hourly housekeeping as healthy.
+The installed binary's help is the authoritative public command list. Run `update --json` only for an explicit check-now request or from the owned maintenance heartbeat after archive work is reconciled. Cross-check the exact `threadbear-maintenance` heartbeat with the native automation control before describing hourly housekeeping as healthy.
 
 ## Uninstall
 

@@ -9,6 +9,7 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/ericlitman/threadbear/assets"
 )
@@ -85,6 +86,74 @@ func TestInstallDryRunAndConfirmationDoNotMutate(t *testing.T) {
 		if _, err := os.Stat(path); !os.IsNotExist(err) {
 			t.Fatalf("non-mutating install created %s: %v", path, err)
 		}
+	}
+}
+
+func TestUninstallWaitsForOperationLockBeforeDeleting(t *testing.T) {
+	p := isolatedLifecycle(t)
+	if _, err := install("installer", false, true, false); err != nil {
+		t.Fatal(err)
+	}
+	if err := newStore(stateDir()).update(func(value *state) (bool, error) {
+		value.Phase = phaseMigrationComplete
+		return true, nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	operationLock, err := newStore(stateDir()).operationLock()
+	if err != nil {
+		t.Fatal(err)
+	}
+	done := make(chan error, 1)
+	go func() {
+		_, err := uninstall(context.Background(), true)
+		done <- err
+	}()
+	select {
+	case err := <-done:
+		unlock(operationLock)
+		t.Fatalf("uninstall returned while operation lock was held: %v", err)
+	case <-time.After(100 * time.Millisecond):
+	}
+	for _, path := range []string{p.binary, p.skill, stateDir()} {
+		if _, err := os.Stat(path); err != nil {
+			unlock(operationLock)
+			t.Fatalf("uninstall deleted %s while operation lock was held: %v", path, err)
+		}
+	}
+	unlock(operationLock)
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("uninstall did not resume after operation lock was released")
+	}
+	for _, path := range []string{p.binary, p.skill, stateDir()} {
+		if _, err := os.Stat(path); !os.IsNotExist(err) {
+			t.Fatalf("uninstall left %s after operation lock release: %v", path, err)
+		}
+	}
+}
+
+func TestOperationLockDoesNotRecreateRemovedInstallation(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "state")
+	store := newStore(dir)
+	operationLock, err := store.blockingOperationLock()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer unlock(operationLock)
+	if err := os.RemoveAll(dir); err != nil {
+		t.Fatal(err)
+	}
+	if lock, err := store.operationLock(); err == nil {
+		unlock(lock)
+		t.Fatal("operation lock recreated an installation while uninstall held the removed lock inode")
+	}
+	if _, err := os.Stat(dir); !os.IsNotExist(err) {
+		t.Fatalf("operation lock left a replacement state directory: %v", err)
 	}
 }
 
