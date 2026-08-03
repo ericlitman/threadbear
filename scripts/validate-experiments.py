@@ -396,10 +396,17 @@ def mutated_fixture(registry: dict[str, Any], mutation: str) -> Any:
     elif mutation == "closed-preflight-wrong-result":
         candidate["preflights"][0]["result_experiment_id"] = "TB-EXP-0102-001"
     elif mutation == "pending-preflight-with-result":
-        candidate["preflights"][1]["result_experiment_id"] = "TB-EXP-0108-001"
+        candidate["preflights"][1]["status"] = "pending"
     elif mutation == "completed-next-preflight":
         candidate["capabilities"][1]["next_preflight"] = "TB-PRE-0108-001"
     elif mutation == "shared-next-preflight":
+        candidate["preflights"][1]["status"] = "pending"
+        candidate["preflights"][1]["result_experiment_id"] = ""
+        for experiment in candidate["experiments"]:
+            if experiment["preflight_id"] == candidate["preflights"][1]["id"]:
+                experiment["preflight_id"] = None
+        candidate["capabilities"][1]["status"] = "unresolved"
+        candidate["capabilities"][1]["next_preflight"] = candidate["preflights"][1]["id"]
         duplicate = copy.deepcopy(candidate["capabilities"][1])
         duplicate["id"] = "TB-CAP-NATIVE-HOOK-PARTICIPATION-ALIAS"
         candidate["capabilities"].append(duplicate)

@@ -8,7 +8,6 @@ import (
 	"github.com/ericlitman/threadbear/assets"
 	"os"
 	"path/filepath"
-	"reflect"
 	"runtime"
 	"slices"
 	"strings"
@@ -172,26 +171,28 @@ func editHooks(path, binary string, add bool) ([]byte, bool, error) {
 	if raw, ok := root["hooks"]; ok && (json.Unmarshal(raw, &events) != nil || events == nil) {
 		return nil, false, errors.New("hooks.json hooks must be an object")
 	}
-	owner := ownedHookJSON(binary)
-	changed := missing
+	before := encodedJSON(decodedJSON(data))
+	owner, removed := ownedHookJSON(binary), false
 	for _, event := range []string{"PreToolUse", "PostToolUse"} {
 		var groups []json.RawMessage
 		if raw, ok := events[event]; ok && (json.Unmarshal(raw, &groups) != nil || groups == nil) {
 			return nil, false, fmt.Errorf("hooks.json %s must be an array", event)
 		}
-		kept := slices.DeleteFunc(groups, func(group json.RawMessage) bool { return sameJSON(group, owner) })
-		owners := len(groups) - len(kept)
+		kept := slices.DeleteFunc(groups, func(group json.RawMessage) bool {
+			owned := ownedHookGroup(group, binary)
+			removed = removed || owned
+			return owned
+		})
 		if add {
 			kept = append(kept, owner)
 		}
-		changed = changed || owners != 1 && add || owners != 0 && !add
 		if raw, _ := json.Marshal(kept); len(kept) == 0 {
 			delete(events, event)
 		} else {
 			events[event] = raw
 		}
 	}
-	if !changed {
+	if !add && !removed {
 		return data, false, nil
 	}
 	if !add && len(events) == 0 {
@@ -202,17 +203,18 @@ func editHooks(path, binary string, add bool) ([]byte, bool, error) {
 	if !add && len(root) == 0 {
 		return nil, true, nil
 	}
-	data, err = json.MarshalIndent(root, "", "  ")
-	return append(data, '\n'), true, err
+	updated, err := json.MarshalIndent(root, "", "  ")
+	return append(updated, '\n'), string(before) != string(encodedJSON(decodedJSON(updated))), err
 }
+func encodedJSON(value any) json.RawMessage { data, _ := json.Marshal(value); return data }
 func ownedHookJSON(binary string) json.RawMessage {
-	data, _ := json.Marshal(map[string]any{"matcher": "codex_appset_thread_title", "hooks": []any{map[string]any{"type": "command", "command": quoteCommand(binary), "timeout": 5}}})
-	return data
+	return encodedJSON(map[string]any{"matcher": "codex_appset_thread_title", "hooks": []any{map[string]any{"type": "command", "command": quoteCommand(binary), "timeout": 1}}})
 }
-func sameJSON(a, b []byte) bool {
-	var left, right any
-	return json.Unmarshal(a, &left) == nil && json.Unmarshal(b, &right) == nil && reflect.DeepEqual(left, right)
+func ownedHookGroup(group json.RawMessage, binary string) bool {
+	value, hooks := rawObject{}, []rawObject{}
+	return json.Unmarshal(group, &value) == nil && json.Unmarshal(value["hooks"], &hooks) == nil && len(hooks) == 1 && string(value["matcher"]) == `"codex_appset_thread_title"` && string(hooks[0]["type"]) == `"command"` && string(hooks[0]["command"]) == string(encodedJSON(quoteCommand(binary)))
 }
+func decodedJSON(data []byte) any  { var value any; _ = json.Unmarshal(data, &value); return value }
 func quoteCommand(s string) string { return "'" + strings.ReplaceAll(s, "'", "'\"'\"'") + "' hook" }
 func validateFile(path, content string) error {
 	data, err := os.ReadFile(path)

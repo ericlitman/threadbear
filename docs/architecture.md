@@ -4,12 +4,12 @@ ThreadBear is one small Go executable, one private atomic JSON file, one managed
 
 ## Ordinary turn
 
-1. Managed guidance makes the native current-task title setter the turn's first action with `⏳ ThreadBear is working: <concise subject>` and no explicit task ID. The same model already answering the user supplies the subject; ThreadBear adds no model call.
+1. Managed guidance makes one bounded native current-task title attempt the turn's first action with `⏳ ThreadBear is working: <concise subject>` and no explicit task ID. The same model already answering the user supplies the subject; ThreadBear adds no model call. A four-second outer timer bounds the complete call while each installed hook has a one-second process limit.
 2. `PreToolUse` reads the current title, explicit name, and first message from the local Codex index. It preserves an explicit name, a generated short title, exact prior ownership, or a later user rename. Only when an unowned title is still the raw or truncated first message does it adopt the reserved subject handoff. A missing or malformed handoff fails closed.
 3. `PostToolUse` accepts only the exact returned task ID and rewritten title, then commits the subject and rendering.
-4. Immediately before the final response, the task calls the same native setter with its exact ThreadBear footer. The hooks expand and commit the matching terminal title; the response ends with that footer.
+4. Immediately before the final response, the task makes the same bounded native attempt with its exact ThreadBear footer. The hooks expand and commit the matching terminal title; the response ends with that footer.
 
-Each title moment may be retried once. There is no Stop hook: an interrupted turn keeps its running title until the next ordinary turn naturally replaces it.
+Each title moment makes exactly one native attempt. A timeout leaves the write result unknown, so the turn does not retry or await the abandoned promise. There is no Stop hook: an interrupted turn keeps its running title until the next ordinary turn naturally replaces it.
 
 ## Ownership and state
 

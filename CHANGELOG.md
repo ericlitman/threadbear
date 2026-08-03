@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Fixed
+
+- Bounded each ordinary native title moment to one four-second attempt and reduced the installed PreToolUse and PostToolUse limits to one second.
+
 ## v2.1.3 - 2026-08-02
 
 ### Fixed
