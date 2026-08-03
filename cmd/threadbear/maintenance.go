@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
 	"os"
@@ -14,8 +15,8 @@ const maintenanceAutomationID = "threadbear-maintenance"
 var maintenanceNow = time.Now
 
 type archiveTask struct {
-	ID, Title, RolloutPath string
-	Archived, Visible      bool
+	ID, Title, RolloutPath  string
+	Archived, Visible, User bool
 }
 
 func archiveTasks(ctx context.Context) ([]archiveTask, error) {
@@ -24,7 +25,7 @@ func archiveTasks(ctx context.Context) ([]archiveTask, error) {
 		return nil, err
 	}
 	defer db.Close()
-	rows, err := db.QueryContext(ctx, `SELECT id, COALESCE(name,title,''), COALESCE(rollout_path,''), archived, preview<>''
+	rows, err := db.QueryContext(ctx, `SELECT id, COALESCE(name,title,''), COALESCE(rollout_path,''), COALESCE(archived,0)<>0, COALESCE(preview,'')<>'', 1
 		FROM threads WHERE source IN ('vscode','cli') AND COALESCE(thread_source,'') IN ('','user') ORDER BY id`)
 	if err != nil {
 		return nil, err
@@ -33,7 +34,7 @@ func archiveTasks(ctx context.Context) ([]archiveTask, error) {
 	var tasks []archiveTask
 	for rows.Next() {
 		var task archiveTask
-		if err := rows.Scan(&task.ID, &task.Title, &task.RolloutPath, &task.Archived, &task.Visible); err != nil {
+		if err := rows.Scan(&task.ID, &task.Title, &task.RolloutPath, &task.Archived, &task.Visible, &task.User); err != nil {
 			return nil, err
 		}
 		tasks = append(tasks, task)
@@ -42,20 +43,23 @@ func archiveTasks(ctx context.Context) ([]archiveTask, error) {
 }
 
 func archiveTaskByID(ctx context.Context, id string) (archiveTask, bool, error) {
-	tasks, err := archiveTasks(ctx)
+	db, err := openIndex()
 	if err != nil {
 		return archiveTask{}, false, err
 	}
-	for _, task := range tasks {
-		if task.ID == id {
-			return task, true, nil
-		}
+	defer db.Close()
+	var task archiveTask
+	err = db.QueryRowContext(ctx, `SELECT id, COALESCE(name,title,''), COALESCE(rollout_path,''), COALESCE(archived,0)<>0,
+		COALESCE(preview,'')<>'', COALESCE(source,'') IN ('vscode','cli') AND COALESCE(thread_source,'') IN ('','user')
+		FROM threads WHERE id=?`, id).Scan(&task.ID, &task.Title, &task.RolloutPath, &task.Archived, &task.Visible, &task.User)
+	if errors.Is(err, sql.ErrNoRows) {
+		return archiveTask{}, false, nil
 	}
-	return archiveTask{}, false, nil
+	return task, err == nil, err
 }
 
-func archiveEligibility(task archiveTask, value *state, days int) (string, bool) {
-	if task.Archived || !task.Visible || task.ID == value.MainTaskID || task.ID == value.ControllerTaskID {
+func archiveSnapshot(task archiveTask, value *state) (string, bool) {
+	if !task.User {
 		return "", false
 	}
 	record := value.Tasks[task.ID]
@@ -68,7 +72,16 @@ func archiveEligibility(task archiveTask, value *state, days int) (string, bool)
 	if restored, err := time.Parse(time.RFC3339Nano, record.ArchiveActivity); err == nil && restored.After(activity) {
 		activity = restored
 	}
-	return activity.Format(time.RFC3339Nano), !activity.After(maintenanceNow().UTC().AddDate(0, 0, -days))
+	return activity.Format(time.RFC3339Nano), true
+}
+
+func archiveEligibility(task archiveTask, value *state, days int) (string, bool) {
+	if task.Archived || !task.Visible || task.ID == value.MainTaskID || task.ID == value.ControllerTaskID {
+		return "", false
+	}
+	activity, valid := archiveSnapshot(task, value)
+	parsed, err := time.Parse(time.RFC3339Nano, activity)
+	return activity, valid && err == nil && !parsed.After(maintenanceNow().UTC().AddDate(0, 0, -days))
 }
 
 func maintenance(ctx context.Context, archiveID, restoreID, cancelID string, days int) (any, error) {
@@ -102,6 +115,10 @@ func maintenance(ctx context.Context, archiveID, restoreID, cancelID string, day
 			applied := found && pending.Action == "archive" && task.Archived || found && pending.Action == "restore" && !task.Archived
 			if applied {
 				if pending.Action == "archive" {
+					activity, valid := archiveSnapshot(task, value)
+					if !valid || task.Title != pending.Title || activity != pending.Activity {
+						return changed, errors.New("applied native archive drifted; restore the task before cancelling the pending operation")
+					}
 					value.Archives[pending.TaskID] = true
 				} else {
 					delete(value.Archives, pending.TaskID)

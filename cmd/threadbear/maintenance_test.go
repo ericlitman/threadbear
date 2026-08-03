@@ -20,6 +20,11 @@ func TestMaintenancePlansOnlyInactiveOwnedCompleteUserTasks(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
+	nullPath := addTask(t, db, root, "nulls", "✅ nulls", nil, "vscode", 0)
+	writeMigrationRollout(t, nullPath, "🧵🐻 complete")
+	if _, err := db.Exec(`UPDATE threads SET archived=NULL, preview=NULL WHERE id='nulls'`); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := db.Exec(`UPDATE threads SET archived=1 WHERE id='archived'`); err != nil {
 		t.Fatal(err)
 	}
@@ -132,11 +137,23 @@ func TestMaintenanceRejectsDriftAndUninstallWithPendingArchive(t *testing.T) {
 	if _, err := db.Exec(`UPDATE threads SET name='User rename' WHERE id='target'`); err != nil {
 		t.Fatal(err)
 	}
+	if _, err := db.Exec(`UPDATE threads SET thread_source='subagent' WHERE id='target'`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`UPDATE threads SET archived=1 WHERE id='target'`); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := maintenance(context.Background(), "target", "", "", 14); err == nil {
-		t.Fatal("pending archive accepted title drift")
+		t.Fatal("applied archive accepted title drift")
 	}
 	if _, err := uninstall(context.Background(), true); err == nil {
 		t.Fatal("uninstall accepted pending archive")
+	}
+	if _, err := maintenance(context.Background(), "", "", "target", 14); err == nil {
+		t.Fatal("cancel accepted a still-applied drifted archive")
+	}
+	if _, err := db.Exec(`UPDATE threads SET archived=0 WHERE id='target'`); err != nil {
+		t.Fatal(err)
 	}
 	cancelled, err := maintenance(context.Background(), "", "", "target", 14)
 	if err != nil || cancelled.(map[string]any)["cancelled"] != true {
