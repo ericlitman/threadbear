@@ -5,6 +5,7 @@
 ### Added
 
 - Restored conservative 14-day automatic archiving through one consented hourly Luna heartbeat, deterministic candidate selection, native archive controls, interruption-safe ownership, and ownership-only restore.
+- Restored verified automatic updates through the same heartbeat, with bounded official release selection, checksum and candidate validation, same-version repair, and one version-change announcement.
 
 ## v2.1.7 - 2026-08-03
 

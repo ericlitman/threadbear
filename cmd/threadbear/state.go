@@ -53,7 +53,7 @@ type store struct{ dir string }
 
 func newStore(dir string) store { return store{dir: dir} }
 func (s store) path() string    { return filepath.Join(s.dir, "native.json") }
-func (s store) lock() (*os.File, error) {
+func (s store) openLock(name string, mode int) (*os.File, error) {
 	if err := os.MkdirAll(s.dir, 0o700); err != nil {
 		return nil, err
 	}
@@ -65,19 +65,31 @@ func (s store) lock() (*os.File, error) {
 	if err = unix.Fchmod(dir, 0o700); err != nil {
 		return nil, err
 	}
-	fd, err := unix.Openat(dir, "native.lock", unix.O_CREAT|unix.O_RDWR|unix.O_NOFOLLOW, 0o600)
+	fd, err := unix.Openat(dir, name, unix.O_CREAT|unix.O_RDWR|unix.O_NOFOLLOW, 0o600)
 	if err != nil {
 		return nil, err
 	}
-	f := os.NewFile(uintptr(fd), "native.lock")
+	f := os.NewFile(uintptr(fd), name)
 	info, statErr := f.Stat()
 	if statErr != nil || !info.Mode().IsRegular() {
 		return nil, errors.Join(errors.New("ThreadBear lock is not a regular file"), statErr, f.Close())
 	}
-	if err = errors.Join(unix.Fchmod(fd, 0o600), unix.Flock(fd, unix.LOCK_EX)); err != nil {
+	if err = errors.Join(unix.Fchmod(fd, 0o600), unix.Flock(fd, mode)); err != nil {
 		return nil, errors.Join(err, f.Close())
 	}
 	return f, nil
+}
+func (s store) lock() (*os.File, error) { return s.openLock("native.lock", unix.LOCK_EX) }
+func (s store) operationLock() (*os.File, error) {
+	lock, err := s.openLock("operation.lock", unix.LOCK_EX|unix.LOCK_NB)
+	if errors.Is(err, unix.EWOULDBLOCK) {
+		return nil, errors.New("another maintenance or update operation is already running")
+	}
+	return lock, err
+}
+func unlock(lock *os.File) {
+	_ = unix.Flock(int(lock.Fd()), unix.LOCK_UN)
+	_ = lock.Close()
 }
 func (s store) read() (state, error) {
 	fd, err := unix.Open(s.path(), unix.O_RDONLY|unix.O_NOFOLLOW, 0)

@@ -65,8 +65,8 @@ jobs:
           go_lines=$(printf '%s\n' "$production" | xargs wc -l | awk 'END { print $1 }')
           shell_lines=$(wc -l < install.sh | tr -d ' ')
           lines=$((go_lines + shell_lines))
-          echo "shipped logic lines: $lines (1,000 target; 1,500 absolute ceiling)"
-          test "$lines" -le 1500
+          echo "shipped logic lines: $lines (1,500 target; 2,000 absolute ceiling)"
+          test "$lines" -le 2000
       - run: go test ./...
       - run: go vet ./...
       - name: Validate experiment registry

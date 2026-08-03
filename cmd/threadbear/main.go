@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"github.com/ericlitman/threadbear/assets"
@@ -67,6 +68,8 @@ func run(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io.
 		cancel := flags.String("cancel", "", "cancel one known-unapplied native archive operation")
 		days := flags.Int("archive-after-days", 14, "quiet days before a completed task is eligible")
 		action = func() (any, error) { return maintenance(ctx, *archive, *restore, *cancel, *days) }
+	case "update":
+		action = func() (any, error) { return update(ctx) }
 	case "status":
 		action = func() (any, error) { return status(ctx) }
 	case "self-test":
@@ -87,7 +90,12 @@ func run(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io.
 	}
 	result, err := action()
 	if err != nil {
-		_ = json.NewEncoder(stdout).Encode(map[string]any{"ready": false, "error": err.Error()})
+		failure := map[string]any{"ready": false, "error": err.Error()}
+		var updateErr *updateError
+		if errors.As(err, &updateErr) {
+			failure["stage"] = updateErr.Stage
+		}
+		_ = json.NewEncoder(stdout).Encode(failure)
 		return 1
 	}
 	if json.NewEncoder(stdout).Encode(result) != nil {

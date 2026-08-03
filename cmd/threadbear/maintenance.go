@@ -85,6 +85,11 @@ func archiveEligibility(task archiveTask, value *state, days int) (string, bool)
 }
 
 func maintenance(ctx context.Context, archiveID, restoreID, cancelID string, days int) (any, error) {
+	operationLock, err := newStore(stateDir()).operationLock()
+	if err != nil {
+		return nil, err
+	}
+	defer unlock(operationLock)
 	actions := 0
 	for _, id := range []string{archiveID, restoreID, cancelID} {
 		if id != "" {
@@ -95,7 +100,7 @@ func maintenance(ctx context.Context, archiveID, restoreID, cancelID string, day
 		return nil, errors.New("maintenance requires positive archive days and at most one target action")
 	}
 	result := map[string]any{"ready": true, "automation_id": maintenanceAutomationID, "archive_after_days": days}
-	err := newStore(stateDir()).update(func(value *state) (bool, error) {
+	err = newStore(stateDir()).update(func(value *state) (bool, error) {
 		if value.MainTaskID == "" || value.Phase != phaseMigrationComplete {
 			return false, errors.New("maintenance requires a completed ThreadBear installation")
 		}
