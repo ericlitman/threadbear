@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## v2.1.6 - 2026-08-03
+
 ### Fixed
 
 - Removed visual and computer-control checks from ordinary guided installation, dispatched migration before UI or catalog archaeology, began deterministic title writes before Luna worker discovery, and documented the hook's exact unknown-state marker.
