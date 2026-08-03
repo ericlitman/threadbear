@@ -50,6 +50,12 @@ func TestPublishedInstallGuideMatchesCurrentCLI(t *testing.T) {
 		"Small local footprint: one binary in ~/.local/bin, a skill, and two hooks.",
 		"One persistent thread, 🧵🐻 ThreadBear 🐻🧵, for changing config and uninstalling.",
 		"Deterministic classification first; Luna medium only for ambiguity.",
+		"A small Luna helper checks in hourly, then stays quiet when there is nothing to do.",
+		"Finished tasks can curl up in the archive after 14 quiet days—and come back whenever you need them.",
+		"threadbear-maintenance",
+		"native automation control",
+		"paused hourly heartbeat",
+		"activate the exact owned heartbeat",
 		"--control-task-id",
 		"--noninteractive --confirm --json",
 		"~/.local/bin/threadbear inventory --json",
@@ -185,15 +191,24 @@ func TestPublishedInstallGuideDoesNotRequestConsentAfterFailedChecks(t *testing.
 	}
 }
 
-func TestHomepageDoesNotPromiseRemovedCapabilities(t *testing.T) {
+func TestHomepageMatchesNativeMaintenanceCapabilities(t *testing.T) {
 	data, err := os.ReadFile(filepath.Join("..", "..", "site", "index.html"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	page := string(data)
+	for _, requiredClaim := range []string{
+		"Create a new session in ChatGPT Desktop using Luna on medium effort, and paste this in:",
+		"14 quiet days",
+		"native task control",
+		"never archives active work",
+		"installs no LaunchAgent",
+	} {
+		if !strings.Contains(page, requiredClaim) {
+			t.Errorf("homepage is missing maintenance capability claim %q", requiredClaim)
+		}
+	}
 	for _, removedClaim := range []string{
-		"safely archived",
-		"Only completed inactive tasks can be auto-archived",
 		"ThreadBear can update itself by default",
 		"zero-token idle",
 		"Unchanged heartbeats use zero model tokens",
@@ -201,8 +216,6 @@ func TestHomepageDoesNotPromiseRemovedCapabilities(t *testing.T) {
 		"exits silently",
 		"update-check",
 		"version-change",
-		"LaunchAgent",
-		"heartbeat",
 		"control task",
 	} {
 		if strings.Contains(page, removedClaim) {
@@ -235,7 +248,7 @@ func TestShippedLogicStaysBelowAbsoluteLineCeiling(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	paths = append(paths, filepath.Join(root, "install.sh"), filepath.Join(root, "site", "install.sh"))
+	paths = append(paths, filepath.Join(root, "install.sh"))
 	count := 0
 	for _, path := range paths {
 		if strings.HasSuffix(path, "_test.go") {

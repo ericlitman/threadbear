@@ -61,6 +61,12 @@ func run(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io.
 		phase := flags.String("phase", "", "migration phase: migration_running, migration_complete, or migration_failed")
 		controllerTaskID := flags.String("controller-task-id", "", "ephemeral migration controller task")
 		action = func() (any, error) { return transitionMigration(ctx, *phase, *controllerTaskID) }
+	case "maintenance":
+		archive := flags.String("archive", "", "stage or reconcile one eligible task archive")
+		restore := flags.String("restore", "", "stage or reconcile one ThreadBear-owned restore")
+		cancel := flags.String("cancel", "", "cancel one known-unapplied native archive operation")
+		days := flags.Int("archive-after-days", 14, "quiet days before a completed task is eligible")
+		action = func() (any, error) { return maintenance(ctx, *archive, *restore, *cancel, *days) }
 	case "status":
 		action = func() (any, error) { return status(ctx) }
 	case "self-test":
