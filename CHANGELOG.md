@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## v2.2.0 - 2026-08-03
+
 ### Added
 
 - Restored conservative 14-day automatic archiving through one consented hourly Luna heartbeat, deterministic candidate selection, native archive controls, interruption-safe ownership, and ownership-only restore.
