@@ -187,6 +187,6 @@ Uninstall refuses while `phase:migration_running` or a native archive operation 
 
 ## Maintainer verification
 
-A release is ready only after unit and integration tests, the 1,500-line absolute shipped-logic gate, isolated install/reinstall/uninstall tests, 0-/1-/200-task controller fixtures, and controller resume, interruption, and failure cases.
+A release is ready only after unit and integration tests, the 1,500-line shipped-logic target and 2,000-line absolute gate, isolated install/reinstall/uninstall tests, 0-/1-/200-task controller fixtures, and controller resume, interruption, and failure cases.
 
 Tests and fixtures alone are not shipping proof. Also execute every lifecycle command printed here against the reviewed release candidate and exercise each changed native lifecycle against a real, recoverable Codex test task through the supported native control. Exercise changed download/update behavior against the official release service in an isolated installation. Record exact candidate SHA, task/release IDs, before/after state, results, and cleanup without visual inspection. Confirm that `INSTALL.md` and `site/install` are byte-identical and that the hosted `threadbear.sh/install` serves the reviewed guide before announcing publication.

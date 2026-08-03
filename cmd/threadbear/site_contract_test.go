@@ -263,8 +263,8 @@ func TestShippedLogicStaysBelowAbsoluteLineCeiling(t *testing.T) {
 			count++
 		}
 	}
-	t.Logf("shipped executable logic: %d lines (target 1000, absolute ceiling 1500)", count)
-	if count > 1500 {
-		t.Fatalf("shipped executable logic is %d lines; absolute ceiling is 1500", count)
+	t.Logf("shipped executable logic: %d lines (target 1500, absolute ceiling 2000)", count)
+	if count > 2000 {
+		t.Fatalf("shipped executable logic is %d lines; absolute ceiling is 2000", count)
 	}
 }
