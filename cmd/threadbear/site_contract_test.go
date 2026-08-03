@@ -60,6 +60,11 @@ func TestPublishedInstallGuideMatchesCurrentCLI(t *testing.T) {
 		"exactly one background migration-controller task",
 		"codex_app__set_thread_title",
 		"codex_app__set_thread_pinned",
+		"do not use visual inspection, computer control, screenshots, or Codex `/hooks`",
+		"dispatch it within 60 seconds of consent",
+		"first title mutation issued within 60 seconds of controller start and within 15 seconds of the inventory result",
+		"fixed `codex_app__create_thread` surface with Luna medium",
+		"❔ ThreadBear could not classify",
 		"Do not open, select, or navigate to it.",
 		"adaptive waves of fresh read-only Luna-medium workers",
 		"Every successful worker handle is recorded and awaited",
@@ -79,6 +84,9 @@ func TestPublishedInstallGuideMatchesCurrentCLI(t *testing.T) {
 	if strings.Contains(text, "foreground migration") {
 		t.Error("published install guide still assigns migration to the persistent task")
 	}
+	if strings.Contains(text, "Use Codex `/hooks` to inspect") {
+		t.Error("published install guide still asks end users to inspect Codex hooks")
+	}
 	for _, debugOnly := range []string{"canary", "--debug-canaries", "genuinely fresh Codex Desktop task"} {
 		if strings.Contains(strings.ToLower(text), strings.ToLower(debugOnly)) {
 			t.Errorf("published install guide discloses debug-only verification %q", debugOnly)
@@ -94,6 +102,12 @@ func TestInstalledSkillDefinesAdaptiveMigrationWaves(t *testing.T) {
 	protocol := string(data)
 
 	for _, required := range []string{
+		"never use visual inspection, computer control, screenshots, or Codex `/hooks`",
+		"dispatch it within 60 seconds of consent",
+		"first stable batch of at most 25",
+		"within 15 seconds of the inventory result",
+		"`codex_app__create_thread` using `model:\"gpt-5.6-luna\"`, `thinking:\"medium\"`",
+		"Do not inspect or compare alternative agent surfaces at runtime.",
 		"stable batches of at most 20 tasks",
 		"adaptive waves of fresh, read-only Luna-medium workers",
 		"After every successful spawn, immediately record its exact handle and assigned task IDs",
@@ -110,6 +124,17 @@ func TestInstalledSkillDefinesAdaptiveMigrationWaves(t *testing.T) {
 		if !strings.Contains(protocol, required) {
 			t.Errorf("installed skill is missing adaptive migration invariant %q", required)
 		}
+	}
+	if !strings.Contains(protocol, "`"+unknownMarker+"`") {
+		t.Errorf("installed skill does not name the hook-accepted unknown marker %q", unknownMarker)
+	}
+	if strings.Contains(protocol, "Use Codex `/hooks` to inspect") {
+		t.Error("installed skill still asks end users to inspect Codex hooks")
+	}
+	firstBatch := strings.Index(protocol, "first stable batch of at most 25")
+	workerSurface := strings.Index(protocol, "`codex_app__create_thread` using")
+	if firstBatch < 0 || workerSurface < 0 || firstBatch > workerSurface {
+		t.Error("installed skill does not put prompt deterministic progress before Luna worker creation")
 	}
 }
 
