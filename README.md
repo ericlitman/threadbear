@@ -32,7 +32,7 @@ threadbear uninstall
 threadbear version
 ```
 
-Every command accepts `--json`. `inventory` is read-only and includes every native-addressable unarchived Desktop or CLI task, including projectless tasks, excluding the persisted main and controller tasks. Rollout-only internal records that Codex's native title setter cannot rename are excluded. `status` reports `ready:true` only after `migration_complete`; the installed binary's `help` output is authoritative.
+Every command accepts `--json`. `inventory` is read-only and includes every native-addressable unarchived local Codex Desktop or CLI task, including projectless tasks, excluding the persisted main and controller tasks. Rollout-only internal records and older signed-in ChatGPT chat-history rows that Codex's native title setter cannot enumerate or rename are excluded. Those chat-history rows may remain unchanged in the Desktop sidebar even after local migration completes. `status` reports `ready:true` only after `migration_complete`; the installed binary's `help` output is authoritative.
 
 From the persistent ThreadBear task, ask to “strip title icons” at any time. The control task serially removes all leading ThreadBear status marks through the same native setter and exact Pre/Post verification used by ordinary turns. Guided uninstall always completes that cleanup before removing ThreadBear's local state and hooks.
 

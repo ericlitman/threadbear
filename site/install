@@ -16,7 +16,7 @@ Open with this complete orientation before running a command:
 >
 > ThreadBear keeps Codex Desktop task titles useful with a running mark while work is underway and a clear outcome when each response finishes. It uses two native title calls per ordinary turn and two small deterministic hooks.
 >
-> I'll check this Mac, show you exactly what will change, and answer questions before installing anything. After you consent, I'll install it and update existing titles without taking you away from this ThreadBear task.
+> I'll check this Mac, show you exactly what will change, and answer questions before installing anything. After you consent, I'll install it and update native-addressable local Codex task titles without taking you away from this ThreadBear task. Older signed-in ChatGPT chat-history rows are outside Codex's current task-title API and will stay unchanged.
 
 Codex collapses commentary after a turn finishes. The welcome may appear there while checks run, but commentary copies do not satisfy this contract. Every terminal final answer in this first turn must be self-contained. If every check and the dry run succeeds, `phase: final_answer` must include the complete orientation above, the readiness sentence, the full recommendation card, and the consent question. Do not end a successful turn with only the consent question. If any check fails, keep the complete orientation and truthful failure visible in `phase: final_answer`; do not claim readiness, show the recommendation card, or ask for consent.
 
@@ -64,7 +64,7 @@ Only after every check and the dry run succeeds, compose one terminal final answ
 
 > ## Recommended setup
 >
-> - Status icon in each thread's title.
+> - Status icon in each native-addressable local Codex task title.
 > - Next action added to the thread title → like this.
 > - Codex limits title length limited to 60 UTF-16 units, so I'll truncate as needed.
 > - Small local footprint: one binary in ~/.local/bin, a skill, and two hooks.
@@ -104,13 +104,15 @@ Then verify the installed surfaces:
 
 The install result must show `installed:true`, the exact `main_task_id`, and `phase:migration_pending` unless a prior migration state is being preserved. Pending means the background controller has not started; it is never described as running. `ready:true` means `migration_complete`, not merely that artifacts were written. Do not claim the hooks work merely because files were written.
 
+Inventory and migration cover local Codex Desktop and CLI tasks that the native explicit-target title setter can address. They do not enumerate or rename older signed-in ChatGPT chat-history rows that may also appear in the Desktop sidebar. Disclose that boundary before migration and never describe zero local inventory rows as proof that every visible sidebar row changed.
+
 ## 4. Migrate without leaving this task
 
 Read `~/.codex/skills/threadbear/SKILL.md` and follow its **Install** and **Migration controller** sections. The installed skill is the canonical operation guide.
 
 Before migration, tell the user:
 
-> ThreadBear will stay selected while one background controller updates existing titles. This usually takes several minutes, and a large or ambiguous history can take longer. `migration_running` means the controller is actively working; I'll report every 25 applied titles or phase change and won't finish this installation turn until it reaches `migration_complete` or `migration_failed`.
+> ThreadBear will stay selected while one background controller updates native-addressable local Codex task titles. Older signed-in ChatGPT chat-history rows are outside Codex's current task-title API and will stay unchanged. This usually takes several minutes, and a large or ambiguous local history can take longer. `migration_running` means the controller is actively working; I'll report every 25 applied titles or phase change and won't finish this installation turn until it reaches `migration_complete` or `migration_failed`.
 
 Before any bulk work, use `codex_app__set_thread_title` to set the initiating task to exactly `🧵🐻 ThreadBear 🐻🧵`, use `codex_app__set_thread_pinned` to pin it, and keep this task selected. For an ordinary guided installation, do not use visual inspection, computer control, screenshots, or Codex `/hooks`, and do not ask the user to do so. The candidate self-test, installed `self-test --json`, and read-only ThreadBear inventory are the installation gate; visual hook verification is outside this ordinary installation flow.
 
@@ -134,7 +136,7 @@ Only after that command succeeds may the controller archive itself. A stopped co
 
 Keep this ThreadBear task selected and supervise the controller with compact task waits. Report only each 25-title milestone or phase change. When the controller returns, run `status --json` and `inventory --json`. `migration_pending` always means no controller was recorded; status repairs an older running-without-controller state to pending. `migration_running` always names the active controller. Status reconciles a missing controller or a terminal lifecycle event from the current attempt from stale `migration_running` to `migration_failed`; it never infers failure from age, slow progress, or a prior attempt's terminal event. If the controller or this turn is interrupted, begin the next turn with status so the durable phase is truthful.
 
-Do not send a final installation answer while status still says `migration_pending` or `migration_running`. At `migration_pending`, say that migration has not started and nothing is running, then give the exact start action. At `migration_failed`, say plainly that migration stopped and is not still working, give the applied and remaining counts, name the cause, and give one exact resume action. At `migration_complete`, require zero remaining rows before closing.
+Do not send a final installation answer while status still says `migration_pending` or `migration_running`. At `migration_pending`, say that migration has not started and nothing is running, then give the exact start action. At `migration_failed`, say plainly that migration stopped and is not still working, give the applied and remaining counts, name the cause, and give one exact resume action. At `migration_complete`, require zero remaining native-addressable local rows before closing and repeat that older signed-in ChatGPT chat-history rows were not part of the migration.
 
 ## 5. Close precisely
 
@@ -142,7 +144,7 @@ On complete success, use this shape in natural prose:
 
 > ## ThreadBear is installed
 >
-> Everything passed: ThreadBear VERSION is installed, its managed guidance and two hooks are healthy, this task is its persistent home, and the migration controller completed with zero remaining titles.
+> Everything passed: ThreadBear VERSION is installed, its managed guidance and two hooks are healthy, this task is its persistent home, and the migration controller completed with zero remaining native-addressable local Codex task titles. Older signed-in ChatGPT chat-history rows were outside this migration and may remain unchanged in the sidebar.
 >
 > From here, you can ask “how are you?”, “what tasks do you see?”, or “uninstall ThreadBear.”
 
@@ -165,7 +167,7 @@ The installed binary's help is the authoritative public command list.
 
 Read the installed skill's **Title cleanup** and **Uninstall** sections. Run status and inventory, then ask:
 
-> Want me to uninstall ThreadBear? I'll tidy the ThreadBear icons from your task titles, remove ThreadBear's local files and two hooks, and leave your tasks and other Codex settings alone. When it's done, I'll ask you to restart Codex.
+> Want me to uninstall ThreadBear? I'll tidy the ThreadBear icons from native-addressable local Codex task titles, remove ThreadBear's local files and two hooks, and leave your tasks and other Codex settings alone. Older signed-in ChatGPT chat-history rows are outside this cleanup. When it's done, I'll ask you to restart Codex.
 >
 > Should I go ahead?
 
