@@ -44,7 +44,7 @@ func TestPublishedInstallGuideMatchesCurrentCLI(t *testing.T) {
 	for _, required := range []string{
 		"## Hi. Let's install ThreadBear.",
 		"## Recommended setup",
-		"Status icon in each thread's title.",
+		"Status icon in each native-addressable local Codex task title.",
 		"Next action added to the thread title → like this.",
 		"Codex limits title length limited to 60 UTF-16 units, so I'll truncate as needed.",
 		"Small local footprint: one binary in ~/.local/bin, a skill, and two hooks.",
@@ -61,6 +61,8 @@ func TestPublishedInstallGuideMatchesCurrentCLI(t *testing.T) {
 		"codex_app__set_thread_title",
 		"codex_app__set_thread_pinned",
 		"do not use visual inspection, computer control, screenshots, or Codex `/hooks`",
+		"Older signed-in ChatGPT chat-history rows are outside Codex's current task-title API and will stay unchanged.",
+		"never describe zero local inventory rows as proof that every visible sidebar row changed",
 		"dispatch it within 60 seconds of consent",
 		"first title mutation issued within 60 seconds of controller start and within 15 seconds of the inventory result",
 		"fixed `codex_app__create_thread` surface with Luna medium",
