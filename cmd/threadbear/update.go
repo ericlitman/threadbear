@@ -28,6 +28,7 @@ var (
 	updateGOOS             = runtime.GOOS
 	updateGOARCH           = runtime.GOARCH
 	updateBinaryLimit      = int64(64 << 20)
+	updateVersionTimeout   = 30 * time.Second
 	updateCandidateTimeout = 30 * time.Second
 	updateInstallTimeout   = 2 * time.Minute
 )
@@ -132,7 +133,7 @@ func update(ctx context.Context) (any, error) {
 	if err := writeAtomic(candidate, binary, 0o700); err != nil {
 		return nil, updateFailure("candidate_write", err)
 	}
-	if err := requireCandidate(ctx, candidate, updateCandidateTimeout, "version", manifest.Version, "version", "--json"); err != nil {
+	if err := requireCandidate(ctx, candidate, updateVersionTimeout, "version", manifest.Version, "version", "--json"); err != nil {
 		return nil, updateFailure("candidate_version", err)
 	}
 	if err := requireCandidate(ctx, candidate, updateCandidateTimeout, "self-test", manifest.Version, "self-test", "--candidate", "--json"); err != nil {

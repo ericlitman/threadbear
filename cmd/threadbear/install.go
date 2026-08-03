@@ -106,6 +106,11 @@ func uninstall(ctx context.Context, confirmed bool) (any, error) {
 	if !confirmed {
 		return nil, errors.New("uninstall requires --noninteractive --confirm")
 	}
+	operationLock, err := newStore(stateDir()).blockingOperationLock()
+	if err != nil {
+		return nil, err
+	}
+	defer unlock(operationLock)
 	value, err := currentStateOrEmpty()
 	if err != nil {
 		return nil, err

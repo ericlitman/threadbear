@@ -53,9 +53,11 @@ type store struct{ dir string }
 
 func newStore(dir string) store { return store{dir: dir} }
 func (s store) path() string    { return filepath.Join(s.dir, "native.json") }
-func (s store) openLock(name string, mode int) (*os.File, error) {
-	if err := os.MkdirAll(s.dir, 0o700); err != nil {
-		return nil, err
+func (s store) openLock(name string, mode int, createDir bool) (*os.File, error) {
+	if createDir {
+		if err := os.MkdirAll(s.dir, 0o700); err != nil {
+			return nil, err
+		}
 	}
 	dir, err := unix.Open(s.dir, unix.O_RDONLY|unix.O_DIRECTORY|unix.O_NOFOLLOW, 0)
 	if err != nil {
@@ -79,13 +81,16 @@ func (s store) openLock(name string, mode int) (*os.File, error) {
 	}
 	return f, nil
 }
-func (s store) lock() (*os.File, error) { return s.openLock("native.lock", unix.LOCK_EX) }
+func (s store) lock() (*os.File, error) { return s.openLock("native.lock", unix.LOCK_EX, true) }
 func (s store) operationLock() (*os.File, error) {
-	lock, err := s.openLock("operation.lock", unix.LOCK_EX|unix.LOCK_NB)
+	lock, err := s.openLock("operation.lock", unix.LOCK_EX|unix.LOCK_NB, false)
 	if errors.Is(err, unix.EWOULDBLOCK) {
 		return nil, errors.New("another maintenance or update operation is already running")
 	}
 	return lock, err
+}
+func (s store) blockingOperationLock() (*os.File, error) {
+	return s.openLock("operation.lock", unix.LOCK_EX, true)
 }
 func unlock(lock *os.File) {
 	_ = unix.Flock(int(lock.Fd()), unix.LOCK_UN)

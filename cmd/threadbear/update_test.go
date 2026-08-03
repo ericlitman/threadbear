@@ -238,14 +238,14 @@ func startUpdateFixture(t *testing.T, options updateFixtureOptions) *updateFixtu
 	t.Cleanup(fixture.server.Close)
 	oldBase, oldManifest, oldClient := updateReleaseBase, updateManifestURL, updateClient
 	oldGOOS, oldGOARCH := updateGOOS, updateGOARCH
-	oldLimit, oldCandidateTimeout, oldInstallTimeout := updateBinaryLimit, updateCandidateTimeout, updateInstallTimeout
+	oldLimit, oldVersionTimeout, oldCandidateTimeout, oldInstallTimeout := updateBinaryLimit, updateVersionTimeout, updateCandidateTimeout, updateInstallTimeout
 	updateReleaseBase, updateManifestURL, updateClient = fixture.base, fixture.base+"/latest/download/latest.json", fixture.server.Client()
 	updateGOOS, updateGOARCH = "darwin", "arm64"
-	updateBinaryLimit, updateCandidateTimeout, updateInstallTimeout = 64<<20, 2*time.Second, 2*time.Second
+	updateBinaryLimit, updateVersionTimeout, updateCandidateTimeout, updateInstallTimeout = 64<<20, 2*time.Second, 2*time.Second, 2*time.Second
 	t.Cleanup(func() {
 		updateReleaseBase, updateManifestURL, updateClient = oldBase, oldManifest, oldClient
 		updateGOOS, updateGOARCH = oldGOOS, oldGOARCH
-		updateBinaryLimit, updateCandidateTimeout, updateInstallTimeout = oldLimit, oldCandidateTimeout, oldInstallTimeout
+		updateBinaryLimit, updateVersionTimeout, updateCandidateTimeout, updateInstallTimeout = oldLimit, oldVersionTimeout, oldCandidateTimeout, oldInstallTimeout
 	})
 	return fixture
 }
