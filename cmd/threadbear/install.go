@@ -29,7 +29,7 @@ func stateDir() string { return filepath.Join(homeDir(), ".local", "share", "thr
 func installPaths() lifecyclePaths {
 	return lifecyclePaths{filepath.Join(homeDir(), ".local/bin/threadbear"), filepath.Join(codexHome(), "AGENTS.md"), filepath.Join(codexHome(), "skills/threadbear/SKILL.md"), filepath.Join(codexHome(), "hooks.json")}
 }
-func install(controlTaskID string, dry, confirmed bool) (any, error) {
+func install(controlTaskID string, dry, confirmed, debugCanaries bool) (any, error) {
 	controlTaskID = strings.TrimSpace(controlTaskID)
 	value, err := currentStateOrEmpty()
 	if err != nil {
@@ -51,7 +51,15 @@ func install(controlTaskID string, dry, confirmed bool) (any, error) {
 		return nil, err
 	}
 	if dry {
-		return map[string]any{"ready": true, "dry_run": true, "main_task_id": mainTaskID, "phase": value.Phase, "controller_task_id": value.ControllerTaskID, "controller_required": value.Phase != phaseMigrationComplete && value.ControllerTaskID == ""}, nil
+		phase := value.Phase
+		if phase == "" {
+			phase = phaseMigrationPending
+		}
+		result := map[string]any{"ready": true, "dry_run": true, "main_task_id": mainTaskID, "phase": phase, "controller_task_id": value.ControllerTaskID, "controller_required": phase == phaseMigrationPending}
+		if debugCanaries {
+			result["debug_canaries"] = true
+		}
+		return result, nil
 	}
 	if !confirmed {
 		return nil, errors.New("install requires --noninteractive --confirm after its preview")
@@ -63,7 +71,7 @@ func install(controlTaskID string, dry, confirmed bool) (any, error) {
 		}
 		saved.MainTaskID = mainTaskID
 		if saved.Phase == "" {
-			saved.Phase, changed = phaseMigrationRunning, true
+			saved.Phase, changed = phaseMigrationPending, true
 		}
 		value = *saved
 		return changed, nil
@@ -88,7 +96,11 @@ func install(controlTaskID string, dry, confirmed bool) (any, error) {
 	if err == nil && write {
 		err = writeAtomic(p.hooks, hooks, 0o600)
 	}
-	return map[string]any{"ready": err == nil && value.Phase == phaseMigrationComplete, "installed": err == nil, "main_task_id": value.MainTaskID, "controller_task_id": value.ControllerTaskID, "phase": value.Phase, "controller_required": err == nil && value.Phase == phaseMigrationRunning && value.ControllerTaskID == ""}, err
+	result := map[string]any{"ready": err == nil && value.Phase == phaseMigrationComplete, "installed": err == nil, "main_task_id": value.MainTaskID, "controller_task_id": value.ControllerTaskID, "phase": value.Phase, "controller_required": err == nil && value.Phase == phaseMigrationPending}
+	if debugCanaries {
+		result["debug_canaries"] = true
+	}
+	return result, err
 }
 func uninstall(ctx context.Context, confirmed bool) (any, error) {
 	if !confirmed {
@@ -134,7 +146,7 @@ func uninstall(ctx context.Context, confirmed bool) (any, error) {
 	}
 	return map[string]any{"ready": err == nil, "uninstalled": err == nil}, err
 }
-func status() (any, error) {
+func status(ctx context.Context) (any, error) {
 	p := installPaths()
 	_, changed, err := editHooks(p.hooks, p.binary, true)
 	if err == nil && changed {
@@ -145,9 +157,16 @@ func status() (any, error) {
 			_, err = os.Stat(path)
 		}
 	}
-	value, stateErr := newStore(stateDir()).read()
+	value, stateErr := reconcileMigration(ctx)
 	err = errors.Join(err, validateFile(p.skill, assets.SkillManagedContent), validateFile(p.agents, managedBlock()), stateErr)
-	return map[string]any{"ready": err == nil && value.Phase == phaseMigrationComplete && value.MainTaskID != "", "installed": err == nil, "version": version, "phase": value.Phase, "main_task_id": value.MainTaskID, "controller_task_id": value.ControllerTaskID}, err
+	result := map[string]any{"ready": err == nil && value.Phase == phaseMigrationComplete && value.MainTaskID != "", "installed": err == nil, "version": version, "phase": value.Phase, "main_task_id": value.MainTaskID, "controller_task_id": value.ControllerTaskID}
+	if value.MigrationFailure != "" {
+		result["migration_failure"] = value.MigrationFailure
+		result["next_action"] = "resume migration from the ThreadBear task"
+	} else if value.Phase == phaseMigrationPending {
+		result["next_action"] = "start migration from the ThreadBear task"
+	}
+	return result, err
 }
 func selfTest() (any, error) {
 	if runtime.GOOS != "darwin" || assets.AgentsManagedContent == "" || assets.SkillManagedContent == "" || version == "" {

@@ -59,7 +59,7 @@ func TestMigrationControllerRequiresAppliedFinalConvergence(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.(map[string]any)["remaining"] != 0 {
+	if result.(map[string]any)["ready"] != true || result.(map[string]any)["remaining"] != 0 {
 		t.Fatalf("completion result = %#v", result)
 	}
 	value, err := newStore(stateDir()).read()
@@ -68,26 +68,74 @@ func TestMigrationControllerRequiresAppliedFinalConvergence(t *testing.T) {
 	}
 }
 
+func TestMigrationReadinessRequiresCompletePhase(t *testing.T) {
+	root, db := testIndex(t)
+	addTask(t, db, root, "main", "ThreadBear", nil, "vscode", 0)
+	addTask(t, db, root, "controller", "Migration controller", nil, "vscode", 0)
+	if err := newStore(stateDir()).update(func(value *state) (bool, error) {
+		value.MainTaskID = "main"
+		return true, nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	for _, phase := range []string{phaseMigrationRunning, phaseMigrationFailed, phaseMigrationRunning} {
+		result, err := transitionMigration(context.Background(), phase, "controller")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := result.(map[string]any); got["ready"] != false || got["recorded"] != true {
+			t.Fatalf("%s result = %#v", phase, got)
+		}
+	}
+	value, err := newStore(stateDir()).read()
+	if err != nil || value.MigrationStarted == "" || value.MigrationFailure != "" {
+		t.Fatalf("resumed state = %#v, %v", value, err)
+	}
+}
+
 func TestInstallMainTaskIdentityIsSticky(t *testing.T) {
 	isolatedLifecycle(t)
-	if _, err := install("main", false, true); err != nil {
+	if _, err := install("main", false, true, false); err != nil {
 		t.Fatal(err)
 	}
 	value, err := newStore(stateDir()).read()
-	if err != nil || value.MainTaskID != "main" || value.Phase != phaseMigrationRunning {
+	if err != nil || value.MainTaskID != "main" || value.Phase != phaseMigrationPending {
 		t.Fatalf("initial identity = %#v, %v", value, err)
 	}
-	if _, err := install("", false, true); err != nil {
+	if _, err := install("", false, true, false); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := install("other", false, true); err == nil {
+	if _, err := install("other", false, true, false); err == nil {
 		t.Fatal("reinstall replaced the persisted main task")
+	}
+}
+
+func TestFreshInstallIsPendingUntilControllerIsRecorded(t *testing.T) {
+	isolatedLifecycle(t)
+	result, err := install("main", false, true, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := result.(map[string]any)
+	if got["phase"] != phaseMigrationPending || got["controller_required"] != true || got["ready"] != false {
+		t.Fatalf("install result = %#v", got)
+	}
+	statusResult, err := status(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	statusGot := statusResult.(map[string]any)
+	if statusGot["phase"] != phaseMigrationPending || statusGot["next_action"] != "start migration from the ThreadBear task" {
+		t.Fatalf("status result = %#v", statusGot)
 	}
 }
 
 func TestUninstallRefusesActiveMigration(t *testing.T) {
 	p := isolatedLifecycle(t)
-	if _, err := install("main", false, true); err != nil {
+	if _, err := install("main", false, true, false); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := transitionMigration(context.Background(), phaseMigrationRunning, "controller"); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := uninstall(context.Background(), true); err == nil {
@@ -98,11 +146,38 @@ func TestUninstallRefusesActiveMigration(t *testing.T) {
 	}
 }
 
+func TestStatusReconcilesStoppedMigration(t *testing.T) {
+	root, db := testIndex(t)
+	addTask(t, db, root, "main", "ThreadBear", nil, "vscode", 0)
+	controller := addTask(t, db, root, "controller", "Migration controller", nil, "vscode", 0)
+	if _, err := install("main", false, true, false); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := transitionMigration(context.Background(), phaseMigrationRunning, "controller"); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(controller, []byte(
+		lifecycleLine("task_started", "2099-12-31T23:59:59Z")+
+			lifecycleLine("task_complete", "2100-01-01T00:00:00Z"),
+	), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := status(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := result.(map[string]any)
+	if got["phase"] != phaseMigrationFailed || got["migration_failure"] != failureControllerInactive || got["next_action"] != "resume migration from the ThreadBear task" {
+		t.Fatalf("status result = %#v", got)
+	}
+}
+
 func TestUninstallRefusesDecoratedActiveTitles(t *testing.T) {
 	root, db := testIndex(t)
 	p := installPaths()
 	addTask(t, db, root, "target", "✅ ✅ Target", nil, "vscode", 0)
-	if _, err := install("main", false, true); err != nil {
+	if _, err := install("main", false, true, false); err != nil {
 		t.Fatal(err)
 	}
 	if err := newStore(stateDir()).update(func(value *state) (bool, error) {

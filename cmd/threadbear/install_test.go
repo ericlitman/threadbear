@@ -21,7 +21,7 @@ func TestInstallReinstallAndUninstallPreserveForeignHooks(t *testing.T) {
 	preB := json.RawMessage(`{"hooks":[{"command":"b","timeout":99,"type":"command"}]}`)
 	postA := json.RawMessage(`{"matcher":"","hooks":[{"type":"command","command":"c"}]}`)
 	writeHookFixture(t, p.hooks, preA, preB, postA)
-	if _, err := install("installer", false, true); err != nil {
+	if _, err := install("installer", false, true, false); err != nil {
 		t.Fatal(err)
 	}
 	assertHookOrder(t, p.hooks, "PreToolUse", []json.RawMessage{preA, preB}, p.binary)
@@ -31,7 +31,7 @@ func TestInstallReinstallAndUninstallPreserveForeignHooks(t *testing.T) {
 		t.Fatalf("installed skill lost YAML frontmatter: %q", skill)
 	}
 	firstHooks, _ := os.ReadFile(p.hooks)
-	if _, err := status(); err != nil {
+	if _, err := status(context.Background()); err != nil {
 		t.Fatalf("installed status: %v", err)
 	}
 	if err := manageBlock(p.agents, ""); err != nil {
@@ -41,7 +41,7 @@ func TestInstallReinstallAndUninstallPreserveForeignHooks(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if _, err := install("installer", false, true); err != nil {
+	if _, err := install("installer", false, true, false); err != nil {
 		t.Fatal(err)
 	}
 	secondHooks, _ := os.ReadFile(p.hooks)
@@ -75,10 +75,10 @@ func TestInstallReinstallAndUninstallPreserveForeignHooks(t *testing.T) {
 
 func TestInstallDryRunAndConfirmationDoNotMutate(t *testing.T) {
 	p := isolatedLifecycle(t)
-	if _, err := install("installer", true, false); err != nil {
+	if _, err := install("installer", true, false, false); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := install("installer", false, false); err == nil {
+	if _, err := install("installer", false, false, false); err == nil {
 		t.Fatal("unconfirmed install succeeded")
 	}
 	for _, path := range []string{p.binary, p.agents, p.skill, p.hooks, stateDir()} {
@@ -88,9 +88,27 @@ func TestInstallDryRunAndConfirmationDoNotMutate(t *testing.T) {
 	}
 }
 
+func TestInstallDebugCanariesAreExplicitOptIn(t *testing.T) {
+	isolatedLifecycle(t)
+	ordinary, err := install("installer", true, false, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := ordinary.(map[string]any)["debug_canaries"]; ok {
+		t.Fatal("ordinary install result disclosed debug canaries")
+	}
+	debug, err := install("installer", true, false, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if debug.(map[string]any)["debug_canaries"] != true {
+		t.Fatalf("debug install result = %#v", debug)
+	}
+}
+
 func TestStatusRejectsModifiedManagedGuidance(t *testing.T) {
 	p := isolatedLifecycle(t)
-	if _, err := install("main", false, true); err != nil {
+	if _, err := install("main", false, true, false); err != nil {
 		t.Fatal(err)
 	}
 	agents, _ := os.ReadFile(p.agents)
@@ -103,7 +121,7 @@ func TestStatusRejectsModifiedManagedGuidance(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			change()
-			if _, err := status(); err == nil {
+			if _, err := status(context.Background()); err == nil {
 				t.Fatalf("status accepted modified %s", name)
 			}
 			mustWrite(t, p.agents, string(agents))
@@ -116,7 +134,7 @@ func TestMalformedHooksFailBeforeLifecycleMutation(t *testing.T) {
 	p := isolatedLifecycle(t)
 	malformed := []byte(`{"hooks":{"PreToolUse":{"not":"an array"}}}`)
 	mustWrite(t, p.hooks, string(malformed))
-	if _, err := install("installer", false, true); err == nil {
+	if _, err := install("installer", false, true, false); err == nil {
 		t.Fatal("install accepted wrong-shaped hooks")
 	}
 	got, _ := os.ReadFile(p.hooks)
@@ -184,13 +202,13 @@ func TestInstallUpgradesOwnedHookTimeoutAndUninstallRemovesVariants(t *testing.T
 	data, _ := json.MarshalIndent(fixture, "", "  ")
 	mustWrite(t, p.hooks, string(data))
 
-	if _, err := install("installer", false, true); err != nil {
+	if _, err := install("installer", false, true, false); err != nil {
 		t.Fatal(err)
 	}
 	assertHookOrder(t, p.hooks, "PreToolUse", []json.RawMessage{foreignPreA, foreignPreB, foreignPreC}, p.binary)
 	assertHookOrder(t, p.hooks, "PostToolUse", []json.RawMessage{foreignPost}, p.binary)
 	installed, _ := os.ReadFile(p.hooks)
-	if _, err := install("installer", false, true); err != nil {
+	if _, err := install("installer", false, true, false); err != nil {
 		t.Fatal(err)
 	}
 	reinstalled, _ := os.ReadFile(p.hooks)

@@ -16,7 +16,7 @@ Open with this complete orientation before running a command:
 >
 > ThreadBear keeps Codex Desktop task titles useful with a running mark while work is underway and a clear outcome when each response finishes. It uses two native title calls per ordinary turn and two small deterministic hooks.
 >
-> I'll check this Mac, show you exactly what will change, and answer questions before installing anything. Then I'll prove the result in a genuinely fresh Codex task and update existing titles only after you consent.
+> I'll check this Mac, show you exactly what will change, and answer questions before installing anything. After you consent, I'll install it and update existing titles without taking you away from this ThreadBear task.
 
 Codex collapses commentary after a turn finishes. The welcome may appear there while checks run, but commentary copies do not satisfy this contract. Every terminal final answer in this first turn must be self-contained. If every check and the dry run succeeds, `phase: final_answer` must include the complete orientation above, the readiness sentence, the full recommendation card, and the consent question. Do not end a successful turn with only the consent question. If any check fails, keep the complete orientation and truthful failure visible in `phase: final_answer`; do not claim readiness, show the recommendation card, or ask for consent.
 
@@ -64,13 +64,12 @@ Only after every check and the dry run succeeds, compose one terminal final answ
 
 > ## Recommended setup
 >
-> - **Useful per-turn titles.** Each ordinary turn starts with a native running title and ends with a native title that matches its exact ThreadBear footer.
-> - **Stable subjects.** ThreadBear preserves the user-owned task subject, adopts later user renames, and bounds visible titles to 60 UTF-16 units.
-> - **Small local footprint.** One standalone Go binary, one private state file, managed guidance, and two deterministic Codex hooks.
-> - **One persistent home and one controller.** The initiating task becomes `🧵🐻 ThreadBear 🐻🧵`; after the fresh-task canary it starts exactly one ephemeral migration controller and returns promptly.
-> - **Deterministic first.** Exact historical footers are classified locally. Luna medium is reserved for genuinely ambiguous legacy history, with at most eight read-only workers; workers never write titles.
-> - **Honest migration status.** Installation reports `migration_running` until the controller's native writes and final inventory prove every task applied; failures remain visible and resumable.
-> - **Honest cleanup.** Uninstall strips leading ThreadBear status icons from active titles through verified native calls before removing its local artifacts; the same cleanup is available on demand from the persistent ThreadBear task.
+> - Status icon in each thread's title.
+> - Next action added to the thread title → like this.
+> - Codex limits title length limited to 60 UTF-16 units, so I'll truncate as needed.
+> - Small local footprint: one binary in ~/.local/bin, a skill, and two hooks.
+> - One persistent thread, 🧵🐻 ThreadBear 🐻🧵, for changing config and uninstalling.
+> - Deterministic classification first; Luna medium only for ambiguity.
 >
 > Install ThreadBear with this recommended setup?
 
@@ -103,19 +102,19 @@ Then verify the installed surfaces:
 ~/.local/bin/threadbear inventory --json
 ```
 
-The install result must show `installed:true`, the exact `main_task_id`, and `phase:migration_running` unless a prior completed migration is being preserved. `ready:true` means `migration_complete`, not merely that artifacts were written. Do not claim the hooks work merely because files were written. Codex snapshots hooks and managed guidance when a task starts, so verification must continue in a new task.
+The install result must show `installed:true`, the exact `main_task_id`, and `phase:migration_pending` unless a prior migration state is being preserved. Pending means the background controller has not started; it is never described as running. `ready:true` means `migration_complete`, not merely that artifacts were written. Do not claim the hooks work merely because files were written.
 
-## 4. Prove a fresh task and migrate
+## 4. Migrate without leaving this task
 
-Read `~/.codex/skills/threadbear/SKILL.md` and follow its **Install**, **Migration controller**, and **Rendered Desktop verification** sections. The installed skill is the canonical operation guide.
+Read `~/.codex/skills/threadbear/SKILL.md` and follow its **Install** and **Migration controller** sections. The installed skill is the canonical operation guide.
 
 Before migration, tell the user:
 
-> The deterministic scan is already done and highly token-efficient. A large workspace can spend about three to five minutes in the native Desktop handoff. I'll report only real progress. Luna medium runs only for genuinely ambiguous legacy history.
+> ThreadBear will stay selected while one background controller updates existing titles. This usually takes several minutes, and a large or ambiguous history can take longer. `migration_running` means the controller is actively working; I'll report every 25 applied titles or phase change and won't finish this installation turn until it reaches `migration_complete` or `migration_failed`.
 
-Before any bulk work, use `codex_app__set_thread_title` to set the initiating task to exactly `🧵🐻 ThreadBear 🐻🧵`, use `codex_app__set_thread_pinned` to pin it, and prove that exact title in the active header and mounted sidebar. Then use Codex `/hooks` to inspect and trust the two installed definitions, create a genuinely fresh Codex Desktop task, and prove that its first action is the reserved `⏳ ThreadBear is working: <concise subject>` native call, its terminal call immediately precedes the footer, both exact native results pass through the two hooks, and both titles render in the active header and sidebar. Also prove that one explicit-target canary repaints only the intended mounted sidebar row. Confirm that ThreadBear's read-only inventory count matches Codex's live native task catalog on the verified Codex version; a mismatch stops migration.
+Before any bulk work, use `codex_app__set_thread_title` to set the initiating task to exactly `🧵🐻 ThreadBear 🐻🧵`, use `codex_app__set_thread_pinned` to pin it, and keep this task selected. Use Codex `/hooks` to inspect and trust the two installed definitions. Confirm that ThreadBear's read-only inventory count matches Codex's live native task catalog on the verified Codex version; a mismatch records `migration_failed` and stops migration.
 
-After that canary passes, create exactly one ephemeral migration-controller task with a prompt containing the controller protocol from the installed ThreadBear skill. Persist its exact ID before it starts:
+Create exactly one background migration-controller task with a prompt containing the controller protocol from the installed ThreadBear skill. Do not open, select, or navigate to it. If creation fails, leave the truthful `migration_pending` phase and report that nothing is running plus the exact retry action. After successful creation, immediately persist its exact ID:
 
 ```sh
 ~/.local/bin/threadbear migration \
@@ -123,7 +122,7 @@ After that canary passes, create exactly one ephemeral migration-controller task
   --controller-task-id "$CONTROLLER_TASK_ID" --json
 ```
 
-End this persistent task promptly after the transition. It must not inventory, write, await, or poll the migration. The controller is the only migration writer: it processes one explicit target at a time, skips only rows already reporting `applied:true`, uses at most eight read-only Luna-medium workers for genuine ambiguity, and treats a timeout or unknown native result as `migration_failed` until authoritative reconciliation. It performs a final inventory with zero remaining rows, then records:
+The controller is the only migration writer. It processes one explicit target at a time and skips only rows already reporting `applied:true`. For genuinely ambiguous rows, it launches adaptive waves of fresh read-only Luna-medium workers. Every successful worker handle is recorded and awaited even if a later spawn hits the agent-capacity limit; results may arrive out of order, but title writes remain serial. Each worker has an eight-minute deadline, a timed-out read-only batch gets one bounded retry, and the controller never starts another wave or returns while a retained worker is active or unaccounted for. If zero workers can start for two minutes, or a retry also times out, it records `migration_failed`. Every non-successful exit records `migration_failed` before returning; it never leaves an idle controller described as `migration_running`. A timeout or unknown native title result remains fail-closed until authoritative inventory reconciliation. On success it performs a final inventory with zero remaining rows, then records:
 
 ```sh
 ~/.local/bin/threadbear migration \
@@ -131,7 +130,11 @@ End this persistent task promptly after the transition. It must not inventory, w
   --controller-task-id "$CONTROLLER_TASK_ID" --json
 ```
 
-Only after that command succeeds may the controller archive itself. A stopped controller resumes with the same ID; a failed controller remains visible and resumable. Never claim installation completion from a setter return, accepted call, or partial count.
+Only after that command succeeds may the controller archive itself. A stopped controller resumes with the same ID; do not create a replacement controller. Never claim installation completion from a setter return, accepted call, or partial count.
+
+Keep this ThreadBear task selected and supervise the controller with compact task waits. Report only each 25-title milestone or phase change. When the controller returns, run `status --json` and `inventory --json`. `migration_pending` always means no controller was recorded; status repairs an older running-without-controller state to pending. `migration_running` always names the active controller. Status reconciles a missing controller or a terminal lifecycle event from the current attempt from stale `migration_running` to `migration_failed`; it never infers failure from age, slow progress, or a prior attempt's terminal event. If the controller or this turn is interrupted, begin the next turn with status so the durable phase is truthful.
+
+Do not send a final installation answer while status still says `migration_pending` or `migration_running`. At `migration_pending`, say that migration has not started and nothing is running, then give the exact start action. At `migration_failed`, say plainly that migration stopped and is not still working, give the applied and remaining counts, name the cause, and give one exact resume action. At `migration_complete`, require zero remaining rows before closing.
 
 ## 5. Close precisely
 
@@ -139,13 +142,13 @@ On complete success, use this shape in natural prose:
 
 > ## ThreadBear is installed
 >
-> Everything passed: ThreadBear VERSION is installed, its managed guidance and two hooks are healthy, this task is its persistent home, a fresh task completed both native title moments, Codex Desktop rendered the results in its header and sidebar, and the single migration controller completed with zero remaining tasks.
+> Everything passed: ThreadBear VERSION is installed, its managed guidance and two hooks are healthy, this task is its persistent home, and the migration controller completed with zero remaining titles.
 >
 > From here, you can ask “how are you?”, “what tasks do you see?”, or “uninstall ThreadBear.”
 
 Replace `VERSION` with the verified version. Follow the current task's active response guidance; do not append a ThreadBear footer merely because installation wrote future-task guidance.
 
-If official-download verification fails before mutation, say that installation paused, nothing changed, and you are checking the verified download. If a failure occurs after mutation began, name exactly which surfaces and native title operations completed, which check failed, and whether rerunning is safe. Never claim visual success from state, `read_thread`, or setter output alone.
+If official-download verification fails before mutation, say that installation stopped, nothing changed, and you are checking the verified download. If a failure occurs after mutation began, name exactly what completed, what stopped, whether anything is still running, and the one safe resume action.
 
 ## Help and status
 
@@ -160,7 +163,11 @@ The installed binary's help is the authoritative public command list.
 
 ## Uninstall
 
-Read the installed skill's **Title cleanup** and **Uninstall** sections. Run status and inventory, preview the complete icon-cleanup and artifact-removal effect, and obtain explicit consent.
+Read the installed skill's **Title cleanup** and **Uninstall** sections. Run status and inventory, then ask:
+
+> Want me to uninstall ThreadBear? I'll tidy the ThreadBear icons from your task titles, remove ThreadBear's local files and two hooks, and leave your tasks and other Codex settings alone. When it's done, I'll ask you to restart Codex.
+>
+> Should I go ahead?
 
 Title cleanup must finish first through serial explicit native target calls with exact returned IDs and titles. Clean the persistent ThreadBear task last. Then show and run:
 
@@ -172,6 +179,6 @@ Uninstall refuses while `phase:migration_running`; stop the controller first. It
 
 ## Maintainer verification
 
-A release is ready only after unit and integration tests, the 1,500-line absolute shipped-logic gate, isolated install/reinstall/uninstall tests, 0-/1-/200-task controller fixtures, controller-resume and failure cases, and the fresh Desktop matrix pass. Rendered header and sidebar screenshots are required; command exit codes and stored titles are not visual proof.
+A release is ready only after unit and integration tests, the 1,500-line absolute shipped-logic gate, isolated install/reinstall/uninstall tests, 0-/1-/200-task controller fixtures, and controller resume, interruption, and failure cases.
 
 Also execute every lifecycle command printed here against the release candidate. Confirm that `INSTALL.md` and `site/install` are byte-identical and that the hosted `threadbear.sh/install` serves the reviewed guide before announcing publication.

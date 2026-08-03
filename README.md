@@ -16,7 +16,7 @@ The canonical shape is `<mark> <subject>[ → <action>]`. ThreadBear owns only d
 
 ## Install
 
-Open [INSTALL.md](INSTALL.md) in a new Codex task and follow the guided preview, consent, persistent-home setup, controller migration, and rendered Desktop verification.
+Open [INSTALL.md](INSTALL.md) in a new Codex task and follow the guided preview, consent, persistent-home setup, and supervised controller migration.
 
 ThreadBear installs a standalone Go binary, one small private state file, managed guidance, and two Codex hooks. The initiating task becomes the persistent `🧵🐻 ThreadBear 🐻🧵` home; one ephemeral controller owns installation migration so that home returns promptly.
 
@@ -38,6 +38,6 @@ From the persistent ThreadBear task, ask to “strip title icons” at any time.
 
 ## Boundaries
 
-ThreadBear does not install a daemon, schedule heartbeats, archive ordinary tasks, add token counts, update itself in the background, or edit Codex private UI storage. It adds no model call or narration to ordinary turns. Installation uses one serial native-writing controller and at most eight ephemeral Luna-medium workers only when genuinely ambiguous history cannot be classified deterministically; those workers classify and never write titles.
+ThreadBear does not install a daemon, schedule heartbeats, archive ordinary tasks, add token counts, update itself in the background, or edit Codex private UI storage. It adds no model call or narration to ordinary turns. Installation uses one serial native-writing controller and adaptive waves of read-only Luna-medium workers only when genuinely ambiguous history cannot be classified deterministically; workers classify and never write titles.
 
 See [architecture](docs/architecture.md), [compatibility](docs/compatibility.md), and the [status footer convention](docs/status-convention.md).

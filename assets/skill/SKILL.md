@@ -28,22 +28,22 @@ Show a command before running it. Ask for explicit consent before any lifecycle 
 1. Read the current install guide and the candidate's help output. Check macOS, architecture, Codex, HTTPS access, and candidate self-test without changing the machine. Resolve the exact current task ID with supported Codex task tooling.
 2. Run the exact dry run with `--control-task-id CURRENT_TASK_ID`. Explain the complete effect: adopting that task as the persistent home, the local binary, one small private state file, one managed AGENTS block, this skill, and two hook entries.
 3. Show the recommended setup and ask once for consent. A clear yes to the unchanged complete recommendation is installation consent. Ask again only if the recommendation changed, the answer was ambiguous, or this is a reinstall with a different effect.
-4. Run the confirmed install with the same ID and verify `version`, `self-test`, and `status`. On reinstall, omit the flag only when `status --json` already reports the persisted main task; never replace it with the launching task.
-5. Before any migration, use `codex_app__set_thread_title` to set the initiating task to exactly `🧵🐻 ThreadBear 🐻🧵`, use `codex_app__set_thread_pinned` to pin it, and prove that exact title in the active header and mounted sidebar.
-6. Use Codex `/hooks` to inspect and trust the two installed definitions. Then open a genuinely fresh Codex Desktop task and prove its first native call carries the reserved `⏳ ThreadBear is working: <concise subject>` handoff, the terminal native call matches its footer, and both exact hook results pass before changing existing titles. Existing sessions may retain the hook snapshot they started with.
-7. Confirm the read-only ThreadBear inventory count matches Codex's native task catalog on the verified Codex version. A mismatch stops migration; do not add runtime repair or a second writer.
-8. After the canary passes, create exactly one ephemeral migration controller, record it with `migration --phase migration_running`, and end the persistent task promptly. The persistent task never performs, awaits, or polls bulk migration.
-9. Give the controller the **Migration controller** protocol below. Do not claim completion until it records `migration_complete` after final inventory convergence.
+4. Run the confirmed install with the same ID and verify `version`, `self-test`, and `inventory`. A fresh result is `migration_pending`: no controller has started and nothing is running yet. On reinstall, omit the flag only when `status --json` already reports the persisted main task; never replace it with the launching task.
+5. Before any migration, use `codex_app__set_thread_title` to set the initiating task to exactly `🧵🐻 ThreadBear 🐻🧵`, use `codex_app__set_thread_pinned` to pin it, and keep that task selected.
+6. Use Codex `/hooks` to inspect and trust the two installed definitions. Confirm the read-only ThreadBear inventory count matches Codex's native task catalog on the verified Codex version. A mismatch records `migration_failed` and stops migration; do not add runtime repair or a second writer.
+7. Create exactly one background migration controller without opening, selecting, or navigating to it, then immediately record it with `migration --phase migration_running`. If creation fails, leave `migration_pending` unchanged and report that nothing is running plus the exact retry action.
+8. Give the controller the **Migration controller** protocol below. Supervise it from the persistent task with compact task waits, reporting only each 25-title milestone or phase change. Do not end the installation turn while durable status is `migration_pending` or `migration_running`.
+9. After the controller returns, run `status --json` and `inventory --json`. Claim success only at `migration_complete` with zero remaining rows. At `migration_failed`, say migration stopped and is not still working, report applied and remaining counts, name the cause, and give one exact resume action using the same controller ID.
 
 For a large existing workspace, say this before migration:
 
-> The deterministic scan is already done and highly token-efficient. A large workspace can spend about three to five minutes in the native Desktop handoff. I'll report only real progress. Luna medium runs only for genuinely ambiguous legacy history.
+> ThreadBear will stay selected while one background controller updates existing titles. This usually takes several minutes, and a large or ambiguous history can take longer. `migration_running` means the controller is actively working; I'll report every 25 applied titles or phase change and won't finish this installation turn until it reaches `migration_complete` or `migration_failed`.
 
-Do not claim success until the installed checks, fresh-task canary, exact native results, and rendered Desktop proof all pass.
+Do not claim success from installed files, a native setter return, or partial counts.
 
 ## Status and inventory
 
-`status --json` checks the installed binary, managed files, hooks, and state readability. It reports `installed:true` while artifacts are present, but `ready:true` only for `phase:migration_complete`. It does not mutate titles.
+`status --json` checks the installed binary, managed files, hooks, and state readability. It reports `installed:true` while artifacts are present, but `ready:true` only for `phase:migration_complete`. It does not mutate titles. `migration_pending` means no controller was recorded and returns the exact start action; status also repairs an older running-without-controller state to pending. `migration_running` always names the active controller. If that controller is missing or has a terminal lifecycle event from the current attempt, status atomically records `migration_failed`, explains that the controller stopped, and returns the exact resume action. It never infers failure from age, slow progress, or a prior attempt's terminal event.
 
 `inventory --json` reads every native-addressable, unarchived Desktop or CLI task, including projectless tasks, excluding the persisted main and controller IDs. It excludes rollout-only internal records that Codex's native title setter cannot rename. Treat its deterministic classifications, `status`, `action`, and `applied` evidence as authoritative. Do not infer ThreadBear ownership from an icon or arrow alone.
 
@@ -52,11 +52,13 @@ Do not claim success until the installed checks, fresh-task canary, exact native
 The controller is the only installation-migration writer and is rerunnable under one persisted controller ID:
 
 1. Run `~/.local/bin/threadbear inventory --json` and use its `status`, `action`, `task_id`, and `applied` fields. The main and controller tasks are already excluded.
-2. Accept exact historical footers deterministically. Send only genuinely ambiguous items to fresh, read-only Luna-medium workers, with at most eight workers active. Workers classify and never write titles; use the unknown marker when ambiguity remains.
-3. Process targets in stable order, one native title write at a time. Convert each row's `status` and `action` to the exact compact ThreadBear footer grammar, then call the native setter with the explicit `threadId`. The Pre hook immediately re-reads the target and preserves any newer user rename; Post accepts only the exact target/title result and commits the proposal.
-4. Re-run inventory after each write or bounded batch. Skip only rows reporting `applied:true`. A similar-looking but unowned title still passes through the native Pre/Post boundary.
-5. A timeout, unknown native result, hook rejection, or unreconcilable target is not blindly retried. Record `migration_failed` with the same controller ID and leave the controller visible. Resume only after authoritative inventory establishes whether the prior write applied.
-6. Finish only when a final inventory reports zero remaining rows, then run:
+2. Accept exact historical footers deterministically. Split only genuinely ambiguous rows into stable batches of at most 20 tasks. Workers classify and never write titles; use the unknown marker only when a completed classification remains ambiguous.
+3. Classify those batches in adaptive waves of fresh, read-only Luna-medium workers, with at most eight workers active. After every successful spawn, immediately record its exact handle and assigned task IDs before attempting another spawn. At the first agent-capacity error, stop launching that wave. Never reinterpret that error as zero workers when earlier spawns succeeded.
+4. Account for every retained worker even when results arrive out of order. Wait in bounded snapshots and give each worker eight minutes from spawn. When a worker completes, validate and record its result by handle, then process that batch in stable order through the serial title path while other read-only workers may continue. If a worker reaches its deadline, stop it, discard only that batch's uncommitted classifications, finish accounting for the rest of the wave, and retry the timed-out batch once in the next wave. A second timeout records `migration_failed`.
+5. Process one native title write at a time. Convert each row's `status` and `action` to the exact compact ThreadBear footer grammar, then call the native setter with the explicit `threadId`. The Pre hook immediately re-reads the target and preserves any newer user rename; Post accepts only the exact target/title result and commits the proposal. Re-run inventory after each write or bounded batch and skip only rows reporting `applied:true`. A similar-looking but unowned title still passes through the native Pre/Post boundary.
+6. Do not start another wave or return while a retained worker is still active or unaccounted for. If zero workers can start, wait 30 seconds and retry for at most two minutes; then record `migration_failed`. Do not degrade unclassified rows to unknown merely because worker capacity is temporarily unavailable.
+7. A timeout, unknown native result, hook rejection, or unreconcilable target is not blindly retried except for the one bounded read-only classifier retry above. Record `migration_failed` with the same controller ID before every non-successful return and leave the controller visible. Resume only after authoritative inventory establishes whether a prior native write applied.
+8. Report progress after each 25 newly applied rows or phase change. Finish only when a final inventory reports zero remaining rows, then run:
 
    ```sh
    ~/.local/bin/threadbear migration --phase migration_complete \
@@ -65,9 +67,11 @@ The controller is the only installation-migration writer and is rerunnable under
 
    Archive the controller only after that command succeeds. A successful transition is the durable completion evidence.
 
-The native setter has no compare-and-set argument. Do not claim it can prevent a rename that races the setter itself.
+The native setter has no compare-and-set argument. Do not claim it can prevent a rename that races the setter itself. If the controller is interrupted before it can record a terminal phase, the next `status --json` reconciles the definitively stopped task to `migration_failed`.
 
-## Rendered Desktop verification
+## Debug canaries
+
+Run this section only when the immediately preceding install result contains `debug_canaries:true`. Never run it during an ordinary guided installation.
 
 Command success, state, and `read_thread` are not visual proof. In Codex Desktop, verify that:
 
@@ -95,7 +99,7 @@ For ordinary on-demand cleanup, do not target the active control task: its requi
 ## Uninstall
 
 1. Run `help`, `status --json`, and `inventory --json`. If `phase:migration_running`, stop the controller and let it record `migration_failed` before uninstalling.
-2. Explain that uninstall first strips all leading ThreadBear status icons from active titles, then removes the local artifacts. Preview the complete effect and obtain a clear yes.
+2. Ask: “Want me to uninstall ThreadBear? I'll tidy the ThreadBear icons from your task titles, remove ThreadBear's local files and two hooks, and leave your tasks and other Codex settings alone. When it's done, I'll ask you to restart Codex. Should I go ahead?” Continue only after a clear yes.
 3. Follow **Title cleanup** for every regular and controller task. Re-read and clean this persisted ThreadBear task last. Any drift, unknown result, or remaining decorated title stops uninstall before artifacts or ownership state are removed.
 4. Run the confirmed uninstall. It refuses while migration is running, then removes only ThreadBear's recorded hook entries, managed AGENTS block, installed skill, private state, and binary while preserving unrelated content and hook order.
 5. Use the managed uninstall-turn exception: make no terminal title call and append no ThreadBear footer. Ask the user to restart Codex so already-open sessions cannot keep using snapshotted guidance.

@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+### Changed
+
+- Kept guided installation focused on the persistent ThreadBear task, moved Desktop canaries behind an explicit debug flag, and clarified installation and uninstall language.
+
+### Fixed
+
+- Kept pre-controller installs truthful with `migration_pending`, reconciled stopped controllers to `migration_failed`, and made guided migration retain and await adaptive Luna worker waves through an explicit terminal result while keeping title writes serial.
+
 ## v2.1.4 - 2026-08-03
 
 ### Fixed
