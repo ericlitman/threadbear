@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## v2.1.5 - 2026-08-03
+
 ### Changed
 
 - Kept guided installation focused on the persistent ThreadBear task, moved Desktop canaries behind an explicit debug flag, and clarified installation and uninstall language.
