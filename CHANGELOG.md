@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## v2.1.7 - 2026-08-03
+
 ### Fixed
 
 - Scoped installation completion to native-addressable local Codex tasks and disclosed that older signed-in ChatGPT chat-history rows are outside the current native title API, preventing a zero-local-inventory result from being presented as complete sidebar migration.
