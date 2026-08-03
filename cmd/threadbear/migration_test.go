@@ -139,6 +139,131 @@ func TestRolloutFooterStopsAtNewerUnsettledTurn(t *testing.T) {
 	}
 }
 
+func TestReconcileMigrationFailsStoppedController(t *testing.T) {
+	root, db := testIndex(t)
+	addTask(t, db, root, "main", "ThreadBear", nil, "vscode", 0)
+	controller := addTask(t, db, root, "controller", "Migration controller", nil, "vscode", 0)
+	if err := newStore(stateDir()).update(func(value *state) (bool, error) {
+		value.MainTaskID, value.ControllerTaskID, value.Phase = "main", "controller", phaseMigrationRunning
+		return true, nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	data := []byte(
+		rolloutLine("event_msg", map[string]any{"type": "task_started"}) +
+			rolloutLine("event_msg", map[string]any{"type": "task_complete"}))
+	if err := os.WriteFile(controller, data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	value, err := reconcileMigration(context.Background())
+	if err != nil || value.Phase != phaseMigrationFailed || value.MigrationFailure != failureControllerInactive {
+		t.Fatalf("reconciled state = %#v, %v", value, err)
+	}
+}
+
+func TestReconcileMigrationRestoresPendingWhenControllerWasNeverRecorded(t *testing.T) {
+	testIndex(t)
+	if err := newStore(stateDir()).update(func(value *state) (bool, error) {
+		value.MainTaskID, value.Phase = "main", phaseMigrationRunning
+		value.MigrationStarted = "2026-08-03T12:00:00Z"
+		return true, nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	value, err := reconcileMigration(context.Background())
+	if err != nil || value.Phase != phaseMigrationPending || value.MigrationStarted != "" || value.ControllerTaskID != "" {
+		t.Fatalf("reconciled state = %#v, %v", value, err)
+	}
+}
+
+func TestReconcileMigrationPreservesActiveOrUnknownController(t *testing.T) {
+	for name, rollout := range map[string]string{
+		"active":  lifecycleLine("task_started", "2100-01-01T00:00:00Z"),
+		"unknown": "not-json\n",
+	} {
+		t.Run(name, func(t *testing.T) {
+			root, db := testIndex(t)
+			addTask(t, db, root, "main", "ThreadBear", nil, "vscode", 0)
+			controller := addTask(t, db, root, "controller", "Migration controller", nil, "vscode", 0)
+			if err := os.WriteFile(controller, []byte(rollout), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			if err := newStore(stateDir()).update(func(value *state) (bool, error) {
+				value.MainTaskID, value.ControllerTaskID, value.Phase = "main", "controller", phaseMigrationRunning
+				return true, nil
+			}); err != nil {
+				t.Fatal(err)
+			}
+			value, err := reconcileMigration(context.Background())
+			if err != nil || value.Phase != phaseMigrationRunning || value.MigrationFailure != "" {
+				t.Fatalf("reconciled state = %#v, %v", value, err)
+			}
+		})
+	}
+}
+
+func TestReconcileMigrationIgnoresTerminalEventFromPriorAttempt(t *testing.T) {
+	root, db := testIndex(t)
+	addTask(t, db, root, "main", "ThreadBear", nil, "vscode", 0)
+	controller := addTask(t, db, root, "controller", "Migration controller", nil, "vscode", 0)
+	if err := newStore(stateDir()).update(func(value *state) (bool, error) {
+		value.MainTaskID = "main"
+		return true, nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := transitionMigration(context.Background(), phaseMigrationRunning, "controller"); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(controller, []byte(lifecycleLine("task_complete", "2000-01-01T00:00:00Z")), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	value, err := reconcileMigration(context.Background())
+	if err != nil || value.Phase != phaseMigrationRunning {
+		t.Fatalf("reconciled state = %#v, %v", value, err)
+	}
+}
+
+func TestReconcileMigrationReportsControllerLookupFailure(t *testing.T) {
+	root, db := testIndex(t)
+	addTask(t, db, root, "main", "ThreadBear", nil, "vscode", 0)
+	addTask(t, db, root, "controller", "Migration controller", nil, "vscode", 0)
+	if err := newStore(stateDir()).update(func(value *state) (bool, error) {
+		value.MainTaskID, value.ControllerTaskID, value.Phase = "main", "controller", phaseMigrationRunning
+		return true, nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("CODEX_HOME", filepath.Join(root, "missing-codex-home"))
+
+	value, err := reconcileMigration(context.Background())
+	if err == nil || value.Phase != phaseMigrationRunning {
+		t.Fatalf("reconciled state = %#v, %v; want running state plus lookup error", value, err)
+	}
+}
+
+func TestReconcileMigrationReportsRolloutReadFailure(t *testing.T) {
+	root, db := testIndex(t)
+	addTask(t, db, root, "main", "ThreadBear", nil, "vscode", 0)
+	controller := addTask(t, db, root, "controller", "Migration controller", nil, "vscode", 0)
+	if err := newStore(stateDir()).update(func(value *state) (bool, error) {
+		value.MainTaskID, value.ControllerTaskID, value.Phase = "main", "controller", phaseMigrationRunning
+		return true, nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(controller); err != nil {
+		t.Fatal(err)
+	}
+
+	value, err := reconcileMigration(context.Background())
+	if err == nil || value.Phase != phaseMigrationRunning {
+		t.Fatalf("reconciled state = %#v, %v; want running state plus rollout error", value, err)
+	}
+}
+
 func writeMigrationRollout(t *testing.T, path, marker string) {
 	t.Helper()
 	line := rolloutLine("response_item", map[string]any{
@@ -163,4 +288,9 @@ func writeMigrationState(t *testing.T, tasks map[string]any) {
 	if err := os.WriteFile(path, append(data, '\n'), 0o600); err != nil {
 		t.Fatal(err)
 	}
+}
+
+func lifecycleLine(kind, timestamp string) string {
+	data, _ := json.Marshal(map[string]any{"timestamp": timestamp, "type": "event_msg", "payload": map[string]any{"type": kind}})
+	return string(data) + "\n"
 }

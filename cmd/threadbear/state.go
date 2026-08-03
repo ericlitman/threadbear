@@ -13,7 +13,7 @@ import (
 	"unicode/utf16"
 )
 
-const stateFormat, phaseMigrationRunning, phaseMigrationComplete, phaseMigrationFailed = 3, "migration_running", "migration_complete", "migration_failed"
+const stateFormat, phaseMigrationPending, phaseMigrationRunning, phaseMigrationComplete, phaseMigrationFailed = 3, "migration_pending", "migration_running", "migration_complete", "migration_failed"
 
 type pendingProposal struct {
 	ToolUseID   string `json:"tool_use_id"`
@@ -35,6 +35,8 @@ type state struct {
 	MainTaskID       string               `json:"main_task_id,omitempty"`
 	ControllerTaskID string               `json:"controller_task_id,omitempty"`
 	Phase            string               `json:"phase,omitempty"`
+	MigrationStarted string               `json:"migration_started_at,omitempty"`
+	MigrationFailure string               `json:"migration_failure,omitempty"`
 	Tasks            map[string]taskState `json:"tasks"`
 }
 type footer struct{ Status, Action string }
@@ -87,7 +89,7 @@ func (s store) read() (state, error) {
 		return state{}, err
 	}
 	var value state
-	if err := json.Unmarshal(data, &value); err != nil || value.Format != stateFormat || value.Tasks == nil || value.Phase != "" && value.Phase != phaseMigrationRunning && value.Phase != phaseMigrationComplete && value.Phase != phaseMigrationFailed {
+	if err := json.Unmarshal(data, &value); err != nil || value.Format != stateFormat || value.Tasks == nil || value.Phase != "" && value.Phase != phaseMigrationPending && value.Phase != phaseMigrationRunning && value.Phase != phaseMigrationComplete && value.Phase != phaseMigrationFailed {
 		return state{}, errors.New("unsupported or corrupt ThreadBear state format")
 	}
 	return value, nil

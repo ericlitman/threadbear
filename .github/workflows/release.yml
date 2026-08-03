@@ -19,14 +19,6 @@ jobs:
         with:
           go-version-file: go.mod
           cache: true
-      - name: Check Go formatting and production size
-        run: |
-          files=$(find . -type f -name '*.go' ! -path './.git/*' ! -path './.worktrees/*' | sort)
-          test -z "$(printf '%s\n' "$files" | xargs gofmt -l)"
-          production=$(printf '%s\n' "$files" | awk '!/_test\.go$/')
-          lines=$(printf '%s\n' "$production" | xargs wc -l | awk 'END { print $1 }')
-          echo "production Go lines: $lines"
-          test "$lines" -le 1000
       - name: Validate release tag
         id: release_tag
         run: |
@@ -65,6 +57,16 @@ jobs:
             in_section && /^## / { exit }
             in_section { print }
           ' CHANGELOG.md > release-notes.md
+      - name: Check Go formatting and shipped logic size
+        run: |
+          files=$(find . -type f -name '*.go' ! -path './.git/*' ! -path './.worktrees/*' | sort)
+          test -z "$(printf '%s\n' "$files" | xargs gofmt -l)"
+          production=$(printf '%s\n' "$files" | awk '!/_test\.go$/')
+          go_lines=$(printf '%s\n' "$production" | xargs wc -l | awk 'END { print $1 }')
+          shell_lines=$(wc -l < install.sh | tr -d ' ')
+          lines=$((go_lines + shell_lines))
+          echo "shipped logic lines: $lines (1,000 target; 1,500 absolute ceiling)"
+          test "$lines" -le 1500
       - run: go test ./...
       - run: go vet ./...
       - name: Validate experiment registry

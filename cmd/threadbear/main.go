@@ -43,8 +43,9 @@ func run(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io.
 		dry := flags.Bool("dry-run", false, "preview without mutation")
 		noninteractive := flags.Bool("noninteractive", false, "run without prompts")
 		confirm := flags.Bool("confirm", false, "confirm the previewed installation")
+		debugCanaries := flags.Bool("debug-canaries", false, "run guided Desktop canaries after installation")
 		flags.String("version", "", "installer-selected release version")
-		action = func() (any, error) { return install(*controlTaskID, *dry, *noninteractive && *confirm) }
+		action = func() (any, error) { return install(*controlTaskID, *dry, *noninteractive && *confirm, *debugCanaries) }
 	case "inventory":
 		action = func() (any, error) {
 			items, remaining, value, err := migrationInventory(ctx)
@@ -61,7 +62,7 @@ func run(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io.
 		controllerTaskID := flags.String("controller-task-id", "", "ephemeral migration controller task")
 		action = func() (any, error) { return transitionMigration(ctx, *phase, *controllerTaskID) }
 	case "status":
-		action = status
+		action = func() (any, error) { return status(ctx) }
 	case "self-test":
 		flags.Bool("candidate", false, "validate this binary before installation")
 		action = selfTest

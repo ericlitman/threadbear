@@ -44,18 +44,33 @@ func TestPublishedInstallGuideMatchesCurrentCLI(t *testing.T) {
 	for _, required := range []string{
 		"## Hi. Let's install ThreadBear.",
 		"## Recommended setup",
+		"Status icon in each thread's title.",
+		"Next action added to the thread title → like this.",
+		"Codex limits title length limited to 60 UTF-16 units, so I'll truncate as needed.",
+		"Small local footprint: one binary in ~/.local/bin, a skill, and two hooks.",
+		"One persistent thread, 🧵🐻 ThreadBear 🐻🧵, for changing config and uninstalling.",
+		"Deterministic classification first; Luna medium only for ambiguity.",
 		"--control-task-id",
 		"--noninteractive --confirm --json",
 		"~/.local/bin/threadbear inventory --json",
+		"migration_pending",
 		"migration_running",
 		"migration_complete",
-		"exactly one ephemeral migration-controller task",
+		"migration_failed",
+		"exactly one background migration-controller task",
 		"codex_app__set_thread_title",
 		"codex_app__set_thread_pinned",
-		"genuinely fresh Codex Desktop task",
-		"⏳ ThreadBear is working: <concise subject>",
+		"Do not open, select, or navigate to it.",
+		"adaptive waves of fresh read-only Luna-medium workers",
+		"Every successful worker handle is recorded and awaited",
+		"results may arrive out of order",
+		"eight-minute deadline",
+		"active or unaccounted for",
+		"status still says `migration_pending` or `migration_running`",
+		"migration stopped and is not still working",
 		"two native title calls per ordinary turn",
 		"~/.local/bin/threadbear uninstall --noninteractive --confirm --json",
+		"Want me to uninstall ThreadBear?",
 	} {
 		if !strings.Contains(text, required) {
 			t.Errorf("published install guide is missing %q", required)
@@ -63,6 +78,38 @@ func TestPublishedInstallGuideMatchesCurrentCLI(t *testing.T) {
 	}
 	if strings.Contains(text, "foreground migration") {
 		t.Error("published install guide still assigns migration to the persistent task")
+	}
+	for _, debugOnly := range []string{"canary", "--debug-canaries", "genuinely fresh Codex Desktop task"} {
+		if strings.Contains(strings.ToLower(text), strings.ToLower(debugOnly)) {
+			t.Errorf("published install guide discloses debug-only verification %q", debugOnly)
+		}
+	}
+}
+
+func TestInstalledSkillDefinesAdaptiveMigrationWaves(t *testing.T) {
+	data, err := os.ReadFile(filepath.Join("..", "..", "assets", "skill", "SKILL.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	protocol := string(data)
+
+	for _, required := range []string{
+		"stable batches of at most 20 tasks",
+		"adaptive waves of fresh, read-only Luna-medium workers",
+		"After every successful spawn, immediately record its exact handle and assigned task IDs",
+		"At the first agent-capacity error, stop launching that wave.",
+		"Never reinterpret that error as zero workers when earlier spawns succeeded.",
+		"even when results arrive out of order",
+		"give each worker eight minutes from spawn",
+		"discard only that batch's uncommitted classifications",
+		"retry the timed-out batch once in the next wave",
+		"Do not start another wave or return while a retained worker is still active or unaccounted for.",
+		"If zero workers can start, wait 30 seconds and retry for at most two minutes",
+		"Record `migration_failed` with the same controller ID before every non-successful return",
+	} {
+		if !strings.Contains(protocol, required) {
+			t.Errorf("installed skill is missing adaptive migration invariant %q", required)
+		}
 	}
 }
 
