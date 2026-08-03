@@ -170,6 +170,57 @@ func TestUninstallRemovesOwnedOnlyHooksFile(t *testing.T) {
 	}
 }
 
+func TestInstallUpgradesOwnedHookTimeoutAndUninstallRemovesVariants(t *testing.T) {
+	p := isolatedLifecycle(t)
+	foreignPreA := json.RawMessage(`{"matcher":"codex_appset_thread_title","hooks":[{"type":"command","command":"foreign","timeout":5}]}`)
+	foreignPreB := json.RawMessage(`{"matcher":"Bash","hooks":[{"type":"command","command":"pre"}]}`)
+	foreignPreC := encodedJSON(map[string]any{"matcher": titleTool, "hooks": []any{map[string]any{"type": "prompt", "command": quoteCommand(p.binary), "timeout": 5}}})
+	foreignPost := json.RawMessage(`{"matcher":"Bash","hooks":[{"type":"command","command":"post"}]}`)
+	oldOwner := ownedHookWithTimeout(p.binary, 5)
+	fixture := map[string]any{"hooks": map[string]any{
+		"PreToolUse":  []json.RawMessage{oldOwner, foreignPreA, ownedHookJSON(p.binary), foreignPreB, foreignPreC, oldOwner},
+		"PostToolUse": []json.RawMessage{foreignPost, oldOwner},
+	}}
+	data, _ := json.MarshalIndent(fixture, "", "  ")
+	mustWrite(t, p.hooks, string(data))
+
+	if _, err := install("installer", false, true); err != nil {
+		t.Fatal(err)
+	}
+	assertHookOrder(t, p.hooks, "PreToolUse", []json.RawMessage{foreignPreA, foreignPreB, foreignPreC}, p.binary)
+	assertHookOrder(t, p.hooks, "PostToolUse", []json.RawMessage{foreignPost}, p.binary)
+	installed, _ := os.ReadFile(p.hooks)
+	if _, err := install("installer", false, true); err != nil {
+		t.Fatal(err)
+	}
+	reinstalled, _ := os.ReadFile(p.hooks)
+	if !reflect.DeepEqual(installed, reinstalled) {
+		t.Fatal("reinstall rewrote upgraded hooks.json")
+	}
+	mustWrite(t, p.hooks, string(data))
+	if err := newStore(stateDir()).update(func(value *state) (bool, error) {
+		value.Phase = phaseMigrationComplete
+		return true, nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := uninstall(context.Background(), true); err != nil {
+		t.Fatal(err)
+	}
+	assertHookOrder(t, p.hooks, "PreToolUse", []json.RawMessage{foreignPreA, foreignPreB, foreignPreC}, "")
+	assertHookOrder(t, p.hooks, "PostToolUse", []json.RawMessage{foreignPost}, "")
+}
+
+func ownedHookWithTimeout(binary string, timeout int) json.RawMessage {
+	data, _ := json.Marshal(map[string]any{"matcher": titleTool, "hooks": []any{map[string]any{"type": "command", "command": quoteCommand(binary), "timeout": timeout}}})
+	return data
+}
+
+func sameJSON(a, b []byte) bool {
+	var left, right any
+	return json.Unmarshal(a, &left) == nil && json.Unmarshal(b, &right) == nil && reflect.DeepEqual(left, right)
+}
+
 func isolatedLifecycle(t *testing.T) lifecyclePaths {
 	t.Helper()
 	testIndex(t)
