@@ -24,11 +24,18 @@ type pendingProposal struct {
 	Action      string `json:"action,omitempty"`
 }
 type taskState struct {
-	Subject string           `json:"subject"`
-	Last    string           `json:"last,omitempty"`
-	Status  string           `json:"status,omitempty"`
-	Action  string           `json:"action,omitempty"`
-	Pending *pendingProposal `json:"pending,omitempty"`
+	Subject         string           `json:"subject"`
+	Last            string           `json:"last,omitempty"`
+	Status          string           `json:"status,omitempty"`
+	Action          string           `json:"action,omitempty"`
+	ArchiveActivity string           `json:"archive_activity,omitempty"`
+	Pending         *pendingProposal `json:"pending,omitempty"`
+}
+type archiveOperation struct {
+	TaskID   string `json:"task_id"`
+	Action   string `json:"action"`
+	Title    string `json:"title"`
+	Activity string `json:"activity,omitempty"`
 }
 type state struct {
 	Format           int                  `json:"format"`
@@ -38,6 +45,8 @@ type state struct {
 	MigrationStarted string               `json:"migration_started_at,omitempty"`
 	MigrationFailure string               `json:"migration_failure,omitempty"`
 	Tasks            map[string]taskState `json:"tasks"`
+	Archives         map[string]bool      `json:"archives,omitempty"`
+	ArchivePending   *archiveOperation    `json:"archive_pending,omitempty"`
 }
 type footer struct{ Status, Action string }
 type store struct{ dir string }

@@ -6,6 +6,7 @@ Usage:
 Commands:
   install      Preview or install ThreadBear
   inventory    Classify native-addressable tasks for guided setup
+  maintenance  Plan and reconcile safe native task archives
   migration    Record the single installation migration controller phase
   status       Check the installed helper, hooks, and migration phase
   self-test    Validate a release candidate
@@ -19,3 +20,9 @@ Install flags:
 Migration flags:
   --phase PHASE         migration_running, migration_complete, or migration_failed
   --controller-task-id ID
+
+Maintenance flags:
+  --archive TASK_ID      Stage or reconcile one eligible archive
+  --restore TASK_ID      Stage or reconcile one ThreadBear-owned restore
+  --cancel TASK_ID       Clear one known-unapplied pending operation
+  --archive-after-days N Quiet completed days required (default 14)

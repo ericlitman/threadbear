@@ -1,6 +1,6 @@
 # Install ThreadBear with Codex
 
-Open a new Codex task and paste:
+Open a new Codex Desktop task with Luna at medium effort and paste:
 
 ```text
 Install ThreadBear — follow https://threadbear.sh/install
@@ -14,7 +14,7 @@ Open with this complete orientation before running a command:
 
 > ## Hi. Let's install ThreadBear.
 >
-> ThreadBear keeps Codex Desktop task titles useful with a running mark while work is underway and a clear outcome when each response finishes. It uses two native title calls per ordinary turn and two small deterministic hooks.
+> ThreadBear keeps Codex Desktop task titles useful with a running mark while work is underway and a clear outcome when each response finishes. It uses two native title calls per ordinary turn, two small deterministic hooks, and one quiet Luna helper for housekeeping.
 >
 > I'll check this Mac, show you exactly what will change, and answer questions before installing anything. After you consent, I'll install it and update native-addressable local Codex task titles without taking you away from this ThreadBear task. Older signed-in ChatGPT chat-history rows are outside Codex's current task-title API and will stay unchanged.
 
@@ -70,6 +70,8 @@ Only after every check and the dry run succeeds, compose one terminal final answ
 > - Small local footprint: one binary in ~/.local/bin, a skill, and two hooks.
 > - One persistent thread, 🧵🐻 ThreadBear 🐻🧵, for changing config and uninstalling.
 > - Deterministic classification first; Luna medium only for ambiguity.
+> - A small Luna helper checks in hourly, then stays quiet when there is nothing to do.
+> - Finished tasks can curl up in the archive after 14 quiet days—and come back whenever you need them.
 >
 > Install ThreadBear with this recommended setup?
 
@@ -106,6 +108,10 @@ The install result must show `installed:true`, the exact `main_task_id`, and `ph
 
 Inventory and migration cover local Codex Desktop and CLI tasks that the native explicit-target title setter can address. They do not enumerate or rename older signed-in ChatGPT chat-history rows that may also appear in the Desktop sidebar. Disclose that boundary before migration and never describe zero local inventory rows as proof that every visible sidebar row changed.
 
+Create or update one paused hourly heartbeat automation through the native automation control. Its exact ID is `threadbear-maintenance`, its name is “ThreadBear maintenance,” and its target is `MAIN_TASK_ID`. Its prompt is: “Follow the installed ThreadBear skill's Maintenance section. Reconcile archive work first, process eligible archives serially through native controls, and stay quiet when nothing changes.” Reuse only an existing automation whose ID, name, kind, and target all match; an ID collision with anything else stops installation without changing that automation. Do not create a cron job or a second maintenance schedule. A reinstall already at `migration_complete` may keep it active.
+
+If the native automation call fails, say that ThreadBear's local title helper is installed but its housekeeping helper is not, and stop before claiming completion. Do not ask the user to create or repair the automation manually.
+
 ## 4. Migrate without leaving this task
 
 Read `~/.codex/skills/threadbear/SKILL.md` and follow its **Install** and **Migration controller** sections. The installed skill is the canonical operation guide.
@@ -136,7 +142,7 @@ Only after that command succeeds may the controller archive itself. A stopped co
 
 Keep this ThreadBear task selected and supervise the controller with compact task waits. Report only each 25-title milestone or phase change. When the controller returns, run `status --json` and `inventory --json`. `migration_pending` always means no controller was recorded; status repairs an older running-without-controller state to pending. `migration_running` always names the active controller. Status reconciles a missing controller or a terminal lifecycle event from the current attempt from stale `migration_running` to `migration_failed`; it never infers failure from age, slow progress, or a prior attempt's terminal event. If the controller or this turn is interrupted, begin the next turn with status so the durable phase is truthful.
 
-Do not send a final installation answer while status still says `migration_pending` or `migration_running`. At `migration_pending`, say that migration has not started and nothing is running, then give the exact start action. At `migration_failed`, say plainly that migration stopped and is not still working, give the applied and remaining counts, name the cause, and give one exact resume action. At `migration_complete`, require zero remaining native-addressable local rows before closing and repeat that older signed-in ChatGPT chat-history rows were not part of the migration.
+Do not send a final installation answer while status still says `migration_pending` or `migration_running`. At `migration_pending`, say that migration has not started and nothing is running, then give the exact start action. At `migration_failed`, say plainly that migration stopped and is not still working, give the applied and remaining counts, name the cause, and give one exact resume action. Keep maintenance paused in every non-complete phase. At `migration_complete`, require zero remaining native-addressable local rows, activate the exact owned heartbeat, and repeat that older signed-in ChatGPT chat-history rows were not part of the migration.
 
 ## 5. Close precisely
 
@@ -144,7 +150,7 @@ On complete success, use this shape in natural prose:
 
 > ## ThreadBear is installed
 >
-> Everything passed: ThreadBear VERSION is installed, its managed guidance and two hooks are healthy, this task is its persistent home, and the migration controller completed with zero remaining native-addressable local Codex task titles. Older signed-in ChatGPT chat-history rows were outside this migration and may remain unchanged in the sidebar.
+> Everything passed: ThreadBear VERSION is installed, its managed guidance, two hooks, and hourly Luna helper are healthy, this task is its persistent home, and the migration controller completed with zero remaining native-addressable local Codex task titles. Older signed-in ChatGPT chat-history rows were outside this migration and may remain unchanged in the sidebar.
 >
 > From here, you can ask “how are you?”, “what tasks do you see?”, or “uninstall ThreadBear.”
 
@@ -161,26 +167,26 @@ For later help, lead with a short capability card instead of a command dump. Ver
 ~/.local/bin/threadbear help
 ```
 
-The installed binary's help is the authoritative public command list.
+The installed binary's help is the authoritative public command list. Cross-check the exact `threadbear-maintenance` heartbeat with the native automation control before describing hourly housekeeping as healthy.
 
 ## Uninstall
 
 Read the installed skill's **Title cleanup** and **Uninstall** sections. Run status and inventory, then ask:
 
-> Want me to uninstall ThreadBear? I'll tidy the ThreadBear icons from native-addressable local Codex task titles, remove ThreadBear's local files and two hooks, and leave your tasks and other Codex settings alone. Older signed-in ChatGPT chat-history rows are outside this cleanup. When it's done, I'll ask you to restart Codex.
+> Want me to uninstall ThreadBear? I'll pause its Luna helper, tidy the ThreadBear icons from native-addressable local Codex task titles, and remove ThreadBear's local files, two hooks, and owned automation. Tasks already tucked into the archive will stay there, and your other tasks and Codex settings will be left alone. Older signed-in ChatGPT chat-history rows are outside this cleanup. When it's done, I'll ask you to restart Codex.
 >
 > Should I go ahead?
 
-Title cleanup must finish first through serial explicit native target calls with exact returned IDs and titles. Clean the persistent ThreadBear task last. Then show and run:
+Pause the exact owned `threadbear-maintenance` heartbeat before title cleanup; refuse an ID, kind, name, or target mismatch. Title cleanup must finish through serial explicit native target calls with exact returned IDs and titles. Clean the persistent ThreadBear task last, delete the exact owned automation, then show and run:
 
 ```sh
 ~/.local/bin/threadbear uninstall --noninteractive --confirm --json
 ```
 
-Uninstall refuses while `phase:migration_running`; stop the controller first. It removes only ThreadBear's recorded hook entries, managed AGENTS block, installed skill, private state, and binary. It preserves unrelated content and hook order. After removal, make no terminal title call and append no ThreadBear footer, because either would decorate the cleaned control-task title again. Ask the user to restart Codex so open sessions cannot keep using snapshotted guidance.
+Uninstall refuses while `phase:migration_running` or a native archive operation is pending; reconcile it and stop the controller first. It removes only ThreadBear's recorded hook entries, managed AGENTS block, installed skill, private state, and binary. It preserves unrelated content, hook order, unrelated automations, and the archived state of already archived tasks. After removal, make no terminal title call and append no ThreadBear footer, because either would decorate the cleaned control-task title again. Ask the user to restart Codex so open sessions cannot keep using snapshotted guidance.
 
 ## Maintainer verification
 
 A release is ready only after unit and integration tests, the 1,500-line absolute shipped-logic gate, isolated install/reinstall/uninstall tests, 0-/1-/200-task controller fixtures, and controller resume, interruption, and failure cases.
 
-Also execute every lifecycle command printed here against the release candidate. Confirm that `INSTALL.md` and `site/install` are byte-identical and that the hosted `threadbear.sh/install` serves the reviewed guide before announcing publication.
+Tests and fixtures alone are not shipping proof. Also execute every lifecycle command printed here against the reviewed release candidate and exercise each changed native lifecycle against a real, recoverable Codex test task through the supported native control. Exercise changed download/update behavior against the official release service in an isolated installation. Record exact candidate SHA, task/release IDs, before/after state, results, and cleanup without visual inspection. Confirm that `INSTALL.md` and `site/install` are byte-identical and that the hosted `threadbear.sh/install` serves the reviewed guide before announcing publication.

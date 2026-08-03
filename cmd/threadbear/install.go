@@ -113,6 +113,9 @@ func uninstall(ctx context.Context, confirmed bool) (any, error) {
 	if value.Phase == phaseMigrationRunning {
 		return nil, errors.New("cannot uninstall while installation migration is running; stop the controller first")
 	}
+	if value.ArchivePending != nil {
+		return nil, errors.New("cannot uninstall while a native archive operation is pending; reconcile it first")
+	}
 	if value.MainTaskID != "" {
 		tasks, scanErr := inventory(ctx)
 		if scanErr != nil {
@@ -159,7 +162,7 @@ func status(ctx context.Context) (any, error) {
 	}
 	value, stateErr := reconcileMigration(ctx)
 	err = errors.Join(err, validateFile(p.skill, assets.SkillManagedContent), validateFile(p.agents, managedBlock()), stateErr)
-	result := map[string]any{"ready": err == nil && value.Phase == phaseMigrationComplete && value.MainTaskID != "", "installed": err == nil, "version": version, "phase": value.Phase, "main_task_id": value.MainTaskID, "controller_task_id": value.ControllerTaskID}
+	result := map[string]any{"ready": err == nil && value.Phase == phaseMigrationComplete && value.MainTaskID != "", "installed": err == nil, "version": version, "phase": value.Phase, "main_task_id": value.MainTaskID, "controller_task_id": value.ControllerTaskID, "maintenance_automation_id": maintenanceAutomationID, "archive_pending": value.ArchivePending != nil, "owned_archives": len(value.Archives)}
 	if value.MigrationFailure != "" {
 		result["migration_failure"] = value.MigrationFailure
 		result["next_action"] = "resume migration from the ThreadBear task"
