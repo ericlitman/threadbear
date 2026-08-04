@@ -10,8 +10,7 @@ import (
 	"strings"
 )
 
-const titleTool, runningMarker, homeTitle, cleanupMarker = "codex_appset_thread_title", "⏳ ThreadBear is working", "🧵🐻 ThreadBear 🐻🧵", "🧵🐻 strip title icons"
-const unknownMarker, maxHookBytes = "❔ ThreadBear could not classify", 1 << 20
+const titleTool, runningMarker, homeTitle, cleanupMarker, unknownMarker, maxHookBytes = "codex_appset_thread_title", "⏳ ThreadBear is working", "🧵🐻 ThreadBear 🐻🧵", "🧵🐻 strip title icons", "❔ ThreadBear could not classify", 1 << 20
 
 type hookInput struct {
 	Event        string                     `json:"hook_event_name"`
@@ -81,7 +80,8 @@ func hook(ctx context.Context, in io.Reader, out io.Writer) error {
 	}
 }
 func preTitle(ctx context.Context, event hookInput, out io.Writer) error {
-	title, target, err := titleTarget(event)
+	raw, target, err := titleTarget(event)
+	title, attempt, tagged := strings.Cut(raw, "⁣")
 	if err != nil {
 		return err
 	}
@@ -96,15 +96,20 @@ func preTitle(ctx context.Context, event hookInput, out io.Writer) error {
 		result, terminal = footer{Status: "unknown"}, true
 	} else if title == cleanupMarker {
 		result, terminal = footer{Status: "cleanup"}, true
+	} else if title == homeTitle && attempt != "" {
+		terminal, seed = true, homeTitle
 	}
 	if !terminal {
+		if tagged {
+			title, attempt = raw, ""
+		}
 		if title != homeTitle && (strings.HasPrefix(title, runningMarker) || strings.HasPrefix(title, "🧵🐻 ")) {
 			return errors.New("invalid ThreadBear marker")
 		}
-		_, err = stageTitle(ctx, target, "", "", title, event.SessionID, event.ToolUseID)
+		_, err = stageTitle(ctx, target, "", "", title, event.SessionID, event.ToolUseID, "")
 		return err
 	}
-	proposed, err := stageTitle(ctx, target, result.Status, result.Action, seed, event.SessionID, event.ToolUseID)
+	proposed, err := stageTitle(ctx, target, result.Status, result.Action, seed, event.SessionID, event.ToolUseID, attempt)
 	if err != nil {
 		return err
 	}
@@ -113,10 +118,11 @@ func preTitle(ctx context.Context, event hookInput, out io.Writer) error {
 		"hookEventName": "PreToolUse", "permissionDecision": "allow", "updatedInput": event.ToolInput,
 	}})
 }
-func stageTitle(ctx context.Context, id, status, action, seed, caller, toolUseID string) (string, error) {
-	task, found, err := indexedTask{Title: seed, Name: seed}, true, error(nil)
-	if status != "" {
-		task, found, err = oneTask(ctx, id)
+func stageTitle(ctx context.Context, id, status, action, seed, caller, toolUseID, attempt string) (string, error) {
+	task, found, err := oneTask(ctx, id)
+	if status == "" {
+		known, ok, readErr := archiveTaskByID(ctx, id)
+		task, found, err = indexedTask{Title: known.Title}, ok, readErr
 	}
 	if err != nil || !found {
 		return "", errors.Join(err, errors.New("task is not active in Codex"))
@@ -132,6 +138,9 @@ func stageTitle(ctx context.Context, id, status, action, seed, caller, toolUseID
 		}
 		current, first := strings.Join(strings.Fields(task.Title), " "), strings.Join(strings.Fields(task.FirstMessage), " ")
 		subject := canonicalSubject(task.Title, record)
+		if status == "" {
+			subject = strings.Join(strings.Fields(seed), " ")
+		}
 		if record.Subject == "" && saved.Phase == phaseMigrationRunning && saved.ControllerTaskID == caller && caller != id {
 			subject = stripStatusIcons(subject)
 		}
@@ -157,7 +166,7 @@ func stageTitle(ctx context.Context, id, status, action, seed, caller, toolUseID
 			}
 		}
 		proposed = map[bool]string{true: seed, false: renderTitle(status, subject, action)}[status == ""]
-		record.Pending = &pendingProposal{CallerTaskID: caller, ToolUseID: toolUseID, BaseSubject: subject, Prior: task.Title, Proposed: proposed, Status: status, Action: action}
+		record.Pending = &pendingProposal{CallerTaskID: caller, ToolUseID: toolUseID, BaseSubject: subject, Prior: task.Title, Proposed: proposed, Status: status, Action: action, Attempt: attempt}
 		saved.Tasks[id] = record
 		return true, nil
 	})

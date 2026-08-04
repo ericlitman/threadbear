@@ -1,8 +1,10 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"os"
+	"strings"
 	"testing"
 	"time"
 )
@@ -152,6 +154,21 @@ func TestMaintenanceRejectsDriftAndUninstallWithPendingArchive(t *testing.T) {
 	if _, err := maintenance(context.Background(), "target", "", "", 14); err != nil {
 		t.Fatal(err)
 	}
+	t.Setenv("CODEX_THREAD_ID", "target")
+	t.Setenv("THREADBEAR_TITLE_ATTEMPT", "rejected-title-call")
+	if _, err := maintenance(context.Background(), "", "", "target", 14); err == nil || !strings.Contains(err.Error(), "no matching pending operation") {
+		t.Fatalf("title recovery fell through to archive cancellation: %v", err)
+	}
+	value, _ := newStore(stateDir()).read()
+	if value.ArchivePending == nil {
+		t.Fatal("title recovery cancelled an unrelated pending archive")
+	}
+	t.Setenv("CODEX_THREAD_ID", "other")
+	if _, err := maintenance(context.Background(), "", "", "target", 14); err == nil || !strings.Contains(err.Error(), "exact active current task") {
+		t.Fatalf("title recovery accepted another caller: %v", err)
+	}
+	t.Setenv("CODEX_THREAD_ID", "target")
+	t.Setenv("THREADBEAR_TITLE_ATTEMPT", "")
 	if _, err := db.Exec(`UPDATE threads SET name='User rename' WHERE id='target'`); err != nil {
 		t.Fatal(err)
 	}
@@ -177,9 +194,67 @@ func TestMaintenanceRejectsDriftAndUninstallWithPendingArchive(t *testing.T) {
 	if err != nil || cancelled.(map[string]any)["cancelled"] != true {
 		t.Fatalf("cancel pending archive = %#v, %v", cancelled, err)
 	}
-	value, _ := newStore(stateDir()).read()
+	value, _ = newStore(stateDir()).read()
 	if value.ArchivePending != nil {
 		t.Fatal("cancel left a pending archive")
+	}
+}
+
+func TestMaintenanceCancelsOnlyExactKnownFailedCurrentTitle(t *testing.T) {
+	root, db := testIndex(t)
+	addTask(t, db, root, "task", homeTitle, nil, "vscode", 0)
+	if err := newStore(stateDir()).update(func(value *state) (bool, error) {
+		value.MainTaskID, value.Phase = "task", phaseMigrationPending
+		return true, nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	pre := hookPayload("PreToolUse", "task", "failed-noop", map[string]any{"title": homeTitle + "⁣attempt-one"}, nil)
+	var output bytes.Buffer
+	if err := hook(context.Background(), strings.NewReader(pre), &output); err != nil || rewrittenTitle(t, output.Bytes()) != homeTitle {
+		t.Fatal(err)
+	}
+	value, _ := newStore(stateDir()).read()
+	if pending := value.Tasks["task"].Pending; pending == nil || pending.Prior != pending.Proposed || pending.Attempt != "attempt-one" {
+		t.Fatalf("no-op failure fixture = %#v", pending)
+	}
+	t.Setenv("CODEX_THREAD_ID", "task")
+	t.Setenv("THREADBEAR_TITLE_ATTEMPT", value.Tasks["task"].Pending.Attempt)
+	result, err := maintenance(context.Background(), "", "", "task", 14)
+	if err != nil || result.(map[string]any)["action"] != "title" || result.(map[string]any)["cancelled"] != true {
+		t.Fatalf("known failed title cancellation = %#v, %v", result, err)
+	}
+	value, _ = newStore(stateDir()).read()
+	if value.Tasks["task"].Pending != nil {
+		t.Fatal("known failed title remained pending")
+	}
+	if err := newStore(stateDir()).update(func(value *state) (bool, error) { value.Phase = phaseMigrationComplete; return true, nil }); err != nil {
+		t.Fatal(err)
+	}
+	pre = hookPayload("PreToolUse", "task", "unknown", map[string]any{"title": runningMarker + ": Stable subject⁣attempt-two"}, nil)
+	output.Reset()
+	if err := hook(context.Background(), strings.NewReader(pre), &output); err != nil || strings.Contains(output.String(), `"permissionDecision":"deny"`) {
+		t.Fatalf("later title remained stranded: %q, %v", output.String(), err)
+	}
+	value, _ = newStore(stateDir()).read()
+	if pending := value.Tasks["task"].Pending; pending == nil || pending.Attempt != "attempt-two" || strings.Contains(pending.Proposed, "⁣") {
+		t.Fatalf("tagged running proposal = %#v", pending)
+	}
+	t.Setenv("THREADBEAR_TITLE_ATTEMPT", "different-attempt")
+	if _, err := maintenance(context.Background(), "", "", "task", 14); err == nil {
+		t.Fatal("new failed call cleared an older unknown proposal")
+	}
+	value, _ = newStore(stateDir()).read()
+	t.Setenv("THREADBEAR_TITLE_ATTEMPT", value.Tasks["task"].Pending.Attempt)
+	if _, err := db.Exec(`UPDATE threads SET name='Drifted title' WHERE id='task'`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := maintenance(context.Background(), "", "", "task", 14); err == nil {
+		t.Fatal("title cancellation accepted drift after an unknown result")
+	}
+	value, _ = newStore(stateDir()).read()
+	if value.Tasks["task"].Pending == nil {
+		t.Fatal("unknown result did not remain fail-closed")
 	}
 }
 

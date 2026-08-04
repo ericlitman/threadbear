@@ -89,6 +89,55 @@ func TestInstallDryRunAndConfirmationDoNotMutate(t *testing.T) {
 	}
 }
 
+func TestConcurrentFirstInstallsLockBeforeBinaryReplacement(t *testing.T) {
+	p := isolatedLifecycle(t)
+	lock, err := newStore(stateDir()).installLock()
+	if err != nil {
+		t.Fatal(err)
+	}
+	type outcome struct {
+		id  string
+		err error
+	}
+	done := make(chan outcome, 2)
+	start := make(chan struct{})
+	for _, id := range []string{"first", "second"} {
+		go func(id string) {
+			<-start
+			_, err := install(id, false, true, false)
+			done <- outcome{id, err}
+		}(id)
+	}
+	close(start)
+	select {
+	case result := <-done:
+		unlock(lock)
+		t.Fatalf("first install %q bypassed the lifecycle lock: %v", result.id, result.err)
+	case <-time.After(100 * time.Millisecond):
+	}
+	if _, err := os.Stat(p.binary); !os.IsNotExist(err) {
+		unlock(lock)
+		t.Fatalf("first install replaced the binary before ownership serialization: %v", err)
+	}
+	unlock(lock)
+	results := []outcome{<-done, <-done}
+	winner := ""
+	for _, result := range results {
+		if result.err == nil {
+			if winner != "" {
+				t.Fatalf("both first installers succeeded: %#v", results)
+			}
+			winner = result.id
+		} else if !strings.Contains(result.err.Error(), "persisted ThreadBear task changed") {
+			t.Fatalf("losing install %q = %v", result.id, result.err)
+		}
+	}
+	value, err := newStore(stateDir()).read()
+	if err != nil || winner == "" || value.MainTaskID != winner {
+		t.Fatalf("serialized ownership = winner %q, state %#v, err %v", winner, value, err)
+	}
+}
+
 func TestReinstallRefusesLegacyPendingTitle(t *testing.T) {
 	p := isolatedLifecycle(t)
 	if _, err := install("installer", false, true, false); err != nil {
@@ -468,6 +517,10 @@ func sameJSON(a, b []byte) bool {
 	return json.Unmarshal(a, &left) == nil && json.Unmarshal(b, &right) == nil && reflect.DeepEqual(left, right)
 }
 
+func ownedHookJSON(binary string) json.RawMessage {
+	return encodedJSON(map[string]any{"matcher": "codex_appset_thread_title", "hooks": []any{map[string]any{"type": "command", "command": quoteCommand(binary), "timeout": 1}}})
+}
+
 func isolatedLifecycle(t *testing.T) lifecyclePaths {
 	t.Helper()
 	testIndex(t)
@@ -532,9 +585,12 @@ func assertHookOrder(t *testing.T, path, event string, foreign []json.RawMessage
 func TestManagedGuidanceBoundsEachNativeTitleCall(t *testing.T) {
 	guidance := assets.AgentsManagedContent
 	for _, required := range []string{
+		"const attempt = Date.now().toString(36)",
 		"const result = await Promise.race([",
-		"tools.codex_app__set_thread_title({title:\"REPLACE WITH THE REQUIRED TITLE\"})",
+		"tools.codex_app__set_thread_title({title:\"REPLACE WITH THE REQUIRED TITLE\" + \"⁣\" + attempt})",
 		"new Promise(resolve => setTimeout(() => resolve({status:\"timeout\"}), 4000))",
+		"if (result.status === \"failed\")",
+		"THREADBEAR_TITLE_ATTEMPT='${attempt}'",
 		"Make exactly one native attempt.",
 		"never retry or await that promise",
 		"Explicit-target lifecycle mutations are governed by the installed ThreadBear skill instead.",

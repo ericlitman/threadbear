@@ -9,7 +9,7 @@ ThreadBear is one small Go executable, one private atomic JSON file, one managed
 3. `PostToolUse` runs only after native success, accepts only the exact caller, tool-use ID, returned task ID, and rewritten title, then commits the subject and rendering. Until that exact success, `PreToolUse` refuses to replace the one admitted proposal—even when a readback already resembles its proposed title. A same-controller migration resume may commit only an exact applied proposal under the shared title lock; every other unknown outcome remains pending.
 4. Immediately before the final response, the task makes the same bounded native attempt with its exact ThreadBear footer. The hooks expand and commit the matching terminal title; the response ends with that footer.
 
-Each title moment makes exactly one native attempt. A timeout leaves the write result unknown, so the turn does not retry or await the abandoned promise. There is no Stop hook: an interrupted turn keeps its running title until the next ordinary turn naturally replaces it.
+Each title moment makes exactly one native attempt with an opaque per-attempt suffix that Pre strips before native execution. A timeout leaves the write result unknown, so the turn does not retry, await, or cancel the abandoned promise. A definite returned failure runs one guarded local cancellation: only the exact current caller may clear a proposal carrying that same attempt ID, and only while authoritative readback remains at the recorded prior title. A rejected call whose Pre hook never staged the new ID therefore cannot clear an older unknown write. There is no Stop hook: an interrupted turn keeps its running title until the next ordinary turn naturally replaces it.
 
 ## Ownership and state
 

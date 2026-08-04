@@ -68,15 +68,16 @@ func install(controlTaskID string, dry, confirmed, debugCanaries bool) (any, err
 	if !confirmed {
 		return nil, errors.New("install requires --noninteractive --confirm after its preview")
 	}
-	if value.MainTaskID != "" {
-		titleLock, lockErr := newStore(stateDir()).titleLock()
-		if lockErr != nil {
-			return nil, lockErr
-		}
-		defer unlock(titleLock)
-		if value, err = newStore(stateDir()).read(); err != nil {
-			return nil, err
-		}
+	titleLock, lockErr := newStore(stateDir()).installLock()
+	if lockErr != nil {
+		return nil, lockErr
+	}
+	defer unlock(titleLock)
+	if value, err = currentStateOrEmpty(); err != nil {
+		return nil, err
+	}
+	if value.MainTaskID != "" && value.MainTaskID != mainTaskID {
+		return nil, errors.New("persisted ThreadBear task changed during install")
 	}
 	if hasPendingTitle(value) {
 		return nil, errors.New("install requires all native title operations to settle")
@@ -92,9 +93,6 @@ func install(controlTaskID string, dry, confirmed, debugCanaries bool) (any, err
 	if err = writeAtomic(p.binary, binary, 0o755); err == nil {
 		err = newStore(stateDir()).update(func(saved *state) (bool, error) {
 			changed := saved.MainTaskID != mainTaskID || saved.Format != stateFormat
-			if saved.MainTaskID != "" && saved.MainTaskID != mainTaskID {
-				return false, errors.New("persisted ThreadBear task changed during install")
-			}
 			saved.MainTaskID, saved.Format = mainTaskID, stateFormat
 			if saved.Phase == "" {
 				saved.Phase, changed = phaseMigrationPending, true
@@ -142,7 +140,7 @@ func prepareUninstall(ctx context.Context, initiatorTaskID string) (any, error) 
 			if err != nil {
 				return nil, err
 			}
-			return uninstallPreparationResult(pending, true, reconciled), nil
+			return map[string]any{"ready": true, "prepared": true, "resumed": true, "reconciled_titles": reconciled, "initiator_task_id": pending.InitiatorTaskID, "main_task_id": pending.MainTaskID, "main_archived": pending.MainArchived, "controller_task_id": pending.ControllerTaskID}, nil
 		}
 		reconciled, err := reconcileTitles(ctx, "")
 		if err != nil {
@@ -160,17 +158,21 @@ func prepareUninstall(ctx context.Context, initiatorTaskID string) (any, error) 
 		if err != nil {
 			return nil, err
 		}
-		return uninstallPreparationResult(pending, false, reconciled), nil
+		return map[string]any{"ready": true, "prepared": true, "resumed": false, "reconciled_titles": reconciled, "initiator_task_id": pending.InitiatorTaskID, "main_task_id": pending.MainTaskID, "main_archived": pending.MainArchived, "controller_task_id": pending.ControllerTaskID}, nil
 	})
-}
-func uninstallPreparationResult(pending *uninstallOperation, resumed bool, reconciled int) any {
-	return map[string]any{"ready": true, "prepared": true, "resumed": resumed, "reconciled_titles": reconciled, "initiator_task_id": pending.InitiatorTaskID, "main_task_id": pending.MainTaskID, "main_archived": pending.MainArchived, "controller_task_id": pending.ControllerTaskID}
 }
 func reconcileTitles(ctx context.Context, caller string) (count int, err error) {
 	err = newStore(stateDir()).update(func(value *state) (bool, error) {
+		current, attempt := caller != "" && (value.Phase == phaseMigrationPending || value.Phase == phaseMigrationComplete) && value.UninstallPending == nil && os.Getenv("CODEX_THREAD_ID") == caller, os.Getenv("THREADBEAR_TITLE_ATTEMPT")
+		if attempt != "" && !current {
+			return false, errors.New("title recovery requires its exact active current task")
+		}
 		for id, record := range value.Tasks {
 			pending := record.Pending
 			if pending == nil {
+				continue
+			}
+			if current && id != caller {
 				continue
 			}
 			if caller != "" && (pending.CallerTaskID != caller || value.Phase == phaseMigrationFailed && os.Getenv("CODEX_THREAD_ID") != caller) {
@@ -181,7 +183,7 @@ func reconcileTitles(ctx context.Context, caller string) (count int, err error) 
 				return false, readErr
 			}
 			applied := found && task.User && task.Visible && pending.Prior != pending.Proposed && task.Title == pending.Proposed
-			cleared := caller != "" && value.MigrationFailure == "controller reported a settled migration failure" && (!found || task.Title == pending.Prior)
+			cleared := caller != "" && (value.MigrationFailure == "controller reported a settled migration failure" && (!found || task.Title == pending.Prior) || current && pending.Attempt != "" && pending.Attempt == attempt && found && task.User && task.Visible && !task.Archived && task.Title == pending.Prior)
 			if !applied && !cleared {
 				return false, fmt.Errorf("native title operation for task %q has not settled; wait for its exact PostToolUse result", id)
 			}
@@ -191,7 +193,7 @@ func reconcileTitles(ctx context.Context, caller string) (count int, err error) 
 			count, record.Pending = count+1, nil
 			value.Tasks[id] = record
 		}
-		return count > 0, nil
+		return count > 0, map[bool]error{true: errors.New("title recovery found no matching pending operation")}[attempt != "" && count == 0]
 	})
 	return count, err
 }
@@ -324,7 +326,7 @@ func status(ctx context.Context) (any, error) {
 		}
 	}
 	value, stateErr := reconcileMigration(ctx)
-	err = errors.Join(err, validateFile(p.skill, assets.SkillManagedContent), validateFile(p.agents, managedBlock()), stateErr)
+	err = errors.Join(err, validateFile(p.skill, assets.SkillManagedContent), validateFile(p.agents, blockStart+"\n"+strings.TrimSpace(assets.AgentsManagedContent)+"\n"+blockEnd), stateErr)
 	result := map[string]any{"ready": err == nil && value.Phase == phaseMigrationComplete && value.MainTaskID != "", "installed": err == nil, "version": version, "phase": value.Phase, "main_task_id": value.MainTaskID, "controller_task_id": value.ControllerTaskID, "maintenance_automation_id": "threadbear-maintenance", "archive_pending": value.ArchivePending != nil, "uninstall_pending": value.UninstallPending != nil, "owned_archives": len(value.Archives)}
 	if value.MigrationFailure != "" {
 		result["migration_failure"] = value.MigrationFailure
@@ -357,7 +359,7 @@ func editHooks(path, binary string, add bool) ([]byte, bool, error) {
 		return nil, false, errors.New("hooks.json hooks must be an object")
 	}
 	before := encodedJSON(decodedJSON(data))
-	owner, removed := ownedHookJSON(binary), false
+	owner, removed := encodedJSON(map[string]any{"matcher": "codex_appset_thread_title", "hooks": []any{map[string]any{"type": "command", "command": quoteCommand(binary), "timeout": 1}}}), false
 	for _, event := range []string{"PreToolUse", "PostToolUse"} {
 		var groups []json.RawMessage
 		if raw, ok := events[event]; ok && (json.Unmarshal(raw, &groups) != nil || groups == nil) {
@@ -392,9 +394,6 @@ func editHooks(path, binary string, add bool) ([]byte, bool, error) {
 	return append(updated, '\n'), string(before) != string(encodedJSON(decodedJSON(updated))), err
 }
 func encodedJSON(value any) json.RawMessage { data, _ := json.Marshal(value); return data }
-func ownedHookJSON(binary string) json.RawMessage {
-	return encodedJSON(map[string]any{"matcher": "codex_appset_thread_title", "hooks": []any{map[string]any{"type": "command", "command": quoteCommand(binary), "timeout": 1}}})
-}
 func ownedHookGroup(group json.RawMessage, binary string) bool {
 	value, hooks := rawObject{}, []rawObject{}
 	return json.Unmarshal(group, &value) == nil && json.Unmarshal(value["hooks"], &hooks) == nil && len(hooks) == 1 && string(value["matcher"]) == `"codex_appset_thread_title"` && string(hooks[0]["type"]) == `"command"` && string(hooks[0]["command"]) == string(encodedJSON(quoteCommand(binary)))
@@ -416,9 +415,6 @@ func validateFile(path, content string) error {
 	}
 	return err
 }
-func managedBlock() string {
-	return blockStart + "\n" + strings.TrimSpace(assets.AgentsManagedContent) + "\n" + blockEnd
-}
 func manageBlock(path, content string) error {
 	data, err := os.ReadFile(path)
 	if errors.Is(err, os.ErrNotExist) && content == "" {
@@ -429,17 +425,17 @@ func manageBlock(path, content string) error {
 	}
 	text := string(data)
 	start, end := strings.Index(text, blockStart), strings.Index(text, blockEnd)
+	block := blockStart + "\n" + strings.TrimSpace(assets.AgentsManagedContent) + "\n" + blockEnd
 	if strings.Count(text, blockStart) > 1 || strings.Count(text, blockEnd) > 1 || start < 0 != (end < 0) || end >= 0 && end < start {
 		return errors.New("invalid ThreadBear managed block")
 	}
-	if content == "" && (start < 0 && (strings.Contains(text, managedHeading) || strings.Contains(text, managedProtocol)) || start >= 0 && !strings.Contains(text, managedBlock())) {
+	if content == "" && (start < 0 && (strings.Contains(text, managedHeading) || strings.Contains(text, managedProtocol)) || start >= 0 && !strings.Contains(text, block)) {
 		return errors.New("managed file was modified: " + path)
 	}
 	if content == "" && start < 0 {
 		return nil
 	}
 	if content != "" {
-		block := managedBlock()
 		if start >= 0 {
 			text = text[:start] + block + text[end+len(blockEnd):]
 		} else {

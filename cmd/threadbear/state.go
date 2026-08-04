@@ -23,6 +23,7 @@ type pendingProposal struct {
 	Proposed     string `json:"proposed"`
 	Status       string `json:"status"`
 	Action       string `json:"action,omitempty"`
+	Attempt      string `json:"attempt,omitempty"`
 }
 type taskState struct {
 	Subject         string           `json:"subject"`
@@ -97,11 +98,9 @@ func (s store) operationLock() (*os.File, error) {
 	}
 	return lock, err
 }
-func (s store) titleLock() (*os.File, error) { return s.openLock("title.lock", unix.LOCK_EX, false) }
-func unlock(lock *os.File) {
-	_ = unix.Flock(int(lock.Fd()), unix.LOCK_UN)
-	_ = lock.Close()
-}
+func (s store) titleLock() (*os.File, error)   { return s.openLock("title.lock", unix.LOCK_EX, false) }
+func (s store) installLock() (*os.File, error) { return s.openLock("title.lock", unix.LOCK_EX, true) }
+func unlock(lock *os.File)                     { _ = unix.Flock(int(lock.Fd()), unix.LOCK_UN); _ = lock.Close() }
 func (s store) read() (state, error) {
 	fd, err := unix.Open(s.path(), unix.O_RDONLY|unix.O_NOFOLLOW, 0)
 	if err != nil {

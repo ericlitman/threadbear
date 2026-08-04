@@ -9,16 +9,24 @@ For every ordinary interactive turn in a main Codex Desktop task:
 For both title moments, replace the title literal and execute this exact shape:
 
 ```js
+const attempt = Date.now().toString(36) + "-" + Math.random().toString(36).slice(2);
 const result = await Promise.race([
-  tools.codex_app__set_thread_title({title:"REPLACE WITH THE REQUIRED TITLE"})
+  tools.codex_app__set_thread_title({title:"REPLACE WITH THE REQUIRED TITLE" + "⁣" + attempt})
     .then(value => ({status:"returned", value}))
     .catch(error => ({status:"failed", error:String(error)})),
   new Promise(resolve => setTimeout(() => resolve({status:"timeout"}), 4000))
 ]);
+if (result.status === "failed") {
+  const recovery = await tools.exec_command({
+    cmd: `THREADBEAR_TITLE_ATTEMPT='${attempt}' ~/.local/bin/threadbear maintenance --cancel "$CODEX_THREAD_ID" --json`,
+    yield_time_ms: 4000, max_output_tokens: 1000
+  });
+  result.recovery = recovery.exit_code === 0 ? "settled" : "failed";
+}
 text(result);
 ```
 
-Make exactly one native attempt. The four-second timer is the total wait budget. If it wins, the write result is unknown: end the cell, never retry or await that promise, and continue the turn. Also continue after an explicit returned failure. Do not call the native title tool directly outside this bounded cell.
+Make exactly one native attempt. The hook strips the opaque attempt suffix before the title reaches Codex. The four-second timer is the native wait budget. If it wins, the write result is unknown: end the cell, never retry or await that promise, never cancel it, and continue the turn. Only an explicit returned failure runs the local recovery command; it clears solely the exact caller's proposal carrying that same attempt ID while native readback still equals its recorded prior title. Continue even when that guarded recovery fails. Do not call the native title tool directly outside this bounded cell.
 
 This bounded current-task shape applies only to the two ordinary title moments above, where `threadId` is omitted. Explicit-target lifecycle mutations are governed by the installed ThreadBear skill instead. Follow that lifecycle's batching and wait rules; do not add this `Promise.race` unless the skill explicitly requires a four-second attempt.
 

@@ -23,15 +23,9 @@ import (
 const updateManifestLimit = int64(1 << 20)
 
 var (
-	updateReleaseBase      = "https://github.com/ericlitman/threadbear/releases"
-	updateManifestURL      = updateReleaseBase + "/latest/download/latest.json"
-	updateClient           = &http.Client{Timeout: 30 * time.Second}
-	updateGOOS             = runtime.GOOS
-	updateGOARCH           = runtime.GOARCH
-	updateBinaryLimit      = int64(64 << 20)
-	updateVersionTimeout   = 30 * time.Second
-	updateCandidateTimeout = 30 * time.Second
-	updateInstallTimeout   = 2 * time.Minute
+	updateReleaseBase, updateManifestURL                                                         = "https://github.com/ericlitman/threadbear/releases", "https://github.com/ericlitman/threadbear/releases/latest/download/latest.json"
+	updateClient, updateBinaryLimit                                                              = &http.Client{Timeout: 30 * time.Second}, int64(64 << 20)
+	updateGOOS, updateGOARCH, updateVersionTimeout, updateCandidateTimeout, updateInstallTimeout = runtime.GOOS, runtime.GOARCH, 30 * time.Second, 30 * time.Second, 2 * time.Minute
 )
 
 type updateError struct {
