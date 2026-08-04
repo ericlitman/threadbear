@@ -76,9 +76,6 @@ func preTitle(ctx context.Context, event hookInput, out io.Writer) error {
 	if err != nil {
 		return err
 	}
-	if title == homeTitle {
-		return nil
-	}
 	result, terminal := parseFooter(title)
 	seed, seeded := strings.CutPrefix(title, runningMarker+": ")
 	if seeded && (seed == "" || seed != strings.Join(strings.Fields(seed), " ") || seed != truncateUTF16(seed, 58)) {
@@ -92,10 +89,11 @@ func preTitle(ctx context.Context, event hookInput, out io.Writer) error {
 		result, terminal = footer{Status: "cleanup"}, true
 	}
 	if !terminal {
-		if strings.HasPrefix(title, runningMarker) || strings.HasPrefix(title, "🧵🐻 ") {
+		if title != homeTitle && (strings.HasPrefix(title, runningMarker) || strings.HasPrefix(title, "🧵🐻 ")) {
 			return errors.New("invalid ThreadBear marker")
 		}
-		return nil
+		_, err = stageTitle(ctx, target, "", "", title, event.SessionID, event.ToolUseID)
+		return err
 	}
 	proposed, err := stageTitle(ctx, target, result.Status, result.Action, seed, event.SessionID, event.ToolUseID)
 	if err != nil {
@@ -107,12 +105,24 @@ func preTitle(ctx context.Context, event hookInput, out io.Writer) error {
 	}})
 }
 func stageTitle(ctx context.Context, id, status, action, seed, caller, toolUseID string) (string, error) {
-	task, found, err := oneTask(ctx, id)
+	store := newStore(stateDir())
+	titleLock, err := store.titleLock()
+	if err != nil {
+		return "", err
+	}
+	defer unlock(titleLock)
+	task, found := indexedTask{Title: seed, Name: seed}, true
+	if status != "" {
+		task, found, err = oneTask(ctx, id)
+	}
 	if err != nil || !found {
 		return "", errors.Join(err, errors.New("task is not active in Codex"))
 	}
 	var proposed string
-	err = newStore(stateDir()).update(func(saved *state) (bool, error) {
+	err = store.update(func(saved *state) (bool, error) {
+		if pending := saved.UninstallPending; pending != nil && (pending.InitiatorTaskID != caller || status != "cleanup") {
+			return false, errors.New("title changes are paused for the prepared uninstall task")
+		}
 		record := saved.Tasks[id]
 		current, first := strings.Join(strings.Fields(task.Title), " "), strings.Join(strings.Fields(task.FirstMessage), " ")
 		subject := canonicalSubject(task.Title, record)
@@ -120,11 +130,12 @@ func stageTitle(ctx context.Context, id, status, action, seed, caller, toolUseID
 			subject = stripStatusIcons(subject)
 		}
 		if status == "cleanup" {
-			if saved.MainTaskID != caller {
+			owner := saved.UninstallPending != nil && saved.UninstallPending.InitiatorTaskID == caller
+			if saved.MainTaskID != caller && !owner {
 				return false, errors.New("title cleanup requires the ThreadBear control task")
 			}
 			subject = cmp.Or(stripStatusIcons(task.Title), "Untitled task")
-		} else if task.Name == "" && first != "" && (current == first || current == truncateUTF16(first, 60)) {
+		} else if status != "" && task.Name == "" && first != "" && (current == first || current == truncateUTF16(first, 60)) {
 			subject = record.Subject
 			if record.Pending != nil && record.Pending.BaseSubject != "" {
 				subject = record.Pending.BaseSubject
@@ -139,7 +150,7 @@ func stageTitle(ctx context.Context, id, status, action, seed, caller, toolUseID
 				return false, errors.New("fresh task has no subject owner")
 			}
 		}
-		proposed = renderTitle(status, subject, action)
+		proposed = map[bool]string{true: seed, false: renderTitle(status, subject, action)}[status == ""]
 		record.Pending = &pendingProposal{ToolUseID: toolUseID, BaseSubject: subject, Prior: task.Title, Proposed: proposed, Status: status, Action: action}
 		saved.Tasks[id] = record
 		return true, nil

@@ -162,6 +162,32 @@ func TestOrdinaryHooksRewriteVerifyAndRecoverLostPost(t *testing.T) {
 	}
 }
 
+func TestPlainTitlePassThroughStagesAndSettles(t *testing.T) {
+	root, db := testIndex(t)
+	addTask(t, db, root, "task", "Stable subject", nil, "vscode", 0)
+	if err := newStore(stateDir()).update(func(*state) (bool, error) { return false, nil }); err != nil {
+		t.Fatal(err)
+	}
+	pre := hookPayload("PreToolUse", "task", "plain", map[string]any{"title": "User  rename"}, nil)
+	var output bytes.Buffer
+	if err := hook(context.Background(), strings.NewReader(pre), &output); err != nil || output.Len() != 0 {
+		t.Fatalf("plain Pre = %q, %v", output.String(), err)
+	}
+	saved, _ := newStore(stateDir()).read()
+	if pending := saved.Tasks["task"].Pending; pending == nil || pending.Proposed != "User  rename" {
+		t.Fatalf("plain proposal = %#v", pending)
+	}
+	response, _ := json.Marshal(map[string]string{"threadId": "task", "title": "User  rename"})
+	post := hookPayload("PostToolUse", "task", "plain", map[string]any{"title": "User  rename"}, string(response))
+	if err := hook(context.Background(), strings.NewReader(post), &bytes.Buffer{}); err != nil {
+		t.Fatal(err)
+	}
+	saved, _ = newStore(stateDir()).read()
+	if got := saved.Tasks["task"]; got.Subject != "User rename" || got.Last != "User  rename" || got.Pending != nil {
+		t.Fatalf("plain committed state = %#v", got)
+	}
+}
+
 func BenchmarkOrdinaryPreToolUse(b *testing.B) {
 	root, db := testIndex(b)
 	addTask(b, db, root, "task", "Stable subject", nil, "vscode", 0)
@@ -176,6 +202,46 @@ func BenchmarkOrdinaryPreToolUse(b *testing.B) {
 		if err := hook(context.Background(), strings.NewReader(payload), &output); err != nil {
 			b.Fatal(err)
 		}
+	}
+}
+
+func TestPreToolUseRefusesWhileTitleLifecycleIsLocked(t *testing.T) {
+	root, db := testIndex(t)
+	addTask(t, db, root, "task", "Stable subject", nil, "vscode", 0)
+	if err := newStore(stateDir()).update(func(*state) (bool, error) { return false, nil }); err != nil {
+		t.Fatal(err)
+	}
+	lock, err := newStore(stateDir()).titleLock()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer unlock(lock)
+	payload := hookPayload("PreToolUse", "task", "locked", map[string]any{"title": runningMarker + ": Stable subject"}, nil)
+	var output bytes.Buffer
+	if err := hook(context.Background(), strings.NewReader(payload), &output); err != nil || !strings.Contains(output.String(), `"permissionDecision":"deny"`) {
+		t.Fatalf("locked PreToolUse = %q, %v", output.String(), err)
+	}
+	saved, err := newStore(stateDir()).read()
+	if err != nil || saved.Tasks["task"].Pending != nil {
+		t.Fatalf("locked PreToolUse staged state: %#v, %v", saved.Tasks["task"], err)
+	}
+}
+
+func TestPreToolUseContinuesWhileMaintenanceOperationIsLocked(t *testing.T) {
+	root, db := testIndex(t)
+	addTask(t, db, root, "task", "Stable subject", nil, "vscode", 0)
+	if err := newStore(stateDir()).update(func(*state) (bool, error) { return false, nil }); err != nil {
+		t.Fatal(err)
+	}
+	lock, err := newStore(stateDir()).operationLock()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer unlock(lock)
+	payload := hookPayload("PreToolUse", "task", "update-overlap", map[string]any{"title": runningMarker + ": Stable subject"}, nil)
+	var output bytes.Buffer
+	if err := hook(context.Background(), strings.NewReader(payload), &output); err != nil || !strings.Contains(output.String(), `"permissionDecision":"allow"`) {
+		t.Fatalf("operation-overlap PreToolUse = %q, %v", output.String(), err)
 	}
 }
 
@@ -209,6 +275,9 @@ func BenchmarkOrdinaryPostToolUse(b *testing.B) {
 
 func TestFreshRunningSubjectSeedClosesFirstTitleRace(t *testing.T) {
 	root, db := testIndex(t)
+	if err := newStore(stateDir()).update(func(*state) (bool, error) { return false, nil }); err != nil {
+		t.Fatal(err)
+	}
 	first := "Fix the login redirect. First call the title tool, then inspect the failure."
 	addTask(t, db, root, "raw", first, nil, "vscode", 0)
 	addTask(t, db, root, "short", "Fix login redirect", nil, "vscode", 0)
@@ -235,6 +304,9 @@ func TestFreshRunningSubjectSeedClosesFirstTitleRace(t *testing.T) {
 
 func TestFreshRunningSubjectSeedFailsClosedAndThenStaysOwned(t *testing.T) {
 	root, db := testIndex(t)
+	if err := newStore(stateDir()).update(func(*state) (bool, error) { return false, nil }); err != nil {
+		t.Fatal(err)
+	}
 	first := "Investigate the first title race and preserve the stable subject."
 	addTask(t, db, root, "task", first, nil, "vscode", 0)
 	if _, err := db.Exec(`UPDATE threads SET first_user_message=? WHERE id='task'`, first); err != nil {
@@ -252,6 +324,13 @@ func TestFreshRunningSubjectSeedFailsClosedAndThenStaysOwned(t *testing.T) {
 	homePre := hookPayload("PreToolUse", "task", "home", map[string]any{"title": homeTitle}, nil)
 	if err := hook(context.Background(), strings.NewReader(homePre), &homeOutput); err != nil || homeOutput.Len() != 0 {
 		t.Fatalf("persistent home title was not passed through: %q, %v", homeOutput.String(), err)
+	}
+	homeState, _ := currentStateOrEmpty()
+	if homeState.Tasks["task"].Pending == nil {
+		t.Fatal("persistent home title was not staged")
+	}
+	if err := newStore(stateDir()).update(func(value *state) (bool, error) { delete(value.Tasks, "task"); return true, nil }); err != nil {
+		t.Fatal(err)
 	}
 	for _, marker := range []string{runningMarker, runningMarker + ":", runningMarker + ": ", runningMarker + ": bad  spacing", runningMarker + ": " + strings.Repeat("x", 59), homeTitle + " extra"} {
 		var output bytes.Buffer

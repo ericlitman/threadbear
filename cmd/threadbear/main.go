@@ -76,9 +76,23 @@ func run(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io.
 		flags.Bool("candidate", false, "validate this binary before installation")
 		action = selfTest
 	case "uninstall":
+		prepare := flags.Bool("prepare", false, "persist the initiating task and original control-task state")
+		abort := flags.Bool("abort", false, "abandon the prepared uninstall after restoring the control-task archive state")
+		initiatorTaskID := flags.String("initiator-task-id", "", "active task that owns this uninstall operation")
 		noninteractive := flags.Bool("noninteractive", false, "run without prompts")
 		confirm := flags.Bool("confirm", false, "confirm the previewed uninstall")
-		action = func() (any, error) { return uninstall(ctx, *noninteractive && *confirm) }
+		action = func() (any, error) {
+			switch {
+			case *prepare && *abort:
+				return nil, errors.New("uninstall accepts only one of --prepare or --abort")
+			case *prepare:
+				return prepareUninstall(ctx, *initiatorTaskID)
+			case *abort:
+				return completeUninstall(ctx, *initiatorTaskID, false, true)
+			default:
+				return completeUninstall(ctx, *initiatorTaskID, *noninteractive && *confirm, false)
+			}
+		}
 	case "version":
 		action = func() (any, error) { return map[string]any{"version": version}, nil }
 	default:

@@ -173,19 +173,29 @@ The installed binary's help is the authoritative public command list. Run `updat
 
 ## Uninstall
 
-Read the installed skill's **Title cleanup** and **Uninstall** sections. Run status and inventory, then ask:
+You can uninstall from any active native Codex task—even when the ThreadBear home is archived. Do not ask the user to open, select, navigate to, or unarchive the ThreadBear home.
 
-> Want me to uninstall ThreadBear? I'll pause its Luna helper, tidy the ThreadBear icons from native-addressable local Codex task titles, and remove ThreadBear's local files, two hooks, and owned automation. Tasks already tucked into the archive will stay there, and your other tasks and Codex settings will be left alone. Older signed-in ChatGPT chat-history rows are outside this cleanup. When it's done, I'll ask you to restart Codex.
+Read the installed skill's **Title cleanup** and **Uninstall** sections. Run status and inventory, resolve this initiating task's exact ID plus the persisted main and distinct controller IDs, inspect the exact owned automation, then ask:
+
+> Want me to uninstall ThreadBear? I'll pause its Luna helper, tidy the ThreadBear icons from native-addressable local Codex task titles, and remove ThreadBear's local files, two hooks, and owned automation. If the ThreadBear home is archived, I'll briefly bring it out for cleanup and tuck it back exactly where it was. Your other archived tasks and Codex settings will be left alone. Older signed-in ChatGPT chat-history rows are outside this cleanup. When it's done, I'll ask you to restart Codex.
 >
 > Should I go ahead?
 
-Pause the exact owned `threadbear-maintenance` heartbeat before title cleanup; refuse an ID, kind, name, or target mismatch. Title cleanup must finish through serial explicit native target calls with exact returned IDs and titles. Clean the persistent ThreadBear task last, delete the exact owned automation, then show and run:
+After consent, pause the exact owned `threadbear-maintenance` heartbeat; refuse an ID, kind, name, or target mismatch. Prepare the durable operation before changing a title or archive state:
 
 ```sh
-~/.local/bin/threadbear uninstall --noninteractive --confirm --json
+~/.local/bin/threadbear uninstall --prepare --initiator-task-id INITIATOR_ID --json
 ```
 
-Uninstall refuses while `phase:migration_running` or a native archive operation is pending; reconcile it and stop the controller first. It removes only ThreadBear's recorded hook entries, managed AGENTS block, installed skill, private state, and binary. It preserves unrelated content, hook order, unrelated automations, and the archived state of already archived tasks. After removal, make no terminal title call and append no ThreadBear footer, because either would decorate the cleaned control-task title again. Ask the user to restart Codex so open sessions cannot keep using snapshotted guidance.
+If the returned original main state is archived, unarchive that exact task once through native archive control and verify it without opening, selecting, navigating to, or waking the task. The prepared initiating task cleans active titles serially through explicit native target calls, including an active distinct controller, then cleans `main_task_id` last. Every title mutation gets one four-second attempt, exact authoritative readback, and no blind retry. A clean title on resume is already settled and must not be rewritten.
+
+Restore and verify the main task's exact original archive state before deleting the owned automation. On a recoverable interruption, leave ThreadBear installed; the same initiating task resumes without duplicating settled mutations, and drifted or missing title targets remain user-owned. If uninstall is abandoned, restore and verify the original archive state, run `~/.local/bin/threadbear uninstall --abort --initiator-task-id INITIATOR_ID --json`, and require `aborted:true`. Once the exact automation is deleted and verified absent, cross the local commit boundary and run:
+
+```sh
+~/.local/bin/threadbear uninstall --initiator-task-id INITIATOR_ID --noninteractive --confirm --json
+```
+
+Commit refuses unless the prepared owner, clean main title, restored archive state, completed migration, and settled native operations all match. It removes only ThreadBear's recorded hook entries, managed AGENTS block, installed skill, private state, and binary; partial local teardown is rerunnable and the installed binary is removed last. It preserves unrelated content, hook order, unrelated automations, and archive states. After removal, make no terminal title call and append no ThreadBear footer, because either would decorate the cleaned control-task title again. Ask the user to restart Codex so open sessions cannot keep using snapshotted guidance, and report whether the former home ended archived or active.
 
 ## Maintainer verification
 

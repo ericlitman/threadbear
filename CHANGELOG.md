@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Fixed
+
+- Made uninstall resumable from any active native task when the persisted ThreadBear home is archived, with durable initiator ownership, exact archive restoration, archived-main title validation, and binary-last local teardown.
+
 ## v2.2.0 - 2026-08-03
 
 ### Added

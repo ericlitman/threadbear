@@ -15,7 +15,7 @@ Each title moment makes exactly one native attempt. A timeout leaves the write r
 
 The canonical title is `<status icon> <user-owned subject>[ → <managed action>]`. ThreadBear owns only a leading status and action suffix from its last exact committed rendering. Any different current title is a user rename and becomes the complete subject, even if it contains an icon or arrow. A first-call seed is ignored after ownership exists.
 
-State is keyed by task ID and contains the persistent main-task ID, the single migration-controller ID, one migration phase, the canonical subject, the last verified rendering, and at most one pending proposal. A pending proposal lets a later call recognize setter success when Post was lost. State is private, locked, and atomically replaced. Ordinary title proposals are never queued for later repair.
+State is keyed by task ID and contains the persistent main-task ID, the single migration-controller ID, one migration phase, the canonical subject, the last verified rendering, and at most one pending proposal. A pending proposal lets a later call recognize setter success when Post was lost. A prepared uninstall additionally records the exact active initiator, main/controller identities, and the main task's original archive state. While that operation exists, maintenance, update, and ordinary title calls are denied; only cleanup markers from the persisted initiator may stage. An exact-owner abort clears the operation only after the original main archive state is restored. State is private, locked, and atomically replaced. Ordinary title proposals are never queued for later repair.
 
 ## Maintenance and archive ownership
 
@@ -31,7 +31,7 @@ For a newer or repairing release, the command downloads bounded checksum and bin
 
 The visible title is limited to 60 UTF-16 units. Rendering first computes the bounded standalone status-and-subject display, then truncates or omits only the appended action without changing canonical state.
 
-The persisted main task may request one reserved cleanup marker for an explicit target. The same Pre/Post transaction re-reads the target, removes every consecutive leading ThreadBear status mark, stages the subject-only title, validates the exact native result, and repairs ownership state. The marker is denied for every other caller. Guided uninstall uses this serial operation for all active titles before deleting the hooks or ownership state; the same operation is available on demand from the persistent task.
+The persisted main task may request one reserved cleanup marker for an explicit target. The same Pre/Post transaction re-reads the target, removes every consecutive leading ThreadBear status mark, stages the subject-only title, validates the exact native result, and repairs ownership state. During a prepared uninstall, the persisted active initiator receives that cleanup authority and every other title call is denied. The initiator serially cleans active tasks, temporarily unarchives the persisted main only when required, cleans it last, restores its original archive state, and verifies both title and archive settlement before deleting the exact automation. Local teardown is then a rerunnable commit that validates managed content, removes state before the installed executable, and never performs another native mutation. On-demand cleanup outside uninstall remains restricted to the persisted main task.
 
 ## Installation and migration
 

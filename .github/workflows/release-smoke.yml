@@ -53,7 +53,7 @@ jobs:
             echo "- Release: \`$RELEASE_TAG\`"
             echo "- Result: \`$SMOKE_OUTCOME\`"
             echo "- Runner architecture: \`$(uname -m)\`"
-            echo "- Proved: live release manifest, checksum, candidate self-test, binary install, native PreToolUse/PostToolUse title finalization against an unarchived task and settled rollout, committed state, status, inventory convergence, control-task title cleanup, and uninstall."
+          echo "- Proved: live release manifest, checksum, candidate self-test, binary install, native PreToolUse/PostToolUse title finalization, settled state and inventory, prepared active-task uninstall, fixture-simulated archived-control cleanup/restoration, completed-controller preservation, and binary-last teardown. Real native archive control remains a separate release canary."
             echo "- Not proved: real Codex auth, rendered Desktop titles, Luna behavior, or architectures other than this runner."
             echo "- Deployment timing: a Pages/CDN lag can make the live bootstrap older than the release commit; that red result still requires operator investigation."
             echo "- A red result marks the published release for operator action; this workflow does not delete, demote, or retry a release."

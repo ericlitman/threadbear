@@ -27,3 +27,8 @@ Maintenance flags:
   --restore TASK_ID      Stage or reconcile one ThreadBear-owned restore
   --cancel TASK_ID       Clear one known-unapplied pending operation
   --archive-after-days N Quiet completed days required (default 14)
+
+Uninstall flags:
+  --prepare               Persist the active initiating task and original home state
+  --abort                 Abandon a prepared uninstall after restoring the home archive state
+  --initiator-task-id ID  Active task that owns preparation, cleanup, and commit

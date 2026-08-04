@@ -113,6 +113,24 @@ func TestMaintenanceArchiveRestoreAndInterruptionReconcile(t *testing.T) {
 	}
 }
 
+func TestMaintenanceRefusesPreparedUninstall(t *testing.T) {
+	testIndex(t)
+	if err := newStore(stateDir()).update(func(value *state) (bool, error) {
+		value.MainTaskID, value.Phase = "main", phaseMigrationComplete
+		value.UninstallPending = &uninstallOperation{InitiatorTaskID: "owner"}
+		return true, nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := maintenance(context.Background(), "target", "", "", 14); err == nil || err.Error() != "maintenance requires a completed installation with no prepared uninstall" {
+		t.Fatalf("maintenance during uninstall = %v", err)
+	}
+	value, _ := newStore(stateDir()).read()
+	if value.ArchivePending != nil {
+		t.Fatal("blocked maintenance changed archive state")
+	}
+}
+
 func TestMaintenanceRejectsDriftAndUninstallWithPendingArchive(t *testing.T) {
 	root, db := testIndex(t)
 	now := time.Date(2026, 8, 3, 12, 0, 0, 0, time.UTC)

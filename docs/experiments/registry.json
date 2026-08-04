@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "updated_at": "2026-08-02",
+  "updated_at": "2026-08-03",
   "canonical_for": "ThreadBear title-path architecture and live experiments",
   "capabilities": [
     {
@@ -44,6 +44,17 @@
         "TB-EXP-0104-003"
       ],
       "decision": "Repeated fresh and delegated tasks must prove stable subject ownership before a candidate can advance to migration or release, even when native hook calls themselves succeed.",
+      "next_preflight": null
+    },
+    {
+      "id": "TB-CAP-ARCHIVED-CONTROL-HANDOFF",
+      "premise": "A previously archived unloaded ThreadBear control task can be temporarily activated, woken, and used as the current-task native title writer during uninstall.",
+      "status": "rejected",
+      "supported_by": [],
+      "contradicted_by": [
+        "TB-EXP-0113-001"
+      ],
+      "decision": "The exact bounded live probe timed out after the archived unloaded task was unarchived and woken, and authoritative readback stayed unchanged. BEAR-113 must not depend on wake-and-handoff.",
       "next_preflight": null
     }
   ],
@@ -612,6 +623,46 @@
         "TB-EXP-0107-002",
         "TB-EXP-0108-001"
       ]
+    },
+    {
+      "id": "TB-EXP-0113-001",
+      "date": "2026-08-03",
+      "issue": "BEAR-113",
+      "preflight_id": "TB-PRE-0113-001",
+      "question": "Can a previously archived unloaded task be unarchived, woken, and then perform one bounded current-task native title write?",
+      "invariant": "Archived-control uninstall may depend on handoff only when one bounded native write settles and authoritative readback matches.",
+      "environment": {
+        "threadbear_version": "not installed; v2.2.0 repository base",
+        "git_sha": "ae7c2c6db6d31c97ab2021a7c14b881327708b08",
+        "codex_version": "Desktop 26.727.51351; CLI 0.146.0-alpha.9.2",
+        "codex_source": "vscode",
+        "host": "local macOS",
+        "task_state": "dedicated previously archived unloaded user canary, temporarily unarchived and woken by background message delivery",
+        "restart_state": "no application restart",
+        "hook_fingerprint": "not installed",
+        "guidance_fingerprint": "historical task snapshot; probe supplied the exact one-call contract"
+      },
+      "invocation": {
+        "outer_tool": "functions.exec inside the resumed canary task",
+        "code": "const result = await Promise.race([tools.codex_app__set_thread_title({title:\"BEAR-113 archived-control canary\"}).then(value => ({status:\"returned\", value})).catch(error => ({status:\"failed\", error:String(error)})), new Promise(resolve => setTimeout(() => resolve({status:\"timeout\"}), 4000))]); text(result);",
+        "native_tool_identity": "codex_appset_thread_title",
+        "target_identity_mode": "current task by omitted threadId"
+      },
+      "evidence": [
+        "codex-rollout:019fbe0e-9b4f-7c60-b4bf-ed7c9889fe5f",
+        "linear:BEAR-113"
+      ],
+      "result": {
+        "status": "observed",
+        "summary": "The resumed task reported timeout after the single four-second call. Authoritative readback remained BEAR-104 restart owner canary, and the parent restored the task to archived state.",
+        "timing_ms": "4000 call bound; 10135 complete resumed turn",
+        "hook_participation": "not applicable: ThreadBear was not installed",
+        "rendered_proof": "not used; native readback remained unchanged"
+      },
+      "confidence": "high",
+      "applicability": "Rules out wake-and-handoff in the current Desktop session without installed hooks. It does not test an exact installed BEAR-113 candidate or a post-restart trusted hook snapshot.",
+      "supersedes": [],
+      "conflicts": []
     }
   ],
   "preflights": [
@@ -661,6 +712,26 @@
       ],
       "stop_condition": "Stop after one bounded current-task call, its exact result, ThreadBear state inspection, and rendered-header/sidebar observation. Do not reinstall, retry, vary another field, resume architecture, or run the release matrix.",
       "result_experiment_id": "TB-EXP-0108-002"
+    },
+    {
+      "id": "TB-PRE-0113-001",
+      "issue": "BEAR-113",
+      "capability_id": "TB-CAP-ARCHIVED-CONTROL-HANDOFF",
+      "status": "closed",
+      "consulted": [
+        "TB-EXP-0059-002",
+        "TB-EXP-0107-001",
+        "TB-EXP-0108-002"
+      ],
+      "remaining_unknown": "Whether a previously archived unloaded control task can be unarchived, woken by native background message delivery, and then perform one bounded current-task title mutation from its resumed turn.",
+      "single_changed_variable": "Task lifecycle: use a previously archived unloaded task that is unarchived and woken by background message delivery before the exact current-task native call, instead of an already active fresh task.",
+      "held_constant": "Desktop 26.727.51351 and CLI 0.146.0-alpha.9.2; local macOS host; native codex_appset_thread_title identity; current-task target by omitted threadId; one four-second bounded attempt; authoritative native readback; no visual or computer control; no second title write.",
+      "predicted_outcomes": [
+        "If wake-and-handoff is a viable uninstall route, the resumed task will execute the exact native call and authoritative readback will show the requested title.",
+        "If an unloaded task cannot reliably actuate its own title after wakeup, the call will fail or time out, or authoritative readback will remain unchanged; BEAR-113 must not depend on handoff."
+      ],
+      "stop_condition": "Stop after one unarchive, one background wakeup, one bounded current-task title call, authoritative readback, and archive restoration. Do not retry the title call, test explicit-target mutation, add another variable, or select an implementation route until the result is recorded and this preflight is closed.",
+      "result_experiment_id": "TB-EXP-0113-001"
     }
   ]
 }

@@ -85,6 +85,22 @@ func TestUpdateRefusesPendingArchiveBeforeNetwork(t *testing.T) {
 	}
 }
 
+func TestUpdateRefusesPreparedUninstallBeforeNetwork(t *testing.T) {
+	prepareUpdate(t, "2.0.0", true)
+	fixture := startUpdateFixture(t, updateFixtureOptions{ReleaseVersion: "2.0.1"})
+	if err := newStore(stateDir()).update(func(value *state) (bool, error) {
+		value.UninstallPending = &uninstallOperation{InitiatorTaskID: "owner"}
+		return true, nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	_, err := update(context.Background())
+	requireUpdateStage(t, err, "uninstall_pending")
+	if fixture.count("manifest") != 0 {
+		t.Fatal("prepared uninstall allowed update network access")
+	}
+}
+
 func TestUpdateRefusesConcurrentMaintenanceBeforeNetwork(t *testing.T) {
 	prepareUpdate(t, "2.1.2", true)
 	fixture := startUpdateFixture(t, updateFixtureOptions{ReleaseVersion: "2.1.3"})
