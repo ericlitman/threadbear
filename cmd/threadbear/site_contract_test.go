@@ -84,7 +84,11 @@ func TestPublishedInstallGuideMatchesCurrentCLI(t *testing.T) {
 		"status still says `migration_pending` or `migration_running`",
 		"migration stopped and is not still working",
 		"two native title calls per ordinary turn",
-		"~/.local/bin/threadbear uninstall --noninteractive --confirm --json",
+		"~/.local/bin/threadbear uninstall --prepare --initiator-task-id",
+		"~/.local/bin/threadbear uninstall --initiator-task-id",
+		"You can uninstall from any active native Codex task—even when the ThreadBear home is archived.",
+		"Do not ask the user to open, select, navigate to, or unarchive the ThreadBear home.",
+		"same initiating task",
 		"Want me to uninstall ThreadBear?",
 	} {
 		if !strings.Contains(text, required) {
@@ -228,8 +232,8 @@ func TestHomepageMatchesNativeMaintenanceCapabilities(t *testing.T) {
 func TestManagedCleanupContractIsShipped(t *testing.T) {
 	root := filepath.Join("..", "..", "assets")
 	for path, required := range map[string][]string{
-		filepath.Join(root, "skill", "SKILL.md"):    {"## Title cleanup", "🧵🐻 strip title icons", "For uninstall, target the control task last"},
-		filepath.Join(root, "AGENTS.threadbear.md"): {"A confirmed uninstall turn is the sole exception", "respond without another title call or ThreadBear footer"},
+		filepath.Join(root, "skill", "SKILL.md"):    {"## Title cleanup", "🧵🐻 strip title icons", "prepared uninstall task", "For uninstall, target the control task last"},
+		filepath.Join(root, "AGENTS.threadbear.md"): {"A prepared uninstall suspends this turn protocol", "respond without another title call or ThreadBear footer"},
 	} {
 		data, err := os.ReadFile(path)
 		if err != nil {
@@ -249,7 +253,7 @@ func TestShippedLogicStaysBelowAbsoluteLineCeiling(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	paths = append(paths, filepath.Join(root, "install.sh"))
+	paths = append(paths, filepath.Join(root, "assets", "embed.go"), filepath.Join(root, "install.sh"))
 	count := 0
 	for _, path := range paths {
 		if strings.HasSuffix(path, "_test.go") {

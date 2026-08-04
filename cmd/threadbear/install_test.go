@@ -140,7 +140,7 @@ func TestUninstallWaitsForOperationLockBeforeDeleting(t *testing.T) {
 func TestOperationLockDoesNotRecreateRemovedInstallation(t *testing.T) {
 	dir := filepath.Join(t.TempDir(), "state")
 	store := newStore(dir)
-	operationLock, err := store.blockingOperationLock()
+	operationLock, err := store.waitLock()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -196,6 +196,86 @@ func TestStatusRejectsModifiedManagedGuidance(t *testing.T) {
 			mustWrite(t, p.agents, string(agents))
 			mustWrite(t, p.skill, string(skill))
 		})
+	}
+}
+
+func TestUninstallRejectsModifiedManagedGuidanceBeforeMutation(t *testing.T) {
+	p := isolatedLifecycle(t)
+	if _, err := install("main", false, true, false); err != nil {
+		t.Fatal(err)
+	}
+	if err := newStore(stateDir()).update(func(value *state) (bool, error) {
+		value.Phase = phaseMigrationComplete
+		return true, nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	agents, _ := os.ReadFile(p.agents)
+	hooks, _ := os.ReadFile(p.hooks)
+	mustWrite(t, p.agents, strings.Replace(string(agents), "# ThreadBear", "# ThreadBear edited", 1))
+	if _, err := uninstall(context.Background(), true); err == nil || !strings.Contains(err.Error(), "managed file was modified") {
+		t.Fatalf("modified guidance uninstall = %v", err)
+	}
+	if got, _ := os.ReadFile(p.hooks); !reflect.DeepEqual(got, hooks) {
+		t.Fatal("blocked uninstall changed hooks")
+	}
+	if _, err := os.Stat(p.binary); err != nil {
+		t.Fatalf("blocked uninstall removed binary: %v", err)
+	}
+}
+
+func TestUninstallRejectsMarkerlessManagedGuidance(t *testing.T) {
+	p := isolatedLifecycle(t)
+	if _, err := install("main", false, true, false); err != nil {
+		t.Fatal(err)
+	}
+	if err := newStore(stateDir()).update(func(value *state) (bool, error) {
+		value.Phase = phaseMigrationComplete
+		return true, nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	agents, _ := os.ReadFile(p.agents)
+	markerless := strings.ReplaceAll(strings.ReplaceAll(string(agents), blockStart, ""), blockEnd, "")
+	mustWrite(t, p.agents, markerless)
+	if _, err := uninstall(context.Background(), true); err == nil || !strings.Contains(err.Error(), "managed file was modified") {
+		t.Fatalf("markerless guidance uninstall = %v", err)
+	}
+	if _, err := os.Stat(p.binary); err != nil {
+		t.Fatalf("blocked uninstall removed binary: %v", err)
+	}
+}
+
+func TestUninstallKeepsBinaryUntilStateRemovalCommits(t *testing.T) {
+	p := isolatedLifecycle(t)
+	if _, err := install("main", false, true, false); err != nil {
+		t.Fatal(err)
+	}
+	if err := newStore(stateDir()).update(func(value *state) (bool, error) {
+		value.Phase = phaseMigrationComplete
+		return true, nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	stateParent := filepath.Dir(stateDir())
+	if err := os.Chmod(stateParent, 0o500); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(stateParent, 0o700) })
+	if _, err := uninstall(context.Background(), true); err == nil {
+		t.Fatal("uninstall succeeded while state directory could not be removed")
+	}
+	if _, err := os.Stat(p.binary); err != nil {
+		t.Fatalf("failed state removal deleted retry binary: %v", err)
+	}
+	if err := os.Chmod(stateParent, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := uninstall(context.Background(), true); err != nil {
+		t.Fatalf("resumed teardown: %v", err)
+	}
+	if _, err := os.Stat(p.binary); !os.IsNotExist(err) {
+		t.Fatalf("resumed teardown left binary: %v", err)
 	}
 }
 

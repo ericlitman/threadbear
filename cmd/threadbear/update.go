@@ -70,6 +70,9 @@ func update(ctx context.Context) (any, error) {
 	if value.ArchivePending != nil {
 		return nil, updateFailure("archive_pending", errors.New("reconcile the pending native archive operation before updating"))
 	}
+	if value.UninstallPending != nil {
+		return nil, updateFailure("uninstall_pending", errors.New("finish the prepared uninstall before updating"))
+	}
 	assetKey, assetName, err := updatePlatform()
 	if err != nil {
 		return nil, updateFailure("platform", err)

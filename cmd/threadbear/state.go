@@ -37,6 +37,12 @@ type archiveOperation struct {
 	Title    string `json:"title"`
 	Activity string `json:"activity,omitempty"`
 }
+type uninstallOperation struct {
+	InitiatorTaskID  string `json:"initiator_task_id"`
+	MainTaskID       string `json:"main_task_id"`
+	MainArchived     bool   `json:"main_archived"`
+	ControllerTaskID string `json:"controller_task_id,omitempty"`
+}
 type state struct {
 	Format           int                  `json:"format"`
 	MainTaskID       string               `json:"main_task_id,omitempty"`
@@ -47,6 +53,7 @@ type state struct {
 	Tasks            map[string]taskState `json:"tasks"`
 	Archives         map[string]bool      `json:"archives,omitempty"`
 	ArchivePending   *archiveOperation    `json:"archive_pending,omitempty"`
+	UninstallPending *uninstallOperation  `json:"uninstall_pending,omitempty"`
 }
 type footer struct{ Status, Action string }
 type store struct{ dir string }
@@ -89,8 +96,8 @@ func (s store) operationLock() (*os.File, error) {
 	}
 	return lock, err
 }
-func (s store) blockingOperationLock() (*os.File, error) {
-	return s.openLock("operation.lock", unix.LOCK_EX, true)
+func (s store) titleLock() (*os.File, error) {
+	return s.openLock("title.lock", unix.LOCK_EX|unix.LOCK_NB, false)
 }
 func unlock(lock *os.File) {
 	_ = unix.Flock(int(lock.Fd()), unix.LOCK_UN)

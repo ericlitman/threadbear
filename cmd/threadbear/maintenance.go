@@ -41,7 +41,6 @@ func archiveTasks(ctx context.Context) ([]archiveTask, error) {
 	}
 	return tasks, rows.Err()
 }
-
 func archiveTaskByID(ctx context.Context, id string) (archiveTask, bool, error) {
 	db, err := openIndex()
 	if err != nil {
@@ -57,7 +56,6 @@ func archiveTaskByID(ctx context.Context, id string) (archiveTask, bool, error) 
 	}
 	return task, err == nil, err
 }
-
 func archiveSnapshot(task archiveTask, value *state) (string, bool) {
 	if !task.User {
 		return "", false
@@ -74,7 +72,6 @@ func archiveSnapshot(task archiveTask, value *state) (string, bool) {
 	}
 	return activity.Format(time.RFC3339Nano), true
 }
-
 func archiveEligibility(task archiveTask, value *state, days int) (string, bool) {
 	if task.Archived || !task.Visible || task.ID == value.MainTaskID || task.ID == value.ControllerTaskID {
 		return "", false
@@ -83,7 +80,6 @@ func archiveEligibility(task archiveTask, value *state, days int) (string, bool)
 	parsed, err := time.Parse(time.RFC3339Nano, activity)
 	return activity, valid && err == nil && !parsed.After(maintenanceNow().UTC().AddDate(0, 0, -days))
 }
-
 func maintenance(ctx context.Context, archiveID, restoreID, cancelID string, days int) (any, error) {
 	operationLock, err := newStore(stateDir()).operationLock()
 	if err != nil {
@@ -101,8 +97,8 @@ func maintenance(ctx context.Context, archiveID, restoreID, cancelID string, day
 	}
 	result := map[string]any{"ready": true, "automation_id": maintenanceAutomationID, "archive_after_days": days}
 	err = newStore(stateDir()).update(func(value *state) (bool, error) {
-		if value.MainTaskID == "" || value.Phase != phaseMigrationComplete {
-			return false, errors.New("maintenance requires a completed ThreadBear installation")
+		if value.MainTaskID == "" || value.Phase != phaseMigrationComplete || value.UninstallPending != nil {
+			return false, errors.New("maintenance requires a completed installation with no prepared uninstall")
 		}
 		changed := false
 		if value.Archives == nil {

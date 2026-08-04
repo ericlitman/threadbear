@@ -107,12 +107,21 @@ func preTitle(ctx context.Context, event hookInput, out io.Writer) error {
 	}})
 }
 func stageTitle(ctx context.Context, id, status, action, seed, caller, toolUseID string) (string, error) {
+	store := newStore(stateDir())
+	titleLock, err := store.titleLock()
+	if err != nil {
+		return "", err
+	}
+	defer unlock(titleLock)
 	task, found, err := oneTask(ctx, id)
 	if err != nil || !found {
 		return "", errors.Join(err, errors.New("task is not active in Codex"))
 	}
 	var proposed string
-	err = newStore(stateDir()).update(func(saved *state) (bool, error) {
+	err = store.update(func(saved *state) (bool, error) {
+		if pending := saved.UninstallPending; pending != nil && (pending.InitiatorTaskID != caller || status != "cleanup") {
+			return false, errors.New("title changes are paused for the prepared uninstall task")
+		}
 		record := saved.Tasks[id]
 		current, first := strings.Join(strings.Fields(task.Title), " "), strings.Join(strings.Fields(task.FirstMessage), " ")
 		subject := canonicalSubject(task.Title, record)
@@ -120,7 +129,8 @@ func stageTitle(ctx context.Context, id, status, action, seed, caller, toolUseID
 			subject = stripStatusIcons(subject)
 		}
 		if status == "cleanup" {
-			if saved.MainTaskID != caller {
+			owner := saved.UninstallPending != nil && saved.UninstallPending.InitiatorTaskID == caller
+			if saved.MainTaskID != caller && !owner {
 				return false, errors.New("title cleanup requires the ThreadBear control task")
 			}
 			subject = cmp.Or(stripStatusIcons(task.Title), "Untitled task")

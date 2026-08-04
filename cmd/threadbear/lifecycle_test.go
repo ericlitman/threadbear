@@ -199,3 +199,31 @@ func TestUninstallRefusesDecoratedActiveTitles(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestUninstallRefusesDecoratedArchivedMainAndIgnoresArchivedController(t *testing.T) {
+	root, db := testIndex(t)
+	p := installPaths()
+	addTask(t, db, root, "main", "⏳ Control task", nil, "vscode", 1)
+	addTask(t, db, root, "controller", "⏳ Completed controller", nil, "vscode", 1)
+	if _, err := install("main", false, true, false); err != nil {
+		t.Fatal(err)
+	}
+	if err := newStore(stateDir()).update(func(value *state) (bool, error) {
+		value.ControllerTaskID, value.Phase = "controller", phaseMigrationComplete
+		return true, nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := uninstall(context.Background(), true); err == nil || !strings.Contains(err.Error(), "requires title cleanup") {
+		t.Fatalf("decorated archived main uninstall = %v", err)
+	}
+	if _, err := os.Stat(p.binary); err != nil {
+		t.Fatalf("blocked uninstall removed the binary: %v", err)
+	}
+	if _, err := db.Exec(`UPDATE threads SET title='Control task' WHERE id='main'`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := uninstall(context.Background(), true); err != nil {
+		t.Fatalf("clean archived main with distinct archived controller: %v", err)
+	}
+}

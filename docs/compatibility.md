@@ -8,4 +8,4 @@ ThreadBear reads the highest local Codex state database and fails closed when th
 
 Visible titles are at most 60 UTF-16 units and never split a surrogate pair. Native setter success is the runtime acknowledgement. Each release must separately prove the rendered active header and sidebar in a fresh Codex Desktop task.
 
-The supported public commands are `install`, `inventory`, `status`, `self-test`, `uninstall`, and `version`.
+The supported public commands are `install`, `inventory`, `migration`, `maintenance`, `update`, `status`, `self-test`, `uninstall`, and `version`. Guided uninstall uses a prepared active-task owner and one explicit-target native writer; an archived main task is temporarily unarchived and restored through native archive control without opening or navigating to it.

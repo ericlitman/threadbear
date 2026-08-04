@@ -179,6 +179,46 @@ func BenchmarkOrdinaryPreToolUse(b *testing.B) {
 	}
 }
 
+func TestPreToolUseRefusesWhileTitleLifecycleIsLocked(t *testing.T) {
+	root, db := testIndex(t)
+	addTask(t, db, root, "task", "Stable subject", nil, "vscode", 0)
+	if err := newStore(stateDir()).update(func(*state) (bool, error) { return false, nil }); err != nil {
+		t.Fatal(err)
+	}
+	lock, err := newStore(stateDir()).titleLock()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer unlock(lock)
+	payload := hookPayload("PreToolUse", "task", "locked", map[string]any{"title": runningMarker + ": Stable subject"}, nil)
+	var output bytes.Buffer
+	if err := hook(context.Background(), strings.NewReader(payload), &output); err != nil || !strings.Contains(output.String(), `"permissionDecision":"deny"`) {
+		t.Fatalf("locked PreToolUse = %q, %v", output.String(), err)
+	}
+	saved, err := newStore(stateDir()).read()
+	if err != nil || saved.Tasks["task"].Pending != nil {
+		t.Fatalf("locked PreToolUse staged state: %#v, %v", saved.Tasks["task"], err)
+	}
+}
+
+func TestPreToolUseContinuesWhileMaintenanceOperationIsLocked(t *testing.T) {
+	root, db := testIndex(t)
+	addTask(t, db, root, "task", "Stable subject", nil, "vscode", 0)
+	if err := newStore(stateDir()).update(func(*state) (bool, error) { return false, nil }); err != nil {
+		t.Fatal(err)
+	}
+	lock, err := newStore(stateDir()).operationLock()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer unlock(lock)
+	payload := hookPayload("PreToolUse", "task", "update-overlap", map[string]any{"title": runningMarker + ": Stable subject"}, nil)
+	var output bytes.Buffer
+	if err := hook(context.Background(), strings.NewReader(payload), &output); err != nil || !strings.Contains(output.String(), `"permissionDecision":"allow"`) {
+		t.Fatalf("operation-overlap PreToolUse = %q, %v", output.String(), err)
+	}
+}
+
 func BenchmarkOrdinaryPostToolUse(b *testing.B) {
 	root, db := testIndex(b)
 	addTask(b, db, root, "task", "Stable subject", nil, "vscode", 0)
@@ -209,6 +249,9 @@ func BenchmarkOrdinaryPostToolUse(b *testing.B) {
 
 func TestFreshRunningSubjectSeedClosesFirstTitleRace(t *testing.T) {
 	root, db := testIndex(t)
+	if err := newStore(stateDir()).update(func(*state) (bool, error) { return false, nil }); err != nil {
+		t.Fatal(err)
+	}
 	first := "Fix the login redirect. First call the title tool, then inspect the failure."
 	addTask(t, db, root, "raw", first, nil, "vscode", 0)
 	addTask(t, db, root, "short", "Fix login redirect", nil, "vscode", 0)
@@ -235,6 +278,9 @@ func TestFreshRunningSubjectSeedClosesFirstTitleRace(t *testing.T) {
 
 func TestFreshRunningSubjectSeedFailsClosedAndThenStaysOwned(t *testing.T) {
 	root, db := testIndex(t)
+	if err := newStore(stateDir()).update(func(*state) (bool, error) { return false, nil }); err != nil {
+		t.Fatal(err)
+	}
 	first := "Investigate the first title race and preserve the stable subject."
 	addTask(t, db, root, "task", first, nil, "vscode", 0)
 	if _, err := db.Exec(`UPDATE threads SET first_user_message=? WHERE id='task'`, first); err != nil {
