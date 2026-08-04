@@ -101,6 +101,22 @@ func TestUpdateRefusesPreparedUninstallBeforeNetwork(t *testing.T) {
 	}
 }
 
+func TestUpdateRefusesLegacyPendingTitleBeforeNetwork(t *testing.T) {
+	prepareUpdate(t, "2.0.0", true)
+	fixture := startUpdateFixture(t, updateFixtureOptions{ReleaseVersion: "2.0.1"})
+	if err := newStore(stateDir()).update(func(value *state) (bool, error) {
+		value.Tasks["legacy"] = taskState{Pending: &pendingProposal{Prior: "Old", Proposed: "New"}}
+		return true, nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	_, err := update(context.Background())
+	requireUpdateStage(t, err, "title_pending")
+	if fixture.count("manifest") != 0 {
+		t.Fatal("pending title allowed update network access")
+	}
+}
+
 func TestUpdateRefusesConcurrentMaintenanceBeforeNetwork(t *testing.T) {
 	prepareUpdate(t, "2.1.2", true)
 	fixture := startUpdateFixture(t, updateFixtureOptions{ReleaseVersion: "2.1.3"})

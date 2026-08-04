@@ -43,10 +43,7 @@ func stringField(values map[string]json.RawMessage, key string, required bool) (
 func titleTarget(event hookInput) (string, string, error) {
 	title, titleErr := stringField(event.ToolInput, "title", true)
 	target, targetErr := stringField(event.ToolInput, "threadId", false)
-	if target == "" {
-		target = event.SessionID
-	}
-	return title, target, errors.Join(titleErr, targetErr)
+	return title, cmp.Or(target, event.SessionID), errors.Join(titleErr, targetErr)
 }
 func hook(ctx context.Context, in io.Reader, out io.Writer) error {
 	var event hookInput
@@ -56,9 +53,21 @@ func hook(ctx context.Context, in io.Reader, out io.Writer) error {
 	if event.ToolName != titleTool {
 		return nil
 	}
+	store := newStore(stateDir())
+	titleLock, err := store.titleLock()
+	if err != nil {
+		return err
+	}
+	defer unlock(titleLock)
+	if _, err = store.read(); err != nil && event.Event != "PreToolUse" {
+		return err
+	}
 	switch event.Event {
 	case "PreToolUse":
-		if err := preTitle(ctx, event, out); err != nil {
+		if err == nil {
+			err = preTitle(ctx, event, out)
+		}
+		if err != nil {
 			return json.NewEncoder(out).Encode(map[string]any{"hookSpecificOutput": map[string]any{
 				"hookEventName": "PreToolUse", "permissionDecision": "deny",
 				"permissionDecisionReason": "ThreadBear could not safely prepare this title: " + err.Error(),
@@ -105,13 +114,7 @@ func preTitle(ctx context.Context, event hookInput, out io.Writer) error {
 	}})
 }
 func stageTitle(ctx context.Context, id, status, action, seed, caller, toolUseID string) (string, error) {
-	store := newStore(stateDir())
-	titleLock, err := store.titleLock()
-	if err != nil {
-		return "", err
-	}
-	defer unlock(titleLock)
-	task, found := indexedTask{Title: seed, Name: seed}, true
+	task, found, err := indexedTask{Title: seed, Name: seed}, true, error(nil)
 	if status != "" {
 		task, found, err = oneTask(ctx, id)
 	}
@@ -119,11 +122,14 @@ func stageTitle(ctx context.Context, id, status, action, seed, caller, toolUseID
 		return "", errors.Join(err, errors.New("task is not active in Codex"))
 	}
 	var proposed string
-	err = store.update(func(saved *state) (bool, error) {
-		if pending := saved.UninstallPending; pending != nil && (pending.InitiatorTaskID != caller || status != "cleanup") {
-			return false, errors.New("title changes are paused for the prepared uninstall task")
+	err = newStore(stateDir()).update(func(saved *state) (bool, error) {
+		if pending := saved.UninstallPending; saved.Phase == phaseMigrationFailed || pending != nil && (pending.InitiatorTaskID != caller || status != "cleanup") {
+			return false, errors.New("title changes are paused for failed migration or prepared uninstall")
 		}
 		record := saved.Tasks[id]
+		if record.Pending != nil {
+			return false, errors.New("native title operation is already pending")
+		}
 		current, first := strings.Join(strings.Fields(task.Title), " "), strings.Join(strings.Fields(task.FirstMessage), " ")
 		subject := canonicalSubject(task.Title, record)
 		if record.Subject == "" && saved.Phase == phaseMigrationRunning && saved.ControllerTaskID == caller && caller != id {
@@ -151,7 +157,7 @@ func stageTitle(ctx context.Context, id, status, action, seed, caller, toolUseID
 			}
 		}
 		proposed = map[bool]string{true: seed, false: renderTitle(status, subject, action)}[status == ""]
-		record.Pending = &pendingProposal{ToolUseID: toolUseID, BaseSubject: subject, Prior: task.Title, Proposed: proposed, Status: status, Action: action}
+		record.Pending = &pendingProposal{CallerTaskID: caller, ToolUseID: toolUseID, BaseSubject: subject, Prior: task.Title, Proposed: proposed, Status: status, Action: action}
 		saved.Tasks[id] = record
 		return true, nil
 	})
@@ -168,7 +174,7 @@ func postTitle(event hookInput) error {
 			return false, nil
 		}
 		pending := record.Pending
-		if pending.ToolUseID != event.ToolUseID || pending.Proposed != title {
+		if pending.ToolUseID != event.ToolUseID || pending.CallerTaskID != "" && pending.CallerTaskID != event.SessionID || pending.Proposed != title {
 			return false, errors.New("native title call does not match its proposal")
 		}
 		var encoded string

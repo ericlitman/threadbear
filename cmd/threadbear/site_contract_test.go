@@ -177,7 +177,10 @@ func TestInstalledSkillDefinesAdaptiveMigrationWaves(t *testing.T) {
 		"the Pre hook alone expands the compact input around the authoritative subject",
 		"Do not start another wave or return while a retained worker is still active or unaccounted for.",
 		"If zero workers can start, wait 30 seconds and retry for at most two minutes",
-		"Record `migration_failed` with the same controller ID before every non-successful return",
+		"Before every non-successful return, record `migration_failed` with the same controller ID",
+		"Add `--settled` only when every admitted native title Promise since the running transition",
+		"The failed phase denies every new title proposal",
+		"Without `--settled`, all unapplied proposals remain pending",
 	} {
 		if !strings.Contains(protocol, required) {
 			t.Errorf("installed skill is missing adaptive migration invariant %q", required)
@@ -276,7 +279,7 @@ func TestHomepageMatchesNativeMaintenanceCapabilities(t *testing.T) {
 func TestManagedCleanupContractIsShipped(t *testing.T) {
 	root := filepath.Join("..", "..", "assets")
 	for path, required := range map[string][]string{
-		filepath.Join(root, "skill", "SKILL.md"):    {"## Title cleanup", "🧵🐻 strip title icons", "prepared uninstall task", "For uninstall, target the control task last"},
+		filepath.Join(root, "skill", "SKILL.md"):    {"## Title cleanup", "same controller ID", "durable settled attestation", "prepared uninstall task", "For uninstall, target the control task last"},
 		filepath.Join(root, "AGENTS.threadbear.md"): {"A prepared uninstall suspends this turn protocol", "respond without another title call or ThreadBear footer"},
 	} {
 		data, err := os.ReadFile(path)

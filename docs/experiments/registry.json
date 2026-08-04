@@ -56,6 +56,15 @@
       ],
       "decision": "The exact bounded live probe timed out after the archived unloaded task was unarchived and woken, and authoritative readback stayed unchanged. BEAR-113 must not depend on wake-and-handoff.",
       "next_preflight": null
+    },
+    {
+      "id": "TB-CAP-BOUNDED-MIGRATION-WAVES",
+      "premise": "One exact candidate can migrate the full native-addressable local task inventory in bounded concurrent title waves within five minutes and uninstall without a queued hook recreating state or a pending title landing after teardown.",
+      "status": "unresolved",
+      "supported_by": [],
+      "contradicted_by": [],
+      "decision": "The earlier pull-request candidate met the timing target twice, but final release evidence must be repeated after the pending-title and teardown race corrections on the exact reviewed SHA.",
+      "next_preflight": "TB-PRE-0120-001"
     }
   ],
   "experiments": [
@@ -732,6 +741,26 @@
       ],
       "stop_condition": "Stop after one unarchive, one background wakeup, one bounded current-task title call, authoritative readback, and archive restoration. Do not retry the title call, test explicit-target mutation, add another variable, or select an implementation route until the result is recorded and this preflight is closed.",
       "result_experiment_id": "TB-EXP-0113-001"
+    },
+    {
+      "id": "TB-PRE-0120-001",
+      "issue": "BEAR-1",
+      "capability_id": "TB-CAP-BOUNDED-MIGRATION-WAVES",
+      "status": "pending",
+      "consulted": [
+        "TB-EXP-0059-002",
+        "TB-EXP-0108-002",
+        "TB-EXP-0113-001"
+      ],
+      "remaining_unknown": "Whether the exact final v2.2.1 candidate still completes the full native-addressable installation in under five minutes twice and then uninstalls cleanly after the pending-title and queued-hook teardown safety corrections.",
+      "single_changed_variable": "Candidate implementation and SHA: replace the earlier pull-request candidate with the final pending-title-conservative and post-lock-state-check candidate; keep the same host, native control surfaces, full local inventory, guide, timers, and screenshot evidence method.",
+      "held_constant": "Desktop 26.727.51351 and CLI 0.146.0-alpha.9.2; local macOS host; trusted exact installed PreToolUse and PostToolUse groups; one Terra-medium controller; Luna-low read-only classifiers; bounded max-eight title waves; native inventory reconciliation; two complete install/uninstall cycles; no application restart between lifecycle phases.",
+      "predicted_outcomes": [
+        "If the final safety corrections preserve the installation mechanism, both complete cycles will reach migration_complete with zero remaining rows in under five minutes, and both uninstalls will remove every owned artifact without late title or state recreation.",
+        "If the corrections introduce blocking, stale pending state, or teardown resurrection, either installation will exceed five minutes or fail to reach zero remaining rows, or uninstall/readback will retain or recreate an owned artifact; the candidate must not be released."
+      ],
+      "stop_condition": "Stop after exactly two complete timed install/uninstall cycles against the same built candidate, including authoritative inventory/status checks, post-uninstall artifact checks, and one screenshot at each terminal install and uninstall state. Record the result and close this preflight before using the evidence for merge or release.",
+      "result_experiment_id": ""
     }
   ]
 }

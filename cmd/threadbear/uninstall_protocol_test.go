@@ -193,7 +193,7 @@ func TestArchivedControlUninstallAbortRestoresOrdinaryOperation(t *testing.T) {
 		t.Fatal(err)
 	}
 	if err := newStore(stateDir()).update(func(value *state) (bool, error) {
-		value.Tasks["requester"] = taskState{Pending: &pendingProposal{ToolUseID: "unknown", Prior: "Uninstall owner", Proposed: "Owner"}}
+		value.Tasks["requester"] = taskState{Pending: &pendingProposal{CallerTaskID: "requester", Prior: "Uninstall owner", Proposed: "Owner"}}
 		return true, nil
 	}); err != nil {
 		t.Fatal(err)
@@ -211,7 +211,7 @@ func TestArchivedControlUninstallAbortRestoresOrdinaryOperation(t *testing.T) {
 	}
 }
 
-func TestArchivedControlUninstallPrepareReconcilesPendingNativeTitle(t *testing.T) {
+func TestArchivedControlUninstallPrepareRejectsInFlightNativeTitle(t *testing.T) {
 	root, db := testIndex(t)
 	addTask(t, db, root, "main", "Control task", nil, "vscode", 1)
 	addUninstallOwner(t, db, root)
@@ -221,17 +221,21 @@ func TestArchivedControlUninstallPrepareReconcilesPendingNativeTitle(t *testing.
 	if err := newStore(stateDir()).update(func(value *state) (bool, error) { value.Phase = phaseMigrationComplete; return true, nil }); err != nil {
 		t.Fatal(err)
 	}
-	plain := hookPayload("PreToolUse", "other", "in-flight-plain", map[string]any{"threadId": "main", "title": "Renamed"}, nil)
+	plain := hookPayload("PreToolUse", "other", "in-flight-plain", map[string]any{"threadId": "main", "title": "Control task"}, nil)
 	if err := hook(context.Background(), strings.NewReader(plain), &bytes.Buffer{}); err != nil {
 		t.Fatal(err)
 	}
 	var output bytes.Buffer
-	if code := run(context.Background(), []string{"uninstall", "--prepare", "--initiator-task-id", "requester", "--json"}, strings.NewReader(""), &output, &bytes.Buffer{}); code != 0 || !strings.Contains(output.String(), `"drifted_titles":1`) {
+	before, _ := newStore(stateDir()).read()
+	if pending := before.Tasks["main"].Pending; pending == nil || pending.Prior != pending.Proposed {
+		t.Fatalf("fixture did not stage a no-op proposal: %#v", pending)
+	}
+	if code := run(context.Background(), []string{"uninstall", "--prepare", "--initiator-task-id", "requester", "--json"}, strings.NewReader(""), &output, &bytes.Buffer{}); code != 1 || !strings.Contains(output.String(), "has not settled") {
 		t.Fatalf("pending title prepare code %d: %s", code, output.String())
 	}
 	value, _ := newStore(stateDir()).read()
-	if value.Tasks["main"].Pending != nil {
-		t.Fatal("prepare left reconciled title pending")
+	if value.Tasks["main"].Pending == nil || value.UninstallPending != nil {
+		t.Fatalf("prepare discarded in-flight title or started uninstall: %#v", value)
 	}
 }
 
@@ -311,21 +315,12 @@ func TestArchivedControlUninstallResumeReconcilesUnknownAppliedTitle(t *testing.
 	if _, err := db.Exec(`UPDATE threads SET title=?, archived=1 WHERE id='main'`, proposed); err != nil {
 		t.Fatal(err)
 	}
-	addTask(t, db, root, "prior", "⏳ Prior", nil, "vscode", 0)
-	addTask(t, db, root, "renamed", "User rename", nil, "vscode", 0)
-	if err := newStore(stateDir()).update(func(value *state) (bool, error) {
-		value.Tasks["prior"] = taskState{Last: "previous", Pending: &pendingProposal{Prior: "⏳ Prior", Proposed: "Prior"}}
-		value.Tasks["renamed"] = taskState{Pending: &pendingProposal{Prior: "⏳ Old", Proposed: "Old"}}
-		return true, nil
-	}); err != nil {
-		t.Fatal(err)
-	}
 	output.Reset()
-	if code := run(context.Background(), []string{"uninstall", "--prepare", "--initiator-task-id", "requester", "--json"}, strings.NewReader(""), &output, &bytes.Buffer{}); code != 0 || !strings.Contains(output.String(), `"reconciled_titles":2`) || !strings.Contains(output.String(), `"drifted_titles":1`) {
+	if code := run(context.Background(), []string{"uninstall", "--prepare", "--initiator-task-id", "requester", "--json"}, strings.NewReader(""), &output, &bytes.Buffer{}); code != 0 || !strings.Contains(output.String(), `"reconciled_titles":1`) {
 		t.Fatalf("unknown-result resume code %d: %s", code, output.String())
 	}
 	value, err := newStore(stateDir()).read()
-	if err != nil || value.Tasks["main"].Pending != nil || value.Tasks["main"].Last != proposed || value.Tasks["prior"].Last != "previous" || value.Tasks["renamed"].Pending != nil {
+	if err != nil || value.Tasks["main"].Pending != nil || value.Tasks["main"].Last != proposed {
 		t.Fatalf("reconciled unknown title = %#v, %v", value.Tasks["main"], err)
 	}
 }
@@ -362,7 +357,7 @@ func TestArchivedControlUninstallCommitRequiresRestoredArchiveAndSettledTitles(t
 		t.Fatal(err)
 	}
 	if err := newStore(stateDir()).update(func(value *state) (bool, error) {
-		value.Tasks["main"] = taskState{Pending: &pendingProposal{ToolUseID: "unknown", Proposed: "Control task"}}
+		value.Tasks["main"] = taskState{Pending: &pendingProposal{CallerTaskID: "main", Proposed: "Control task"}}
 		return true, nil
 	}); err != nil {
 		t.Fatal(err)

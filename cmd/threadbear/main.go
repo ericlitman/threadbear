@@ -61,7 +61,8 @@ func run(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io.
 	case "migration":
 		phase := flags.String("phase", "", "migration phase: migration_running, migration_complete, or migration_failed")
 		controllerTaskID := flags.String("controller-task-id", "", "ephemeral migration controller task")
-		action = func() (any, error) { return transitionMigration(ctx, *phase, *controllerTaskID) }
+		settled := flags.Bool("settled", false, "confirm every admitted native call returned a terminal result")
+		action = func() (any, error) { return transitionMigration(ctx, *phase, *controllerTaskID, *settled) }
 	case "maintenance":
 		archive := flags.String("archive", "", "stage or reconcile one eligible task archive")
 		restore := flags.String("restore", "", "stage or reconcile one ThreadBear-owned restore")

@@ -13,15 +13,16 @@ import (
 	"unicode/utf16"
 )
 
-const stateFormat, phaseMigrationPending, phaseMigrationRunning, phaseMigrationComplete, phaseMigrationFailed = 3, "migration_pending", "migration_running", "migration_complete", "migration_failed"
+const stateFormat, phaseMigrationPending, phaseMigrationRunning, phaseMigrationComplete, phaseMigrationFailed = 4, "migration_pending", "migration_running", "migration_complete", "migration_failed"
 
 type pendingProposal struct {
-	ToolUseID   string `json:"tool_use_id"`
-	BaseSubject string `json:"base_subject"`
-	Prior       string `json:"prior"`
-	Proposed    string `json:"proposed"`
-	Status      string `json:"status"`
-	Action      string `json:"action,omitempty"`
+	CallerTaskID string `json:"caller_task_id"`
+	ToolUseID    string `json:"tool_use_id"`
+	BaseSubject  string `json:"base_subject"`
+	Prior        string `json:"prior"`
+	Proposed     string `json:"proposed"`
+	Status       string `json:"status"`
+	Action       string `json:"action,omitempty"`
 }
 type taskState struct {
 	Subject         string           `json:"subject"`
@@ -96,9 +97,7 @@ func (s store) operationLock() (*os.File, error) {
 	}
 	return lock, err
 }
-func (s store) titleLock() (*os.File, error) {
-	return s.openLock("title.lock", unix.LOCK_EX, false)
-}
+func (s store) titleLock() (*os.File, error) { return s.openLock("title.lock", unix.LOCK_EX, false) }
 func unlock(lock *os.File) {
 	_ = unix.Flock(int(lock.Fd()), unix.LOCK_UN)
 	_ = lock.Close()
@@ -122,7 +121,7 @@ func (s store) read() (state, error) {
 		return state{}, err
 	}
 	var value state
-	if err := json.Unmarshal(data, &value); err != nil || value.Format != stateFormat || value.Tasks == nil || value.Phase != "" && value.Phase != phaseMigrationPending && value.Phase != phaseMigrationRunning && value.Phase != phaseMigrationComplete && value.Phase != phaseMigrationFailed {
+	if err := json.Unmarshal(data, &value); err != nil || value.Format != stateFormat && value.Format != 3 || value.Tasks == nil || value.Phase != "" && value.Phase != phaseMigrationPending && value.Phase != phaseMigrationRunning && value.Phase != phaseMigrationComplete && value.Phase != phaseMigrationFailed {
 		return state{}, errors.New("unsupported or corrupt ThreadBear state format")
 	}
 	return value, nil

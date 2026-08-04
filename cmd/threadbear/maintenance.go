@@ -10,8 +10,6 @@ import (
 	"time"
 )
 
-const maintenanceAutomationID = "threadbear-maintenance"
-
 var maintenanceNow = time.Now
 
 type archiveTask struct {
@@ -95,7 +93,7 @@ func maintenance(ctx context.Context, archiveID, restoreID, cancelID string, day
 	if days < 1 || actions > 1 {
 		return nil, errors.New("maintenance requires positive archive days and at most one target action")
 	}
-	result := map[string]any{"ready": true, "automation_id": maintenanceAutomationID, "archive_after_days": days}
+	result := map[string]any{"ready": true, "automation_id": "threadbear-maintenance", "archive_after_days": days}
 	err = newStore(stateDir()).update(func(value *state) (bool, error) {
 		if value.MainTaskID == "" || value.Phase != phaseMigrationComplete || value.UninstallPending != nil {
 			return false, errors.New("maintenance requires a completed installation with no prepared uninstall")

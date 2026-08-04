@@ -2,8 +2,12 @@
 
 ## Unreleased
 
+## v2.2.1 - 2026-08-04
+
 ### Fixed
 
+- Completed guided title migration in bounded concurrent waves without client-created native-call timeouts, while keeping exact inventory reconciliation and read-only Luna classifiers isolated to temporary installation tasks.
+- Prevented delayed/older title callbacks and no-op proposals from racing replacement or uninstall teardown with a locked state-format fence, and made authenticated same-controller migration resume reconcile exact applied or durably settled known-unapplied proposals after Codex's success-only post-hook surface.
 - Made uninstall resumable from any active native task when the persisted ThreadBear home is archived, with durable initiator ownership, exact archive restoration, archived-main title validation, and binary-last local teardown.
 
 ## v2.2.0 - 2026-08-03

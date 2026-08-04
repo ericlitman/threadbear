@@ -9,9 +9,6 @@ import (
 	"time"
 )
 
-const failureControllerInactive = "controller stopped before migration completed"
-const failureControllerReported = "controller reported a migration failure"
-
 func currentStateOrEmpty() (state, error) {
 	value, err := newStore(stateDir()).read()
 	if errors.Is(err, os.ErrNotExist) {
@@ -19,35 +16,40 @@ func currentStateOrEmpty() (state, error) {
 	}
 	return value, err
 }
-func transitionMigration(ctx context.Context, phase, controllerID string) (any, error) {
-	if phase != phaseMigrationRunning && phase != phaseMigrationComplete && phase != phaseMigrationFailed || controllerID == "" {
+func transitionMigration(ctx context.Context, phase, controllerID string, settled bool) (any, error) {
+	if phase != phaseMigrationRunning && phase != phaseMigrationComplete && phase != phaseMigrationFailed || controllerID == "" || settled && (phase != phaseMigrationFailed || os.Getenv("CODEX_THREAD_ID") != controllerID) {
 		return nil, errors.New("migration requires a valid phase and controller task ID")
 	}
-	var err error
+	store := newStore(stateDir())
+	titleLock, err := store.titleLock()
+	if err != nil {
+		return nil, err
+	}
+	defer unlock(titleLock)
+	if phase == phaseMigrationRunning {
+		if _, err = reconcileTitles(ctx, controllerID); err != nil {
+			return nil, err
+		}
+	}
 	remaining := -1
+	var known state
 	if phase == phaseMigrationComplete {
-		_, remaining, _, err = migrationInventory(ctx)
+		_, remaining, known, err = migrationInventory(ctx)
 		if err != nil {
 			return nil, err
 		}
-		if remaining != 0 {
+		if remaining != 0 || hasPendingTitle(known) {
 			return nil, errors.New("migration has unresolved tasks")
 		}
 	}
-	err = newStore(stateDir()).update(func(value *state) (bool, error) {
+	err = store.update(func(value *state) (bool, error) {
 		if value.MainTaskID == "" || controllerID == value.MainTaskID || value.ControllerTaskID != "" && value.ControllerTaskID != controllerID || phase != phaseMigrationRunning && value.ControllerTaskID != controllerID || value.Phase == phaseMigrationComplete && phase != phaseMigrationComplete {
 			return false, errors.New("migration controller or main task changed")
 		}
 		value.ControllerTaskID, value.Phase = controllerID, phase
+		value.MigrationStarted, value.MigrationFailure = "", map[string]string{phaseMigrationFailed: map[bool]string{true: "controller reported a settled migration failure", false: "controller reported a migration failure"}[settled]}[phase]
 		if phase == phaseMigrationRunning {
 			value.MigrationStarted = time.Now().UTC().Format(time.RFC3339Nano)
-			value.MigrationFailure = ""
-		} else if phase == phaseMigrationFailed {
-			value.MigrationStarted = ""
-			value.MigrationFailure = failureControllerReported
-		} else {
-			value.MigrationStarted = ""
-			value.MigrationFailure = ""
 		}
 		return true, nil
 	})
@@ -55,12 +57,8 @@ func transitionMigration(ctx context.Context, phase, controllerID string) (any, 
 		return nil, err
 	}
 	result := map[string]any{"ready": phase == phaseMigrationComplete, "recorded": true, "phase": phase}
-	if remaining >= 0 {
-		result["remaining"] = remaining
-	}
 	return result, nil
 }
-
 func reconcileMigration(ctx context.Context) (state, error) {
 	value, err := newStore(stateDir()).read()
 	if err != nil || value.Phase != phaseMigrationRunning {
@@ -107,7 +105,7 @@ func reconcileMigration(ctx context.Context) (state, error) {
 		}
 		current.Phase = phaseMigrationFailed
 		current.MigrationStarted = ""
-		current.MigrationFailure = failureControllerInactive
+		current.MigrationFailure = "controller stopped before migration completed"
 		return true, nil
 	})
 	if err != nil {
@@ -115,7 +113,6 @@ func reconcileMigration(ctx context.Context) (state, error) {
 	}
 	return newStore(stateDir()).read()
 }
-
 func latestTaskLifecycle(path string) (string, string, bool, error) {
 	f, err := os.Open(path)
 	if err != nil {

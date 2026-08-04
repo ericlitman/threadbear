@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/ericlitman/threadbear/assets"
+	"maps"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -18,6 +19,9 @@ const blockStart, blockEnd, managedHeading, managedProtocol = "<!-- BEGIN THREAD
 type lifecyclePaths struct{ binary, agents, skill, hooks string }
 type rawObject map[string]json.RawMessage
 
+func hasPendingTitle(value state) bool {
+	return slices.ContainsFunc(slices.Collect(maps.Values(value.Tasks)), func(task taskState) bool { return task.Pending != nil })
+}
 func codexHome() string {
 	if value := os.Getenv("CODEX_HOME"); value != "" {
 		return value
@@ -64,20 +68,18 @@ func install(controlTaskID string, dry, confirmed, debugCanaries bool) (any, err
 	if !confirmed {
 		return nil, errors.New("install requires --noninteractive --confirm after its preview")
 	}
-	err = newStore(stateDir()).update(func(saved *state) (bool, error) {
-		changed := saved.MainTaskID != mainTaskID
-		if saved.MainTaskID != "" && saved.MainTaskID != mainTaskID {
-			return false, errors.New("persisted ThreadBear task changed during install")
+	if value.MainTaskID != "" {
+		titleLock, lockErr := newStore(stateDir()).titleLock()
+		if lockErr != nil {
+			return nil, lockErr
 		}
-		saved.MainTaskID = mainTaskID
-		if saved.Phase == "" {
-			saved.Phase, changed = phaseMigrationPending, true
+		defer unlock(titleLock)
+		if value, err = newStore(stateDir()).read(); err != nil {
+			return nil, err
 		}
-		value = *saved
-		return changed, nil
-	})
-	if err != nil {
-		return nil, err
+	}
+	if hasPendingTitle(value) {
+		return nil, errors.New("install requires all native title operations to settle")
 	}
 	source, err := os.Executable()
 	if err != nil {
@@ -88,6 +90,20 @@ func install(controlTaskID string, dry, confirmed, debugCanaries bool) (any, err
 		return nil, err
 	}
 	if err = writeAtomic(p.binary, binary, 0o755); err == nil {
+		err = newStore(stateDir()).update(func(saved *state) (bool, error) {
+			changed := saved.MainTaskID != mainTaskID || saved.Format != stateFormat
+			if saved.MainTaskID != "" && saved.MainTaskID != mainTaskID {
+				return false, errors.New("persisted ThreadBear task changed during install")
+			}
+			saved.MainTaskID, saved.Format = mainTaskID, stateFormat
+			if saved.Phase == "" {
+				saved.Phase, changed = phaseMigrationPending, true
+			}
+			value = *saved
+			return changed, nil
+		})
+	}
+	if err == nil {
 		err = manageBlock(p.agents, assets.AgentsManagedContent)
 	}
 	if err == nil {
@@ -122,13 +138,13 @@ func prepareUninstall(ctx context.Context, initiatorTaskID string) (any, error) 
 			if pending.InitiatorTaskID != initiatorTaskID || pending.MainTaskID != value.MainTaskID || pending.ControllerTaskID != value.ControllerTaskID {
 				return nil, errors.New("uninstall is already owned by another task or installation identity")
 			}
-			reconciled, drifted, err := reconcileUninstallTitles(ctx)
+			reconciled, err := reconcileTitles(ctx, "")
 			if err != nil {
 				return nil, err
 			}
-			return uninstallPreparationResult(pending, true, reconciled, drifted), nil
+			return uninstallPreparationResult(pending, true, reconciled), nil
 		}
-		reconciled, drifted, err := reconcileUninstallTitles(ctx)
+		reconciled, err := reconcileTitles(ctx, "")
 		if err != nil {
 			return nil, err
 		}
@@ -144,37 +160,40 @@ func prepareUninstall(ctx context.Context, initiatorTaskID string) (any, error) 
 		if err != nil {
 			return nil, err
 		}
-		return uninstallPreparationResult(pending, false, reconciled, drifted), nil
+		return uninstallPreparationResult(pending, false, reconciled), nil
 	})
 }
-func uninstallPreparationResult(pending *uninstallOperation, resumed bool, reconciled, drifted int) any {
-	return map[string]any{"ready": true, "prepared": true, "resumed": resumed, "reconciled_titles": reconciled, "drifted_titles": drifted, "initiator_task_id": pending.InitiatorTaskID, "main_task_id": pending.MainTaskID, "main_archived": pending.MainArchived, "controller_task_id": pending.ControllerTaskID}
+func uninstallPreparationResult(pending *uninstallOperation, resumed bool, reconciled int) any {
+	return map[string]any{"ready": true, "prepared": true, "resumed": resumed, "reconciled_titles": reconciled, "initiator_task_id": pending.InitiatorTaskID, "main_task_id": pending.MainTaskID, "main_archived": pending.MainArchived, "controller_task_id": pending.ControllerTaskID}
 }
-func reconcileUninstallTitles(ctx context.Context) (count, drifted int, err error) {
+func reconcileTitles(ctx context.Context, caller string) (count int, err error) {
 	err = newStore(stateDir()).update(func(value *state) (bool, error) {
 		for id, record := range value.Tasks {
 			pending := record.Pending
 			if pending == nil {
 				continue
 			}
+			if caller != "" && (pending.CallerTaskID != caller || value.Phase == phaseMigrationFailed && os.Getenv("CODEX_THREAD_ID") != caller) {
+				return false, fmt.Errorf("pending native title operation for task %q is not owned by this migration controller", id)
+			}
 			task, found, readErr := archiveTaskByID(ctx, id)
 			if readErr != nil {
 				return false, readErr
 			}
-			if !found || !task.User || !task.Visible || task.Title != pending.Proposed && task.Title != pending.Prior {
-				drifted++
-			} else {
-				if task.Title == pending.Proposed {
-					record.Subject, record.Last, record.Status, record.Action = pending.BaseSubject, pending.Proposed, pending.Status, pending.Action
-				}
-				count++
+			applied := found && task.User && task.Visible && pending.Prior != pending.Proposed && task.Title == pending.Proposed
+			cleared := caller != "" && value.MigrationFailure == "controller reported a settled migration failure" && (!found || task.Title == pending.Prior)
+			if !applied && !cleared {
+				return false, fmt.Errorf("native title operation for task %q has not settled; wait for its exact PostToolUse result", id)
 			}
-			record.Pending = nil
+			if applied {
+				record.Subject, record.Last, record.Status, record.Action = pending.BaseSubject, pending.Proposed, pending.Status, pending.Action
+			}
+			count, record.Pending = count+1, nil
 			value.Tasks[id] = record
 		}
-		return count+drifted > 0, nil
+		return count > 0, nil
 	})
-	return count, drifted, err
+	return count, err
 }
 func completeUninstall(ctx context.Context, initiatorTaskID string, confirmed, abort bool) (any, error) {
 	if !confirmed && !abort {
@@ -306,7 +325,7 @@ func status(ctx context.Context) (any, error) {
 	}
 	value, stateErr := reconcileMigration(ctx)
 	err = errors.Join(err, validateFile(p.skill, assets.SkillManagedContent), validateFile(p.agents, managedBlock()), stateErr)
-	result := map[string]any{"ready": err == nil && value.Phase == phaseMigrationComplete && value.MainTaskID != "", "installed": err == nil, "version": version, "phase": value.Phase, "main_task_id": value.MainTaskID, "controller_task_id": value.ControllerTaskID, "maintenance_automation_id": maintenanceAutomationID, "archive_pending": value.ArchivePending != nil, "uninstall_pending": value.UninstallPending != nil, "owned_archives": len(value.Archives)}
+	result := map[string]any{"ready": err == nil && value.Phase == phaseMigrationComplete && value.MainTaskID != "", "installed": err == nil, "version": version, "phase": value.Phase, "main_task_id": value.MainTaskID, "controller_task_id": value.ControllerTaskID, "maintenance_automation_id": "threadbear-maintenance", "archive_pending": value.ArchivePending != nil, "uninstall_pending": value.UninstallPending != nil, "owned_archives": len(value.Archives)}
 	if value.MigrationFailure != "" {
 		result["migration_failure"] = value.MigrationFailure
 		result["next_action"] = "resume migration from the ThreadBear task"

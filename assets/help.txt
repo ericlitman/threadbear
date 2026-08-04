@@ -21,6 +21,7 @@ Install flags:
 Migration flags:
   --phase PHASE         migration_running, migration_complete, or migration_failed
   --controller-task-id ID
+  --settled             Confirm a failed wave has no unknown native calls
 
 Maintenance flags:
   --archive TASK_ID      Stage or reconcile one eligible archive

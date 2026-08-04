@@ -157,7 +157,7 @@ func TestReconcileMigrationFailsStoppedController(t *testing.T) {
 	}
 
 	value, err := reconcileMigration(context.Background())
-	if err != nil || value.Phase != phaseMigrationFailed || value.MigrationFailure != failureControllerInactive {
+	if err != nil || value.Phase != phaseMigrationFailed || value.MigrationFailure != "controller stopped before migration completed" {
 		t.Fatalf("reconciled state = %#v, %v", value, err)
 	}
 }
@@ -214,7 +214,7 @@ func TestReconcileMigrationIgnoresTerminalEventFromPriorAttempt(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := transitionMigration(context.Background(), phaseMigrationRunning, "controller"); err != nil {
+	if _, err := transitionMigration(context.Background(), phaseMigrationRunning, "controller", false); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(controller, []byte(lifecycleLine("task_complete", "2000-01-01T00:00:00Z")), 0o600); err != nil {

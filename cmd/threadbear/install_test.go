@@ -89,6 +89,85 @@ func TestInstallDryRunAndConfirmationDoNotMutate(t *testing.T) {
 	}
 }
 
+func TestReinstallRefusesLegacyPendingTitle(t *testing.T) {
+	p := isolatedLifecycle(t)
+	if _, err := install("installer", false, true, false); err != nil {
+		t.Fatal(err)
+	}
+	before, _ := os.ReadFile(p.binary)
+	if err := newStore(stateDir()).update(func(value *state) (bool, error) {
+		value.Tasks["legacy"] = taskState{Pending: &pendingProposal{Prior: "Old", Proposed: "New"}}
+		return true, nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := install("installer", false, true, false); err == nil || !strings.Contains(err.Error(), "title operations") {
+		t.Fatalf("reinstall with legacy pending = %v", err)
+	}
+	after, _ := os.ReadFile(p.binary)
+	if !reflect.DeepEqual(before, after) {
+		t.Fatal("blocked reinstall replaced the binary")
+	}
+}
+
+func TestReinstallUpgradesLegacyFormatBeforeOldHookCanWrite(t *testing.T) {
+	isolatedLifecycle(t)
+	if _, err := install("installer", false, true, false); err != nil {
+		t.Fatal(err)
+	}
+	if err := newStore(stateDir()).update(func(value *state) (bool, error) {
+		value.Format = 3
+		return true, nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	data, _ := os.ReadFile(newStore(stateDir()).path())
+	var onDisk state
+	if json.Unmarshal(data, &onDisk) != nil || onDisk.Format != 3 {
+		t.Fatalf("legacy fixture = %#v", onDisk)
+	}
+	if _, err := install("installer", false, true, false); err != nil {
+		t.Fatal(err)
+	}
+	data, _ = os.ReadFile(newStore(stateDir()).path())
+	if json.Unmarshal(data, &onDisk) != nil || onDisk.Format != stateFormat {
+		t.Fatalf("upgraded state = %#v", onDisk)
+	}
+	if onDisk.Format == 3 {
+		t.Fatal("an already-queued v2.2.0 hook would still accept the replaced state")
+	}
+}
+
+func TestFailedLegacyReinstallLeavesOldReadableState(t *testing.T) {
+	p := isolatedLifecycle(t)
+	if _, err := install("installer", false, true, false); err != nil {
+		t.Fatal(err)
+	}
+	if err := newStore(stateDir()).update(func(value *state) (bool, error) {
+		value.Format = 3
+		return true, nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	before, _ := os.ReadFile(p.binary)
+	binDir := filepath.Dir(p.binary)
+	if err := os.Chmod(binDir, 0o500); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(binDir, 0o700) })
+	if _, err := install("installer", false, true, false); err == nil {
+		t.Fatal("reinstall unexpectedly replaced a binary in a read-only directory")
+	}
+	if err := os.Chmod(binDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	value, err := newStore(stateDir()).read()
+	after, _ := os.ReadFile(p.binary)
+	if err != nil || value.Format != 3 || !reflect.DeepEqual(before, after) {
+		t.Fatalf("failed replacement changed old-readable installation: format=%d binary_equal=%v err=%v", value.Format, reflect.DeepEqual(before, after), err)
+	}
+}
+
 func TestUninstallWaitsForOperationLockBeforeDeleting(t *testing.T) {
 	p := isolatedLifecycle(t)
 	if _, err := install("installer", false, true, false); err != nil {
