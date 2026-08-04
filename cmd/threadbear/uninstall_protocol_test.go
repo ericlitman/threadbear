@@ -89,6 +89,13 @@ func TestArchivedControlUninstallPersistsInitiatorAndAuthorizesCleanup(t *testin
 	if err := hook(context.Background(), strings.NewReader(ordinary), &output); err != nil || !strings.Contains(output.String(), `"permissionDecision":"deny"`) {
 		t.Fatalf("ordinary title during uninstall = %q, %v", output.String(), err)
 	}
+	for _, plain := range []string{"Renamed", homeTitle} {
+		output.Reset()
+		payload := hookPayload("PreToolUse", "other", "plain-during-uninstall", map[string]any{"threadId": "main", "title": plain}, nil)
+		if err := hook(context.Background(), strings.NewReader(payload), &output); err != nil || !strings.Contains(output.String(), `"permissionDecision":"deny"`) {
+			t.Fatalf("plain title %q during uninstall = %q, %v", plain, output.String(), err)
+		}
+	}
 
 	if _, err := db.Exec(`UPDATE threads SET archived=0 WHERE id='main'`); err != nil {
 		t.Fatal(err)

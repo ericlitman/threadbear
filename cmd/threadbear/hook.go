@@ -76,9 +76,6 @@ func preTitle(ctx context.Context, event hookInput, out io.Writer) error {
 	if err != nil {
 		return err
 	}
-	if title == homeTitle {
-		return nil
-	}
 	result, terminal := parseFooter(title)
 	seed, seeded := strings.CutPrefix(title, runningMarker+": ")
 	if seeded && (seed == "" || seed != strings.Join(strings.Fields(seed), " ") || seed != truncateUTF16(seed, 58)) {
@@ -92,8 +89,11 @@ func preTitle(ctx context.Context, event hookInput, out io.Writer) error {
 		result, terminal = footer{Status: "cleanup"}, true
 	}
 	if !terminal {
-		if strings.HasPrefix(title, runningMarker) || strings.HasPrefix(title, "🧵🐻 ") {
+		if title != homeTitle && (strings.HasPrefix(title, runningMarker) || strings.HasPrefix(title, "🧵🐻 ")) {
 			return errors.New("invalid ThreadBear marker")
+		}
+		if value, stateErr := currentStateOrEmpty(); stateErr != nil || value.UninstallPending != nil {
+			return errors.Join(stateErr, errors.New("title changes are paused for the prepared uninstall task"))
 		}
 		return nil
 	}

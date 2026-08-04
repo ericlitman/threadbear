@@ -237,6 +237,7 @@ func TestUninstallRejectsMarkerlessManagedGuidance(t *testing.T) {
 	}
 	agents, _ := os.ReadFile(p.agents)
 	markerless := strings.ReplaceAll(strings.ReplaceAll(string(agents), blockStart, ""), blockEnd, "")
+	markerless = strings.Replace(markerless, "The footer must be", "The footer remains", 1)
 	mustWrite(t, p.agents, markerless)
 	if _, err := uninstall(context.Background(), true); err == nil || !strings.Contains(err.Error(), "managed file was modified") {
 		t.Fatalf("markerless guidance uninstall = %v", err)

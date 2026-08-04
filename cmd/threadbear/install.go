@@ -13,7 +13,7 @@ import (
 	"strings"
 )
 
-const blockStart, blockEnd = "<!-- BEGIN THREADBEAR MANAGED BLOCK -->", "<!-- END THREADBEAR MANAGED BLOCK -->"
+const blockStart, blockEnd, managedHeading, managedProtocol = "<!-- BEGIN THREADBEAR MANAGED BLOCK -->", "<!-- END THREADBEAR MANAGED BLOCK -->", "# ThreadBear", "For every ordinary interactive turn"
 
 type lifecyclePaths struct{ binary, agents, skill, hooks string }
 type rawObject map[string]json.RawMessage
@@ -244,7 +244,7 @@ func finishCommittedUninstall() (bool, error) {
 	_, skillErr := os.Stat(p.skill)
 	agents, agentsErr := os.ReadFile(p.agents)
 	_, hooksChanged, hooksErr := editHooks(p.hooks, p.binary, false)
-	if !errors.Is(skillErr, os.ErrNotExist) || agentsErr == nil && (strings.Contains(string(agents), blockStart) || strings.Contains(string(agents), blockEnd) || strings.Contains(string(agents), strings.TrimSpace(assets.AgentsManagedContent))) || agentsErr != nil && !errors.Is(agentsErr, os.ErrNotExist) || hooksErr != nil || hooksChanged {
+	if !errors.Is(skillErr, os.ErrNotExist) || agentsErr == nil && (strings.Contains(string(agents), blockStart) || strings.Contains(string(agents), blockEnd) || strings.Contains(string(agents), managedHeading) || strings.Contains(string(agents), managedProtocol)) || agentsErr != nil && !errors.Is(agentsErr, os.ErrNotExist) || hooksErr != nil || hooksChanged {
 		return false, errors.Join(agentsErr, hooksErr, errors.New("uninstall state is missing before local artifacts were settled"))
 	}
 	if err := os.RemoveAll(stateDir()); err != nil {
@@ -414,7 +414,7 @@ func manageBlock(path, content string) error {
 	if strings.Count(text, blockStart) > 1 || strings.Count(text, blockEnd) > 1 || start < 0 != (end < 0) || end >= 0 && end < start {
 		return errors.New("invalid ThreadBear managed block")
 	}
-	if content == "" && (start < 0 && strings.Contains(text, strings.TrimSpace(assets.AgentsManagedContent)) || start >= 0 && !strings.Contains(text, managedBlock())) {
+	if content == "" && (start < 0 && (strings.Contains(text, managedHeading) || strings.Contains(text, managedProtocol)) || start >= 0 && !strings.Contains(text, managedBlock())) {
 		return errors.New("managed file was modified: " + path)
 	}
 	if content == "" && start < 0 {
