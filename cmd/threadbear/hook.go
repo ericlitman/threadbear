@@ -150,7 +150,7 @@ func stageTitle(ctx context.Context, id, status, action, seed, caller, toolUseID
 				return false, errors.New("fresh task has no subject owner")
 			}
 		}
-		proposed = renderTitle(status, subject, action)
+		proposed = map[bool]string{true: seed, false: renderTitle(status, subject, action)}[status == ""]
 		record.Pending = &pendingProposal{ToolUseID: toolUseID, BaseSubject: subject, Prior: task.Title, Proposed: proposed, Status: status, Action: action}
 		saved.Tasks[id] = record
 		return true, nil

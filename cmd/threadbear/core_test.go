@@ -168,22 +168,22 @@ func TestPlainTitlePassThroughStagesAndSettles(t *testing.T) {
 	if err := newStore(stateDir()).update(func(*state) (bool, error) { return false, nil }); err != nil {
 		t.Fatal(err)
 	}
-	pre := hookPayload("PreToolUse", "task", "plain", map[string]any{"title": "User rename"}, nil)
+	pre := hookPayload("PreToolUse", "task", "plain", map[string]any{"title": "User  rename"}, nil)
 	var output bytes.Buffer
 	if err := hook(context.Background(), strings.NewReader(pre), &output); err != nil || output.Len() != 0 {
 		t.Fatalf("plain Pre = %q, %v", output.String(), err)
 	}
 	saved, _ := newStore(stateDir()).read()
-	if pending := saved.Tasks["task"].Pending; pending == nil || pending.Proposed != "User rename" {
+	if pending := saved.Tasks["task"].Pending; pending == nil || pending.Proposed != "User  rename" {
 		t.Fatalf("plain proposal = %#v", pending)
 	}
-	response, _ := json.Marshal(map[string]string{"threadId": "task", "title": "User rename"})
-	post := hookPayload("PostToolUse", "task", "plain", map[string]any{"title": "User rename"}, string(response))
+	response, _ := json.Marshal(map[string]string{"threadId": "task", "title": "User  rename"})
+	post := hookPayload("PostToolUse", "task", "plain", map[string]any{"title": "User  rename"}, string(response))
 	if err := hook(context.Background(), strings.NewReader(post), &bytes.Buffer{}); err != nil {
 		t.Fatal(err)
 	}
 	saved, _ = newStore(stateDir()).read()
-	if got := saved.Tasks["task"]; got.Subject != "User rename" || got.Last != "User rename" || got.Pending != nil {
+	if got := saved.Tasks["task"]; got.Subject != "User rename" || got.Last != "User  rename" || got.Pending != nil {
 		t.Fatalf("plain committed state = %#v", got)
 	}
 }
