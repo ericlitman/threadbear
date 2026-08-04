@@ -218,11 +218,11 @@ func TestArchivedControlUninstallPrepareRejectsPendingNativeTitle(t *testing.T) 
 	if _, err := install("main", false, true, false); err != nil {
 		t.Fatal(err)
 	}
-	if err := newStore(stateDir()).update(func(value *state) (bool, error) {
-		value.Phase = phaseMigrationComplete
-		value.Tasks["target"] = taskState{Pending: &pendingProposal{ToolUseID: "unknown", Proposed: "✅ Target"}}
-		return true, nil
-	}); err != nil {
+	if err := newStore(stateDir()).update(func(value *state) (bool, error) { value.Phase = phaseMigrationComplete; return true, nil }); err != nil {
+		t.Fatal(err)
+	}
+	plain := hookPayload("PreToolUse", "other", "in-flight-plain", map[string]any{"threadId": "main", "title": "Renamed"}, nil)
+	if err := hook(context.Background(), strings.NewReader(plain), &bytes.Buffer{}); err != nil {
 		t.Fatal(err)
 	}
 	var output bytes.Buffer

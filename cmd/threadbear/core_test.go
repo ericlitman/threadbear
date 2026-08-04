@@ -162,6 +162,32 @@ func TestOrdinaryHooksRewriteVerifyAndRecoverLostPost(t *testing.T) {
 	}
 }
 
+func TestPlainTitlePassThroughStagesAndSettles(t *testing.T) {
+	root, db := testIndex(t)
+	addTask(t, db, root, "task", "Stable subject", nil, "vscode", 0)
+	if err := newStore(stateDir()).update(func(*state) (bool, error) { return false, nil }); err != nil {
+		t.Fatal(err)
+	}
+	pre := hookPayload("PreToolUse", "task", "plain", map[string]any{"title": "User rename"}, nil)
+	var output bytes.Buffer
+	if err := hook(context.Background(), strings.NewReader(pre), &output); err != nil || output.Len() != 0 {
+		t.Fatalf("plain Pre = %q, %v", output.String(), err)
+	}
+	saved, _ := newStore(stateDir()).read()
+	if pending := saved.Tasks["task"].Pending; pending == nil || pending.Proposed != "User rename" {
+		t.Fatalf("plain proposal = %#v", pending)
+	}
+	response, _ := json.Marshal(map[string]string{"threadId": "task", "title": "User rename"})
+	post := hookPayload("PostToolUse", "task", "plain", map[string]any{"title": "User rename"}, string(response))
+	if err := hook(context.Background(), strings.NewReader(post), &bytes.Buffer{}); err != nil {
+		t.Fatal(err)
+	}
+	saved, _ = newStore(stateDir()).read()
+	if got := saved.Tasks["task"]; got.Subject != "User rename" || got.Last != "User rename" || got.Pending != nil {
+		t.Fatalf("plain committed state = %#v", got)
+	}
+}
+
 func BenchmarkOrdinaryPreToolUse(b *testing.B) {
 	root, db := testIndex(b)
 	addTask(b, db, root, "task", "Stable subject", nil, "vscode", 0)
@@ -298,6 +324,13 @@ func TestFreshRunningSubjectSeedFailsClosedAndThenStaysOwned(t *testing.T) {
 	homePre := hookPayload("PreToolUse", "task", "home", map[string]any{"title": homeTitle}, nil)
 	if err := hook(context.Background(), strings.NewReader(homePre), &homeOutput); err != nil || homeOutput.Len() != 0 {
 		t.Fatalf("persistent home title was not passed through: %q, %v", homeOutput.String(), err)
+	}
+	homeState, _ := currentStateOrEmpty()
+	if homeState.Tasks["task"].Pending == nil {
+		t.Fatal("persistent home title was not staged")
+	}
+	if err := newStore(stateDir()).update(func(value *state) (bool, error) { delete(value.Tasks, "task"); return true, nil }); err != nil {
+		t.Fatal(err)
 	}
 	for _, marker := range []string{runningMarker, runningMarker + ":", runningMarker + ": ", runningMarker + ": bad  spacing", runningMarker + ": " + strings.Repeat("x", 59), homeTitle + " extra"} {
 		var output bytes.Buffer

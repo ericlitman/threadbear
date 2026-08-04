@@ -92,10 +92,8 @@ func preTitle(ctx context.Context, event hookInput, out io.Writer) error {
 		if title != homeTitle && (strings.HasPrefix(title, runningMarker) || strings.HasPrefix(title, "🧵🐻 ")) {
 			return errors.New("invalid ThreadBear marker")
 		}
-		if value, stateErr := currentStateOrEmpty(); stateErr != nil || value.UninstallPending != nil {
-			return errors.Join(stateErr, errors.New("title changes are paused for the prepared uninstall task"))
-		}
-		return nil
+		_, err = stageTitle(ctx, target, "", "", title, event.SessionID, event.ToolUseID)
+		return err
 	}
 	proposed, err := stageTitle(ctx, target, result.Status, result.Action, seed, event.SessionID, event.ToolUseID)
 	if err != nil {
@@ -113,7 +111,10 @@ func stageTitle(ctx context.Context, id, status, action, seed, caller, toolUseID
 		return "", err
 	}
 	defer unlock(titleLock)
-	task, found, err := oneTask(ctx, id)
+	task, found := indexedTask{Title: seed, Name: seed}, true
+	if status != "" {
+		task, found, err = oneTask(ctx, id)
+	}
 	if err != nil || !found {
 		return "", errors.Join(err, errors.New("task is not active in Codex"))
 	}
@@ -134,7 +135,7 @@ func stageTitle(ctx context.Context, id, status, action, seed, caller, toolUseID
 				return false, errors.New("title cleanup requires the ThreadBear control task")
 			}
 			subject = cmp.Or(stripStatusIcons(task.Title), "Untitled task")
-		} else if task.Name == "" && first != "" && (current == first || current == truncateUTF16(first, 60)) {
+		} else if status != "" && task.Name == "" && first != "" && (current == first || current == truncateUTF16(first, 60)) {
 			subject = record.Subject
 			if record.Pending != nil && record.Pending.BaseSubject != "" {
 				subject = record.Pending.BaseSubject

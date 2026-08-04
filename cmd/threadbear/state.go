@@ -181,8 +181,7 @@ func parseFooter(message string) (footer, bool) {
 	return footer{Status: status, Action: action}, true
 }
 
-var statusIcons = map[string]string{"running": "⏳", "blocked": "🚨", "needs_input": "🙋", "automation": "🤖", "next_steps": "➡️", "complete": "✅", "unknown": "❔", "cleanup": " "}
-var statusPrefix = regexp.MustCompile(`^(?:(?:⏳|🚨|🙋|🤖|➡️?|✅|❔) *)+`)
+var statusIcons, statusPrefix = map[string]string{"": " ", "running": "⏳", "blocked": "🚨", "needs_input": "🙋", "automation": "🤖", "next_steps": "➡️", "complete": "✅", "unknown": "❔", "cleanup": " "}, regexp.MustCompile(`^(?:(?:⏳|🚨|🙋|🤖|➡️?|✅|❔) *)+`)
 
 func stripStatusIcons(title string) string { return statusPrefix.ReplaceAllString(title, "") }
 func renderTitle(status, subject, action string) string {
