@@ -128,10 +128,9 @@ func prepareUninstall(ctx context.Context, initiatorTaskID string) (any, error) 
 			}
 			return uninstallPreparationResult(pending, true, reconciled, drifted), nil
 		}
-		for _, record := range value.Tasks {
-			if record.Pending != nil {
-				return nil, errors.New("cannot prepare uninstall while a native title operation is pending; reconcile it first")
-			}
+		reconciled, drifted, err := reconcileUninstallTitles(ctx)
+		if err != nil {
+			return nil, err
 		}
 		main, found, err := archiveTaskByID(ctx, value.MainTaskID)
 		if err != nil || !found || !main.User {
@@ -145,7 +144,7 @@ func prepareUninstall(ctx context.Context, initiatorTaskID string) (any, error) 
 		if err != nil {
 			return nil, err
 		}
-		return uninstallPreparationResult(pending, false, 0, 0), nil
+		return uninstallPreparationResult(pending, false, reconciled, drifted), nil
 	})
 }
 func uninstallPreparationResult(pending *uninstallOperation, resumed bool, reconciled, drifted int) any {

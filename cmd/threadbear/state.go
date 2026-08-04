@@ -97,7 +97,7 @@ func (s store) operationLock() (*os.File, error) {
 	return lock, err
 }
 func (s store) titleLock() (*os.File, error) {
-	return s.openLock("title.lock", unix.LOCK_EX|unix.LOCK_NB, false)
+	return s.openLock("title.lock", unix.LOCK_EX, false)
 }
 func unlock(lock *os.File) {
 	_ = unix.Flock(int(lock.Fd()), unix.LOCK_UN)

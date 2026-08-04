@@ -458,6 +458,8 @@ func TestManagedGuidanceBoundsEachNativeTitleCall(t *testing.T) {
 		"new Promise(resolve => setTimeout(() => resolve({status:\"timeout\"}), 4000))",
 		"Make exactly one native attempt.",
 		"never retry or await that promise",
+		"Explicit-target lifecycle mutations are governed by the installed ThreadBear skill instead.",
+		"do not add this `Promise.race` unless the skill explicitly requires a four-second attempt",
 	} {
 		if !strings.Contains(guidance, required) {
 			t.Errorf("managed guidance is missing bounded-call contract %q", required)

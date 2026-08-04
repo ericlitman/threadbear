@@ -211,7 +211,7 @@ func TestArchivedControlUninstallAbortRestoresOrdinaryOperation(t *testing.T) {
 	}
 }
 
-func TestArchivedControlUninstallPrepareRejectsPendingNativeTitle(t *testing.T) {
+func TestArchivedControlUninstallPrepareReconcilesPendingNativeTitle(t *testing.T) {
 	root, db := testIndex(t)
 	addTask(t, db, root, "main", "Control task", nil, "vscode", 1)
 	addUninstallOwner(t, db, root)
@@ -226,8 +226,12 @@ func TestArchivedControlUninstallPrepareRejectsPendingNativeTitle(t *testing.T) 
 		t.Fatal(err)
 	}
 	var output bytes.Buffer
-	if code := run(context.Background(), []string{"uninstall", "--prepare", "--initiator-task-id", "requester", "--json"}, strings.NewReader(""), &output, &bytes.Buffer{}); code != 1 || !strings.Contains(output.String(), "native title operation is pending") {
+	if code := run(context.Background(), []string{"uninstall", "--prepare", "--initiator-task-id", "requester", "--json"}, strings.NewReader(""), &output, &bytes.Buffer{}); code != 0 || !strings.Contains(output.String(), `"drifted_titles":1`) {
 		t.Fatalf("pending title prepare code %d: %s", code, output.String())
+	}
+	value, _ := newStore(stateDir()).read()
+	if value.Tasks["main"].Pending != nil {
+		t.Fatal("prepare left reconciled title pending")
 	}
 }
 

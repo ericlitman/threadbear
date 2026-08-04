@@ -5,10 +5,12 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	_ "modernc.org/sqlite"
 )
@@ -205,7 +207,7 @@ func BenchmarkOrdinaryPreToolUse(b *testing.B) {
 	}
 }
 
-func TestPreToolUseRefusesWhileTitleLifecycleIsLocked(t *testing.T) {
+func TestPreToolUseWaitsWhileTitleLifecycleIsLocked(t *testing.T) {
 	root, db := testIndex(t)
 	addTask(t, db, root, "task", "Stable subject", nil, "vscode", 0)
 	if err := newStore(stateDir()).update(func(*state) (bool, error) { return false, nil }); err != nil {
@@ -215,15 +217,120 @@ func TestPreToolUseRefusesWhileTitleLifecycleIsLocked(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer unlock(lock)
 	payload := hookPayload("PreToolUse", "task", "locked", map[string]any{"title": runningMarker + ": Stable subject"}, nil)
-	var output bytes.Buffer
-	if err := hook(context.Background(), strings.NewReader(payload), &output); err != nil || !strings.Contains(output.String(), `"permissionDecision":"deny"`) {
-		t.Fatalf("locked PreToolUse = %q, %v", output.String(), err)
+	type result struct {
+		output string
+		err    error
+	}
+	done := make(chan result, 1)
+	go func() {
+		var output bytes.Buffer
+		err := hook(context.Background(), strings.NewReader(payload), &output)
+		done <- result{output: output.String(), err: err}
+	}()
+	select {
+	case got := <-done:
+		unlock(lock)
+		t.Fatalf("locked PreToolUse returned early: %q, %v", got.output, got.err)
+	case <-time.After(25 * time.Millisecond):
+	}
+	unlock(lock)
+	var got result
+	select {
+	case got = <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("PreToolUse did not continue after title lock released")
+	}
+	if got.err != nil || !strings.Contains(got.output, `"permissionDecision":"allow"`) {
+		t.Fatalf("released PreToolUse = %q, %v", got.output, got.err)
 	}
 	saved, err := newStore(stateDir()).read()
-	if err != nil || saved.Tasks["task"].Pending != nil {
-		t.Fatalf("locked PreToolUse staged state: %#v, %v", saved.Tasks["task"], err)
+	if err != nil || saved.Tasks["task"].Pending == nil {
+		t.Fatalf("released PreToolUse did not stage state: %#v, %v", saved.Tasks["task"], err)
+	}
+}
+
+func TestConcurrentMigrationTitleWaveCommitsDistinctTargets(t *testing.T) {
+	root, db := testIndex(t)
+	const size = 8
+	for i := range size {
+		id := fmt.Sprintf("target-%d", i)
+		addTask(t, db, root, id, "Subject "+id, nil, "vscode", 0)
+	}
+	if err := newStore(stateDir()).update(func(saved *state) (bool, error) {
+		saved.MainTaskID, saved.ControllerTaskID, saved.Phase = "main", "controller", phaseMigrationRunning
+		return true, nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	lock, err := newStore(stateDir()).titleLock()
+	if err != nil {
+		t.Fatal(err)
+	}
+	unlock(lock)
+	type result struct {
+		id, title, output string
+		err               error
+	}
+	prepared := make(chan result, size)
+	for i := range size {
+		id := fmt.Sprintf("target-%d", i)
+		go func() {
+			var output bytes.Buffer
+			payload := hookPayload("PreToolUse", "controller", "call-"+id, map[string]any{"threadId": id, "title": "🧵🐻 complete"}, nil)
+			err := hook(context.Background(), strings.NewReader(payload), &output)
+			if err != nil {
+				prepared <- result{id: id, output: output.String(), err: err}
+				return
+			}
+			var value struct {
+				Hook struct {
+					Updated map[string]json.RawMessage `json:"updatedInput"`
+				} `json:"hookSpecificOutput"`
+			}
+			err = json.Unmarshal(output.Bytes(), &value)
+			var title string
+			if err == nil {
+				err = json.Unmarshal(value.Hook.Updated["title"], &title)
+			}
+			prepared <- result{id: id, title: title, output: output.String(), err: err}
+		}()
+	}
+	posts := make(chan result, size)
+	items := make([]result, 0, size)
+	for range size {
+		items = append(items, <-prepared)
+	}
+	for _, item := range items {
+		if item.err != nil || item.title != "✅ Subject "+item.id {
+			t.Fatalf("prepared %s = title %q, output %q, %v", item.id, item.title, item.output, item.err)
+		}
+	}
+	for _, item := range items {
+		go func() {
+			response, _ := json.Marshal(map[string]string{"threadId": item.id, "title": item.title})
+			payload := hookPayload("PostToolUse", "controller", "call-"+item.id, map[string]any{"threadId": item.id, "title": item.title}, string(response))
+			posts <- result{id: item.id, title: item.title, err: hook(context.Background(), strings.NewReader(payload), &bytes.Buffer{})}
+		}()
+	}
+	var postFailures []string
+	for range size {
+		if item := <-posts; item.err != nil {
+			postFailures = append(postFailures, fmt.Sprintf("%s: %v", item.id, item.err))
+		}
+	}
+	if len(postFailures) > 0 {
+		t.Fatalf("commit failures: %s", strings.Join(postFailures, "; "))
+	}
+	saved, err := newStore(stateDir()).read()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i := range size {
+		id := fmt.Sprintf("target-%d", i)
+		if got := saved.Tasks[id]; got.Pending != nil || got.Last != "✅ Subject "+id || got.Status != "complete" {
+			t.Fatalf("target state %s = %#v", id, got)
+		}
 	}
 }
 
