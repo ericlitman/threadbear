@@ -2,13 +2,13 @@
 
 ## Unreleased
 
-## v2.2.1 - 2026-08-04
+## v2.2.1 - 2026-08-05
 
 ### Fixed
 
 - Completed guided title migration in bounded concurrent waves without client-created native-call timeouts, while keeping exact inventory reconciliation and read-only Luna classifiers isolated to temporary installation tasks.
 - Prevented delayed/older title callbacks and no-op proposals from racing replacement or uninstall teardown with a locked state-format fence, and registered the controller's actual native runtime ID from its marked home delegation instead of trusting Codex's provisional creation handle.
-- Made uninstall resumable from any active native task after either a completed migration or a stopped failed migration, with durable initiator ownership, exact archive restoration, archived-main title validation, and binary-last local teardown.
+- Made uninstall resumable from any active native task after a completed migration, a stopped failed migration, or a quiescent pre-controller install, with installer-time home-title capture, upgrade-safe legacy subject recovery, exact decorated-home restoration, durable initiator ownership, exact archive restoration, and binary-last local teardown.
 
 ## v2.2.0 - 2026-08-03
 

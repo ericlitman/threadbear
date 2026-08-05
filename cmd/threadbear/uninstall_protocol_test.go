@@ -419,12 +419,11 @@ func TestUninstallHomeCleanupRestoresPreSentinelSubject(t *testing.T) {
 	if _, err := install("main", false, true, false); err != nil {
 		t.Fatal(err)
 	}
-	var output bytes.Buffer
-	pre := hookPayload("PreToolUse", "main", "home", map[string]any{"title": homeTitle}, nil)
-	if err := hook(context.Background(), strings.NewReader(pre), &output); err != nil || rewrittenTitle(t, output.Bytes()) != homeTitle {
-		t.Fatalf("home sentinel = %q, %v", output.String(), err)
+	saved, err := newStore(stateDir()).read()
+	if err != nil || saved.Tasks["main"].Original != "Investigate install failure" {
+		t.Fatalf("install-time original = %#v, %v", saved.Tasks["main"], err)
 	}
-	if _, err := db.Exec(`UPDATE threads SET title=? WHERE id='main'`, homeTitle); err != nil {
+	if _, err := db.Exec(`UPDATE threads SET title=? WHERE id='main'`, "⏳ "+homeTitle); err != nil {
 		t.Fatal(err)
 	}
 	if err := newStore(stateDir()).update(func(value *state) (bool, error) {
@@ -436,9 +435,80 @@ func TestUninstallHomeCleanupRestoresPreSentinelSubject(t *testing.T) {
 	if _, err := prepareUninstall(context.Background(), "main"); err != nil {
 		t.Fatal(err)
 	}
-	output.Reset()
+	var output bytes.Buffer
 	cleanup := hookPayload("PreToolUse", "main", "cleanup", map[string]any{"title": cleanupMarker}, nil)
 	if err := hook(context.Background(), strings.NewReader(cleanup), &output); err != nil || rewrittenTitle(t, output.Bytes()) != "Investigate install failure" {
 		t.Fatalf("home cleanup = %q, %v", output.String(), err)
+	}
+}
+
+func TestUninstallPrepareAcceptsQuiescentPendingInstall(t *testing.T) {
+	root, db := testIndex(t)
+	addTask(t, db, root, "main", "ThreadBear", nil, "vscode", 0)
+	addTask(t, db, root, "unowned", "✅ User-owned title", nil, "vscode", 0)
+	if _, err := install("main", false, true, false); err != nil {
+		t.Fatal(err)
+	}
+	if result, err := prepareUninstall(context.Background(), "main"); err != nil || result.(map[string]any)["prepared"] != true {
+		t.Fatalf("pending prepare = %#v, %v", result, err)
+	}
+	if _, err := db.Exec(`UPDATE threads SET title=? WHERE id='main'`, homeTitle); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := completeUninstall(context.Background(), "main", true, false); err == nil {
+		t.Fatal("pending uninstall accepted the install sentinel")
+	}
+	if _, err := db.Exec(`UPDATE threads SET title='ThreadBear' WHERE id='main'`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := completeUninstall(context.Background(), "main", true, false); err != nil {
+		t.Fatal(err)
+	}
+	var title string
+	if err := db.QueryRow(`SELECT title FROM threads WHERE id='unowned'`).Scan(&title); err != nil || title != "✅ User-owned title" {
+		t.Fatalf("unowned title = %q, %v", title, err)
+	}
+}
+
+func TestUninstallPrepareClearsHomeAttestedSettledFailure(t *testing.T) {
+	root, db := testIndex(t)
+	for _, id := range []string{"main", "controller", "target"} {
+		addTask(t, db, root, id, id, nil, "vscode", 0)
+	}
+	if err := newStore(stateDir()).update(func(value *state) (bool, error) {
+		value.MainTaskID, value.ControllerTaskID, value.Phase, value.MigrationFailure = "main", "controller", phaseMigrationFailed, "controller reported a settled migration failure"
+		value.Tasks["target"] = taskState{Pending: &pendingProposal{CallerTaskID: "controller", Prior: "target", Proposed: "✅ target"}}
+		return true, nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("CODEX_THREAD_ID", "main")
+	if _, err := prepareUninstall(context.Background(), "main"); err != nil {
+		t.Fatal(err)
+	}
+	value, _ := newStore(stateDir()).read()
+	if value.Tasks["target"].Pending != nil {
+		t.Fatal("settled failed proposal remained pending")
+	}
+}
+
+func TestSettledMigrationFailureKeepsNonControllerProposal(t *testing.T) {
+	root, db := testIndex(t)
+	for _, id := range []string{"main", "controller", "other"} {
+		addTask(t, db, root, id, id, nil, "vscode", 0)
+	}
+	if err := newStore(stateDir()).update(func(value *state) (bool, error) {
+		value.MainTaskID, value.ControllerTaskID, value.Phase, value.MigrationFailure = "main", "controller", phaseMigrationFailed, "controller reported a settled migration failure"
+		value.Tasks["other"] = taskState{Pending: &pendingProposal{CallerTaskID: "main", Prior: "other", Proposed: "✅ other"}}
+		return true, nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := reconcileTitles(context.Background(), ""); err == nil {
+		t.Fatal("settled controller wave cleared a non-controller proposal")
+	}
+	value, _ := newStore(stateDir()).read()
+	if value.Tasks["other"].Pending == nil {
+		t.Fatal("non-controller proposal was cleared")
 	}
 }

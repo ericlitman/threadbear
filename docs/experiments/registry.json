@@ -62,10 +62,12 @@
       "premise": "One exact candidate can migrate the full native-addressable local task inventory in bounded concurrent title waves within six minutes and uninstall without a queued hook recreating state or a pending title landing after teardown.",
       "status": "established",
       "supported_by": [
-        "TB-EXP-0120-001"
+        "TB-EXP-0120-001",
+        "TB-EXP-0120-002",
+        "TB-EXP-0120-003"
       ],
       "contradicted_by": [],
-      "decision": "The exact v2.2.1 candidate completed two full 98-task migrations in 5:27.999 and 5:03.690, then completed clean uninstalls in 2:00.696 and 2:10.504 with all owned artifacts absent. End-to-end setup through active automation was 6:23.650 and 5:41.080, so only the defined full-list migration metric passed the six-minute ceiling twice. Release remains conditioned on the exact candidate binary and native fail-closed protocol.",
+      "decision": "Candidate 09fc5241 completed two full 98-task migrations in 5:27.999 and 5:03.690, then completed clean uninstalls in 2:00.696 and 2:10.504 with all owned artifacts absent. End-to-end setup through active automation was 6:23.650 and 5:41.080, so only the defined full-list migration metric passed the six-minute ceiling twice. Candidate 15027fdc separately proved fresh installer-boundary home-title capture. Final candidate 3b87d7fa then upgraded genuine tagged-v2.2.0 format-3 state whose hook had persisted the sentinel itself as the home subject, cleaned and uninstalled it from quiescent pre-controller state, and preserved an unowned icon-prefixed task against the real native catalog. The normal migration write path is unchanged from the two-cycle candidate.",
       "next_preflight": null
     }
   ],
@@ -713,6 +715,87 @@
       },
       "confidence": "high",
       "applicability": "Exact candidate binary checksum, Desktop build, 98-task local inventory, Terra-medium controller, Luna-low classifiers, and native direct terminal reads used when worker wake notification was unreliable. The acceptance ceiling applies to full-list migration, not all setup work; cycle 1 end-to-end setup exceeded six minutes. Separate discarded runs remain infrastructure evidence and do not weaken these two successful complete cycles.",
+      "supersedes": [],
+      "conflicts": []
+    },
+    {
+      "id": "TB-EXP-0120-002",
+      "date": "2026-08-05",
+      "issue": "BEAR-1",
+      "preflight_id": null,
+      "question": "Can the corrected release candidate restore the home title after a fresh same-turn installation in which the running task never loads the newly installed hook?",
+      "invariant": "A first installation must persist the authoritative pre-sentinel home title before installing hooks, so uninstall never depends on that already-running task reloading them.",
+      "environment": {
+        "threadbear_version": "2.2.1 corrected release candidate",
+        "git_sha": "working tree based on b1ffc152a4f9cb8c6da551ce5b4cd1398adf6318; candidate binary fingerprint is authoritative",
+        "codex_version": "Desktop 26.727.51351; CLI 0.146.0-alpha.9.2",
+        "codex_source": "vscode",
+        "host": "local macOS",
+        "task_state": "fresh installation from the persistent user home; distinct migration canary stopped before title migration writes",
+        "restart_state": "no Codex application restart; the already-running home task intentionally did not load the newly installed hook",
+        "hook_fingerprint": "candidate binary SHA-256 15027fdc45e0a16781752ce92ff1012da285b696c5c3ec7c225c101647e7f24d; hook source SHA-256 1a85b4e5b70214c7d458493d74f1febbb570fec5b8c4768fbaa499831538eed3",
+        "guidance_fingerprint": "managed guidance SHA-256 4ab1b2e1adf4c1ebb4747419a87785fee65bcb05c1af78792d1cee19ef73ef7e; installed skill SHA-256 f0c10032d7c324c49ff685e46acf1311f4246132e31727cf07ea74857768d60f"
+      },
+      "invocation": {
+        "outer_tool": "confirmed candidate install from the persistent home followed by native controller registration, status reconciliation, prepared cleanup, and confirmed uninstall",
+        "code": "install captured the native home title before binary replacement; home was then set to the sentinel without hook participation; the controller registered and stopped without migration writes; status reconciled migration_failed; uninstall restored exact titles and removed all owned artifacts",
+        "native_tool_identity": "codex_appset_thread_title, codex_appread_thread, codex_appset_thread_archived",
+        "target_identity_mode": "exact persistent home and distinct controller task IDs"
+      },
+      "evidence": [
+        "github-pr:120",
+        "codex-rollout:019fcca7-7093-70f3-a18d-260951571103",
+        "codex-rollout:019fd2bf-60ef-71e1-9331-866d30ba9359"
+      ],
+      "result": {
+        "status": "observed",
+        "summary": "Before the sentinel write, private state contained the home's exact original title even though no title hook had run. After the controller stopped and status reconciled migration_failed, prepared uninstall restored the exact home and controller titles, archived the controller, returned uninstalled true, and left the binary, private state, installed skill, owned automation, managed guidance, and hooks absent.",
+        "timing_ms": "not an acceptance timing run; this bounded canary isolated the corrected installer/uninstall path",
+        "hook_participation": "intentionally absent from the home task during install-time capture and sentinel mutation; cleanup used authoritative exact-title writes under the prepared uninstall protocol",
+        "rendered_proof": "authoritative title readback matched the pre-install home title and clean controller title before uninstall commit; post-commit artifact checks were all absent"
+      },
+      "confidence": "high",
+      "applicability": "Directly covers the installer-boundary capture change introduced after TB-EXP-0120-001. Later recovery corrections are separately covered by TB-EXP-0120-003. It does not repeat the unchanged 98-task migration path, so the two full-list timing results remain attributed to candidate 09fc5241 rather than this corrected candidate.",
+      "supersedes": [],
+      "conflicts": []
+    },
+    {
+      "id": "TB-EXP-0120-003",
+      "date": "2026-08-05",
+      "issue": "BEAR-1",
+      "preflight_id": null,
+      "question": "Does final candidate 3b87d7fa upgrade real v2.2.0 state whose missing Original is paired with a sentinel-valued Subject, cleanly uninstall before controller registration, and leave unowned icon-prefixed titles untouched?",
+      "invariant": "A legacy installation with no recoverable original title must upgrade to a safe clean home fallback, a partial installation with no controller or pending operation must be removable through one exact native cleanup transaction, and titles never owned by migration must remain byte-exact.",
+      "environment": {
+        "threadbear_version": "2.2.1 final release candidate",
+        "git_sha": "uncommitted release correction based on b1ffc152a4f9cb8c6da551ce5b4cd1398adf6318; candidate binary fingerprint is authoritative",
+        "codex_version": "Desktop 26.727.51351; CLI 0.146.0-alpha.9.2",
+        "codex_source": "vscode",
+        "host": "local macOS",
+        "task_state": "tagged v2.2.0 candidate e60cc065 installed genuine format-3 migration_pending state, then its exact hook Pre/Post transaction persisted the install sentinel as the home Subject; one clean archived canary was temporarily active with an unowned leading complete icon; no controller, automation, migration title write, or pending native operation",
+        "restart_state": "no Codex application restart; the already-running home retained its pre-install hook snapshot, so the exact upgraded installed hook binary was exercised directly with real native Pre/Post payloads",
+        "hook_fingerprint": "final candidate binary SHA-256 3b87d7fa5857c2e914759a437344d0e881fa322fbf6dc7dec215cf941fb96dce; tagged v2.2.0 source candidate SHA-256 e60cc06590623fa99c925f210f80ef9d34e8f57338456a56cdaf69cbc54e75a1",
+        "guidance_fingerprint": "candidate-embedded managed guidance and installed skill from the same 3b87d7fa binary"
+      },
+      "invocation": {
+        "outer_tool": "one bounded tagged-v2.2.0-to-final-hash upgrade/uninstall recovery canary from the persistent home",
+        "code": "an archived clean canary was activated with an unowned leading complete icon; tagged v2.2.0 confirmed install created format 3; its installed hook staged and committed one real native running-title result from the bare home sentinel, persisting Subject equal to the sentinel; final candidate confirmed reinstall upgraded state to format 4 with Original ThreadBear; prepare accepted the quiescent state; the final installed hook staged cleanup to ThreadBear; one native setter returned that exact title; PostToolUse committed it; confirmed uninstall removed all owned artifacts without changing the unowned canary title; the known home title and canary title/archive state were restored afterward.",
+        "native_tool_identity": "codex_appset_thread_title, codex_applist_threads",
+        "target_identity_mode": "exact persistent home task ID with omitted threadId only for the required sentinel and explicit ID for canary decoration and cleanup"
+      },
+      "evidence": [
+        "github-pr:120",
+        "codex-rollout:019fcca7-7093-70f3-a18d-260951571103"
+      ],
+      "result": {
+        "status": "observed",
+        "summary": "The final candidate upgraded genuine format-3 state with a missing Original and sentinel-valued Subject to format 4 and recovered the clean canonical ThreadBear fallback. The quiescent migration_pending prepare returned ready and prepared with no controller. The exact final installed cleanup hook mapped the decorated sentinel to ThreadBear, the native result committed with no pending proposal, uninstall returned uninstalled true, every owned artifact was absent afterward, and authoritative readback proved the unowned icon-prefixed canary title remained byte-exact before restoration.",
+        "timing_ms": "not an acceptance timing run; one bounded final-hash canary isolated the corrected legacy-upgrade, pre-controller, decorated-home, and unowned-title recovery scope",
+        "hook_participation": "the second canary invoked the exact installed PreToolUse and PostToolUse hook binary around one real native title setter result because the already-running task could not reload newly installed hooks in the same turn",
+        "rendered_proof": "authoritative list readback showed the decorated sentinel before prepare; the native cleanup result and durable hook state both matched the exact original title before uninstall commit"
+      },
+      "confidence": "high",
+      "applicability": "Directly covers the final candidate's legacy format-3 upgrade, pre-controller uninstall, decorated-home fallback cleanup, and unowned inventory-title scope. Fresh exact-original capture remains covered by TB-EXP-0120-002. The home-authorized settled-failure route is covered by 100-repeat focused tests plus the complete race-enabled suite; it was not induced against an unknown real native call. The two full-list migration timings remain attributed to candidate 09fc5241 because that normal path is unchanged.",
       "supersedes": [],
       "conflicts": []
     }

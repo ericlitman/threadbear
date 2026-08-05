@@ -20,9 +20,8 @@ const blockStart, blockEnd, managedHeading, managedProtocol = "<!-- BEGIN THREAD
 type lifecyclePaths struct{ binary, agents, skill, hooks string }
 type rawObject map[string]json.RawMessage
 
-func pendingTitle(task taskState) bool { return task.Pending != nil }
 func hasPendingTitle(value state) bool {
-	return slices.ContainsFunc(slices.Collect(maps.Values(value.Tasks)), pendingTitle)
+	return slices.ContainsFunc(slices.Collect(maps.Values(value.Tasks)), func(task taskState) bool { return task.Pending != nil })
 }
 func codexHome() string { return cmp.Or(os.Getenv("CODEX_HOME"), filepath.Join(homeDir(), ".codex")) }
 func homeDir() string   { home, _ := os.UserHomeDir(); return home }
@@ -52,14 +51,9 @@ func install(controlTaskID string, dry, confirmed, debugCanaries bool) (any, err
 		return nil, err
 	}
 	if dry {
-		phase := value.Phase
-		if phase == "" {
-			phase = phaseMigrationPending
-		}
-		result := map[string]any{"ready": true, "dry_run": true, "main_task_id": mainTaskID, "phase": phase, "controller_task_id": value.ControllerTaskID, "controller_required": phase == phaseMigrationPending}
-		if debugCanaries {
-			result["debug_canaries"] = true
-		}
+		phase := cmp.Or(value.Phase, phaseMigrationPending)
+		result := map[string]any{"ready": true, "dry_run": true, "main_task_id": mainTaskID, "phase": phase, "controller_task_id": value.ControllerTaskID, "controller_required": phase == phaseMigrationPending, "debug_canaries": true}
+		maps.DeleteFunc(result, func(key string, _ any) bool { return key == "debug_canaries" && !debugCanaries })
 		return result, nil
 	}
 	if !confirmed {
@@ -79,6 +73,10 @@ func install(controlTaskID string, dry, confirmed, debugCanaries bool) (any, err
 	if hasPendingTitle(value) {
 		return nil, errors.New("install requires all native title operations to settle")
 	}
+	main, found, taskErr := archiveTaskByID(context.Background(), mainTaskID)
+	if taskErr != nil || !found || !main.User {
+		return nil, errors.Join(taskErr, errors.New("persisted ThreadBear control task is not available in Codex"))
+	}
 	source, err := os.Executable()
 	if err != nil {
 		return nil, err
@@ -90,6 +88,11 @@ func install(controlTaskID string, dry, confirmed, debugCanaries bool) (any, err
 	if err = writeAtomic(p.binary, binary, 0o755); err == nil {
 		err = newStore(stateDir()).update(func(saved *state) (bool, error) {
 			changed := saved.MainTaskID != mainTaskID || saved.Format != stateFormat
+			record := saved.Tasks[mainTaskID]
+			if record.Original == "" {
+				record.Original = map[bool]string{true: main.Title, false: cmp.Or(map[bool]string{true: cmp.Or(map[bool]string{true: stripStatusIcons(record.Subject)}[stripStatusIcons(record.Subject) != homeTitle], "ThreadBear")}[stripStatusIcons(main.Title) == homeTitle], stripStatusIcons(main.Title))}[saved.MainTaskID == ""]
+				saved.Tasks[mainTaskID] = record
+			}
 			saved.MainTaskID, saved.Format = mainTaskID, stateFormat
 			if saved.Phase == "" {
 				saved.Phase, changed = phaseMigrationPending, true
@@ -107,10 +110,8 @@ func install(controlTaskID string, dry, confirmed, debugCanaries bool) (any, err
 	if err == nil && write {
 		err = writeAtomic(p.hooks, hooks, 0o600)
 	}
-	result := map[string]any{"ready": err == nil && value.Phase == phaseMigrationComplete, "installed": err == nil, "main_task_id": value.MainTaskID, "controller_task_id": value.ControllerTaskID, "phase": value.Phase, "controller_required": err == nil && value.Phase == phaseMigrationPending}
-	if debugCanaries {
-		result["debug_canaries"] = true
-	}
+	result := map[string]any{"ready": err == nil && value.Phase == phaseMigrationComplete, "installed": err == nil, "main_task_id": value.MainTaskID, "controller_task_id": value.ControllerTaskID, "phase": value.Phase, "controller_required": err == nil && value.Phase == phaseMigrationPending, "debug_canaries": true}
+	maps.DeleteFunc(result, func(key string, _ any) bool { return key == "debug_canaries" && !debugCanaries })
 	return result, err
 }
 func prepareUninstall(ctx context.Context, initiatorTaskID string) (any, error) {
@@ -122,8 +123,8 @@ func prepareUninstall(ctx context.Context, initiatorTaskID string) (any, error) 
 		if err != nil {
 			return nil, err
 		}
-		if value.Phase != phaseMigrationComplete && value.Phase != phaseMigrationFailed || value.ArchivePending != nil {
-			return nil, errors.New("uninstall requires a completed or stopped failed installation with no pending archive")
+		if value.Phase != phaseMigrationComplete && value.Phase != phaseMigrationFailed && (value.Phase != phaseMigrationPending || value.ControllerTaskID != "" || hasPendingTitle(value)) || value.ArchivePending != nil {
+			return nil, errors.New("uninstall requires a completed, stopped failed, or quiescent pre-controller installation with no pending archive")
 		}
 		initiator, found, err := archiveTaskByID(ctx, initiatorTaskID)
 		if err != nil || !found || !initiator.User || !initiator.Visible || initiator.Archived {
@@ -172,7 +173,7 @@ func reconcileTitles(ctx context.Context, caller string) (count int, err error) 
 			if current && id != caller {
 				continue
 			}
-			if caller != "" && (pending.CallerTaskID != caller || value.Phase == phaseMigrationFailed && os.Getenv("CODEX_THREAD_ID") != caller) {
+			if caller != "" && (pending.CallerTaskID != caller || value.Phase == phaseMigrationFailed && os.Getenv("CODEX_THREAD_ID") != caller && (value.MigrationFailure != "controller reported a settled migration failure" || os.Getenv("CODEX_THREAD_ID") != value.MainTaskID)) {
 				return false, fmt.Errorf("pending native title operation for task %q is not owned by this migration controller", id)
 			}
 			task, found, readErr := archiveTaskByID(ctx, id)
@@ -180,7 +181,7 @@ func reconcileTitles(ctx context.Context, caller string) (count int, err error) 
 				return false, readErr
 			}
 			applied := found && task.User && task.Visible && pending.Prior != pending.Proposed && task.Title == pending.Proposed
-			cleared := caller != "" && (value.MigrationFailure == "controller reported a settled migration failure" && (!found || task.Title == pending.Prior) || current && pending.Attempt != "" && pending.Attempt == attempt && found && task.User && task.Visible && !task.Archived && task.Title == pending.Prior)
+			cleared := pending.CallerTaskID == value.ControllerTaskID && value.MigrationFailure == "controller reported a settled migration failure" && (!found || task.Title == pending.Prior) || current && pending.Attempt != "" && pending.Attempt == attempt && found && task.User && task.Visible && !task.Archived && task.Title == pending.Prior
 			if !applied && !cleared {
 				return false, fmt.Errorf("native title operation for task %q has not settled; wait for its exact PostToolUse result", id)
 			}
@@ -233,7 +234,7 @@ func completeUninstall(ctx context.Context, initiatorTaskID string, confirmed, a
 			})
 			return map[string]any{"ready": err == nil, "aborted": err == nil, "main_archived": pending.MainArchived}, err
 		}
-		if stripStatusIcons(main.Title) != main.Title {
+		if stripStatusIcons(main.Title) != main.Title || stripStatusIcons(main.Title) == homeTitle {
 			return nil, errors.New("uninstall requires title cleanup from the ThreadBear control task")
 		}
 		return uninstallLocked(ctx, value)
@@ -275,7 +276,7 @@ func uninstallLocked(ctx context.Context, value state) (any, error) {
 			return nil, errors.New("cannot uninstall while a native title operation is pending; reconcile it first")
 		}
 	}
-	if value.MainTaskID != "" {
+	if value.MainTaskID != "" && value.Phase != phaseMigrationPending {
 		tasks, scanErr := inventory(ctx)
 		if scanErr != nil {
 			return nil, scanErr

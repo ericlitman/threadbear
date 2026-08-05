@@ -184,9 +184,9 @@ func TestInstalledSkillDefinesAdaptiveMigrationWaves(t *testing.T) {
 		"If zero workers can start, wait 30 seconds and retry for at most two minutes",
 		"ThreadBear controller registration.",
 		"retain the create result only as a supervision handle",
-		"report the complete accounting to the home so it can record `migration_failed` without `--settled`",
+		"adding `--settled` only when the controller's complete wave accounting proves every admitted native call returned a terminal result",
 		"The failed phase denies every new title proposal",
-		"Unapplied proposals remain pending for manual fail-closed recovery",
+		"Unknown proposals remain pending for manual fail-closed recovery",
 	} {
 		if !strings.Contains(protocol, required) {
 			t.Errorf("installed skill is missing adaptive migration invariant %q", required)

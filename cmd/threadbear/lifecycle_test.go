@@ -131,7 +131,7 @@ func TestSettledMigrationFailureClearsOnlyKnownUnappliedProposal(t *testing.T) {
 	if _, err := transitionMigration(context.Background(), phaseMigrationFailed, "controller", true); err == nil {
 		t.Fatal("a different task attested to the controller's settled wave")
 	}
-	t.Setenv("CODEX_THREAD_ID", "controller")
+	t.Setenv("CODEX_THREAD_ID", "main")
 	if _, err := transitionMigration(context.Background(), phaseMigrationFailed, "controller", true); err != nil {
 		t.Fatal(err)
 	}
@@ -277,6 +277,7 @@ func TestStatusReconcilesStoppedMigration(t *testing.T) {
 func TestUninstallRefusesDecoratedActiveTitles(t *testing.T) {
 	root, db := testIndex(t)
 	p := installPaths()
+	addTask(t, db, root, "main", "Control task", nil, "vscode", 0)
 	addTask(t, db, root, "target", "✅ ✅ Target", nil, "vscode", 0)
 	if _, err := install("main", false, true, false); err != nil {
 		t.Fatal(err)

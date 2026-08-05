@@ -160,14 +160,23 @@ func TestReinstallRefusesLegacyPendingTitle(t *testing.T) {
 }
 
 func TestReinstallUpgradesLegacyFormatBeforeOldHookCanWrite(t *testing.T) {
-	isolatedLifecycle(t)
+	root, db := testIndex(t)
+	for _, id := range []string{"installer", "main", "first", "second"} {
+		addTask(t, db, root, id, "Original "+id+" title", nil, "vscode", 0)
+	}
 	if _, err := install("installer", false, true, false); err != nil {
 		t.Fatal(err)
 	}
 	if err := newStore(stateDir()).update(func(value *state) (bool, error) {
 		value.Format = 3
+		record := value.Tasks["installer"]
+		record.Original, record.Subject, record.Last = "", homeTitle, homeTitle
+		value.Tasks["installer"] = record
 		return true, nil
 	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`UPDATE threads SET title=? WHERE id='installer'`, "⏳ "+homeTitle); err != nil {
 		t.Fatal(err)
 	}
 	data, _ := os.ReadFile(newStore(stateDir()).path())
@@ -179,11 +188,20 @@ func TestReinstallUpgradesLegacyFormatBeforeOldHookCanWrite(t *testing.T) {
 		t.Fatal(err)
 	}
 	data, _ = os.ReadFile(newStore(stateDir()).path())
-	if json.Unmarshal(data, &onDisk) != nil || onDisk.Format != stateFormat {
+	if json.Unmarshal(data, &onDisk) != nil || onDisk.Format != stateFormat || onDisk.Tasks["installer"].Original != "ThreadBear" {
 		t.Fatalf("upgraded state = %#v", onDisk)
 	}
 	if onDisk.Format == 3 {
 		t.Fatal("an already-queued v2.2.0 hook would still accept the replaced state")
+	}
+	if _, err := prepareUninstall(context.Background(), "installer"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`UPDATE threads SET title='ThreadBear' WHERE id='installer'`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := completeUninstall(context.Background(), "installer", true, false); err != nil {
+		t.Fatal(err)
 	}
 }
 
@@ -530,7 +548,10 @@ func ownedHookJSON(binary string) json.RawMessage {
 
 func isolatedLifecycle(t *testing.T) lifecyclePaths {
 	t.Helper()
-	testIndex(t)
+	root, db := testIndex(t)
+	for _, id := range []string{"installer", "main", "first", "second"} {
+		addTask(t, db, root, id, "Original "+id+" title", nil, "vscode", 0)
+	}
 	return installPaths()
 }
 

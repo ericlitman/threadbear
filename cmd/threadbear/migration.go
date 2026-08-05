@@ -17,7 +17,7 @@ func currentStateOrEmpty() (value state, err error) {
 	return
 }
 func transitionMigration(ctx context.Context, phase, controllerID string, settled bool) (any, error) {
-	if phase != phaseMigrationRunning && phase != phaseMigrationComplete && phase != phaseMigrationFailed || controllerID == "" || settled && (phase != phaseMigrationFailed || os.Getenv("CODEX_THREAD_ID") != controllerID) {
+	if phase != phaseMigrationRunning && phase != phaseMigrationComplete && phase != phaseMigrationFailed || controllerID == "" || settled && phase != phaseMigrationFailed {
 		return nil, errors.New("migration requires a valid phase and controller task ID")
 	}
 	store := newStore(stateDir())
@@ -43,7 +43,7 @@ func transitionMigration(ctx context.Context, phase, controllerID string, settle
 		}
 	}
 	err = store.update(func(value *state) (bool, error) {
-		if value.MainTaskID == "" || controllerID == value.MainTaskID || value.ControllerTaskID != "" && value.ControllerTaskID != controllerID || phase != phaseMigrationRunning && value.ControllerTaskID != controllerID || value.Phase == phaseMigrationComplete && phase != phaseMigrationComplete {
+		if value.MainTaskID == "" || controllerID == value.MainTaskID || value.ControllerTaskID != "" && value.ControllerTaskID != controllerID || phase != phaseMigrationRunning && value.ControllerTaskID != controllerID || value.Phase == phaseMigrationComplete && phase != phaseMigrationComplete || settled && os.Getenv("CODEX_THREAD_ID") != controllerID && os.Getenv("CODEX_THREAD_ID") != value.MainTaskID {
 			return false, errors.New("migration controller or main task changed")
 		}
 		value.ControllerTaskID, value.Phase = controllerID, phase

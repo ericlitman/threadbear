@@ -153,7 +153,7 @@ func stageTitle(ctx context.Context, id, status, action, seed, caller, toolUseID
 			if saved.MainTaskID != caller && !owner {
 				return false, errors.New("title cleanup requires the ThreadBear control task")
 			}
-			subject = cmp.Or(map[bool]string{true: record.Original}[task.Title == homeTitle], stripStatusIcons(task.Title), "Untitled task")
+			subject = cmp.Or(map[bool]string{true: record.Original}[stripStatusIcons(task.Title) == homeTitle], stripStatusIcons(task.Title), "Untitled task")
 		} else if status != "" && task.Name == "" && first != "" && (current == first || current == truncateUTF16(first, 60)) {
 			subject = record.Subject
 			if record.Pending != nil && record.Pending.BaseSubject != "" {
