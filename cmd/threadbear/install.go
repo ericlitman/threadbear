@@ -267,7 +267,7 @@ func finishCommittedUninstall() (bool, error) {
 	if !errors.Is(skillErr, os.ErrNotExist) || agentsErr == nil && (strings.Contains(string(agents), blockStart) || strings.Contains(string(agents), blockEnd) || strings.Contains(string(agents), managedHeading) || strings.Contains(string(agents), managedProtocol)) || agentsErr != nil && !errors.Is(agentsErr, os.ErrNotExist) || hooksErr != nil || hooksChanged {
 		return false, errors.Join(agentsErr, hooksErr, errors.New("uninstall state is missing before local artifacts were settled"))
 	}
-	if err := os.RemoveAll(stateDir()); err != nil {
+	if err := errors.Join(os.RemoveAll(filepath.Dir(p.skill)), os.RemoveAll(stateDir())); err != nil {
 		return false, err
 	}
 	return true, removeFiles(p.binary)
@@ -304,7 +304,7 @@ func uninstallLocked(ctx context.Context, value state) (any, error) {
 		}
 	}
 	if err == nil {
-		err = removeFiles(p.skill)
+		err = os.RemoveAll(filepath.Dir(p.skill))
 	}
 	if err == nil {
 		err = os.RemoveAll(stateDir())

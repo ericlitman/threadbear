@@ -219,6 +219,8 @@ func TestFailedLegacyReinstallLeavesOldReadableState(t *testing.T) {
 
 func TestUninstallWaitsForOperationLockBeforeDeleting(t *testing.T) {
 	p := isolatedLifecycle(t)
+	sibling := filepath.Join(filepath.Dir(filepath.Dir(p.skill)), "other-skill", "sentinel")
+	mustWrite(t, sibling, "keep")
 	if _, err := install("installer", false, true, false); err != nil {
 		t.Fatal(err)
 	}
@@ -258,10 +260,13 @@ func TestUninstallWaitsForOperationLockBeforeDeleting(t *testing.T) {
 	case <-time.After(2 * time.Second):
 		t.Fatal("uninstall did not resume after operation lock was released")
 	}
-	for _, path := range []string{p.binary, p.skill, stateDir()} {
+	for _, path := range []string{p.binary, filepath.Dir(p.skill), stateDir()} {
 		if _, err := os.Stat(path); !os.IsNotExist(err) {
 			t.Fatalf("uninstall left %s after operation lock release: %v", path, err)
 		}
+	}
+	if got, err := os.ReadFile(sibling); err != nil || string(got) != "keep" {
+		t.Fatalf("uninstall changed sibling skill: %q, %v", got, err)
 	}
 }
 
@@ -403,8 +408,10 @@ func TestUninstallKeepsBinaryUntilStateRemovalCommits(t *testing.T) {
 	if _, err := uninstall(context.Background(), true); err != nil {
 		t.Fatalf("resumed teardown: %v", err)
 	}
-	if _, err := os.Stat(p.binary); !os.IsNotExist(err) {
-		t.Fatalf("resumed teardown left binary: %v", err)
+	for _, path := range []string{p.binary, filepath.Dir(p.skill)} {
+		if _, err := os.Stat(path); !os.IsNotExist(err) {
+			t.Fatalf("resumed teardown left %s: %v", path, err)
+		}
 	}
 }
 

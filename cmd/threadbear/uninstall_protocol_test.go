@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -281,8 +282,10 @@ func TestRetainedCandidateFinishesBinaryRemovalAfterStateCommit(t *testing.T) {
 	if code := run(context.Background(), []string{"uninstall", "--initiator-task-id", "requester", "--noninteractive", "--confirm", "--json"}, strings.NewReader(""), &output, &bytes.Buffer{}); code != 0 {
 		t.Fatalf("retained candidate finish code %d: %s", code, output.String())
 	}
-	if _, err := os.Stat(p.binary); !os.IsNotExist(err) {
-		t.Fatalf("retained candidate left binary: %v", err)
+	for _, path := range []string{p.binary, filepath.Dir(p.skill)} {
+		if _, err := os.Stat(path); !os.IsNotExist(err) {
+			t.Fatalf("retained candidate left %s: %v", path, err)
+		}
 	}
 }
 
