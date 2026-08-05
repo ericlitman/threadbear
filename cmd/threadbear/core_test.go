@@ -5,10 +5,13 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	_ "modernc.org/sqlite"
 )
@@ -113,7 +116,7 @@ func TestRolloutFooterUsesLatestExactTerminalMessage(t *testing.T) {
 	}
 }
 
-func TestOrdinaryHooksRewriteVerifyAndRecoverLostPost(t *testing.T) {
+func TestOrdinaryHooksRewriteVerifyAndBlockLostPost(t *testing.T) {
 	root, db := testIndex(t)
 	addTask(t, db, root, "task", "Stable subject", nil, "vscode", 0)
 	if err := newStore(stateDir()).update(func(*state) (bool, error) { return false, nil }); err != nil {
@@ -142,7 +145,7 @@ func TestOrdinaryHooksRewriteVerifyAndRecoverLostPost(t *testing.T) {
 		t.Fatalf("committed state = %#v", saved.Tasks["task"])
 	}
 
-	// A setter success with a lost Post remains provisional ownership on the next turn.
+	// A setter success with a lost Post remains the sole admitted proposal.
 	pre = hookPayload("PreToolUse", "task", "call-2", map[string]any{"title": "🧵🐻 next steps (agent): finish the tests"}, nil)
 	output.Reset()
 	if err := hook(context.Background(), strings.NewReader(pre), &output); err != nil {
@@ -154,11 +157,8 @@ func TestOrdinaryHooksRewriteVerifyAndRecoverLostPost(t *testing.T) {
 	}
 	pre = hookPayload("PreToolUse", "task", "call-3", map[string]any{"title": runningMarker + ": Changed model seed"}, nil)
 	output.Reset()
-	if err := hook(context.Background(), strings.NewReader(pre), &output); err != nil {
-		t.Fatal(err)
-	}
-	if got := rewrittenTitle(t, output.Bytes()); got != "⏳ Stable subject" {
-		t.Fatalf("lost-Post recovery duplicated ownership: %q", got)
+	if err := hook(context.Background(), strings.NewReader(pre), &output); err != nil || !strings.Contains(output.String(), `"permissionDecision":"deny"`) {
+		t.Fatalf("lost-Post proposal was not kept fail-closed: %q, %v", output.String(), err)
 	}
 }
 
@@ -168,22 +168,23 @@ func TestPlainTitlePassThroughStagesAndSettles(t *testing.T) {
 	if err := newStore(stateDir()).update(func(*state) (bool, error) { return false, nil }); err != nil {
 		t.Fatal(err)
 	}
-	pre := hookPayload("PreToolUse", "task", "plain", map[string]any{"title": "User  rename"}, nil)
+	requested := "User⁣  rename"
+	pre := hookPayload("PreToolUse", "task", "plain", map[string]any{"title": requested}, nil)
 	var output bytes.Buffer
 	if err := hook(context.Background(), strings.NewReader(pre), &output); err != nil || output.Len() != 0 {
 		t.Fatalf("plain Pre = %q, %v", output.String(), err)
 	}
 	saved, _ := newStore(stateDir()).read()
-	if pending := saved.Tasks["task"].Pending; pending == nil || pending.Proposed != "User  rename" {
+	if pending := saved.Tasks["task"].Pending; pending == nil || pending.Prior != "Stable subject" || pending.Proposed != requested || pending.Attempt != "" {
 		t.Fatalf("plain proposal = %#v", pending)
 	}
-	response, _ := json.Marshal(map[string]string{"threadId": "task", "title": "User  rename"})
-	post := hookPayload("PostToolUse", "task", "plain", map[string]any{"title": "User  rename"}, string(response))
+	response, _ := json.Marshal(map[string]string{"threadId": "task", "title": requested})
+	post := hookPayload("PostToolUse", "task", "plain", map[string]any{"title": requested}, string(response))
 	if err := hook(context.Background(), strings.NewReader(post), &bytes.Buffer{}); err != nil {
 		t.Fatal(err)
 	}
 	saved, _ = newStore(stateDir()).read()
-	if got := saved.Tasks["task"]; got.Subject != "User rename" || got.Last != "User  rename" || got.Pending != nil {
+	if got := saved.Tasks["task"]; got.Subject != "User⁣ rename" || got.Last != requested || got.Pending != nil {
 		t.Fatalf("plain committed state = %#v", got)
 	}
 }
@@ -205,7 +206,7 @@ func BenchmarkOrdinaryPreToolUse(b *testing.B) {
 	}
 }
 
-func TestPreToolUseRefusesWhileTitleLifecycleIsLocked(t *testing.T) {
+func TestPreToolUseWaitsWhileTitleLifecycleIsLocked(t *testing.T) {
 	root, db := testIndex(t)
 	addTask(t, db, root, "task", "Stable subject", nil, "vscode", 0)
 	if err := newStore(stateDir()).update(func(*state) (bool, error) { return false, nil }); err != nil {
@@ -215,15 +216,227 @@ func TestPreToolUseRefusesWhileTitleLifecycleIsLocked(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer unlock(lock)
 	payload := hookPayload("PreToolUse", "task", "locked", map[string]any{"title": runningMarker + ": Stable subject"}, nil)
-	var output bytes.Buffer
-	if err := hook(context.Background(), strings.NewReader(payload), &output); err != nil || !strings.Contains(output.String(), `"permissionDecision":"deny"`) {
-		t.Fatalf("locked PreToolUse = %q, %v", output.String(), err)
+	type result struct {
+		output string
+		err    error
+	}
+	done := make(chan result, 1)
+	go func() {
+		var output bytes.Buffer
+		err := hook(context.Background(), strings.NewReader(payload), &output)
+		done <- result{output: output.String(), err: err}
+	}()
+	select {
+	case got := <-done:
+		unlock(lock)
+		t.Fatalf("locked PreToolUse returned early: %q, %v", got.output, got.err)
+	case <-time.After(25 * time.Millisecond):
+	}
+	unlock(lock)
+	var got result
+	select {
+	case got = <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("PreToolUse did not continue after title lock released")
+	}
+	if got.err != nil || !strings.Contains(got.output, `"permissionDecision":"allow"`) {
+		t.Fatalf("released PreToolUse = %q, %v", got.output, got.err)
 	}
 	saved, err := newStore(stateDir()).read()
-	if err != nil || saved.Tasks["task"].Pending != nil {
-		t.Fatalf("locked PreToolUse staged state: %#v, %v", saved.Tasks["task"], err)
+	if err != nil || saved.Tasks["task"].Pending == nil {
+		t.Fatalf("released PreToolUse did not stage state: %#v, %v", saved.Tasks["task"], err)
+	}
+}
+
+func TestPreToolUseQueuedBehindTeardownCannotRecreateState(t *testing.T) {
+	root, db := testIndex(t)
+	addTask(t, db, root, "task", "Stable subject", nil, "vscode", 0)
+	if err := newStore(stateDir()).update(func(*state) (bool, error) { return false, nil }); err != nil {
+		t.Fatal(err)
+	}
+	lock, err := newStore(stateDir()).titleLock()
+	if err != nil {
+		t.Fatal(err)
+	}
+	payload := hookPayload("PreToolUse", "task", "teardown", map[string]any{"title": runningMarker + ": Stable subject"}, nil)
+	done := make(chan string, 1)
+	go func() {
+		var output bytes.Buffer
+		_ = hook(context.Background(), strings.NewReader(payload), &output)
+		done <- output.String()
+	}()
+	select {
+	case output := <-done:
+		unlock(lock)
+		t.Fatalf("queued PreToolUse returned before teardown: %q", output)
+	case <-time.After(25 * time.Millisecond):
+	}
+	if err := os.RemoveAll(stateDir()); err != nil {
+		unlock(lock)
+		t.Fatal(err)
+	}
+	unlock(lock)
+	select {
+	case output := <-done:
+		if !strings.Contains(output, `"permissionDecision":"deny"`) {
+			t.Fatalf("post-teardown PreToolUse = %q", output)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("post-teardown PreToolUse did not return")
+	}
+	if _, err := os.Stat(stateDir()); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("queued PreToolUse recreated state: %v", err)
+	}
+}
+
+func TestPostToolUseQueuedBehindTeardownCannotRecreateState(t *testing.T) {
+	root, db := testIndex(t)
+	addTask(t, db, root, "task", "Stable subject", nil, "vscode", 0)
+	if err := newStore(stateDir()).update(func(*state) (bool, error) { return false, nil }); err != nil {
+		t.Fatal(err)
+	}
+	var output bytes.Buffer
+	pre := hookPayload("PreToolUse", "task", "delayed-post", map[string]any{"title": runningMarker + ": Stable subject"}, nil)
+	if err := hook(context.Background(), strings.NewReader(pre), &output); err != nil {
+		t.Fatal(err)
+	}
+	proposed := rewrittenTitle(t, output.Bytes())
+	response, _ := json.Marshal(map[string]string{"threadId": "task", "title": proposed})
+	post := hookPayload("PostToolUse", "task", "delayed-post", map[string]any{"title": proposed}, string(response))
+	lock, err := newStore(stateDir()).titleLock()
+	if err != nil {
+		t.Fatal(err)
+	}
+	done := make(chan error, 1)
+	go func() { done <- hook(context.Background(), strings.NewReader(post), &bytes.Buffer{}) }()
+	select {
+	case err := <-done:
+		unlock(lock)
+		t.Fatalf("queued PostToolUse returned before teardown: %v", err)
+	case <-time.After(25 * time.Millisecond):
+	}
+	if err := os.RemoveAll(stateDir()); err != nil {
+		unlock(lock)
+		t.Fatal(err)
+	}
+	unlock(lock)
+	select {
+	case err := <-done:
+		if err == nil {
+			t.Fatal("post-teardown PostToolUse unexpectedly succeeded")
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("post-teardown PostToolUse did not return")
+	}
+	if _, err := os.Stat(stateDir()); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("queued PostToolUse recreated state: %v", err)
+	}
+}
+
+func TestDeniedSecondExplicitCallCannotClearFirstProposal(t *testing.T) {
+	root, db := testIndex(t)
+	addTask(t, db, root, "target", "Stable subject", nil, "vscode", 0)
+	if err := newStore(stateDir()).update(func(*state) (bool, error) { return false, nil }); err != nil {
+		t.Fatal(err)
+	}
+	var output bytes.Buffer
+	pre := hookPayload("PreToolUse", "controller", "failed-call", map[string]any{"threadId": "target", "title": "🧵🐻 complete"}, nil)
+	if err := hook(context.Background(), strings.NewReader(pre), &output); err != nil {
+		t.Fatal(err)
+	}
+	output.Reset()
+	second := hookPayload("PreToolUse", "controller", "denied-call", map[string]any{"threadId": "target", "title": "🧵🐻 next steps (agent): retry"}, nil)
+	if err := hook(context.Background(), strings.NewReader(second), &output); err != nil || !strings.Contains(output.String(), `"permissionDecision":"deny"`) {
+		t.Fatalf("second proposal = %q, %v", output.String(), err)
+	}
+	saved, err := newStore(stateDir()).read()
+	if pending := saved.Tasks["target"].Pending; err != nil || pending == nil || pending.ToolUseID != "failed-call" || pending.CallerTaskID != "controller" {
+		t.Fatalf("denied second call changed the first proposal: %#v, %v", saved.Tasks["target"], err)
+	}
+}
+
+func TestConcurrentMigrationTitleWaveCommitsDistinctTargets(t *testing.T) {
+	root, db := testIndex(t)
+	const size = 8
+	for i := range size {
+		id := fmt.Sprintf("target-%d", i)
+		addTask(t, db, root, id, "Subject "+id, nil, "vscode", 0)
+	}
+	if err := newStore(stateDir()).update(func(saved *state) (bool, error) {
+		saved.MainTaskID, saved.ControllerTaskID, saved.Phase = "main", "controller", phaseMigrationRunning
+		return true, nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	lock, err := newStore(stateDir()).titleLock()
+	if err != nil {
+		t.Fatal(err)
+	}
+	unlock(lock)
+	type result struct {
+		id, title, output string
+		err               error
+	}
+	prepared := make(chan result, size)
+	for i := range size {
+		id := fmt.Sprintf("target-%d", i)
+		go func() {
+			var output bytes.Buffer
+			payload := hookPayload("PreToolUse", "controller", "call-"+id, map[string]any{"threadId": id, "title": "🧵🐻 complete"}, nil)
+			err := hook(context.Background(), strings.NewReader(payload), &output)
+			if err != nil {
+				prepared <- result{id: id, output: output.String(), err: err}
+				return
+			}
+			var value struct {
+				Hook struct {
+					Updated map[string]json.RawMessage `json:"updatedInput"`
+				} `json:"hookSpecificOutput"`
+			}
+			err = json.Unmarshal(output.Bytes(), &value)
+			var title string
+			if err == nil {
+				err = json.Unmarshal(value.Hook.Updated["title"], &title)
+			}
+			prepared <- result{id: id, title: title, output: output.String(), err: err}
+		}()
+	}
+	posts := make(chan result, size)
+	items := make([]result, 0, size)
+	for range size {
+		items = append(items, <-prepared)
+	}
+	for _, item := range items {
+		if item.err != nil || item.title != "✅ Subject "+item.id {
+			t.Fatalf("prepared %s = title %q, output %q, %v", item.id, item.title, item.output, item.err)
+		}
+	}
+	for _, item := range items {
+		go func() {
+			response, _ := json.Marshal(map[string]string{"threadId": item.id, "title": item.title})
+			payload := hookPayload("PostToolUse", "controller", "call-"+item.id, map[string]any{"threadId": item.id, "title": item.title}, string(response))
+			posts <- result{id: item.id, title: item.title, err: hook(context.Background(), strings.NewReader(payload), &bytes.Buffer{})}
+		}()
+	}
+	var postFailures []string
+	for range size {
+		if item := <-posts; item.err != nil {
+			postFailures = append(postFailures, fmt.Sprintf("%s: %v", item.id, item.err))
+		}
+	}
+	if len(postFailures) > 0 {
+		t.Fatalf("commit failures: %s", strings.Join(postFailures, "; "))
+	}
+	saved, err := newStore(stateDir()).read()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i := range size {
+		id := fmt.Sprintf("target-%d", i)
+		if got := saved.Tasks[id]; got.Pending != nil || got.Last != "✅ Subject "+id || got.Status != "complete" {
+			t.Fatalf("target state %s = %#v", id, got)
+		}
 	}
 }
 
@@ -322,15 +535,17 @@ func TestFreshRunningSubjectSeedFailsClosedAndThenStaysOwned(t *testing.T) {
 	}
 	var homeOutput bytes.Buffer
 	homePre := hookPayload("PreToolUse", "task", "home", map[string]any{"title": homeTitle}, nil)
-	if err := hook(context.Background(), strings.NewReader(homePre), &homeOutput); err != nil || homeOutput.Len() != 0 {
+	if err := hook(context.Background(), strings.NewReader(homePre), &homeOutput); err != nil || rewrittenTitle(t, homeOutput.Bytes()) != homeTitle {
 		t.Fatalf("persistent home title was not passed through: %q, %v", homeOutput.String(), err)
 	}
-	homeState, _ := currentStateOrEmpty()
-	if homeState.Tasks["task"].Pending == nil {
-		t.Fatal("persistent home title was not staged")
-	}
-	if err := newStore(stateDir()).update(func(value *state) (bool, error) { delete(value.Tasks, "task"); return true, nil }); err != nil {
+	homeResponse, _ := json.Marshal(map[string]string{"threadId": "task", "title": homeTitle})
+	homePost := hookPayload("PostToolUse", "task", "home", map[string]any{"title": homeTitle}, string(homeResponse))
+	if err := hook(context.Background(), strings.NewReader(homePost), &bytes.Buffer{}); err != nil {
 		t.Fatal(err)
+	}
+	homeState, _ := currentStateOrEmpty()
+	if got := homeState.Tasks["task"]; len(homeState.Tasks) != 1 || got.Original != first || got.Subject != "" || got.Last != homeTitle || got.Pending != nil {
+		t.Fatalf("persistent home title did not retain its prior subject: %#v", homeState.Tasks)
 	}
 	for _, marker := range []string{runningMarker, runningMarker + ":", runningMarker + ": ", runningMarker + ": bad  spacing", runningMarker + ": " + strings.Repeat("x", 59), homeTitle + " extra"} {
 		var output bytes.Buffer
@@ -340,7 +555,7 @@ func TestFreshRunningSubjectSeedFailsClosedAndThenStaysOwned(t *testing.T) {
 		}
 	}
 	stateAfter, err := currentStateOrEmpty()
-	if err != nil || len(stateAfter.Tasks) != 0 {
+	if err != nil || len(stateAfter.Tasks) != 1 {
 		t.Fatalf("denied markers changed state: %#v, %v", stateAfter, err)
 	}
 	var output bytes.Buffer
@@ -364,6 +579,26 @@ func TestFreshRunningSubjectSeedFailsClosedAndThenStaysOwned(t *testing.T) {
 	}
 }
 
+func TestRunningHomeSubjectStillStagesOwnership(t *testing.T) {
+	root, db := testIndex(t)
+	if err := newStore(stateDir()).update(func(*state) (bool, error) { return false, nil }); err != nil {
+		t.Fatal(err)
+	}
+	addTask(t, db, root, "task", "fresh", nil, "vscode", 0)
+	if _, err := db.Exec(`UPDATE threads SET first_user_message='fresh' WHERE id='task'`); err != nil {
+		t.Fatal(err)
+	}
+	var output bytes.Buffer
+	pre := hookPayload("PreToolUse", "task", "running-home", map[string]any{"title": runningMarker + ": " + homeTitle}, nil)
+	if err := hook(context.Background(), strings.NewReader(pre), &output); err != nil || rewrittenTitle(t, output.Bytes()) != "⏳ "+homeTitle {
+		t.Fatalf("running home subject rewrite = %q, %v", output.String(), err)
+	}
+	saved, _ := currentStateOrEmpty()
+	if saved.Tasks["task"].Pending == nil {
+		t.Fatal("running home subject was not staged")
+	}
+}
+
 func TestRestartFirstMessageProjectionPreservesOwnership(t *testing.T) {
 	root, db := testIndex(t)
 	first := "Restarted task exposes this long raw first message before Codex restores the committed title."
@@ -384,7 +619,7 @@ func TestRestartFirstMessageProjectionPreservesOwnership(t *testing.T) {
 	if err := newStore(stateDir()).update(func(saved *state) (bool, error) {
 		saved.Tasks["raw"] = taskState{Subject: "Committed owner", Last: "✅ Committed owner", Status: "complete"}
 		saved.Tasks["truncated"] = taskState{Subject: "Committed owner", Last: "✅ Committed owner", Status: "complete"}
-		saved.Tasks["pending"] = taskState{Pending: &pendingProposal{BaseSubject: "Pending owner"}}
+		saved.Tasks["pending"] = taskState{Pending: &pendingProposal{BaseSubject: "Pending owner", Proposed: first}}
 		return true, nil
 	}); err != nil {
 		t.Fatal(err)
@@ -392,7 +627,6 @@ func TestRestartFirstMessageProjectionPreservesOwnership(t *testing.T) {
 	for id, call := range map[string][2]string{
 		"raw":       {runningMarker + ": Replacement seed", "⏳ Committed owner"},
 		"truncated": {"🧵🐻 complete", "✅ Committed owner"},
-		"pending":   {runningMarker + ": Replacement seed", "⏳ Pending owner"},
 		"renamed":   {runningMarker + ": Replacement seed", "⏳ Manual user rename"},
 		"named":     {runningMarker + ": Replacement seed", "⏳ Explicit name"},
 	} {
@@ -401,6 +635,11 @@ func TestRestartFirstMessageProjectionPreservesOwnership(t *testing.T) {
 		if err := hook(context.Background(), strings.NewReader(pre), &output); err != nil || rewrittenTitle(t, output.Bytes()) != call[1] {
 			t.Fatalf("%s restart rewrite = %q, %v", id, output.String(), err)
 		}
+	}
+	var pendingOutput bytes.Buffer
+	pendingPre := hookPayload("PreToolUse", "pending", "call-pending", map[string]any{"title": runningMarker + ": Replacement seed"}, nil)
+	if err := hook(context.Background(), strings.NewReader(pendingPre), &pendingOutput); err != nil || !strings.Contains(pendingOutput.String(), `"permissionDecision":"deny"`) {
+		t.Fatalf("unsettled proposal was not kept fail-closed: %q, %v", pendingOutput.String(), err)
 	}
 	for _, id := range []string{"fresh", "delegated"} {
 		var output bytes.Buffer
@@ -453,6 +692,69 @@ func TestRunningMigrationControllerOwnsHistoricalFirstMessage(t *testing.T) {
 	}
 }
 
+func TestPendingMigrationRegistersExactRuntimeControllerFromMarkedHomeDelegation(t *testing.T) {
+	root, db := testIndex(t)
+	addTask(t, db, root, "main", "ThreadBear", nil, "vscode", 0)
+	addTask(t, db, root, "runtime-controller", "Migration controller", nil, "vscode", 0)
+	first := "<codex_delegation>\n<source_thread_id>main</source_thread_id>\n<input>" + controllerMarker + " Follow the migration protocol.</input>\n</codex_delegation>"
+	if _, err := db.Exec(`UPDATE threads SET thread_source='subagent', first_user_message=? WHERE id='runtime-controller'`, first); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := install("main", false, true, false); err != nil {
+		t.Fatal(err)
+	}
+	var output bytes.Buffer
+	pre := hookPayload("PreToolUse", "runtime-controller", "register", map[string]any{"title": runningMarker + ": Migration controller"}, nil)
+	if err := hook(context.Background(), strings.NewReader(pre), &output); err != nil || strings.Contains(output.String(), `"permissionDecision":"deny"`) {
+		t.Fatalf("controller registration = %q, %v", output.String(), err)
+	}
+	saved, err := newStore(stateDir()).read()
+	if err != nil || saved.Phase != phaseMigrationRunning || saved.ControllerTaskID != "runtime-controller" {
+		t.Fatalf("registered controller state = %#v, %v", saved, err)
+	}
+}
+
+func TestPendingMigrationRejectsUnmarkedControllerClaim(t *testing.T) {
+	root, db := testIndex(t)
+	addTask(t, db, root, "main", "ThreadBear", nil, "vscode", 0)
+	addTask(t, db, root, "other", "Other task", nil, "vscode", 0)
+	if _, err := db.Exec(`UPDATE threads SET first_user_message='<codex_delegation> <source_thread_id>main</source_thread_id> <input>Other work</input></codex_delegation>' WHERE id='other'`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := install("main", false, true, false); err != nil {
+		t.Fatal(err)
+	}
+	pre := hookPayload("PreToolUse", "other", "ordinary", map[string]any{"title": runningMarker + ": Other work"}, nil)
+	if err := hook(context.Background(), strings.NewReader(pre), &bytes.Buffer{}); err != nil {
+		t.Fatal(err)
+	}
+	saved, _ := newStore(stateDir()).read()
+	if saved.Phase != phaseMigrationPending || saved.ControllerTaskID != "" {
+		t.Fatalf("unmarked task claimed controller: %#v", saved)
+	}
+}
+
+func TestPendingMigrationRejectsMarkedOrdinaryTaskClaim(t *testing.T) {
+	root, db := testIndex(t)
+	addTask(t, db, root, "main", "ThreadBear", nil, "vscode", 0)
+	addTask(t, db, root, "ordinary", "Ordinary task", nil, "vscode", 0)
+	first := "<codex_delegation>\n<source_thread_id>main</source_thread_id>\n<input>" + controllerMarker + " Follow the migration protocol.</input>\n</codex_delegation>"
+	if _, err := db.Exec(`UPDATE threads SET thread_source='user', first_user_message=? WHERE id='ordinary'`, first); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := install("main", false, true, false); err != nil {
+		t.Fatal(err)
+	}
+	pre := hookPayload("PreToolUse", "ordinary", "forged", map[string]any{"title": runningMarker + ": Migration controller"}, nil)
+	if err := hook(context.Background(), strings.NewReader(pre), &bytes.Buffer{}); err != nil {
+		t.Fatal(err)
+	}
+	saved, _ := newStore(stateDir()).read()
+	if saved.Phase != phaseMigrationPending || saved.ControllerTaskID != "" {
+		t.Fatalf("ordinary task claimed controller: %#v", saved)
+	}
+}
+
 func TestControlTaskCleanupStagesAndCommitsStrippedSubject(t *testing.T) {
 	root, db := testIndex(t)
 	addTask(t, db, root, "target", "✅ ✅ ❔ hello", nil, "vscode", 0)
@@ -487,14 +789,13 @@ func TestControlTaskCleanupStagesAndCommitsStrippedSubject(t *testing.T) {
 	}
 }
 
-func TestControlTaskCleanupHandlesPendingIconOnlyAndLiteralEmoji(t *testing.T) {
+func TestControlTaskCleanupHandlesIconOnlyAndLiteralEmoji(t *testing.T) {
 	root, db := testIndex(t)
 	for id, title := range map[string]string{"icons": "❔ ❔ ❔", "emoji": "🎉 ✅ user title", "main": "✅ ✅ ThreadBear"} {
 		addTask(t, db, root, id, title, nil, "vscode", 0)
 	}
 	if err := newStore(stateDir()).update(func(saved *state) (bool, error) {
 		saved.MainTaskID = "main"
-		saved.Tasks["icons"] = taskState{Pending: &pendingProposal{ToolUseID: "stale", Proposed: "❔ stale"}}
 		return true, nil
 	}); err != nil {
 		t.Fatal(err)
@@ -569,7 +870,7 @@ func TestBulkMarkerRereadsExplicitTargetAndAdoptsRename(t *testing.T) {
 		t.Fatalf("bulk title = %q", desired)
 	}
 	saved, _ := newStore(stateDir()).read()
-	if saved.Tasks["target"].Pending.ToolUseID != "bulk-1" {
+	if pending := saved.Tasks["target"].Pending; pending.ToolUseID != "bulk-1" || pending.CallerTaskID != "installer" {
 		t.Fatal("bulk proposal was not bound to native call")
 	}
 	response, _ := json.Marshal(map[string]string{"threadId": "target", "title": desired})

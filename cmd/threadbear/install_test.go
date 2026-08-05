@@ -55,6 +55,8 @@ func TestInstallReinstallAndUninstallPreserveForeignHooks(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
+	userSkillFile := filepath.Join(filepath.Dir(p.skill), "user-notes.md")
+	mustWrite(t, userSkillFile, "preserve me")
 	if _, err := uninstall(context.Background(), true); err != nil {
 		t.Fatal(err)
 	}
@@ -67,10 +69,50 @@ func TestInstallReinstallAndUninstallPreserveForeignHooks(t *testing.T) {
 	if string(agents) != foreignAgents {
 		t.Fatalf("foreign AGENTS content changed: %q", agents)
 	}
+	if got, err := os.ReadFile(userSkillFile); err != nil || string(got) != "preserve me" {
+		t.Fatalf("uninstall changed user skill content: %q, %v", got, err)
+	}
 	for _, path := range []string{p.binary, p.skill, stateDir()} {
 		if _, err := os.Stat(path); !os.IsNotExist(err) {
 			t.Fatalf("uninstall left %s: %v", path, err)
 		}
+	}
+}
+
+func TestUninstallPreservesUserOwnedSkillDirectorySymlink(t *testing.T) {
+	p := isolatedLifecycle(t)
+	target := filepath.Join(t.TempDir(), "skill-target")
+	if err := os.MkdirAll(target, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Dir(filepath.Dir(p.skill)), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(target, filepath.Dir(p.skill)); err != nil {
+		t.Fatal(err)
+	}
+	userFile := filepath.Join(target, "user-notes.md")
+	mustWrite(t, userFile, "preserve me")
+	if _, err := install("installer", false, true, false); err != nil {
+		t.Fatal(err)
+	}
+	if err := newStore(stateDir()).update(func(value *state) (bool, error) {
+		value.Phase = phaseMigrationComplete
+		return true, nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := uninstall(context.Background(), true); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(p.skill); !os.IsNotExist(err) {
+		t.Fatalf("uninstall left managed skill: %v", err)
+	}
+	if info, err := os.Lstat(filepath.Dir(p.skill)); err != nil || info.Mode()&os.ModeSymlink == 0 {
+		t.Fatalf("uninstall changed user-owned skill symlink: %#v, %v", info, err)
+	}
+	if got, err := os.ReadFile(userFile); err != nil || string(got) != "preserve me" {
+		t.Fatalf("uninstall changed symlinked user skill content: %q, %v", got, err)
 	}
 }
 
@@ -89,8 +131,156 @@ func TestInstallDryRunAndConfirmationDoNotMutate(t *testing.T) {
 	}
 }
 
+func TestConcurrentFirstInstallsLockBeforeBinaryReplacement(t *testing.T) {
+	p := isolatedLifecycle(t)
+	lock, err := newStore(stateDir()).installLock()
+	if err != nil {
+		t.Fatal(err)
+	}
+	type outcome struct {
+		id  string
+		err error
+	}
+	done := make(chan outcome, 2)
+	start := make(chan struct{})
+	for _, id := range []string{"first", "second"} {
+		go func(id string) {
+			<-start
+			_, err := install(id, false, true, false)
+			done <- outcome{id, err}
+		}(id)
+	}
+	close(start)
+	select {
+	case result := <-done:
+		unlock(lock)
+		t.Fatalf("first install %q bypassed the lifecycle lock: %v", result.id, result.err)
+	case <-time.After(100 * time.Millisecond):
+	}
+	if _, err := os.Stat(p.binary); !os.IsNotExist(err) {
+		unlock(lock)
+		t.Fatalf("first install replaced the binary before ownership serialization: %v", err)
+	}
+	unlock(lock)
+	results := []outcome{<-done, <-done}
+	winner := ""
+	for _, result := range results {
+		if result.err == nil {
+			if winner != "" {
+				t.Fatalf("both first installers succeeded: %#v", results)
+			}
+			winner = result.id
+		} else if !strings.Contains(result.err.Error(), "persisted ThreadBear task changed") {
+			t.Fatalf("losing install %q = %v", result.id, result.err)
+		}
+	}
+	value, err := newStore(stateDir()).read()
+	if err != nil || winner == "" || value.MainTaskID != winner {
+		t.Fatalf("serialized ownership = winner %q, state %#v, err %v", winner, value, err)
+	}
+}
+
+func TestReinstallRefusesLegacyPendingTitle(t *testing.T) {
+	p := isolatedLifecycle(t)
+	if _, err := install("installer", false, true, false); err != nil {
+		t.Fatal(err)
+	}
+	before, _ := os.ReadFile(p.binary)
+	if err := newStore(stateDir()).update(func(value *state) (bool, error) {
+		value.Tasks["legacy"] = taskState{Pending: &pendingProposal{Prior: "Old", Proposed: "New"}}
+		return true, nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := install("installer", false, true, false); err == nil || !strings.Contains(err.Error(), "title operations") {
+		t.Fatalf("reinstall with legacy pending = %v", err)
+	}
+	after, _ := os.ReadFile(p.binary)
+	if !reflect.DeepEqual(before, after) {
+		t.Fatal("blocked reinstall replaced the binary")
+	}
+}
+
+func TestReinstallUpgradesLegacyFormatBeforeOldHookCanWrite(t *testing.T) {
+	root, db := testIndex(t)
+	for _, id := range []string{"installer", "main", "first", "second"} {
+		addTask(t, db, root, id, "Original "+id+" title", nil, "vscode", 0)
+	}
+	if _, err := install("installer", false, true, false); err != nil {
+		t.Fatal(err)
+	}
+	if err := newStore(stateDir()).update(func(value *state) (bool, error) {
+		value.Format = 3
+		record := value.Tasks["installer"]
+		record.Original, record.Subject, record.Last = "", homeTitle, homeTitle
+		value.Tasks["installer"] = record
+		return true, nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`UPDATE threads SET title=? WHERE id='installer'`, "⏳ "+homeTitle); err != nil {
+		t.Fatal(err)
+	}
+	data, _ := os.ReadFile(newStore(stateDir()).path())
+	var onDisk state
+	if json.Unmarshal(data, &onDisk) != nil || onDisk.Format != 3 {
+		t.Fatalf("legacy fixture = %#v", onDisk)
+	}
+	if _, err := install("installer", false, true, false); err != nil {
+		t.Fatal(err)
+	}
+	data, _ = os.ReadFile(newStore(stateDir()).path())
+	if json.Unmarshal(data, &onDisk) != nil || onDisk.Format != stateFormat || onDisk.Tasks["installer"].Original != "ThreadBear" {
+		t.Fatalf("upgraded state = %#v", onDisk)
+	}
+	if onDisk.Format == 3 {
+		t.Fatal("an already-queued v2.2.0 hook would still accept the replaced state")
+	}
+	if _, err := prepareUninstall(context.Background(), "installer"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`UPDATE threads SET title='ThreadBear' WHERE id='installer'`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := completeUninstall(context.Background(), "installer", true, false); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestFailedLegacyReinstallLeavesOldReadableState(t *testing.T) {
+	p := isolatedLifecycle(t)
+	if _, err := install("installer", false, true, false); err != nil {
+		t.Fatal(err)
+	}
+	if err := newStore(stateDir()).update(func(value *state) (bool, error) {
+		value.Format = 3
+		return true, nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	before, _ := os.ReadFile(p.binary)
+	binDir := filepath.Dir(p.binary)
+	if err := os.Chmod(binDir, 0o500); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(binDir, 0o700) })
+	if _, err := install("installer", false, true, false); err == nil {
+		t.Fatal("reinstall unexpectedly replaced a binary in a read-only directory")
+	}
+	if err := os.Chmod(binDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	value, err := newStore(stateDir()).read()
+	after, _ := os.ReadFile(p.binary)
+	if err != nil || value.Format != 3 || !reflect.DeepEqual(before, after) {
+		t.Fatalf("failed replacement changed old-readable installation: format=%d binary_equal=%v err=%v", value.Format, reflect.DeepEqual(before, after), err)
+	}
+}
+
 func TestUninstallWaitsForOperationLockBeforeDeleting(t *testing.T) {
 	p := isolatedLifecycle(t)
+	sibling := filepath.Join(filepath.Dir(filepath.Dir(p.skill)), "other-skill", "sentinel")
+	mustWrite(t, sibling, "keep")
 	if _, err := install("installer", false, true, false); err != nil {
 		t.Fatal(err)
 	}
@@ -130,10 +320,13 @@ func TestUninstallWaitsForOperationLockBeforeDeleting(t *testing.T) {
 	case <-time.After(2 * time.Second):
 		t.Fatal("uninstall did not resume after operation lock was released")
 	}
-	for _, path := range []string{p.binary, p.skill, stateDir()} {
+	for _, path := range []string{p.binary, filepath.Dir(p.skill), stateDir()} {
 		if _, err := os.Stat(path); !os.IsNotExist(err) {
 			t.Fatalf("uninstall left %s after operation lock release: %v", path, err)
 		}
+	}
+	if got, err := os.ReadFile(sibling); err != nil || string(got) != "keep" {
+		t.Fatalf("uninstall changed sibling skill: %q, %v", got, err)
 	}
 }
 
@@ -275,8 +468,10 @@ func TestUninstallKeepsBinaryUntilStateRemovalCommits(t *testing.T) {
 	if _, err := uninstall(context.Background(), true); err != nil {
 		t.Fatalf("resumed teardown: %v", err)
 	}
-	if _, err := os.Stat(p.binary); !os.IsNotExist(err) {
-		t.Fatalf("resumed teardown left binary: %v", err)
+	for _, path := range []string{p.binary, filepath.Dir(p.skill)} {
+		if _, err := os.Stat(path); !os.IsNotExist(err) {
+			t.Fatalf("resumed teardown left %s: %v", path, err)
+		}
 	}
 }
 
@@ -389,9 +584,16 @@ func sameJSON(a, b []byte) bool {
 	return json.Unmarshal(a, &left) == nil && json.Unmarshal(b, &right) == nil && reflect.DeepEqual(left, right)
 }
 
+func ownedHookJSON(binary string) json.RawMessage {
+	return encodedJSON(map[string]any{"matcher": "codex_appset_thread_title", "hooks": []any{map[string]any{"type": "command", "command": quoteCommand(binary), "timeout": 1}}})
+}
+
 func isolatedLifecycle(t *testing.T) lifecyclePaths {
 	t.Helper()
-	testIndex(t)
+	root, db := testIndex(t)
+	for _, id := range []string{"installer", "main", "first", "second"} {
+		addTask(t, db, root, id, "Original "+id+" title", nil, "vscode", 0)
+	}
 	return installPaths()
 }
 
@@ -453,11 +655,16 @@ func assertHookOrder(t *testing.T, path, event string, foreign []json.RawMessage
 func TestManagedGuidanceBoundsEachNativeTitleCall(t *testing.T) {
 	guidance := assets.AgentsManagedContent
 	for _, required := range []string{
+		"const attempt = Date.now().toString(36)",
 		"const result = await Promise.race([",
-		"tools.codex_app__set_thread_title({title:\"REPLACE WITH THE REQUIRED TITLE\"})",
+		"tools.codex_app__set_thread_title({title:\"REPLACE WITH THE REQUIRED TITLE\" + \"⁣\" + attempt})",
 		"new Promise(resolve => setTimeout(() => resolve({status:\"timeout\"}), 4000))",
+		"if (result.status === \"failed\")",
+		"THREADBEAR_TITLE_ATTEMPT='${attempt}'",
 		"Make exactly one native attempt.",
 		"never retry or await that promise",
+		"Explicit-target lifecycle mutations are governed by the installed ThreadBear skill instead.",
+		"do not add this `Promise.race` unless the skill explicitly requires a four-second attempt",
 	} {
 		if !strings.Contains(guidance, required) {
 			t.Errorf("managed guidance is missing bounded-call contract %q", required)

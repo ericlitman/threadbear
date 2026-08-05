@@ -101,18 +101,44 @@ func TestUpdateRefusesPreparedUninstallBeforeNetwork(t *testing.T) {
 	}
 }
 
-func TestUpdateRefusesConcurrentMaintenanceBeforeNetwork(t *testing.T) {
+func TestUpdateRefusesLegacyPendingTitleBeforeNetwork(t *testing.T) {
+	prepareUpdate(t, "2.0.0", true)
+	fixture := startUpdateFixture(t, updateFixtureOptions{ReleaseVersion: "2.0.1"})
+	if err := newStore(stateDir()).update(func(value *state) (bool, error) {
+		value.Tasks["legacy"] = taskState{Pending: &pendingProposal{Prior: "Old", Proposed: "New"}}
+		return true, nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	_, err := update(context.Background())
+	requireUpdateStage(t, err, "title_pending")
+	if fixture.count("manifest") != 0 {
+		t.Fatal("pending title allowed update network access")
+	}
+}
+
+func TestUpdateWaitsForConcurrentMaintenanceBeforeNetwork(t *testing.T) {
 	prepareUpdate(t, "2.1.2", true)
 	fixture := startUpdateFixture(t, updateFixtureOptions{ReleaseVersion: "2.1.3"})
 	lock, err := newStore(stateDir()).operationLock()
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer unlock(lock)
-	_, err = update(context.Background())
-	requireUpdateStage(t, err, "busy")
+	done := make(chan error, 1)
+	go func() { _, updateErr := update(context.Background()); done <- updateErr }()
+	select {
+	case err := <-done:
+		unlock(lock)
+		t.Fatalf("update returned while maintenance held the operation lock: %v", err)
+	case <-time.After(100 * time.Millisecond):
+	}
 	if fixture.count("manifest") != 0 {
+		unlock(lock)
 		t.Fatal("update fetched the manifest while maintenance held the operation lock")
+	}
+	unlock(lock)
+	if err := <-done; err != nil {
+		t.Fatal(err)
 	}
 }
 

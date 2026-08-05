@@ -10,8 +10,7 @@ import (
 	"strings"
 )
 
-const titleTool, runningMarker, homeTitle, cleanupMarker = "codex_appset_thread_title", "⏳ ThreadBear is working", "🧵🐻 ThreadBear 🐻🧵", "🧵🐻 strip title icons"
-const unknownMarker, maxHookBytes = "❔ ThreadBear could not classify", 1 << 20
+const titleTool, runningMarker, homeTitle, cleanupMarker, unknownMarker, controllerMarker, maxHookBytes = "codex_appset_thread_title", "⏳ ThreadBear is working", "🧵🐻 ThreadBear 🐻🧵", "🧵🐻 strip title icons", "❔ ThreadBear could not classify", "ThreadBear controller registration.", 1 << 20
 
 type hookInput struct {
 	Event        string                     `json:"hook_event_name"`
@@ -43,10 +42,7 @@ func stringField(values map[string]json.RawMessage, key string, required bool) (
 func titleTarget(event hookInput) (string, string, error) {
 	title, titleErr := stringField(event.ToolInput, "title", true)
 	target, targetErr := stringField(event.ToolInput, "threadId", false)
-	if target == "" {
-		target = event.SessionID
-	}
-	return title, target, errors.Join(titleErr, targetErr)
+	return title, cmp.Or(target, event.SessionID), errors.Join(titleErr, targetErr)
 }
 func hook(ctx context.Context, in io.Reader, out io.Writer) error {
 	var event hookInput
@@ -56,9 +52,21 @@ func hook(ctx context.Context, in io.Reader, out io.Writer) error {
 	if event.ToolName != titleTool {
 		return nil
 	}
+	store := newStore(stateDir())
+	titleLock, err := store.titleLock()
+	if err != nil {
+		return err
+	}
+	defer unlock(titleLock)
+	if _, err = store.read(); err != nil && event.Event != "PreToolUse" {
+		return err
+	}
 	switch event.Event {
 	case "PreToolUse":
-		if err := preTitle(ctx, event, out); err != nil {
+		if err == nil {
+			err = preTitle(ctx, event, out)
+		}
+		if err != nil {
 			return json.NewEncoder(out).Encode(map[string]any{"hookSpecificOutput": map[string]any{
 				"hookEventName": "PreToolUse", "permissionDecision": "deny",
 				"permissionDecisionReason": "ThreadBear could not safely prepare this title: " + err.Error(),
@@ -72,7 +80,8 @@ func hook(ctx context.Context, in io.Reader, out io.Writer) error {
 	}
 }
 func preTitle(ctx context.Context, event hookInput, out io.Writer) error {
-	title, target, err := titleTarget(event)
+	raw, target, err := titleTarget(event)
+	title, attempt, tagged := strings.Cut(raw, "⁣")
 	if err != nil {
 		return err
 	}
@@ -87,15 +96,20 @@ func preTitle(ctx context.Context, event hookInput, out io.Writer) error {
 		result, terminal = footer{Status: "unknown"}, true
 	} else if title == cleanupMarker {
 		result, terminal = footer{Status: "cleanup"}, true
+	} else if title == homeTitle {
+		terminal, seed = true, homeTitle
 	}
 	if !terminal {
+		if tagged {
+			title, attempt = raw, ""
+		}
 		if title != homeTitle && (strings.HasPrefix(title, runningMarker) || strings.HasPrefix(title, "🧵🐻 ")) {
 			return errors.New("invalid ThreadBear marker")
 		}
-		_, err = stageTitle(ctx, target, "", "", title, event.SessionID, event.ToolUseID)
+		_, err = stageTitle(ctx, target, "", "", title, event.SessionID, event.ToolUseID, "")
 		return err
 	}
-	proposed, err := stageTitle(ctx, target, result.Status, result.Action, seed, event.SessionID, event.ToolUseID)
+	proposed, err := stageTitle(ctx, target, result.Status, result.Action, seed, event.SessionID, event.ToolUseID, attempt)
 	if err != nil {
 		return err
 	}
@@ -104,28 +118,33 @@ func preTitle(ctx context.Context, event hookInput, out io.Writer) error {
 		"hookEventName": "PreToolUse", "permissionDecision": "allow", "updatedInput": event.ToolInput,
 	}})
 }
-func stageTitle(ctx context.Context, id, status, action, seed, caller, toolUseID string) (string, error) {
-	store := newStore(stateDir())
-	titleLock, err := store.titleLock()
-	if err != nil {
-		return "", err
-	}
-	defer unlock(titleLock)
-	task, found := indexedTask{Title: seed, Name: seed}, true
-	if status != "" {
-		task, found, err = oneTask(ctx, id)
+func stageTitle(ctx context.Context, id, status, action, seed, caller, toolUseID, attempt string) (string, error) {
+	task, found, err := oneTask(ctx, id)
+	if status == "" {
+		known, ok, readErr := archiveTaskByID(ctx, id)
+		task, found, err = indexedTask{Title: known.Title}, ok, readErr
 	}
 	if err != nil || !found {
 		return "", errors.Join(err, errors.New("task is not active in Codex"))
 	}
+	first := strings.Join(strings.Fields(task.FirstMessage), " ")
 	var proposed string
-	err = store.update(func(saved *state) (bool, error) {
-		if pending := saved.UninstallPending; pending != nil && (pending.InitiatorTaskID != caller || status != "cleanup") {
-			return false, errors.New("title changes are paused for the prepared uninstall task")
+	err = newStore(stateDir()).update(func(saved *state) (bool, error) {
+		if saved.Phase == phaseMigrationPending && saved.ControllerTaskID == "" && id == caller && status == "running" && task.ThreadSource == "subagent" && strings.HasPrefix(first, "<codex_delegation> <source_thread_id>"+saved.MainTaskID+"</source_thread_id> <input>"+controllerMarker) {
+			saved.ControllerTaskID, saved.Phase = caller, phaseMigrationRunning
+		}
+		if pending := saved.UninstallPending; saved.Phase == phaseMigrationFailed && pending == nil || pending != nil && (pending.InitiatorTaskID != caller || status != "cleanup") {
+			return false, errors.New("title changes are paused for failed migration or prepared uninstall")
 		}
 		record := saved.Tasks[id]
-		current, first := strings.Join(strings.Fields(task.Title), " "), strings.Join(strings.Fields(task.FirstMessage), " ")
+		if record.Pending != nil {
+			return false, errors.New("native title operation is already pending")
+		}
+		current := strings.Join(strings.Fields(task.Title), " ")
 		subject := canonicalSubject(task.Title, record)
+		if status == "" {
+			subject = strings.Join(strings.Fields(seed), " ")
+		}
 		if record.Subject == "" && saved.Phase == phaseMigrationRunning && saved.ControllerTaskID == caller && caller != id {
 			subject = stripStatusIcons(subject)
 		}
@@ -134,7 +153,7 @@ func stageTitle(ctx context.Context, id, status, action, seed, caller, toolUseID
 			if saved.MainTaskID != caller && !owner {
 				return false, errors.New("title cleanup requires the ThreadBear control task")
 			}
-			subject = cmp.Or(stripStatusIcons(task.Title), "Untitled task")
+			subject = cmp.Or(map[bool]string{true: record.Original}[stripStatusIcons(task.Title) == homeTitle], stripStatusIcons(task.Title), "Untitled task")
 		} else if status != "" && task.Name == "" && first != "" && (current == first || current == truncateUTF16(first, 60)) {
 			subject = record.Subject
 			if record.Pending != nil && record.Pending.BaseSubject != "" {
@@ -151,7 +170,12 @@ func stageTitle(ctx context.Context, id, status, action, seed, caller, toolUseID
 			}
 		}
 		proposed = map[bool]string{true: seed, false: renderTitle(status, subject, action)}[status == ""]
-		record.Pending = &pendingProposal{ToolUseID: toolUseID, BaseSubject: subject, Prior: task.Title, Proposed: proposed, Status: status, Action: action}
+		if status == "" && seed == homeTitle && attempt == "" {
+			record.Original, record.Last = cmp.Or(record.Original, stripStatusIcons(current)), homeTitle
+			saved.Tasks[id] = record
+			return true, nil
+		}
+		record.Pending = &pendingProposal{CallerTaskID: caller, ToolUseID: toolUseID, BaseSubject: subject, Prior: task.Title, Proposed: proposed, Status: status, Action: action, Attempt: attempt}
 		saved.Tasks[id] = record
 		return true, nil
 	})
@@ -168,15 +192,11 @@ func postTitle(event hookInput) error {
 			return false, nil
 		}
 		pending := record.Pending
-		if pending.ToolUseID != event.ToolUseID || pending.Proposed != title {
+		if pending.ToolUseID != event.ToolUseID || pending.CallerTaskID != "" && pending.CallerTaskID != event.SessionID || pending.Proposed != title {
 			return false, errors.New("native title call does not match its proposal")
 		}
-		var encoded string
-		if json.Unmarshal(event.ToolResponse, &encoded) != nil {
-			return false, errors.New("native title result is not JSON text")
-		}
-		var result map[string]string
-		if json.Unmarshal([]byte(encoded), &result) != nil || len(result) != 2 || result["threadId"] != target || result["title"] != title {
+		result, encoded := map[string]string{}, ""
+		if json.Unmarshal(event.ToolResponse, &encoded) != nil || json.Unmarshal([]byte(encoded), &result) != nil || len(result) != 2 || result["threadId"] != target || result["title"] != title {
 			return false, errors.New("native title result mismatch")
 		}
 		record.Subject, record.Last, record.Status, record.Action, record.Pending = pending.BaseSubject, pending.Proposed, pending.Status, pending.Action, nil

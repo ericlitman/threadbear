@@ -14,6 +14,7 @@ import (
 	"os"
 	"os/exec"
 	"runtime"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -21,34 +22,23 @@ import (
 
 const updateManifestLimit = int64(1 << 20)
 
-var (
-	updateReleaseBase      = "https://github.com/ericlitman/threadbear/releases"
-	updateManifestURL      = updateReleaseBase + "/latest/download/latest.json"
-	updateClient           = &http.Client{Timeout: 30 * time.Second}
-	updateGOOS             = runtime.GOOS
-	updateGOARCH           = runtime.GOARCH
-	updateBinaryLimit      = int64(64 << 20)
-	updateVersionTimeout   = 30 * time.Second
-	updateCandidateTimeout = 30 * time.Second
-	updateInstallTimeout   = 2 * time.Minute
-)
+var updateReleaseBase, updateManifestURL = "https://github.com/ericlitman/threadbear/releases", "https://github.com/ericlitman/threadbear/releases/latest/download/latest.json"
+var updateClient, updateBinaryLimit = &http.Client{Timeout: 30 * time.Second}, int64(64 << 20)
+var updateGOOS, updateGOARCH, updateVersionTimeout, updateCandidateTimeout, updateInstallTimeout = runtime.GOOS, runtime.GOARCH, 30 * time.Second, 30 * time.Second, 2 * time.Minute
 
 type updateError struct {
 	Stage string
 	Err   error
 }
 
-func (e *updateError) Error() string { return e.Stage + ": " + e.Err.Error() }
-func (e *updateError) Unwrap() error { return e.Err }
-func updateFailure(stage string, err error) error {
-	return &updateError{Stage: stage, Err: err}
-}
+func (e *updateError) Error() string              { return e.Stage + ": " + e.Err.Error() }
+func (e *updateError) Unwrap() error              { return e.Err }
+func updateFailure(stage string, err error) error { return &updateError{Stage: stage, Err: err} }
 
 type releaseAsset struct {
 	URL       string `json:"url"`
 	SHA256URL string `json:"sha256_url"`
 }
-
 type releaseManifest struct {
 	Version string                  `json:"version"`
 	Assets  map[string]releaseAsset `json:"assets"`
@@ -73,6 +63,9 @@ func update(ctx context.Context) (any, error) {
 	if value.UninstallPending != nil {
 		return nil, updateFailure("uninstall_pending", errors.New("finish the prepared uninstall before updating"))
 	}
+	if hasPendingTitle(value) {
+		return nil, updateFailure("title_pending", errors.New("settle pending native title operations before updating"))
+	}
 	assetKey, assetName, err := updatePlatform()
 	if err != nil {
 		return nil, updateFailure("platform", err)
@@ -94,7 +87,7 @@ func update(ctx context.Context) (any, error) {
 	if err != nil {
 		return nil, updateFailure("manifest_version", err)
 	}
-	comparison := compareVersions(current, latest)
+	comparison := slices.Compare(current[:], latest[:])
 	if comparison >= 0 && healthErr == nil {
 		return map[string]any{"ready": true, "current": true, "version": version, "latest": manifest.Version}, nil
 	}
@@ -149,14 +142,9 @@ func update(ctx context.Context) (any, error) {
 		return nil, updateFailure("installed_status", err)
 	}
 	result := map[string]any{"ready": true, "from": version, "version": manifest.Version}
-	if comparison < 0 {
-		result["updated"] = true
-	} else {
-		result["repaired"] = true
-	}
+	result[map[bool]string{true: "updated", false: "repaired"}[comparison < 0]] = true
 	return result, nil
 }
-
 func updatePlatform() (string, string, error) {
 	if updateGOOS != "darwin" {
 		return "", "", errors.New("only Darwin is supported")
@@ -170,7 +158,6 @@ func updatePlatform() (string, string, error) {
 		return "", "", errors.New("unsupported Darwin architecture")
 	}
 }
-
 func exactVersion(value string) ([3]int, error) {
 	var parsed [3]int
 	parts := strings.Split(value, ".")
@@ -186,19 +173,6 @@ func exactVersion(value string) ([3]int, error) {
 	}
 	return parsed, nil
 }
-
-func compareVersions(left, right [3]int) int {
-	for index := range left {
-		if left[index] < right[index] {
-			return -1
-		}
-		if left[index] > right[index] {
-			return 1
-		}
-	}
-	return 0
-}
-
 func validateUpdateURL(raw, releaseVersion, filename string) error {
 	base, baseErr := url.Parse(updateReleaseBase)
 	value, err := url.Parse(raw)
@@ -211,7 +185,6 @@ func validateUpdateURL(raw, releaseVersion, filename string) error {
 	}
 	return nil
 }
-
 func fetchUpdate(ctx context.Context, raw string, limit int64) ([]byte, error) {
 	request, err := http.NewRequestWithContext(ctx, http.MethodGet, raw, nil)
 	if err != nil {
@@ -237,7 +210,6 @@ func fetchUpdate(ctx context.Context, raw string, limit int64) ([]byte, error) {
 	}
 	return data, nil
 }
-
 func parseChecksum(data []byte) ([]byte, error) {
 	fields := strings.Fields(string(data))
 	if len(fields) == 0 || len(fields[0]) != 64 {
@@ -249,7 +221,6 @@ func parseChecksum(data []byte) ([]byte, error) {
 	}
 	return value, nil
 }
-
 func requireCandidate(parent context.Context, candidate string, timeout time.Duration, operation, expectedVersion string, args ...string) error {
 	ctx, cancel := context.WithTimeout(parent, timeout)
 	defer cancel()
