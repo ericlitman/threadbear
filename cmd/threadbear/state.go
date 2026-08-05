@@ -27,6 +27,7 @@ type pendingProposal struct {
 }
 type taskState struct {
 	Subject         string           `json:"subject"`
+	Original        string           `json:"original,omitempty"`
 	Last            string           `json:"last,omitempty"`
 	Status          string           `json:"status,omitempty"`
 	Action          string           `json:"action,omitempty"`
@@ -92,11 +93,7 @@ func (s store) openLock(name string, mode int, createDir bool) (*os.File, error)
 }
 func (s store) lock() (*os.File, error) { return s.openLock("native.lock", unix.LOCK_EX, true) }
 func (s store) operationLock() (*os.File, error) {
-	lock, err := s.openLock("operation.lock", unix.LOCK_EX|unix.LOCK_NB, false)
-	if errors.Is(err, unix.EWOULDBLOCK) {
-		return nil, errors.New("another maintenance or update operation is already running")
-	}
-	return lock, err
+	return s.openLock("operation.lock", unix.LOCK_EX, false)
 }
 func (s store) titleLock() (*os.File, error)   { return s.openLock("title.lock", unix.LOCK_EX, false) }
 func (s store) installLock() (*os.File, error) { return s.openLock("title.lock", unix.LOCK_EX, true) }

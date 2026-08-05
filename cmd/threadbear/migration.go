@@ -9,12 +9,12 @@ import (
 	"time"
 )
 
-func currentStateOrEmpty() (state, error) {
-	value, err := newStore(stateDir()).read()
+func currentStateOrEmpty() (value state, err error) {
+	value, err = newStore(stateDir()).read()
 	if errors.Is(err, os.ErrNotExist) {
 		return state{Format: stateFormat, Tasks: map[string]taskState{}}, nil
 	}
-	return value, err
+	return
 }
 func transitionMigration(ctx context.Context, phase, controllerID string, settled bool) (any, error) {
 	if phase != phaseMigrationRunning && phase != phaseMigrationComplete && phase != phaseMigrationFailed || controllerID == "" || settled && (phase != phaseMigrationFailed || os.Getenv("CODEX_THREAD_ID") != controllerID) {

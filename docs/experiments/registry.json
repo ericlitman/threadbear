@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "updated_at": "2026-08-04",
+  "updated_at": "2026-08-05",
   "canonical_for": "ThreadBear title-path architecture and live experiments",
   "capabilities": [
     {
@@ -59,13 +59,13 @@
     },
     {
       "id": "TB-CAP-BOUNDED-MIGRATION-WAVES",
-      "premise": "One exact candidate can migrate the full native-addressable local task inventory in bounded concurrent title waves within five minutes and uninstall without a queued hook recreating state or a pending title landing after teardown.",
+      "premise": "One exact candidate can migrate the full native-addressable local task inventory in bounded concurrent title waves within six minutes and uninstall without a queued hook recreating state or a pending title landing after teardown.",
       "status": "established",
       "supported_by": [
         "TB-EXP-0120-001"
       ],
       "contradicted_by": [],
-      "decision": "The exact reviewed v2.2.1 candidate completed two full 82-task installations in 4:08.40 and 4:57.68, then completed clean uninstalls in 3:14.08 and 4:31.84 with all owned artifacts absent. Release remains conditioned on the exact candidate SHA and native fail-closed protocol.",
+      "decision": "The exact v2.2.1 candidate completed two full 98-task migrations in 5:27.999 and 5:03.690, then completed clean uninstalls in 2:00.696 and 2:10.504 with all owned artifacts absent. End-to-end setup through active automation was 6:23.650 and 5:41.080, so only the defined full-list migration metric passed the six-minute ceiling twice. Release remains conditioned on the exact candidate binary and native fail-closed protocol.",
       "next_preflight": null
     }
   ],
@@ -677,21 +677,21 @@
     },
     {
       "id": "TB-EXP-0120-001",
-      "date": "2026-08-04",
+      "date": "2026-08-05",
       "issue": "BEAR-1",
       "preflight_id": "TB-PRE-0120-001",
-      "question": "Does the exact reviewed v2.2.1 candidate complete two full native-addressable installations within five minutes and then uninstall cleanly after the final title-lock and teardown corrections?",
+      "question": "Does the exact v2.2.1 candidate complete two full native-addressable title migrations within six minutes and then uninstall cleanly after the final controller-registration, title-lock, and home-restoration corrections?",
       "invariant": "Release evidence must use one exact built candidate, reach migration_complete with zero remaining rows twice, preserve fail-closed ownership, and remove every owned artifact after each timed uninstall.",
       "environment": {
         "threadbear_version": "2.2.1 exact candidate",
-        "git_sha": "9f1b737d1d520b92ca656b794d5c781e25a8bf06",
+        "git_sha": "working tree based on 6aaa5affca2c97ed6e6b051fd0201ea80e2290c6; candidate binary fingerprint is authoritative",
         "codex_version": "Desktop 26.727.51351; CLI 0.146.0-alpha.9.2",
         "codex_source": "vscode",
         "host": "local macOS",
-        "task_state": "82 native-addressable active regular tasks; persistent user home active and pinned; one distinct controller archived after each completion",
+        "task_state": "98 native-addressable active regular tasks; persistent user home active and pinned; one distinct controller archived after each completion",
         "restart_state": "no Codex application restart between install and uninstall phases; Clock was restarted only to restore a truthful zero-value stopwatch",
-        "hook_fingerprint": "candidate binary SHA-256 d2ef72f837e3a431268274be53ddc8eb1e56e986f4e6f7588c7c6a4d7584a9e6; hook source SHA-256 187544027c83e9a8b75594bf86c3600ad64846ed0226e6da12306de3b892733a",
-        "guidance_fingerprint": "managed guidance SHA-256 6979aa3f3fc72cd813a32656e4312768effcc15ed3f952c8d6619603b0c21481; installed skill SHA-256 a79cb627cde438f79f040f64c75d94aa30a461595d5892f451c3db7b24ccd701"
+        "hook_fingerprint": "candidate binary SHA-256 09fc52410dcef27045764074160f7d26591222df5bbcf964d3bcb05c7123b312; hook source SHA-256 1a85b4e5b70214c7d458493d74f1febbb570fec5b8c4768fbaa499831538eed3",
+        "guidance_fingerprint": "managed guidance SHA-256 4ab1b2e1adf4c1ebb4747419a87785fee65bcb05c1af78792d1cee19ef73ef7e; installed skill SHA-256 f0c10032d7c324c49ff685e46acf1311f4246132e31727cf07ea74857768d60f"
       },
       "invocation": {
         "outer_tool": "Codex Desktop native task controls orchestrated through functions.exec with Clock visual timing",
@@ -700,19 +700,19 @@
         "target_identity_mode": "explicit native task IDs resolved from authoritative inventory and durable native thread index"
       },
       "evidence": [
-        "git:9f1b737d1d520b92ca656b794d5c781e25a8bf06",
+        "git:6aaa5affca2c97ed6e6b051fd0201ea80e2290c6",
         "github-pr:120",
         "codex-rollout:019fcca7-7093-70f3-a18d-260951571103"
       ],
       "result": {
         "status": "observed",
-        "summary": "Both exact-candidate cycles reached migration_complete, ready true, and zero remaining across 82 tasks before clean uninstall returned uninstalled true. Post-uninstall checks found the binary, private state, installed skill, owned automation, managed guidance, and hook entries absent.",
-        "timing_ms": "cycle 1 install 248400; cycle 1 uninstall 194080; cycle 2 install 297680; cycle 2 uninstall 271840",
+        "summary": "Both exact-candidate cycles reached migration_complete, ready true, and zero remaining across 98 tasks before clean uninstall returned uninstalled true. Post-uninstall checks found the binary, private state, installed skill, owned automation, managed guidance, and hook entries absent, and the active home title returned to its exact pre-install value.",
+        "timing_ms": "cycle 1 full-list migration 327999; cycle 1 end-to-end setup through active automation 383650; cycle 1 uninstall 120696; cycle 2 full-list migration 303690; cycle 2 end-to-end setup through active automation 341080; cycle 2 uninstall 130504",
         "hook_participation": "trusted PreToolUse staged compact controller and cleanup proposals; PostToolUse committed exact returned target and title results; authoritative inventory reported every row applied before completion",
-        "rendered_proof": "Four privacy-safe Clock screenshots show 4:08.40, 3:14.08, 4:57.68, and 4:31.84; authoritative native status and inventory supplied lifecycle and zero-remaining proof"
+        "rendered_proof": "Four terminal-state Desktop screenshots record both installed and uninstalled states. Authoritative native status and inventory supplied lifecycle and zero-remaining proof; Desktop retained stale cached labels for some rows even after native setters and inventory reconciled all 98, so rendered repaint is recorded as a non-blocking upstream boundary rather than overstated."
       },
       "confidence": "high",
-      "applicability": "Exact candidate SHA, binary checksum, Desktop build, 82-task local inventory, Terra-medium controller, Luna-low classifiers, and native direct terminal reads used when worker wake notification was unreliable. Separate discarded runs remain infrastructure evidence and do not weaken these two successful complete cycles.",
+      "applicability": "Exact candidate binary checksum, Desktop build, 98-task local inventory, Terra-medium controller, Luna-low classifiers, and native direct terminal reads used when worker wake notification was unreliable. The acceptance ceiling applies to full-list migration, not all setup work; cycle 1 end-to-end setup exceeded six minutes. Separate discarded runs remain infrastructure evidence and do not weaken these two successful complete cycles.",
       "supersedes": [],
       "conflicts": []
     }
@@ -795,12 +795,12 @@
         "TB-EXP-0108-002",
         "TB-EXP-0113-001"
       ],
-      "remaining_unknown": "Whether the exact final v2.2.1 candidate still completes the full native-addressable installation in under five minutes twice and then uninstalls cleanly after the pending-title and queued-hook teardown safety corrections.",
+      "remaining_unknown": "Whether the exact final v2.2.1 candidate completes the full native-addressable title list in under six minutes twice and then uninstalls cleanly after the controller-registration, pending-title, home-restoration, and queued-hook teardown safety corrections.",
       "single_changed_variable": "Candidate implementation and SHA: replace the earlier pull-request candidate with the final pending-title-conservative and post-lock-state-check candidate; keep the same host, native control surfaces, full local inventory, guide, timers, and screenshot evidence method.",
       "held_constant": "Desktop 26.727.51351 and CLI 0.146.0-alpha.9.2; local macOS host; trusted exact installed PreToolUse and PostToolUse groups; one Terra-medium controller; Luna-low read-only classifiers; bounded max-eight title waves; native inventory reconciliation; two complete install/uninstall cycles; no application restart between lifecycle phases.",
       "predicted_outcomes": [
-        "If the final safety corrections preserve the installation mechanism, both complete cycles will reach migration_complete with zero remaining rows in under five minutes, and both uninstalls will remove every owned artifact without late title or state recreation.",
-        "If the corrections introduce blocking, stale pending state, or teardown resurrection, either installation will exceed five minutes or fail to reach zero remaining rows, or uninstall/readback will retain or recreate an owned artifact; the candidate must not be released."
+        "If the final safety corrections preserve the installation mechanism, both complete cycles will reach migration_complete with zero remaining rows in under six minutes of full-list migration, and both uninstalls will remove every owned artifact without late title or state recreation.",
+        "If the corrections introduce blocking, stale pending state, or teardown resurrection, either full-list migration will exceed six minutes or fail to reach zero remaining rows, or uninstall/readback will retain or recreate an owned artifact; the candidate must not be released."
       ],
       "stop_condition": "Stop after exactly two complete timed install/uninstall cycles against the same built candidate, including authoritative inventory/status checks, post-uninstall artifact checks, and one screenshot at each terminal install and uninstall state. Record the result and close this preflight before using the evidence for merge or release.",
       "result_experiment_id": "TB-EXP-0120-001"

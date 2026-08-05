@@ -1,6 +1,7 @@
 package main
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
@@ -19,17 +20,13 @@ const blockStart, blockEnd, managedHeading, managedProtocol = "<!-- BEGIN THREAD
 type lifecyclePaths struct{ binary, agents, skill, hooks string }
 type rawObject map[string]json.RawMessage
 
+func pendingTitle(task taskState) bool { return task.Pending != nil }
 func hasPendingTitle(value state) bool {
-	return slices.ContainsFunc(slices.Collect(maps.Values(value.Tasks)), func(task taskState) bool { return task.Pending != nil })
+	return slices.ContainsFunc(slices.Collect(maps.Values(value.Tasks)), pendingTitle)
 }
-func codexHome() string {
-	if value := os.Getenv("CODEX_HOME"); value != "" {
-		return value
-	}
-	return filepath.Join(homeDir(), ".codex")
-}
-func homeDir() string  { home, _ := os.UserHomeDir(); return home }
-func stateDir() string { return filepath.Join(homeDir(), ".local", "share", "threadbear") }
+func codexHome() string { return cmp.Or(os.Getenv("CODEX_HOME"), filepath.Join(homeDir(), ".codex")) }
+func homeDir() string   { home, _ := os.UserHomeDir(); return home }
+func stateDir() string  { return filepath.Join(homeDir(), ".local", "share", "threadbear") }
 func installPaths() lifecyclePaths {
 	return lifecyclePaths{filepath.Join(homeDir(), ".local/bin/threadbear"), filepath.Join(codexHome(), "AGENTS.md"), filepath.Join(codexHome(), "skills/threadbear/SKILL.md"), filepath.Join(codexHome(), "hooks.json")}
 }
@@ -125,8 +122,8 @@ func prepareUninstall(ctx context.Context, initiatorTaskID string) (any, error) 
 		if err != nil {
 			return nil, err
 		}
-		if value.Phase != phaseMigrationComplete || value.ArchivePending != nil {
-			return nil, errors.New("uninstall requires a completed installation with no pending archive")
+		if value.Phase != phaseMigrationComplete && value.Phase != phaseMigrationFailed || value.ArchivePending != nil {
+			return nil, errors.New("uninstall requires a completed or stopped failed installation with no pending archive")
 		}
 		initiator, found, err := archiveTaskByID(ctx, initiatorTaskID)
 		if err != nil || !found || !initiator.User || !initiator.Visible || initiator.Archived {
@@ -163,7 +160,7 @@ func prepareUninstall(ctx context.Context, initiatorTaskID string) (any, error) 
 }
 func reconcileTitles(ctx context.Context, caller string) (count int, err error) {
 	err = newStore(stateDir()).update(func(value *state) (bool, error) {
-		current, attempt := caller != "" && (value.Phase == phaseMigrationPending || value.Phase == phaseMigrationComplete) && value.UninstallPending == nil && os.Getenv("CODEX_THREAD_ID") == caller, os.Getenv("THREADBEAR_TITLE_ATTEMPT")
+		current, attempt := caller != "" && (value.Phase == phaseMigrationPending || value.Phase == phaseMigrationRunning || value.Phase == phaseMigrationComplete) && value.UninstallPending == nil && os.Getenv("CODEX_THREAD_ID") == caller, os.Getenv("THREADBEAR_TITLE_ATTEMPT")
 		if attempt != "" && !current {
 			return false, errors.New("title recovery requires its exact active current task")
 		}

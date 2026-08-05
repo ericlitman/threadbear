@@ -204,7 +204,7 @@ func TestMaintenanceCancelsOnlyExactKnownFailedCurrentTitle(t *testing.T) {
 	root, db := testIndex(t)
 	addTask(t, db, root, "task", homeTitle, nil, "vscode", 0)
 	if err := newStore(stateDir()).update(func(value *state) (bool, error) {
-		value.MainTaskID, value.Phase = "task", phaseMigrationPending
+		value.MainTaskID, value.ControllerTaskID, value.Phase = "main", "task", phaseMigrationRunning
 		return true, nil
 	}); err != nil {
 		t.Fatal(err)

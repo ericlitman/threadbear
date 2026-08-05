@@ -168,6 +168,33 @@ func TestArchivedControlUninstallPrepareRequiresActiveUserInitiator(t *testing.T
 	}
 }
 
+func TestFailedMigrationCanPrepareAndCleanForUninstall(t *testing.T) {
+	root, db := testIndex(t)
+	addTask(t, db, root, "main", "ThreadBear", nil, "vscode", 0)
+	addTask(t, db, root, "target", "✅ Target", nil, "vscode", 0)
+	addUninstallOwner(t, db, root)
+	if _, err := install("main", false, true, false); err != nil {
+		t.Fatal(err)
+	}
+	if err := newStore(stateDir()).update(func(value *state) (bool, error) {
+		value.ControllerTaskID, value.Phase, value.MigrationFailure = "controller", phaseMigrationFailed, "controller stopped"
+		return true, nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := prepareUninstall(context.Background(), "requester"); err != nil {
+		t.Fatal(err)
+	}
+	var output bytes.Buffer
+	pre := hookPayload("PreToolUse", "requester", "cleanup-failed", map[string]any{"threadId": "target", "title": cleanupMarker}, nil)
+	if err := hook(context.Background(), strings.NewReader(pre), &output); err != nil {
+		t.Fatal(err)
+	}
+	if proposed := rewrittenTitle(t, output.Bytes()); proposed != "Target" {
+		t.Fatalf("failed migration cleanup title = %q", proposed)
+	}
+}
+
 func TestArchivedControlUninstallAbortRestoresOrdinaryOperation(t *testing.T) {
 	root, db := testIndex(t)
 	addTask(t, db, root, "main", "⏳ Control task", nil, "vscode", 1)
@@ -383,5 +410,35 @@ func TestArchivedControlUninstallCommitRequiresRestoredArchiveAndSettledTitles(t
 	output.Reset()
 	if code := run(context.Background(), []string{"uninstall", "--initiator-task-id", "requester", "--noninteractive", "--confirm", "--json"}, strings.NewReader(""), &output, &bytes.Buffer{}); code != 0 {
 		t.Fatalf("settled resumed commit code %d: %s", code, output.String())
+	}
+}
+
+func TestUninstallHomeCleanupRestoresPreSentinelSubject(t *testing.T) {
+	root, db := testIndex(t)
+	addTask(t, db, root, "main", "Investigate install failure", nil, "vscode", 0)
+	if _, err := install("main", false, true, false); err != nil {
+		t.Fatal(err)
+	}
+	var output bytes.Buffer
+	pre := hookPayload("PreToolUse", "main", "home", map[string]any{"title": homeTitle}, nil)
+	if err := hook(context.Background(), strings.NewReader(pre), &output); err != nil || rewrittenTitle(t, output.Bytes()) != homeTitle {
+		t.Fatalf("home sentinel = %q, %v", output.String(), err)
+	}
+	if _, err := db.Exec(`UPDATE threads SET title=? WHERE id='main'`, homeTitle); err != nil {
+		t.Fatal(err)
+	}
+	if err := newStore(stateDir()).update(func(value *state) (bool, error) {
+		value.Phase = phaseMigrationComplete
+		return true, nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := prepareUninstall(context.Background(), "main"); err != nil {
+		t.Fatal(err)
+	}
+	output.Reset()
+	cleanup := hookPayload("PreToolUse", "main", "cleanup", map[string]any{"title": cleanupMarker}, nil)
+	if err := hook(context.Background(), strings.NewReader(cleanup), &output); err != nil || rewrittenTitle(t, output.Bytes()) != "Investigate install failure" {
+		t.Fatalf("home cleanup = %q, %v", output.String(), err)
 	}
 }

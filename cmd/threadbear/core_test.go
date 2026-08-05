@@ -544,8 +544,8 @@ func TestFreshRunningSubjectSeedFailsClosedAndThenStaysOwned(t *testing.T) {
 		t.Fatal(err)
 	}
 	homeState, _ := currentStateOrEmpty()
-	if len(homeState.Tasks) != 0 {
-		t.Fatalf("persistent home title changed ownership state: %#v", homeState.Tasks)
+	if got := homeState.Tasks["task"]; len(homeState.Tasks) != 1 || got.Original != first || got.Subject != "" || got.Last != homeTitle || got.Pending != nil {
+		t.Fatalf("persistent home title did not retain its prior subject: %#v", homeState.Tasks)
 	}
 	for _, marker := range []string{runningMarker, runningMarker + ":", runningMarker + ": ", runningMarker + ": bad  spacing", runningMarker + ": " + strings.Repeat("x", 59), homeTitle + " extra"} {
 		var output bytes.Buffer
@@ -555,7 +555,7 @@ func TestFreshRunningSubjectSeedFailsClosedAndThenStaysOwned(t *testing.T) {
 		}
 	}
 	stateAfter, err := currentStateOrEmpty()
-	if err != nil || len(stateAfter.Tasks) != 0 {
+	if err != nil || len(stateAfter.Tasks) != 1 {
 		t.Fatalf("denied markers changed state: %#v, %v", stateAfter, err)
 	}
 	var output bytes.Buffer
@@ -689,6 +689,48 @@ func TestRunningMigrationControllerOwnsHistoricalFirstMessage(t *testing.T) {
 	saved, _ := newStore(stateDir()).read()
 	if got := saved.Tasks["target"]; got.Subject != "echo hello" || got.Last != proposed || got.Pending != nil {
 		t.Fatalf("controller migration ownership = %#v", got)
+	}
+}
+
+func TestPendingMigrationRegistersExactRuntimeControllerFromMarkedHomeDelegation(t *testing.T) {
+	root, db := testIndex(t)
+	addTask(t, db, root, "main", "ThreadBear", nil, "vscode", 0)
+	addTask(t, db, root, "runtime-controller", "Migration controller", nil, "vscode", 0)
+	first := "<codex_delegation>\n<source_thread_id>main</source_thread_id>\n<input>" + controllerMarker + " Follow the migration protocol.</input>\n</codex_delegation>"
+	if _, err := db.Exec(`UPDATE threads SET thread_source='subagent', first_user_message=? WHERE id='runtime-controller'`, first); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := install("main", false, true, false); err != nil {
+		t.Fatal(err)
+	}
+	var output bytes.Buffer
+	pre := hookPayload("PreToolUse", "runtime-controller", "register", map[string]any{"title": runningMarker + ": Migration controller"}, nil)
+	if err := hook(context.Background(), strings.NewReader(pre), &output); err != nil || strings.Contains(output.String(), `"permissionDecision":"deny"`) {
+		t.Fatalf("controller registration = %q, %v", output.String(), err)
+	}
+	saved, err := newStore(stateDir()).read()
+	if err != nil || saved.Phase != phaseMigrationRunning || saved.ControllerTaskID != "runtime-controller" {
+		t.Fatalf("registered controller state = %#v, %v", saved, err)
+	}
+}
+
+func TestPendingMigrationRejectsUnmarkedControllerClaim(t *testing.T) {
+	root, db := testIndex(t)
+	addTask(t, db, root, "main", "ThreadBear", nil, "vscode", 0)
+	addTask(t, db, root, "other", "Other task", nil, "vscode", 0)
+	if _, err := db.Exec(`UPDATE threads SET first_user_message='<codex_delegation> <source_thread_id>main</source_thread_id> <input>Other work</input></codex_delegation>' WHERE id='other'`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := install("main", false, true, false); err != nil {
+		t.Fatal(err)
+	}
+	pre := hookPayload("PreToolUse", "other", "ordinary", map[string]any{"title": runningMarker + ": Other work"}, nil)
+	if err := hook(context.Background(), strings.NewReader(pre), &bytes.Buffer{}); err != nil {
+		t.Fatal(err)
+	}
+	saved, _ := newStore(stateDir()).read()
+	if saved.Phase != phaseMigrationPending || saved.ControllerTaskID != "" {
+		t.Fatalf("unmarked task claimed controller: %#v", saved)
 	}
 }
 

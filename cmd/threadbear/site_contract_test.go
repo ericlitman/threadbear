@@ -157,7 +157,7 @@ func TestInstalledSkillDefinesAdaptiveMigrationWaves(t *testing.T) {
 		"give each worker eight minutes from spawn",
 		"discard only that batch's uncommitted classifications",
 		"retry that read-only batch once in the next wave",
-		"A second invalid result or actual worker deadline records `migration_failed`",
+		"A second invalid result or actual worker deadline reports failure and complete accounting to the home",
 		"bounded waves of at most eight distinct targets",
 		"call `codex_app__read_thread` concurrently for every target as a bounded read-only activation gate",
 		"require each response's exact task ID and the inventory-planned title",
@@ -182,10 +182,11 @@ func TestInstalledSkillDefinesAdaptiveMigrationWaves(t *testing.T) {
 		"the Pre hook alone expands the compact input around the authoritative subject",
 		"Do not start another wave or return while a retained worker is still active or unaccounted for.",
 		"If zero workers can start, wait 30 seconds and retry for at most two minutes",
-		"Before every non-successful return, record `migration_failed` with the same controller ID",
-		"Add `--settled` only when every admitted native title Promise since the running transition",
+		"ThreadBear controller registration.",
+		"retain the create result only as a supervision handle",
+		"report the complete accounting to the home so it can record `migration_failed` without `--settled`",
 		"The failed phase denies every new title proposal",
-		"Without `--settled`, all unapplied proposals remain pending",
+		"Unapplied proposals remain pending for manual fail-closed recovery",
 	} {
 		if !strings.Contains(protocol, required) {
 			t.Errorf("installed skill is missing adaptive migration invariant %q", required)
@@ -284,7 +285,7 @@ func TestHomepageMatchesNativeMaintenanceCapabilities(t *testing.T) {
 func TestManagedCleanupContractIsShipped(t *testing.T) {
 	root := filepath.Join("..", "..", "assets")
 	for path, required := range map[string][]string{
-		filepath.Join(root, "skill", "SKILL.md"):    {"## Title cleanup", "same controller ID", "durable settled attestation", "prepared uninstall task", "For uninstall, target the control task last", "no attempt suffix"},
+		filepath.Join(root, "skill", "SKILL.md"):    {"## Title cleanup", "same controller ID", "A stopped `migration_failed` installation is uninstallable", "prepared uninstall task", "For uninstall, target the control task last", "no attempt suffix"},
 		filepath.Join(root, "AGENTS.threadbear.md"): {"A prepared uninstall suspends this turn protocol", "respond without another title call or ThreadBear footer", "THREADBEAR_TITLE_ATTEMPT='${attempt}'"},
 	} {
 		data, err := os.ReadFile(path)
