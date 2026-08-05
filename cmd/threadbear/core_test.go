@@ -535,15 +535,17 @@ func TestFreshRunningSubjectSeedFailsClosedAndThenStaysOwned(t *testing.T) {
 	}
 	var homeOutput bytes.Buffer
 	homePre := hookPayload("PreToolUse", "task", "home", map[string]any{"title": homeTitle}, nil)
-	if err := hook(context.Background(), strings.NewReader(homePre), &homeOutput); err != nil || homeOutput.Len() != 0 {
+	if err := hook(context.Background(), strings.NewReader(homePre), &homeOutput); err != nil || rewrittenTitle(t, homeOutput.Bytes()) != homeTitle {
 		t.Fatalf("persistent home title was not passed through: %q, %v", homeOutput.String(), err)
 	}
-	homeState, _ := currentStateOrEmpty()
-	if homeState.Tasks["task"].Pending == nil {
-		t.Fatal("persistent home title was not staged")
-	}
-	if err := newStore(stateDir()).update(func(value *state) (bool, error) { delete(value.Tasks, "task"); return true, nil }); err != nil {
+	homeResponse, _ := json.Marshal(map[string]string{"threadId": "task", "title": homeTitle})
+	homePost := hookPayload("PostToolUse", "task", "home", map[string]any{"title": homeTitle}, string(homeResponse))
+	if err := hook(context.Background(), strings.NewReader(homePost), &bytes.Buffer{}); err != nil {
 		t.Fatal(err)
+	}
+	homeState, _ := currentStateOrEmpty()
+	if len(homeState.Tasks) != 0 {
+		t.Fatalf("persistent home title changed ownership state: %#v", homeState.Tasks)
 	}
 	for _, marker := range []string{runningMarker, runningMarker + ":", runningMarker + ": ", runningMarker + ": bad  spacing", runningMarker + ": " + strings.Repeat("x", 59), homeTitle + " extra"} {
 		var output bytes.Buffer
@@ -574,6 +576,26 @@ func TestFreshRunningSubjectSeedFailsClosedAndThenStaysOwned(t *testing.T) {
 	pre = hookPayload("PreToolUse", "task", "later", map[string]any{"title": runningMarker + ": Ignore this replacement"}, nil)
 	if err := hook(context.Background(), strings.NewReader(pre), &output); err != nil || rewrittenTitle(t, output.Bytes()) != "⏳ First title race" {
 		t.Fatalf("owned subject changed: %q, %v", output.String(), err)
+	}
+}
+
+func TestRunningHomeSubjectStillStagesOwnership(t *testing.T) {
+	root, db := testIndex(t)
+	if err := newStore(stateDir()).update(func(*state) (bool, error) { return false, nil }); err != nil {
+		t.Fatal(err)
+	}
+	addTask(t, db, root, "task", "fresh", nil, "vscode", 0)
+	if _, err := db.Exec(`UPDATE threads SET first_user_message='fresh' WHERE id='task'`); err != nil {
+		t.Fatal(err)
+	}
+	var output bytes.Buffer
+	pre := hookPayload("PreToolUse", "task", "running-home", map[string]any{"title": runningMarker + ": " + homeTitle}, nil)
+	if err := hook(context.Background(), strings.NewReader(pre), &output); err != nil || rewrittenTitle(t, output.Bytes()) != "⏳ "+homeTitle {
+		t.Fatalf("running home subject rewrite = %q, %v", output.String(), err)
+	}
+	saved, _ := currentStateOrEmpty()
+	if saved.Tasks["task"].Pending == nil {
+		t.Fatal("running home subject was not staged")
 	}
 }
 

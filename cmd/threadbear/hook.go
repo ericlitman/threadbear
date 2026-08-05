@@ -96,7 +96,7 @@ func preTitle(ctx context.Context, event hookInput, out io.Writer) error {
 		result, terminal = footer{Status: "unknown"}, true
 	} else if title == cleanupMarker {
 		result, terminal = footer{Status: "cleanup"}, true
-	} else if title == homeTitle && attempt != "" {
+	} else if title == homeTitle {
 		terminal, seed = true, homeTitle
 	}
 	if !terminal {
@@ -166,6 +166,9 @@ func stageTitle(ctx context.Context, id, status, action, seed, caller, toolUseID
 			}
 		}
 		proposed = map[bool]string{true: seed, false: renderTitle(status, subject, action)}[status == ""]
+		if status == "" && seed == homeTitle && attempt == "" {
+			return false, nil
+		}
 		record.Pending = &pendingProposal{CallerTaskID: caller, ToolUseID: toolUseID, BaseSubject: subject, Prior: task.Title, Proposed: proposed, Status: status, Action: action, Attempt: attempt}
 		saved.Tasks[id] = record
 		return true, nil
@@ -186,12 +189,8 @@ func postTitle(event hookInput) error {
 		if pending.ToolUseID != event.ToolUseID || pending.CallerTaskID != "" && pending.CallerTaskID != event.SessionID || pending.Proposed != title {
 			return false, errors.New("native title call does not match its proposal")
 		}
-		var encoded string
-		if json.Unmarshal(event.ToolResponse, &encoded) != nil {
-			return false, errors.New("native title result is not JSON text")
-		}
-		var result map[string]string
-		if json.Unmarshal([]byte(encoded), &result) != nil || len(result) != 2 || result["threadId"] != target || result["title"] != title {
+		result, encoded := map[string]string{}, ""
+		if json.Unmarshal(event.ToolResponse, &encoded) != nil || json.Unmarshal([]byte(encoded), &result) != nil || len(result) != 2 || result["threadId"] != target || result["title"] != title {
 			return false, errors.New("native title result mismatch")
 		}
 		record.Subject, record.Last, record.Status, record.Action, record.Pending = pending.BaseSubject, pending.Proposed, pending.Status, pending.Action, nil

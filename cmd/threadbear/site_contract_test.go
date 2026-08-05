@@ -66,8 +66,8 @@ func TestPublishedInstallGuideMatchesCurrentCLI(t *testing.T) {
 		"migration_complete",
 		"migration_failed",
 		"exactly one projectless background migration-controller task",
-		"nonce-tagged home-title call and definite-failure recovery",
-		"Do not make a second untagged title call.",
+		"one exact untagged home-title call",
+		"Do not add a nonce or make a second title call.",
 		"do not use visual inspection, computer control, screenshots, or Codex `/hooks`",
 		"Older signed-in ChatGPT chat-history rows are outside Codex's current task-title API and will stay unchanged.",
 		"never describe zero local inventory rows as proof that every visible sidebar row changed",
@@ -279,8 +279,8 @@ func TestHomepageMatchesNativeMaintenanceCapabilities(t *testing.T) {
 func TestManagedCleanupContractIsShipped(t *testing.T) {
 	root := filepath.Join("..", "..", "assets")
 	for path, required := range map[string][]string{
-		filepath.Join(root, "skill", "SKILL.md"):    {"## Title cleanup", "same controller ID", "durable settled attestation", "prepared uninstall task", "For uninstall, target the control task last", "THREADBEAR_TITLE_ATTEMPT='ATTEMPT_ID'"},
-		filepath.Join(root, "AGENTS.threadbear.md"): {"A prepared uninstall suspends this turn protocol", "respond without another title call or ThreadBear footer"},
+		filepath.Join(root, "skill", "SKILL.md"):    {"## Title cleanup", "same controller ID", "durable settled attestation", "prepared uninstall task", "For uninstall, target the control task last", "no attempt suffix"},
+		filepath.Join(root, "AGENTS.threadbear.md"): {"A prepared uninstall suspends this turn protocol", "respond without another title call or ThreadBear footer", "THREADBEAR_TITLE_ATTEMPT='${attempt}'"},
 	} {
 		data, err := os.ReadFile(path)
 		if err != nil {
