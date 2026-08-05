@@ -13,6 +13,7 @@ import (
 	"runtime"
 	"slices"
 	"strings"
+	"syscall"
 )
 
 const blockStart, blockEnd, managedHeading, managedProtocol = "<!-- BEGIN THREADBEAR MANAGED BLOCK -->", "<!-- END THREADBEAR MANAGED BLOCK -->", "# ThreadBear", "For every ordinary interactive turn"
@@ -265,10 +266,10 @@ func finishCommittedUninstall() (bool, error) {
 	if !errors.Is(skillErr, os.ErrNotExist) || agentsErr == nil && (strings.Contains(string(agents), blockStart) || strings.Contains(string(agents), blockEnd) || strings.Contains(string(agents), managedHeading) || strings.Contains(string(agents), managedProtocol)) || agentsErr != nil && !errors.Is(agentsErr, os.ErrNotExist) || hooksErr != nil || hooksChanged {
 		return false, errors.Join(agentsErr, hooksErr, errors.New("uninstall state is missing before local artifacts were settled"))
 	}
-	if err := errors.Join(os.RemoveAll(filepath.Dir(p.skill)), os.RemoveAll(stateDir())); err != nil {
+	if err := errors.Join(removeFiles(filepath.Dir(p.skill), p.skill, filepath.Dir(p.skill)), os.RemoveAll(stateDir())); err != nil {
 		return false, err
 	}
-	return true, removeFiles(p.binary)
+	return true, removeFiles("", p.binary)
 }
 func uninstallLocked(ctx context.Context, value state) (any, error) {
 	for _, record := range value.Tasks {
@@ -302,13 +303,13 @@ func uninstallLocked(ctx context.Context, value state) (any, error) {
 		}
 	}
 	if err == nil {
-		err = os.RemoveAll(filepath.Dir(p.skill))
+		err = removeFiles(filepath.Dir(p.skill), p.skill, filepath.Dir(p.skill))
 	}
 	if err == nil {
 		err = os.RemoveAll(stateDir())
 	}
 	if err == nil {
-		err = removeFiles(p.binary)
+		err = removeFiles("", p.binary)
 	}
 	return map[string]any{"ready": err == nil, "uninstalled": err == nil}, err
 }
@@ -475,9 +476,12 @@ func writeAtomic(path string, data []byte, mode os.FileMode) error {
 	}
 	return os.Rename(f.Name(), path)
 }
-func removeFiles(paths ...string) error {
+func removeFiles(nonEmptyOK string, paths ...string) error {
 	for _, path := range paths {
-		if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
+		if info, _ := os.Lstat(path); path == nonEmptyOK && info != nil && !info.IsDir() {
+			continue
+		}
+		if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) && !(path == nonEmptyOK && errors.Is(err, syscall.ENOTEMPTY)) {
 			return err
 		}
 	}

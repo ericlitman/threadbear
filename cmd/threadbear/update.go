@@ -22,11 +22,9 @@ import (
 
 const updateManifestLimit = int64(1 << 20)
 
-var (
-	updateReleaseBase, updateManifestURL                                                         = "https://github.com/ericlitman/threadbear/releases", "https://github.com/ericlitman/threadbear/releases/latest/download/latest.json"
-	updateClient, updateBinaryLimit                                                              = &http.Client{Timeout: 30 * time.Second}, int64(64 << 20)
-	updateGOOS, updateGOARCH, updateVersionTimeout, updateCandidateTimeout, updateInstallTimeout = runtime.GOOS, runtime.GOARCH, 30 * time.Second, 30 * time.Second, 2 * time.Minute
-)
+var updateReleaseBase, updateManifestURL = "https://github.com/ericlitman/threadbear/releases", "https://github.com/ericlitman/threadbear/releases/latest/download/latest.json"
+var updateClient, updateBinaryLimit = &http.Client{Timeout: 30 * time.Second}, int64(64 << 20)
+var updateGOOS, updateGOARCH, updateVersionTimeout, updateCandidateTimeout, updateInstallTimeout = runtime.GOOS, runtime.GOARCH, 30 * time.Second, 30 * time.Second, 2 * time.Minute
 
 type updateError struct {
 	Stage string

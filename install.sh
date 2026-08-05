@@ -1,8 +1,6 @@
 #!/bin/sh
 set -eu
-
 umask 077
-
 release_base=${THREADBEAR_RELEASE_BASE_URL:-https://github.com/ericlitman/threadbear/releases}
 selected_version=
 noninteractive=false

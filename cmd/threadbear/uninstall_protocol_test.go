@@ -289,17 +289,17 @@ func TestRetainedCandidateFinishesBinaryRemovalAfterStateCommit(t *testing.T) {
 	}
 	if write {
 		if len(hooks) == 0 {
-			if err := removeFiles(p.hooks); err != nil {
+			if err := removeFiles("", p.hooks); err != nil {
 				t.Fatal(err)
 			}
 		} else if err := writeAtomic(p.hooks, hooks, 0o600); err != nil {
 			t.Fatal(err)
 		}
 	}
-	if err := removeFiles(p.skill); err != nil {
+	if err := removeFiles("", p.skill); err != nil {
 		t.Fatal(err)
 	}
-	if err := removeFiles(newStore(stateDir()).path()); err != nil {
+	if err := removeFiles("", newStore(stateDir()).path()); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := os.Stat(p.binary); err != nil {

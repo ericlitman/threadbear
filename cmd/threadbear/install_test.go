@@ -55,6 +55,8 @@ func TestInstallReinstallAndUninstallPreserveForeignHooks(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
+	userSkillFile := filepath.Join(filepath.Dir(p.skill), "user-notes.md")
+	mustWrite(t, userSkillFile, "preserve me")
 	if _, err := uninstall(context.Background(), true); err != nil {
 		t.Fatal(err)
 	}
@@ -67,10 +69,50 @@ func TestInstallReinstallAndUninstallPreserveForeignHooks(t *testing.T) {
 	if string(agents) != foreignAgents {
 		t.Fatalf("foreign AGENTS content changed: %q", agents)
 	}
+	if got, err := os.ReadFile(userSkillFile); err != nil || string(got) != "preserve me" {
+		t.Fatalf("uninstall changed user skill content: %q, %v", got, err)
+	}
 	for _, path := range []string{p.binary, p.skill, stateDir()} {
 		if _, err := os.Stat(path); !os.IsNotExist(err) {
 			t.Fatalf("uninstall left %s: %v", path, err)
 		}
+	}
+}
+
+func TestUninstallPreservesUserOwnedSkillDirectorySymlink(t *testing.T) {
+	p := isolatedLifecycle(t)
+	target := filepath.Join(t.TempDir(), "skill-target")
+	if err := os.MkdirAll(target, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Dir(filepath.Dir(p.skill)), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(target, filepath.Dir(p.skill)); err != nil {
+		t.Fatal(err)
+	}
+	userFile := filepath.Join(target, "user-notes.md")
+	mustWrite(t, userFile, "preserve me")
+	if _, err := install("installer", false, true, false); err != nil {
+		t.Fatal(err)
+	}
+	if err := newStore(stateDir()).update(func(value *state) (bool, error) {
+		value.Phase = phaseMigrationComplete
+		return true, nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := uninstall(context.Background(), true); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(p.skill); !os.IsNotExist(err) {
+		t.Fatalf("uninstall left managed skill: %v", err)
+	}
+	if info, err := os.Lstat(filepath.Dir(p.skill)); err != nil || info.Mode()&os.ModeSymlink == 0 {
+		t.Fatalf("uninstall changed user-owned skill symlink: %#v, %v", info, err)
+	}
+	if got, err := os.ReadFile(userFile); err != nil || string(got) != "preserve me" {
+		t.Fatalf("uninstall changed symlinked user skill content: %q, %v", got, err)
 	}
 }
 

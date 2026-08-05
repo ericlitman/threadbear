@@ -130,7 +130,7 @@ func stageTitle(ctx context.Context, id, status, action, seed, caller, toolUseID
 	first := strings.Join(strings.Fields(task.FirstMessage), " ")
 	var proposed string
 	err = newStore(stateDir()).update(func(saved *state) (bool, error) {
-		if saved.Phase == phaseMigrationPending && saved.ControllerTaskID == "" && id == caller && status == "running" && strings.HasPrefix(first, "<codex_delegation> <source_thread_id>"+saved.MainTaskID+"</source_thread_id> <input>"+controllerMarker) {
+		if saved.Phase == phaseMigrationPending && saved.ControllerTaskID == "" && id == caller && status == "running" && task.ThreadSource == "subagent" && strings.HasPrefix(first, "<codex_delegation> <source_thread_id>"+saved.MainTaskID+"</source_thread_id> <input>"+controllerMarker) {
 			saved.ControllerTaskID, saved.Phase = caller, phaseMigrationRunning
 		}
 		if pending := saved.UninstallPending; saved.Phase == phaseMigrationFailed && pending == nil || pending != nil && (pending.InitiatorTaskID != caller || status != "cleanup") {

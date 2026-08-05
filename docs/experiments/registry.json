@@ -60,15 +60,13 @@
     {
       "id": "TB-CAP-BOUNDED-MIGRATION-WAVES",
       "premise": "One exact candidate can migrate the full native-addressable local task inventory in bounded concurrent title waves within six minutes and uninstall without a queued hook recreating state or a pending title landing after teardown.",
-      "status": "established",
+      "status": "unresolved",
       "supported_by": [
-        "TB-EXP-0120-001",
-        "TB-EXP-0120-002",
-        "TB-EXP-0120-003"
+        "TB-EXP-0120-001"
       ],
       "contradicted_by": [],
-      "decision": "Candidate 09fc5241 completed two full 98-task migrations in 5:27.999 and 5:03.690, then completed clean uninstalls in 2:00.696 and 2:10.504 with all owned artifacts absent. End-to-end setup through active automation was 6:23.650 and 5:41.080, so only the defined full-list migration metric passed the six-minute ceiling twice. Candidate 15027fdc separately proved fresh installer-boundary home-title capture. Final candidate 3b87d7fa then upgraded genuine tagged-v2.2.0 format-3 state whose hook had persisted the sentinel itself as the home subject, cleaned and uninstalled it from quiescent pre-controller state, and preserved an unowned icon-prefixed task against the real native catalog. The normal migration write path is unchanged from the two-cycle candidate.",
-      "next_preflight": null
+      "decision": "Candidate 09fc5241 proved the bounded-wave mechanism with two complete 98-task migrations in 5:27.999 and 5:03.690 plus clean uninstalls, but it is not the final reviewed candidate and the run did not begin from the clean application restart required by the release matrix. TB-EXP-0120-002 and TB-EXP-0120-003 remain useful procedural seam observations but had no declared preflights and therefore do not support this capability or release. TB-PRE-0120-002 must close with two complete clean-restart cycles on one exact final candidate before the capability can be re-established.",
+      "next_preflight": "TB-PRE-0120-002"
     }
   ],
   "experiments": [
@@ -755,7 +753,7 @@
         "rendered_proof": "authoritative title readback matched the pre-install home title and clean controller title before uninstall commit; post-commit artifact checks were all absent"
       },
       "confidence": "high",
-      "applicability": "Directly covers the installer-boundary capture change introduced after TB-EXP-0120-001. Later recovery corrections are separately covered by TB-EXP-0120-003. It does not repeat the unchanged 98-task migration path, so the two full-list timing results remain attributed to candidate 09fc5241 rather than this corrected candidate.",
+      "applicability": "Procedural seam observation for the installer-boundary capture change introduced after TB-EXP-0120-001. This probe had no declared preflight, so it cannot support a capability or release claim; TB-PRE-0120-002 requires the exact final candidate to repeat the complete release lifecycle.",
       "supersedes": [],
       "conflicts": []
     },
@@ -795,7 +793,7 @@
         "rendered_proof": "authoritative list readback showed the decorated sentinel before prepare; the native cleanup result and durable hook state both matched the exact original title before uninstall commit"
       },
       "confidence": "high",
-      "applicability": "Directly covers the final candidate's legacy format-3 upgrade, pre-controller uninstall, decorated-home fallback cleanup, and unowned inventory-title scope. Fresh exact-original capture remains covered by TB-EXP-0120-002. The home-authorized settled-failure route is covered by 100-repeat focused tests plus the complete race-enabled suite; it was not induced against an unknown real native call. The two full-list migration timings remain attributed to candidate 09fc5241 because that normal path is unchanged.",
+      "applicability": "Procedural seam observation for the legacy format-3 upgrade, pre-controller uninstall, decorated-home fallback cleanup, and unowned inventory-title scope. This probe had no declared preflight, so it cannot support a capability or release claim; TB-PRE-0120-002 requires the exact final candidate to repeat the complete release lifecycle.",
       "supersedes": [],
       "conflicts": []
     }
@@ -887,6 +885,26 @@
       ],
       "stop_condition": "Stop after exactly two complete timed install/uninstall cycles against the same built candidate, including authoritative inventory/status checks, post-uninstall artifact checks, and one screenshot at each terminal install and uninstall state. Record the result and close this preflight before using the evidence for merge or release.",
       "result_experiment_id": "TB-EXP-0120-001"
+    },
+    {
+      "id": "TB-PRE-0120-002",
+      "issue": "BEAR-1",
+      "capability_id": "TB-CAP-BOUNDED-MIGRATION-WAVES",
+      "status": "pending",
+      "consulted": [
+        "TB-EXP-0120-001",
+        "TB-EXP-0120-002",
+        "TB-EXP-0120-003"
+      ],
+      "remaining_unknown": "Whether one exact final v2.2.1 candidate containing the native-subagent controller guard and non-destructive skill teardown completes the entire current native-addressable task inventory under six minutes twice after clean Codex restarts, then uninstalls cleanly while preserving user-created files beside the managed skill.",
+      "single_changed_variable": "Candidate implementation and binary fingerprint: replace candidate 09fc5241 and the later un-preflighted seam canaries with the final reviewed candidate that adds native thread_source authentication for controller registration and removes only the managed skill file plus an empty directory during teardown.",
+      "held_constant": "Desktop 26.727.51351 and CLI 0.146.0-alpha.9.2; local macOS host; one exact candidate for both cycles; the complete native-addressable inventory present at run time; one Terra-medium controller; Luna-low read-only classifier batches; reconciled max-eight title waves; authoritative inventory/status checks; privacy-safe terminal screenshots; monotonic timers; no code change between cycles.",
+      "predicted_outcomes": [
+        "If the exact final candidate preserves the migration mechanism and safe teardown, both clean-restart cycles will reach migration_complete with zero remaining rows in under six minutes of full-list migration, both prepared uninstalls will return uninstalled true with every ThreadBear-owned artifact absent, and a user-created neighboring skill file will remain byte-exact.",
+        "If the new source guard blocks the legitimate native controller, concurrent migration or settlement regresses, or teardown mishandles owned versus neighboring files, either cycle will fail registration, exceed six minutes, retain rows or pending state, remove the user file, or leave a ThreadBear-owned artifact; the candidate must not merge or release."
+      ],
+      "stop_condition": "Stop after exactly two complete install/migration/uninstall cycles against one built candidate, each beginning from a clean Codex restart and including authoritative status/inventory, terminal timer and screenshot evidence, neighboring-user-file preservation, final artifact checks, and title/archive restoration. Record one linked result experiment and close this preflight before claiming release evidence.",
+      "result_experiment_id": ""
     }
   ]
 }
