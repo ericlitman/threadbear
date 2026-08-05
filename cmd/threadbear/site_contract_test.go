@@ -55,6 +55,8 @@ func TestPublishedInstallGuideMatchesCurrentCLI(t *testing.T) {
 		"run the verified update check last",
 		"threadbear-maintenance",
 		"native automation control",
+		"On creation omit `id`",
+		"returned `automationId` must equal `threadbear-maintenance`",
 		"paused hourly heartbeat",
 		"activate the exact owned heartbeat",
 		"--control-task-id",
