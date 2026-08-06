@@ -10,7 +10,7 @@ import (
 	"strings"
 )
 
-const titleTool, runningMarker, homeTitle, cleanupMarker, unknownMarker, controllerMarker, maxHookBytes = "codex_appset_thread_title", "⏳ ThreadBear is working", "🧵🐻 ThreadBear 🐻🧵", "🧵🐻 strip title icons", "❔ ThreadBear could not classify", "ThreadBear controller registration.", 1 << 20
+const titleTool, runningMarker, homeTitle, mainTitle, cleanupMarker, unknownMarker, controllerMarker, maxHookBytes = "codex_appset_thread_title", "⏳ ThreadBear is working", "🧵🐻 ThreadBear 🐻🧵", "ThreadBear", "🧵🐻 strip title icons", "❔ ThreadBear could not classify", "ThreadBear controller registration.", 1 << 20
 
 type hookInput struct {
 	Event        string                     `json:"hook_event_name"`
@@ -169,13 +169,13 @@ func stageTitle(ctx context.Context, id, status, action, seed, caller, toolUseID
 				return false, errors.New("fresh task has no subject owner")
 			}
 		}
-		proposed = map[bool]string{true: seed, false: renderTitle(status, subject, action)}[status == ""]
+		proposed = map[bool]string{true: mainTitle, false: map[bool]string{true: seed, false: renderTitle(status, subject, action)}[status == ""]}[id == saved.MainTaskID && status != ""]
 		if status == "" && seed == homeTitle && attempt == "" {
 			record.Original, record.Last = cmp.Or(record.Original, stripStatusIcons(current)), homeTitle
 			saved.Tasks[id] = record
 			return true, nil
 		}
-		record.Pending = &pendingProposal{CallerTaskID: caller, ToolUseID: toolUseID, BaseSubject: subject, Prior: task.Title, Proposed: proposed, Status: status, Action: action, Attempt: attempt}
+		record.Pending = &pendingProposal{CallerTaskID: caller, ToolUseID: toolUseID, BaseSubject: map[bool]string{true: mainTitle, false: subject}[id == saved.MainTaskID && status != ""], Prior: task.Title, Proposed: proposed, Status: status, Action: action, Attempt: attempt}
 		saved.Tasks[id] = record
 		return true, nil
 	})

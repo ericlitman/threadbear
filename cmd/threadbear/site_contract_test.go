@@ -47,7 +47,7 @@ func TestPublishedInstallGuideMatchesCurrentCLI(t *testing.T) {
 		"Next action added to the thread title → like this.",
 		"Codex limits title length limited to 60 UTF-16 units, so I'll truncate as needed.",
 		"Small local footprint: one binary in ~/.local/bin, a skill, and two hooks.",
-		"One persistent thread, 🧵🐻 ThreadBear 🐻🧵, for changing config and uninstalling.",
+		"One persistent thread, ThreadBear, for changing config and uninstalling; its title never receives a status prefix.",
 		"Deterministic classification and Luna-low ambiguity checks run in parallel.",
 		"A small Luna helper checks in hourly, then stays quiet when there is nothing to do.",
 		"Finished tasks can curl up in the archive after 14 quiet days—and come back whenever you need them.",
@@ -285,7 +285,7 @@ func TestHomepageMatchesNativeMaintenanceCapabilities(t *testing.T) {
 func TestManagedCleanupContractIsShipped(t *testing.T) {
 	root := filepath.Join("..", "..", "assets")
 	for path, required := range map[string][]string{
-		filepath.Join(root, "skill", "SKILL.md"):    {"## Title cleanup", "same controller ID", "A stopped `migration_failed` installation is uninstallable", "prepared uninstall task", "For uninstall, target the control task last", "no attempt suffix"},
+		filepath.Join(root, "skill", "SKILL.md"):    {"## Title cleanup", "same controller ID", "A stopped `migration_failed` installation is uninstallable", "prepared uninstall task", "persistent home remains exactly `ThreadBear`", "For uninstall, target the control task last", "no attempt suffix"},
 		filepath.Join(root, "AGENTS.threadbear.md"): {"A prepared uninstall suspends this turn protocol", "respond without another title call or ThreadBear footer", "THREADBEAR_TITLE_ATTEMPT='${attempt}'"},
 	} {
 		data, err := os.ReadFile(path)

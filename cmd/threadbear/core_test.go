@@ -579,23 +579,34 @@ func TestFreshRunningSubjectSeedFailsClosedAndThenStaysOwned(t *testing.T) {
 	}
 }
 
-func TestRunningHomeSubjectStillStagesOwnership(t *testing.T) {
+func TestPersistentHomeNeverReceivesStatusTitle(t *testing.T) {
 	root, db := testIndex(t)
-	if err := newStore(stateDir()).update(func(*state) (bool, error) { return false, nil }); err != nil {
+	if err := newStore(stateDir()).update(func(saved *state) (bool, error) {
+		saved.MainTaskID, saved.Phase = "task", phaseMigrationComplete
+		return true, nil
+	}); err != nil {
 		t.Fatal(err)
 	}
 	addTask(t, db, root, "task", "fresh", nil, "vscode", 0)
 	if _, err := db.Exec(`UPDATE threads SET first_user_message='fresh' WHERE id='task'`); err != nil {
 		t.Fatal(err)
 	}
-	var output bytes.Buffer
-	pre := hookPayload("PreToolUse", "task", "running-home", map[string]any{"title": runningMarker + ": " + homeTitle}, nil)
-	if err := hook(context.Background(), strings.NewReader(pre), &output); err != nil || rewrittenTitle(t, output.Bytes()) != "⏳ "+homeTitle {
-		t.Fatalf("running home subject rewrite = %q, %v", output.String(), err)
+	for _, item := range [][2]string{{"running-home", runningMarker + ": Replacement seed"}, {"complete-home", "🧵🐻 complete"}} {
+		call, marker := item[0], item[1]
+		var output bytes.Buffer
+		pre := hookPayload("PreToolUse", "task", call, map[string]any{"title": marker}, nil)
+		if err := hook(context.Background(), strings.NewReader(pre), &output); err != nil || rewrittenTitle(t, output.Bytes()) != mainTitle {
+			t.Fatalf("%s rewrite = %q, %v", call, output.String(), err)
+		}
+		response, _ := json.Marshal(map[string]string{"threadId": "task", "title": mainTitle})
+		post := hookPayload("PostToolUse", "task", call, map[string]any{"title": mainTitle}, string(response))
+		if err := hook(context.Background(), strings.NewReader(post), &bytes.Buffer{}); err != nil {
+			t.Fatal(err)
+		}
 	}
 	saved, _ := currentStateOrEmpty()
-	if saved.Tasks["task"].Pending == nil {
-		t.Fatal("running home subject was not staged")
+	if got := saved.Tasks["task"]; got.Pending != nil || got.Subject != mainTitle || got.Last != mainTitle || got.Status != "complete" {
+		t.Fatalf("persistent home state = %#v", got)
 	}
 }
 

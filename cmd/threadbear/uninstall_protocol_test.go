@@ -112,7 +112,7 @@ func TestArchivedControlUninstallPersistsInitiatorAndAuthorizesCleanup(t *testin
 		t.Fatal(err)
 	}
 	proposed := rewrittenTitle(t, output.Bytes())
-	if proposed != "Control task" {
+	if proposed != mainTitle {
 		t.Fatalf("owner cleanup title = %q", proposed)
 	}
 	if _, err := db.Exec(`UPDATE threads SET title=?, archived=1 WHERE id='main'`, proposed); err != nil {
@@ -413,7 +413,7 @@ func TestArchivedControlUninstallCommitRequiresRestoredArchiveAndSettledTitles(t
 	}
 }
 
-func TestUninstallHomeCleanupRestoresPreSentinelSubject(t *testing.T) {
+func TestUninstallHomeCleanupRestoresCanonicalTitle(t *testing.T) {
 	root, db := testIndex(t)
 	addTask(t, db, root, "main", "Investigate install failure", nil, "vscode", 0)
 	if _, err := install("main", false, true, false); err != nil {
@@ -437,7 +437,7 @@ func TestUninstallHomeCleanupRestoresPreSentinelSubject(t *testing.T) {
 	}
 	var output bytes.Buffer
 	cleanup := hookPayload("PreToolUse", "main", "cleanup", map[string]any{"title": cleanupMarker}, nil)
-	if err := hook(context.Background(), strings.NewReader(cleanup), &output); err != nil || rewrittenTitle(t, output.Bytes()) != "Investigate install failure" {
+	if err := hook(context.Background(), strings.NewReader(cleanup), &output); err != nil || rewrittenTitle(t, output.Bytes()) != mainTitle {
 		t.Fatalf("home cleanup = %q, %v", output.String(), err)
 	}
 }

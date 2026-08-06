@@ -258,6 +258,36 @@ func TestMaintenanceCancelsOnlyExactKnownFailedCurrentTitle(t *testing.T) {
 	}
 }
 
+func TestMaintenanceCancelsExactFailedPersistentHomeTitle(t *testing.T) {
+	root, db := testIndex(t)
+	addTask(t, db, root, "main", "fresh", nil, "vscode", 0)
+	if err := newStore(stateDir()).update(func(value *state) (bool, error) {
+		value.MainTaskID, value.Phase = "main", phaseMigrationComplete
+		return true, nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	pre := hookPayload("PreToolUse", "main", "failed-home", map[string]any{"title": runningMarker + ": Replacement seed⁣home-attempt"}, nil)
+	var output bytes.Buffer
+	if err := hook(context.Background(), strings.NewReader(pre), &output); err != nil || rewrittenTitle(t, output.Bytes()) != mainTitle {
+		t.Fatalf("home proposal = %q, %v", output.String(), err)
+	}
+	value, _ := newStore(stateDir()).read()
+	if pending := value.Tasks["main"].Pending; pending == nil || pending.Prior != "fresh" || pending.Proposed != mainTitle || pending.Attempt != "home-attempt" {
+		t.Fatalf("home failure fixture = %#v", pending)
+	}
+	t.Setenv("CODEX_THREAD_ID", "main")
+	t.Setenv("THREADBEAR_TITLE_ATTEMPT", "home-attempt")
+	result, err := maintenance(context.Background(), "", "", "main", 14)
+	if err != nil || result.(map[string]any)["cancelled"] != true {
+		t.Fatalf("home cancellation = %#v, %v", result, err)
+	}
+	value, _ = newStore(stateDir()).read()
+	if value.Tasks["main"].Pending != nil {
+		t.Fatal("failed home title remained pending")
+	}
+}
+
 func TestMaintenanceDetectsManualNativeRestore(t *testing.T) {
 	root, db := testIndex(t)
 	now := time.Date(2026, 8, 3, 12, 0, 0, 0, time.UTC)

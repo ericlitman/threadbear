@@ -98,7 +98,7 @@ Capture privacy-safe evidence when preparing a release.
 
 ## Title cleanup
 
-Title cleanup is an on-demand, idempotent control-task operation. It removes every consecutive leading ThreadBear status icon while preserving ordinary emoji and every remaining title byte. A later ordinary turn may add one current status icon again; cleanup prevents old decoration from becoming part of the durable subject.
+Title cleanup is an on-demand, idempotent control-task operation. It removes every consecutive leading ThreadBear status icon while preserving ordinary emoji and every remaining title byte. A later ordinary turn may add one current status icon to an ordinary task again; the persistent home remains exactly `ThreadBear`, and cleanup prevents old decoration from becoming part of any durable subject.
 
 1. Run `status --json`. For ordinary cleanup, verify this task's exact ID equals `main_task_id`; no other task may request it. During uninstall, the exact prepared uninstall task may request cleanup while its persisted operation is active.
 2. Run `inventory --json`. For a quiescent pre-controller `migration_pending` uninstall, do not clean inventory tasks because migration never owned them; inspect only the persistent home and continue at step 4 when it is decorated or its stripped title is the exact install sentinel. Otherwise add the active persisted controller task, if any, to the target set; the inventory intentionally excludes it and the main task.
@@ -106,7 +106,7 @@ Title cleanup is an on-demand, idempotent control-task operation. It removes eve
 4. In stable order, re-read one target and require its exact planned title. Call the native title setter with that explicit `threadId` and title exactly `🧵🐻 strip title icons`. The Pre hook re-reads the target, strips every leading ThreadBear status icon, uses `Untitled task` only when no subject remains, and stages the result through normal ownership state. Require the exact returned task ID/title and re-read the live title before continuing. Never retry an unknown result blindly.
 5. Re-run the complete inventory plus controller read. Finish only when every selected title has no leading ThreadBear status icon and every native result reconciles. On drift, mismatch, or inaccessible state, stop with artifacts and private ownership state intact so the same control task can safely resume.
 
-For ordinary on-demand cleanup, do not target the active control task: its required terminal call will leave exactly one current status icon. For uninstall, target the control task last, immediately before removing ThreadBear, and use the uninstall-turn exception in the managed guidance.
+For ordinary on-demand cleanup, do not target the active control task: it is already exactly `ThreadBear`, and its running and terminal status inputs leave that title unchanged. For uninstall, target the control task last, immediately before removing ThreadBear, and use the uninstall-turn exception in the managed guidance.
 
 ## Uninstall
 

@@ -68,7 +68,7 @@ Only after every check and the dry run succeeds, compose one terminal final answ
 > - Next action added to the thread title → like this.
 > - Codex limits title length limited to 60 UTF-16 units, so I'll truncate as needed.
 > - Small local footprint: one binary in ~/.local/bin, a skill, and two hooks.
-> - One persistent thread, 🧵🐻 ThreadBear 🐻🧵, for changing config and uninstalling.
+> - One persistent thread, ThreadBear, for changing config and uninstalling; its title never receives a status prefix.
 > - Deterministic classification and Luna-low ambiguity checks run in parallel.
 > - A small Luna helper checks in hourly, then stays quiet when there is nothing to do.
 > - Finished tasks can curl up in the archive after 14 quiet days—and come back whenever you need them.
