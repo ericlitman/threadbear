@@ -48,7 +48,7 @@ func TestPublishedInstallGuideMatchesCurrentCLI(t *testing.T) {
 		"Codex limits title length limited to 60 UTF-16 units, so I'll truncate as needed.",
 		"Small local footprint: one binary in ~/.local/bin, a skill, and two hooks.",
 		"One persistent thread, ThreadBear, for changing config and uninstalling; its title never receives a status prefix.",
-		"Deterministic classification and Luna-low ambiguity checks run in parallel.",
+		"Deterministic classification and Luna-medium ambiguity checks run in parallel.",
 		"A small Luna helper checks in hourly, then stays quiet when there is nothing to do.",
 		"Finished tasks can curl up in the archive after 14 quiet days—and come back whenever you need them.",
 		"ThreadBear keeps itself fresh from verified releases and tells you when it has a new coat.",
@@ -79,10 +79,12 @@ func TestPublishedInstallGuideMatchesCurrentCLI(t *testing.T) {
 		"dispatch it within 60 seconds of consent",
 		"using `model:\"gpt-5.6-terra\"`, `thinking:\"medium\"`",
 		"first title mutation issued within 60 seconds of controller start and within 15 seconds of the inventory result",
-		"Worker creation uses the fixed `codex_app__create_thread` surface with `model:\"gpt-5.6-luna\"` and `thinking:\"low\"`",
+		"Worker creation uses the fixed `codex_app__create_thread` surface with `model:\"gpt-5.6-luna\"` and `thinking:\"medium\"`",
 		"❔ ThreadBear could not classify",
 		"Do not open, select, or navigate to it.",
-		"one bounded concurrent spawn wave of fresh read-only Luna-low workers",
+		"one bounded concurrent spawn wave of fresh read-only Luna-medium workers",
+		"accepts and ignores a surplus `action` field",
+		"missing or empty required actions for `blocked`, `needs_input`, or `next_steps`",
 		"Every successful worker handle is recorded and awaited",
 		"results may arrive out of order",
 		"bounded concurrent waves of at most eight distinct task IDs",
@@ -130,19 +132,21 @@ func TestInstalledSkillDefinesAdaptiveMigrationWaves(t *testing.T) {
 		"first stable batch of at most 25",
 		"start the initial bounded worker-spawn wave concurrently with the first deterministic activation-and-setter wave",
 		"within 15 seconds of the inventory result",
-		"`codex_app__create_thread` using `model:\"gpt-5.6-luna\"`, `thinking:\"low\"`",
+		"`codex_app__create_thread` using `model:\"gpt-5.6-luna\"`, `thinking:\"medium\"`",
 		"Do not inspect or compare alternative agent surfaces at runtime.",
 		"stable batches of at most 10 tasks",
 		"Derive each assigned list mechanically from the parsed inventory `task_id` fields in stable order",
 		"never retype, transform, or synthesize an ID",
 		"one JSON array with every assigned ID exactly once and no other ID",
+		"For statuses that do not consume an action (`complete`, `automation`, and `unknown`), accept and ignore a surplus `action` field.",
+		"missing or empty required actions for `blocked`, `needs_input`, or `next_steps`",
 		"Validate only that final-answer item; separate worker commentary is not part of the result grammar.",
 		"followed only by the one terminal ThreadBear status line required by the managed block",
 		"A `wait_threads` snapshot may normalize the one separator newline before the footer into a space",
 		"accept one or more whitespace characters followed by the exact required footer",
 		"do not require a physical newline",
 		"Ignore that required footer only while parsing the array",
-		"one bounded concurrent wave of fresh, read-only Luna-low workers",
+		"one bounded concurrent wave of fresh, read-only Luna-medium workers",
 		"archive all currently validated workers together",
 		"one concurrent `Promise.all` call",
 		"never serialize those archives",
@@ -202,6 +206,30 @@ func TestInstalledSkillDefinesAdaptiveMigrationWaves(t *testing.T) {
 	workerSurface := strings.LastIndex(protocol, "`codex_app__create_thread` using")
 	if firstBatch < 0 || workerSurface < 0 || firstBatch > workerSurface {
 		t.Error("installed skill does not put prompt deterministic progress before Luna worker creation")
+	}
+}
+
+func TestActiveReleaseDocsUseLunaMedium(t *testing.T) {
+	root := filepath.Join("..", "..")
+	paths := []string{
+		"README.md",
+		"INSTALL.md",
+		filepath.Join("site", "install"),
+		filepath.Join("assets", "skill", "SKILL.md"),
+		filepath.Join("docs", "architecture.md"),
+		filepath.Join("docs", "live-eval.md"),
+		filepath.Join("docs", "release-checklist.md"),
+	}
+	for _, path := range paths {
+		data, err := os.ReadFile(filepath.Join(root, path))
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, stale := range []string{"Luna-low", `thinking:"low"`} {
+			if strings.Contains(string(data), stale) {
+				t.Errorf("%s contains stale classifier setting %q", path, stale)
+			}
+		}
 	}
 }
 

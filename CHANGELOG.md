@@ -10,6 +10,7 @@
 - Prevented delayed/older title callbacks and no-op proposals from racing replacement or uninstall teardown with a locked state-format fence, and registered the controller's actual native runtime ID from its marked home delegation instead of trusting Codex's provisional creation handle.
 - Required that marked controller registration also come from Codex's native `subagent` source, preventing an ordinary user task from forging the delegation text and claiming migration authority.
 - Made uninstall resumable from any active native task after a completed migration, a stopped failed migration, or a quiescent pre-controller install, with a canonical undecorated `ThreadBear` home, durable initiator ownership, exact archive restoration, preservation of user-created files beside the managed skill, and binary-last local teardown.
+- Kept ambiguity checks on Luna medium and ignored surplus `action` fields only for classifier statuses that do not consume them, while preserving exact ID, status, required-action, prose, and native-settlement failures.
 
 ## v2.2.0 - 2026-08-03
 
