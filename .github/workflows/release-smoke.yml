@@ -36,8 +36,6 @@ jobs:
           fi
           echo "tag=$RELEASE_TAG" >> "$GITHUB_OUTPUT"
       - uses: actions/checkout@v4
-        with:
-          ref: ${{ steps.release.outputs.tag }}
       - name: Execute published install command
         id: smoke
         run: scripts/release-smoke.sh "${{ steps.release.outputs.tag }}"
