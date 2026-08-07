@@ -132,5 +132,19 @@ test ! -e "$binary"
 test ! -d "$home/.local/share/threadbear"
 test "$(sqlite3 "$codex_home/state_1.sqlite" "SELECT title || ':' || archived FROM threads WHERE id='release-smoke-home';")" = 'ThreadBear:1'
 test "$(sqlite3 "$codex_home/state_1.sqlite" "SELECT title || ':' || archived FROM threads WHERE id='release-smoke-controller';")" = '⏳ Completed controller sentinel:1'
-! grep -F 'THREADBEAR MANAGED BLOCK' "$codex_home/AGENTS.md"
-! grep -F "threadbear' hook" "$codex_home/hooks.json"
+if [ -e "$codex_home/AGENTS.md" ]; then
+	if grep -F 'THREADBEAR MANAGED BLOCK' "$codex_home/AGENTS.md"; then
+		exit 1
+	else
+		status=$?
+		test "$status" -eq 1
+	fi
+fi
+if [ -e "$codex_home/hooks.json" ]; then
+	if grep -F "threadbear' hook" "$codex_home/hooks.json"; then
+		exit 1
+	else
+		status=$?
+		test "$status" -eq 1
+	fi
+fi
