@@ -160,6 +160,7 @@ func TestParseFooterExactGrammar(t *testing.T) {
 		"🧵🐻 next steps (agent): retry the title handoff":     {Status: "next_steps", Action: "retry the title handoff"},
 		"🧵🐻 next steps (external): review the pull request":  {Status: "next_steps", Action: "review the pull request"},
 		"🧵🐻 needs input (you): choose the release region":    {Status: "needs_input", Action: "choose the release region"},
+		"🧵🐻 needs input (you): approve":                      {Status: "needs_input", Action: "approve"},
 		"🧵🐻 blocked (external): restore the signing service": {Status: "blocked", Action: "restore the signing service"},
 	}
 	for message, want := range valid {
@@ -170,7 +171,7 @@ func TestParseFooterExactGrammar(t *testing.T) {
 	}
 	invalid := []string{
 		"", "🧵🐻 Complete", "> 🧵🐻 complete", "🧵🐻 complete\nextra",
-		"🧵🐻 complete\n🧵🐻 automation", "🧵🐻 needs input (you): decide",
+		"🧵🐻 complete\n🧵🐻 automation", "🧵🐻 needs input (you): ", "🧵🐻 needs input (you):   ",
 		"🧵🐻 needs input (agent): choose the region", "🧵🐻 blocked (you): restore the service",
 		"🧵🐻 next steps (bear): approve the release", " 🧵🐻 complete", "🧵🐻 complete ",
 	}

@@ -492,6 +492,35 @@ func TestUninstallPrepareClearsHomeAttestedSettledFailure(t *testing.T) {
 	}
 }
 
+func TestReconcileTitlesAllowsOnlyCanonicalHomeNoop(t *testing.T) {
+	root, db := testIndex(t)
+	addTask(t, db, root, "main", mainTitle, nil, "vscode", 0)
+	addTask(t, db, root, "other", "Other", nil, "vscode", 0)
+	if err := newStore(stateDir()).update(func(value *state) (bool, error) {
+		value.MainTaskID, value.Phase = "main", phaseMigrationComplete
+		value.Tasks["main"] = taskState{Pending: &pendingProposal{Prior: mainTitle, Proposed: mainTitle}}
+		return true, nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if count, err := reconcileTitles(context.Background(), ""); err != nil || count != 1 {
+		t.Fatalf("canonical home reconciliation = %d, %v", count, err)
+	}
+	if err := newStore(stateDir()).update(func(value *state) (bool, error) {
+		value.Tasks["other"] = taskState{Pending: &pendingProposal{Prior: "Other", Proposed: "Other"}}
+		return true, nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := reconcileTitles(context.Background(), ""); err == nil {
+		t.Fatal("ordinary no-op proposal reconciled")
+	}
+	value, _ := newStore(stateDir()).read()
+	if value.Tasks["other"].Pending == nil {
+		t.Fatal("ordinary no-op proposal was cleared")
+	}
+}
+
 func TestSettledMigrationFailureKeepsNonControllerProposal(t *testing.T) {
 	root, db := testIndex(t)
 	for _, id := range []string{"main", "controller", "other"} {
