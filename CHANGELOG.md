@@ -2,6 +2,21 @@
 
 ## Unreleased
 
+## v3.0.0 - 2026-08-07
+
+### Changed
+
+- Reset ThreadBear to one terminal local title command that preserves exact subjects, changes only the status icon, keeps actions in response prose, and leaves unsafe titles unchanged.
+- Made one short-lived official Codex App Server the sole task read/write authority: exact current-title read, at most one `thread/name/set`, and exact readback, with no SQLite access, daemon, proxy, cache, fallback, or retry.
+- Replaced controller migration with explicit, uncapped, serial onboarding that enumerates the complete catalog before writes, skips null, blank, drifted, or unsafe names, never adopts preview text, and reports honest updated, unchanged, skipped, and unconfirmed counts.
+- Removed title interception and configuration dependencies; installation now manages only the binary, subject records, guidance, skill, and daily update-only LaunchAgent.
+- Separated title-core readiness from updater health and made successful updates report restart requirements; pre-install failures preserve the old install while later local write failures report a rerunnable partial with the binary last.
+- Made 2.2.1 upgrades an explicit reset that previews the exact automation and former persistent task, verifies deletion and unpinning before filesystem mutation, imports no state, and performs no heuristic title cleanup.
+
+### Removed
+
+- Removed the running-title call, Post hook, persistent ThreadBear task, migration/controller/classifier machinery, archive maintenance, pending title transactions, repair flows, and global title-failure states.
+
 ## v2.2.1 - 2026-08-07
 
 ### Fixed

@@ -2,48 +2,29 @@
 
 For every ordinary interactive turn in a main Codex Desktop task:
 
-1. Your first action must be one bounded `functions.exec` cell containing the native current-task title call. Its `title` begins exactly `⏳ ThreadBear is working: ` followed by a concise 2–6 word subject for this task. Keep the complete title to one line and at most 58 UTF-16 units after the colon. Omit `threadId`. Do not send commentary or call another tool first.
-2. End the response with exactly one compact status footer chosen from the forms below.
-3. Immediately before the final response, use the same bounded cell with `title` exactly equal to that footer line and no `threadId`, then deliver the response.
-
-For both title moments, replace the title literal and execute this exact shape:
+1. Write the substantive response first. Keep any owner or next action in that prose.
+2. Choose exactly one status: `complete`, `next_steps`, `needs_input`, `blocked`, or `automation`.
+3. Immediately before the final response, run one local title command. Replace only `STATUS` in this exact cell with the exact enum:
 
 ```js
-const attempt = Date.now().toString(36) + "-" + Math.random().toString(36).slice(2);
-const result = await Promise.race([
-  tools.codex_app__set_thread_title({title:"REPLACE WITH THE REQUIRED TITLE" + "⁣" + attempt})
-    .then(value => ({status:"returned", value}))
-    .catch(error => ({status:"failed", error:String(error)})),
-  new Promise(resolve => setTimeout(() => resolve({status:"timeout"}), 4000))
-]);
-if (result.status === "failed") {
-  const recovery = await tools.exec_command({
-    cmd: `THREADBEAR_TITLE_ATTEMPT='${attempt}' ~/.local/bin/threadbear maintenance --cancel "$CODEX_THREAD_ID" --json`,
-    yield_time_ms: 4000, max_output_tokens: 1000
-  });
-  result.recovery = recovery.exit_code === 0 ? "settled" : "failed";
-}
+const result = await tools.exec_command({
+  cmd:"\"$HOME/.local/bin/threadbear\" title --status STATUS --json",
+  yield_time_ms:4000,
+  max_output_tokens:1000
+});
 text(result);
 ```
 
-Make exactly one native attempt. The hook strips the opaque attempt suffix before the title reaches Codex. The four-second timer is the native wait budget. If it wins, the write result is unknown: end the cell, never retry or await that promise, never cancel it, and continue the turn. Only an explicit returned failure runs the local recovery command; it clears solely the exact caller's proposal carrying that same attempt ID while native readback still equals its recorded prior title. Continue even when that guarded recovery fails. Do not call the native title tool directly outside this bounded cell.
+Make exactly one attempt at that terminal moment. Never run it as a progress update. If it fails or has not returned after the bounded yield, do not poll, retry, reconcile, or delay the response. The failure is local to this turn.
 
-This bounded current-task shape applies only to the two ordinary title moments above, where `threadId` is omitted. Explicit-target lifecycle mutations are governed by the installed ThreadBear skill instead. Follow that lifecycle's batching and wait rules; do not add this `Promise.race` unless the skill explicitly requires a four-second attempt.
+The status controls only the visible icon. ThreadBear preserves the task's exact safe subject and user-authored emoji. It never puts an owner or action in the title. Use:
 
-The persistent ThreadBear home is the one exception: every status input leaves its visible title exactly `ThreadBear`. For other tasks, ThreadBear uses the first-call subject only when a fresh task still exposes its raw first message; explicit names, generated short titles, committed subjects, and later user renames remain authoritative. Its hooks expand the compact inputs into the stable visible title. They do not repair stopped turns. If the user stops a turn, the running title remains until the next real turn replaces it.
+- `complete` when the work is finished with no warranted follow-up.
+- `next_steps` when the response establishes one concrete next action for the user, agent, or an external party.
+- `needs_input` when required user input is blocking progress.
+- `blocked` when an external condition prevents progress.
+- `automation` for healthy scheduled or automated work with nothing pending.
 
-## Status footer
+Use `complete` unless the response itself establishes another disposition. Generic offers and speculative possibilities are not next steps.
 
-Use the matching literal example as the footer's shape:
-
-- Finished with no warranted follow-up: `🧵🐻 complete`
-- Finished with one concrete action for the user: `🧵🐻 next steps (you): approve the release plan`
-- Finished with one concrete action for the agent: `🧵🐻 next steps (agent): implement the approved plan`
-- Finished with one concrete action for someone or something external: `🧵🐻 next steps (external): review the security exception`
-- Waiting for required user input: `🧵🐻 needs input (you): choose the release region`
-- Unable to continue because of an external condition: `🧵🐻 blocked (external): restore the signing service`
-- Healthy scheduled or automated work with nothing pending: `🧵🐻 automation`
-
-The footer must be the final non-empty line. Never write the literal placeholder words `STATUS`, `OWNER`, or `ACTION`. Report the turn's actual disposition. Use `complete` unless the substantive response already establishes one clear, concrete, warranted next step. Generic offers, speculative possibilities, and mentions of recorded work do not qualify.
-
-A prepared uninstall suspends this turn protocol from the moment `uninstall --prepare` succeeds until that operation is aborted or committed: make no running-title or footer call while it is pending. After commit has removed the managed hooks and guidance, respond without another title call or ThreadBear footer so the clean control-task title is not decorated again. After abort, ordinary title calls resume on the next turn.
+After a confirmed uninstall removes ThreadBear and this guidance, do not run the title command. Ask the user to restart Codex so open tasks stop using their snapshotted guidance.

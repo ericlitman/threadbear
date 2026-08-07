@@ -1,35 +1,41 @@
-ThreadBear keeps Codex task titles useful with native per-turn updates.
+ThreadBear keeps Codex task titles useful with one local update at the end of each turn.
 
 Usage:
   threadbear <command> [flags]
 
 Commands:
   install      Preview or install ThreadBear
-  inventory    Classify native-addressable tasks for guided setup
-  maintenance  Plan and reconcile safe native task archives
-  migration    Record the single installation migration controller phase
-  status       Check the installed helper, hooks, and migration phase
+  title        Set this task's status icon while preserving its exact subject
+  onboard      Preview or apply existing-task onboarding
+  status       Check title-core readiness and updater health separately
   self-test    Validate a release candidate
-  update       Install the latest verified release
-  uninstall    Remove ThreadBear after control-task title cleanup
+  update       Install the latest verified release and report restart need
+  uninstall    Remove ThreadBear-owned local artifacts
   version      Show the installed version
 
+Every command accepts --json.
+
+Title:
+  threadbear title --status <complete|next_steps|needs_input|blocked|automation> --json
+
+The managed guidance runs title exactly once immediately before a final response.
+ThreadBear reads the exact current title, writes one icon plus the safe subject, and verifies the result through Codex App Server.
+A local failure never blocks the response and is never retried.
+
+Onboard:
+  threadbear onboard --dry-run --json
+  threadbear onboard --noninteractive --confirm --json
+
+The preview enumerates the complete local catalog before any write. The confirmed pass handles every safe target serially with no item cap, skips drift or uncertainty, and reports honest updated, unchanged, skipped, and unconfirmed counts.
+
 Install flags:
-  --control-task-id ID  Persist the initiating task as ThreadBear's home
-  --debug-canaries      Run guided Desktop canaries after installation
-
-Migration flags:
-  --phase PHASE         migration_running, migration_complete, or migration_failed
-  --controller-task-id ID
-  --settled             Confirm a failed wave has no unknown native calls
-
-Maintenance flags:
-  --archive TASK_ID      Stage or reconcile one eligible archive
-  --restore TASK_ID      Stage or reconcile one ThreadBear-owned restore
-  --cancel TASK_ID       Clear one known-unapplied pending operation
-  --archive-after-days N Quiet completed days required (default 14)
+  --dry-run         Preview without changing the machine
+  --noninteractive  Do not prompt
+  --confirm         Confirm the described install or reset
+  --reset           Replace a consented, native-cleaned legacy 2.2.1 installation
+  --no-onboard      Install without offering historical onboarding
 
 Uninstall flags:
-  --prepare               Persist the active initiating task and original home state
-  --abort                 Abandon a prepared uninstall after restoring the home archive state
-  --initiator-task-id ID  Active task that owns preparation, cleanup, and commit
+  --dry-run         Preview without changing the machine
+  --noninteractive  Do not prompt
+  --confirm         Confirm removal

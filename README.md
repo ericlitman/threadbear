@@ -1,45 +1,48 @@
 # ThreadBear
 
-ThreadBear keeps Codex Desktop task titles useful in the turn that is doing the work. Managed guidance asks each ordinary turn to make two native title calls: one before work starts and one immediately before the final status footer. Two small hooks preserve the task's user-owned subject and expand those compact calls into the visible title.
+ThreadBear is a small local title decorator for Codex Desktop. Immediately before each ordinary final response, managed guidance runs one local command. ThreadBear keeps the exact user-owned subject and changes only the leading status icon.
 
 | Mark | Meaning |
 | --- | --- |
-| ⏳ | running |
 | 🚨 | blocked |
 | 🙋 | needs input |
 | 🤖 | healthy automation |
 | ➡️ | next steps |
 | ✅ | complete |
-| ❔ | unknown legacy state |
+| 🐻 | existing task onboarded, status not yet known |
 
-The canonical shape is `<mark> <subject>[ → <action>]`. ThreadBear owns only decoration it previously committed. User renames are adopted intact, and every rendered title is bounded to Codex Desktop's 60 UTF-16-unit limit. When next steps do not fit, ThreadBear preserves the standalone subject display and truncates or omits only the action.
+The visible shape is `<mark> <exact subject>`. Owners and actions stay in the response prose, not the title. ThreadBear never normalizes, strips, or truncates a safe subject. A title it cannot handle safely stays unchanged.
 
 ## Install
 
-Open [INSTALL.md](INSTALL.md) in a new Codex task and follow the guided preview, consent, persistent-home setup, and supervised controller migration.
+Open [INSTALL.md](INSTALL.md) in a Codex task and follow the guided preview and consent flow. There is no persistent ThreadBear task or controller. After installation, restart Codex so open tasks load the new managed guidance, then ask for **ThreadBear onboard** if you want existing local titles updated.
 
-ThreadBear installs a standalone Go binary, one small private state file, managed guidance, two Codex hook entries, and one consented hourly Luna heartbeat. The initiating task becomes the persistent `ThreadBear` home and never receives a status title; one ephemeral controller owns installation migration so that home returns promptly, while the heartbeat later handles quiet housekeeping from that task.
+ThreadBear installs one Go binary, tiny private per-task subject records, one managed instruction block, one skill, and one daily update-only LaunchAgent. A consented reset from 2.2.1 deletes the exact old automation, unpins the exact former persistent task without renaming it, replaces managed artifacts, imports no old state, and does not guess at legacy title cleanup.
 
 ## Commands
 
 ```text
 threadbear install
-threadbear inventory
-threadbear migration
-threadbear maintenance
-threadbear update
+threadbear title --status complete
+threadbear onboard --dry-run
+threadbear onboard --noninteractive --confirm
 threadbear status
 threadbear self-test
+threadbear update
 threadbear uninstall
 threadbear version
 ```
 
-Every command accepts `--json`. `inventory` is read-only and includes every native-addressable unarchived local Codex Desktop or CLI task, including projectless tasks, excluding the persisted main and controller tasks. Rollout-only internal records and older signed-in ChatGPT chat-history rows that Codex's native title setter cannot enumerate or rename are excluded. Those chat-history rows may remain unchanged in the Desktop sidebar even after local migration completes. `status` reports `ready:true` only after `migration_complete`; the installed binary's `help` output is authoritative.
+Every command accepts `--json`; the installed binary's `help` output is authoritative.
 
-From the persistent ThreadBear task, ask to “strip title icons” or “check for updates now” at any time. The control task serially removes all leading ThreadBear status marks through the same native setter and exact Pre/Post verification used by ordinary turns. The same task's hourly Luna helper can archive only deterministically eligible, ThreadBear-owned complete user tasks after 14 quiet days, restore only archives recorded in its private ownership ledger, and run the deterministic verified update check last. Guided uninstall may start from any active native task, persists that task as the sole operation owner, temporarily restores an archived ThreadBear home only for final title cleanup, puts it back in its original archive state, and removes the binary only after native settlement and every other ThreadBear-owned local artifact while preserving user-created files beside the managed skill.
+The terminal `title` command accepts exactly `complete`, `next_steps`, `needs_input`, `blocked`, or `automation`. The enum controls only the icon. The binary opens one short-lived official Codex App Server, reads the exact current title, resolves the safe subject, makes at most one `thread/name/set` request, and rereads the title. A failure or unconfirmed result stays local to that turn and never blocks the response or triggers a retry.
+
+`onboard --dry-run --json` enumerates the complete unarchived App Server catalog before any write and reports a full plan. Explicit consent runs `onboard --noninteractive --confirm --json`, which processes every safe target serially with no arbitrary item cap. It rereads each target, skips drift or uncertainty, attempts one write, and counts it only after exact readback. The receipt accounts honestly for updated, unchanged, skipped, and unconfirmed tasks. A fresh rerun safely continues after an interruption.
 
 ## Boundaries
 
-ThreadBear installs no daemon or LaunchAgent. One explicitly consented hourly Codex heartbeat runs maintenance from the persistent Luna-medium task and stays quiet on no-op runs. The CLI alone selects archive candidates, stages one operation, reconciles ownership, and chooses the exact Darwin asset from the official release manifest. Luna calls supported native controls and communicates typed results; it never edits private UI storage, interprets prose to add targets, or chooses/downloads/checksums a release. Updates refuse while archive work is pending, verify repository URLs, SHA-256, embedded version, candidate self-test, candidate install, and installed status, and never downgrade. ThreadBear adds no token counts, model call, or narration to ordinary turns. Installation uses one Terra-medium controller, bounded concurrent native-title waves, and bounded read-only Luna-medium classifier waves only when genuinely ambiguous history cannot be classified deterministically; workers classify and never write titles.
+The short-lived official App Server is ThreadBear's only task read/write authority. ThreadBear does not open or edit Codex SQLite, Desktop caches, or task prose. It does not archive tasks, classify in the background, retry title writes, or maintain a queue, controller, repair pass, or persistent management task.
 
-See [architecture](docs/architecture.md), [compatibility](docs/compatibility.md), and the [status footer convention](docs/status-convention.md).
+The daily LaunchAgent does one job: check for a verified official update. Network and candidate-verification failures leave the old install untouched. A later managed-surface write can produce a truthful rerunnable partial, with the binary written last. Successful updates report whether Codex must restart. Updater health is separate from title-core `ready`; it never reads tasks or changes titles.
+
+See [architecture](docs/architecture.md), [compatibility](docs/compatibility.md), and the [status convention](docs/status-convention.md).

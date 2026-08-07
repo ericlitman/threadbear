@@ -1,13 +1,41 @@
 # Live evaluation
 
-Run release QA in genuinely fresh Codex Desktop tasks so hook and managed-guidance snapshots cannot mask installation defects.
+Run release QA with the exact reviewed candidate in fresh Codex Desktop tasks after a clean restart. Unit tests, App Server responses, and local state are supporting evidence; verify the rendered active header and sidebar users actually see.
 
-Before this release matrix, cite a supported capability record for every load-bearing title mechanism. If the candidate depends on a new probe, close its capability preflight and record the bidirectionally linked result experiment in `experiments/registry.json`. Record seam-specific evidence during implementation. The matrix is the third gate and applies only to the installed exact candidate after a clean restart.
+Record candidate checksum, Codex version, task IDs, inputs, App Server results, rendered results, restart results, and cleanup. Use recoverable test tasks and privacy-safe screenshots only for release QA, never ordinary installation.
 
-Prove complete, all three next-step owners, needs input, blocked, automation, tool-free, continued, stopped, long-subject, duplicate-title, user-rename, and hook-failure turns. Include fresh tasks where Codex has already generated a short title and where the index still contains the exact or truncated first message, plus a delegated envelope. For each ordinary turn, record that the seeded native running call was the first action, the terminal call immediately preceded the final response, the exact footer was final, and each title moment made exactly one native attempt that returned or timed out within four seconds.
+## Terminal title writer
 
-Run this development-only matrix after installing the candidate with `threadbear install --debug-canaries`; ordinary guided installation never runs it. Rendered proof is mandatory. Verify the running and terminal titles in both the active header and sidebar before their corresponding boundaries. Use one explicit-target migration canary and prove that only the intended mounted row repaints. Confirm that Stop removes the official spinner, leaves the running title, and creates no additional ThreadBear turn. Capture privacy-safe screenshots.
+Exercise `complete`, `next_steps`, `needs_input`, `blocked`, and `automation`. Include one tool-free turn and one tool-using turn. For each, prove:
 
-Exercise installation against 0-, 1-, and 200-task inventories, including projectless tasks, exact historical footers, genuine ambiguity, v2-owned decoration, user-authored icons and arrows, concurrent rename/archive, interruption, and clean rerun. Read-only Luna-medium classifier workers must be used only for genuine ambiguity, in fixed batches of at most 10, and never write titles. Prove bounded classifier waves under partial capacity, a capacity error after successful spawns, out-of-order completion, one eight-minute worker timeout with its one bounded retry, completed-result preservation, surplus-action tolerance only for `complete`, `automation`, and `unknown`, strict required actions for action-bearing statuses, and a final zero-remaining inventory with no retained worker left active or unaccounted for. In parallel, prove native title calls run in reconciled waves of at most eight distinct targets, deterministic work does not wait for ambiguous classification, and each settled wave is followed by authoritative inventory before the next wave.
+- there was no running title update;
+- the one local `threadbear title --status ENUM --json` command was the last tool action before the final response;
+- the enum changed only the icon while the exact subject survived;
+- owners and actions remained in response prose;
+- the command exited within its bound and was never polled, retried, or recovered;
+- App Server acknowledgement and exact readback agreed;
+- the active header and sidebar showed the exact expected title.
 
-Exercise archived-control uninstall without visual or computer control. Use a decorated persisted main that begins archived, a different completed archived controller sentinel, and a separate active initiator. Record candidate SHA and binary hash, native title/archive readbacks, automation identity and deletion, config hashes, and final artifact absence. Interrupt a fresh run after temporary main activation, restore the original archive state, then resume from the same initiator and prove no settled native mutation is duplicated. Separately force local teardown failure before state removal, resume with the still-installed candidate, and require one retained-candidate no-op uninstall after completion.
+Exercise a generated short title, continued task, user rename, leading user emoji, user arrow, duplicate subject, maximum fitting subject, overlong subject, multiline or control text, and raw delegated envelope. Safe renames must survive byte-for-byte. Unsafe input must leave only that title unchanged without blocking the response.
+
+Force App Server start, initialize, current-read, set, readback, and exit failures; missing or malformed current task ID; null and blank `name`; acknowledgement without readback; timeout; and a rename concurrent with a delayed write. Require at most one `thread/name/set` call and no blind retry, alternate source, repair command, pending proposal, or global failure. If this seam causes practical corruption or response blocking, disable rewriting rather than add reconciliation.
+
+Restart Codex after a successful write. Confirm the exact title remains in the sidebar and the next terminal turn still preserves the subject.
+
+## Onboarding
+
+For `onboard --dry-run --json`, prove the exact App Server handshake and cursor protocol. Include more than 100 tasks so the catalog is larger than 50 and necessarily multi-page; inject notifications and a duplicate ID. Prove complete deduplication, no arbitrary cap, no model or SQLite access, and zero mutation. Null and blank names remain raw even when `preview` looks safe. Fail a later page and prove zero writes because no partial plan escaped.
+
+After explicit consent, run exact `onboard --noninteractive --confirm --json`. Prove every safe target is handled serially and every returned item is accounted for as updated, unchanged, skipped, or unconfirmed. Cover the active caller, null and blank names, unreadable and drifted tasks, ambiguous old status prefixes, overlong text, user emoji, already-onboarded titles, setter failure, and acknowledgement without exact readback. Each safe target receives at most one neutral `🐻 <exact subject>` write after fresh readback. Interrupt a pass, rerun from another task, and prove completed titles are not doubled.
+
+Live-test the complete real local catalog with no artificial first-50 subset. Verify the rendered sidebar before and after a clean restart.
+
+## Lifecycle
+
+Prove fresh install, reinstall, and a consented exact 2.2.1 reset. The preview exposes the legacy main-task ID and complete automation fingerprint. Verify collision and missing-target dry runs mutate nothing. After consent, delete and verify only the exact automation, unpin and verify only the exact former persistent task, and do not rename it. Either native failure aborts before filesystem reset. The completed reset imports no old state, leaves ambiguous legacy titles untouched, installs one daily updater, and requires restart.
+
+Exercise dry-run preflight against modified managed guidance, skill, LaunchAgent, and filesystem collisions. Exercise install/update and update/uninstall lock races; each loser reports busy without corrupting either lifecycle.
+
+Exercise manual and scheduled updates against an isolated official-release service. Origin, platform, checksum, version, and self-test failures must happen before writes and preserve the old install. Inject each local managed-surface failure and require `partial:true`, the failed stage, restart implication, and one safe rerun while the prior binary remains active. Successful update JSON includes `restart_required`; the LaunchAgent invokes only update; missing updater health does not change title-core `ready`.
+
+Uninstall from an ordinary task. Prove preview and commit JSON are complete and exact. Preserve unrelated AGENTS content, skills, settings, files, and LaunchAgents, and remove the binary last. Historical title cleanup is not a gate and icons may remain. After committed removal, do not run the title command. Restart Codex and prove the managed protocol is gone.

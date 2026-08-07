@@ -44,27 +44,28 @@ type releaseManifest struct {
 	Assets  map[string]releaseAsset `json:"assets"`
 }
 
-func update(ctx context.Context) (any, error) {
-	operationLock, err := newStore(stateDir()).operationLock()
+type updateReceipt struct {
+	CheckedAt       string `json:"checked_at"`
+	From            string `json:"from"`
+	Version         string `json:"version"`
+	Outcome         string `json:"outcome"`
+	Automatic       bool   `json:"automatic"`
+	RestartRequired bool   `json:"restart_required"`
+	Error           string `json:"error,omitempty"`
+}
+
+func update(ctx context.Context, automatic bool) (result any, returnErr error) {
+	p := installPaths()
+	if err := requireCurrentFormatInstall(p); err != nil {
+		return nil, updateFailure("installation", err)
+	}
+	updateLock, err := updateCheckLock()
 	if err != nil {
 		return nil, updateFailure("busy", err)
 	}
-	defer unlock(operationLock)
-	value, err := newStore(stateDir()).read()
-	if err != nil {
-		return nil, updateFailure("state", err)
-	}
-	if value.MainTaskID == "" || value.Phase != phaseMigrationComplete {
-		return nil, updateFailure("state", errors.New("update requires a completed ThreadBear installation"))
-	}
-	if value.ArchivePending != nil {
-		return nil, updateFailure("archive_pending", errors.New("reconcile the pending native archive operation before updating"))
-	}
-	if value.UninstallPending != nil {
-		return nil, updateFailure("uninstall_pending", errors.New("finish the prepared uninstall before updating"))
-	}
-	if hasPendingTitle(value) {
-		return nil, updateFailure("title_pending", errors.New("settle pending native title operations before updating"))
+	defer unlock(updateLock)
+	if err := requireCurrentFormatInstall(p); err != nil {
+		return nil, updateFailure("installation", err)
 	}
 	assetKey, assetName, err := updatePlatform()
 	if err != nil {
@@ -74,7 +75,14 @@ func update(ctx context.Context) (any, error) {
 	if err != nil {
 		return nil, updateFailure("installed_version", err)
 	}
-	_, healthErr := status(ctx)
+	receipt := updateReceipt{From: version, Version: version, Automatic: automatic}
+	defer func() {
+		if returnErr == nil {
+			return
+		}
+		receipt.Outcome, receipt.Error = "failed", returnErr.Error()
+		_ = writeUpdateReceiptForCurrentInstall(p, receipt)
+	}()
 	manifestData, err := fetchUpdate(ctx, updateManifestURL, updateManifestLimit)
 	if err != nil {
 		return nil, updateFailure("manifest_download", err)
@@ -87,12 +95,19 @@ func update(ctx context.Context) (any, error) {
 	if err != nil {
 		return nil, updateFailure("manifest_version", err)
 	}
+	receipt.Version = manifest.Version
 	comparison := slices.Compare(current[:], latest[:])
-	if comparison >= 0 && healthErr == nil {
-		return map[string]any{"ready": true, "current": true, "version": version, "latest": manifest.Version}, nil
-	}
-	if comparison > 0 {
-		return nil, updateFailure("health", errors.New("installed version is newer than the latest release but managed surfaces are unhealthy"))
+	if comparison >= 0 {
+		health, healthErr := status(ctx)
+		if healthErr != nil {
+			return health, updateFailure("installation", healthErr)
+		}
+		result := map[string]any{"ready": true, "current": true, "version": version, "latest": manifest.Version, "automatic": automatic, "restart_required": false}
+		receipt.Outcome = "current"
+		if err := writeUpdateReceiptForCurrentInstall(p, receipt); err != nil {
+			return result, updateFailure("receipt", err)
+		}
+		return result, nil
 	}
 	asset, ok := manifest.Assets[assetKey]
 	if !ok {
@@ -135,15 +150,48 @@ func update(ctx context.Context) (any, error) {
 	if err := requireCandidate(ctx, candidate, updateCandidateTimeout, "self-test", manifest.Version, "self-test", "--candidate", "--json"); err != nil {
 		return nil, updateFailure("candidate_self_test", err)
 	}
-	if err := requireCandidate(ctx, candidate, updateInstallTimeout, "install", "", "install", "--noninteractive", "--confirm", "--json"); err != nil {
+	receipt.RestartRequired = true
+	if err := requireCandidate(ctx, candidate, updateInstallTimeout, "install", "", "install", "--automatic", "--no-onboard", "--noninteractive", "--confirm", "--json"); err != nil {
 		return nil, updateFailure("candidate_install", err)
 	}
 	if err := requireCandidate(ctx, candidate, updateCandidateTimeout, "status", manifest.Version, "status", "--json"); err != nil {
 		return nil, updateFailure("installed_status", err)
 	}
-	result := map[string]any{"ready": true, "from": version, "version": manifest.Version}
-	result[map[bool]string{true: "updated", false: "repaired"}[comparison < 0]] = true
+	result = map[string]any{"ready": true, "from": version, "version": manifest.Version, "automatic": automatic, "updated": true, "restart_required": true}
+	receipt.Outcome = "updated"
+	if err := writeUpdateReceiptForCurrentInstall(p, receipt); err != nil {
+		return result, updateFailure("receipt", err)
+	}
 	return result, nil
+}
+
+func writeUpdateReceiptForCurrentInstall(p lifecyclePaths, receipt updateReceipt) error {
+	lock, err := existingLifecycleLock("lifecycle.lock")
+	if err != nil {
+		return err
+	}
+	defer unlock(lock)
+	if err := requireCurrentFormatInstall(p); err != nil {
+		return err
+	}
+	receipt.CheckedAt = time.Now().UTC().Format(time.RFC3339)
+	data, err := json.Marshal(receipt)
+	if err != nil {
+		return err
+	}
+	return writeAtomic(p.updateReceipt, append(data, '\n'), 0o600)
+}
+
+func readUpdateReceipt(path string) (updateReceipt, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return updateReceipt{}, err
+	}
+	var receipt updateReceipt
+	if json.Unmarshal(data, &receipt) != nil || receipt.CheckedAt == "" || receipt.From == "" || receipt.Version == "" || receipt.Outcome == "" {
+		return updateReceipt{}, errors.New("update receipt is invalid")
+	}
+	return receipt, nil
 }
 func updatePlatform() (string, string, error) {
 	if updateGOOS != "darwin" {
@@ -224,7 +272,7 @@ func parseChecksum(data []byte) ([]byte, error) {
 func requireCandidate(parent context.Context, candidate string, timeout time.Duration, operation, expectedVersion string, args ...string) error {
 	ctx, cancel := context.WithTimeout(parent, timeout)
 	defer cancel()
-	var output cappedOutput
+	var output bytes.Buffer
 	command := exec.CommandContext(ctx, candidate, args...)
 	command.Stdout, command.Stderr = &output, &output
 	err := command.Run()
@@ -233,9 +281,6 @@ func requireCandidate(parent context.Context, candidate string, timeout time.Dur
 	}
 	if err != nil {
 		return fmt.Errorf("candidate failed: %w: %s", err, strings.TrimSpace(output.String()))
-	}
-	if output.Overflow {
-		return errors.New("candidate output exceeded the size limit")
 	}
 	var result map[string]any
 	if json.Unmarshal(output.Bytes(), &result) != nil {
@@ -251,21 +296,4 @@ func requireCandidate(parent context.Context, candidate string, timeout time.Dur
 		return errors.New("candidate did not confirm installation")
 	}
 	return nil
-}
-
-type cappedOutput struct {
-	bytes.Buffer
-	Overflow bool
-}
-
-func (output *cappedOutput) Write(data []byte) (int, error) {
-	const limit = 1 << 20
-	written := len(data)
-	remaining := limit - output.Len()
-	if remaining < len(data) {
-		output.Overflow = true
-		data = data[:max(0, remaining)]
-	}
-	_, _ = output.Buffer.Write(data)
-	return written, nil
 }

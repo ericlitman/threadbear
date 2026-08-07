@@ -4,13 +4,13 @@ on:
   workflow_call:
     inputs:
       tag:
-        description: Published stable-shaped release tag (vN.N.N)
+        description: Published current release tag (vN.N.N)
         required: true
         type: string
   workflow_dispatch:
     inputs:
       tag:
-        description: Published stable-shaped release tag (vN.N.N)
+        description: Published current release tag (vN.N.N)
         required: true
         type: string
 
@@ -31,7 +31,7 @@ jobs:
           RELEASE_TAG: ${{ inputs.tag }}
         run: |
           if ! printf '%s\n' "$RELEASE_TAG" | awk '/^v[0-9]+\.[0-9]+\.[0-9]+$/ { ok=1 } END { exit(ok ? 0 : 1) }'; then
-            echo "release smoke requires an already-published stable-shaped vN.N.N tag" >&2
+            echo "release smoke requires the published current stable-shaped vN.N.N tag" >&2
             exit 1
           fi
           echo "tag=$RELEASE_TAG" >> "$GITHUB_OUTPUT"
@@ -51,8 +51,8 @@ jobs:
             echo "- Release: \`$RELEASE_TAG\`"
             echo "- Result: \`$SMOKE_OUTCOME\`"
             echo "- Runner architecture: \`$(uname -m)\`"
-          echo "- Proved: live release manifest, checksum, candidate self-test, binary install, native PreToolUse/PostToolUse title finalization, settled state and inventory, prepared active-task uninstall, fixture-simulated archived-control cleanup/restoration, completed-controller preservation, and binary-last teardown. Real native archive control remains a separate release canary."
-            echo "- Not proved: real Codex auth, rendered Desktop titles, Luna behavior, or architectures other than this runner."
+            echo "- Proved: published bootstrap, manifest, checksum, candidate version and self-test; dry-run collision refusal; exact 2.2.1 reset fingerprint, --reset gate, filesystem reset, and teardown; title-core readiness without the updater; direct terminal title read/set/readback with exact subject preservation, local failure, and unconfirmed acknowledgement; a complete multi-page onboarding preview with deduplication and failure-before-writes; an uncapped serial confirmed pass with drift, skipped, updated, unchanged, and unconfirmed accounting; no hooks.json mutation or SQLite dependency; real-launchd automatic and direct current updates with restart reporting; an update/uninstall overlap; and complete uninstall JSON with binary-last teardown and unrelated-content preservation."
+            echo "- Not proved: real Codex auth, native automation deletion or exact-task unpin, rendered Desktop repaint, clean-restart persistence, native timeout behavior, a newer-version partial update, or architectures other than this runner. Those seams require the recorded local Desktop and fault-injection canaries."
             echo "- Deployment timing: a Pages/CDN lag can make the live bootstrap older than the release commit; that red result still requires operator investigation."
             echo "- A red result marks the published release for operator action; this workflow does not delete, demote, or retry a release."
           } >> "$GITHUB_STEP_SUMMARY"
