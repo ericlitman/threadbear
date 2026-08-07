@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## v2.2.1 - 2026-08-07
+
 ### Fixed
 
 - Completed guided title migration in bounded concurrent waves without client-created native-call timeouts, while keeping exact inventory reconciliation and read-only Luna classifiers isolated to temporary installation tasks.

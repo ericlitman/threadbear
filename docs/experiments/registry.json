@@ -60,13 +60,13 @@
     {
       "id": "TB-CAP-BOUNDED-MIGRATION-WAVES",
       "premise": "One exact candidate can migrate the full native-addressable local task inventory in bounded concurrent title waves within six minutes and uninstall without a queued hook recreating state or a pending title landing after teardown.",
-      "status": "unresolved",
+      "status": "established",
       "supported_by": [
-        "TB-EXP-0120-004"
+        "TB-EXP-0120-006"
       ],
       "contradicted_by": [],
-      "decision": "Candidate 8894c6ed completed two clean-restart 98-task migrations in 5:36.753 and 5:50.108, followed by clean uninstalls in 1:45.849 and 2:02.624, but TB-PRE-0120-002 required the canonical home-title condition to be captured inside both declared cycles and cycle 2 did not capture it. The later focused canonical-home canary exceeded that preflight stop condition and is recorded only as non-capability seam observation TB-EXP-0120-005. The action-grammar correction also creates a new executable candidate, so neither the old binary nor its timed cycles establish the corrected release. TB-PRE-0120-003 must run against one exact corrected candidate before this capability or v2.2.1 release evidence can be claimed.",
-      "next_preflight": "TB-PRE-0120-003"
+      "decision": "Exact corrected candidate 40285dd completed the two declared clean-restart 98-task migrations in 5:26.311 and 4:15.414, followed by serial clean uninstalls in 1:35.540 and 1:32.440. Both cycles captured authoritative running and terminal current-home results plus immediate readback exactly equal to ThreadBear, reached migration_complete with 98 applied and zero remaining, archived every classifier and controller, preserved the neighboring user file byte-exactly, and left every ThreadBear-owned artifact absent. TB-EXP-0120-006 closes TB-PRE-0120-003 and establishes the bounded migration premise for this exact candidate, Desktop build, inventory, and protocol.",
+      "next_preflight": null
     }
   ],
   "experiments": [
@@ -881,6 +881,51 @@
       "applicability": "Focused non-capability seam observation for exact candidate 8894c6ed only. It exceeded TB-PRE-0120-002 after that preflight stop condition had been reached, so it cannot support TB-CAP-BOUNDED-MIGRATION-WAVES, close a release gate, or validate the corrected post-review executable candidate.",
       "supersedes": [],
       "conflicts": []
+    },
+    {
+      "id": "TB-EXP-0120-006",
+      "date": "2026-08-07",
+      "issue": "BEAR-115",
+      "preflight_id": "TB-PRE-0120-003",
+      "question": "Does exact corrected v2.2.1 candidate 40285dd complete two clean-restart 98-title migrations under six minutes, keep the persistent home exactly ThreadBear through running and terminal status calls, and then uninstall cleanly without removing neighboring user content or leaving owned artifacts?",
+      "invariant": "One exact built candidate must satisfy both complete lifecycle cycles with authoritative current-home results and readback, zero remaining inventory, terminal native calls, privacy-safe rendered proof, byte-exact neighboring content, and total owned-artifact removal.",
+      "environment": {
+        "threadbear_version": "2.2.1 exact corrected release candidate",
+        "git_sha": "40285dd12c26f0dbd34e9ed9d5f2424b6c8320d8",
+        "codex_version": "Desktop 26.730.61639 build 6234; embedded CLI 0.147.0-alpha.1.2",
+        "codex_source": "vscode",
+        "host": "local macOS arm64",
+        "task_state": "98 native-addressable active regular tasks; persistent home active and pinned; one distinct Terra-medium controller and seven Luna-medium classifiers archived after each completed migration; one neighboring user-created skill file retained across both uninstalls",
+        "restart_state": "each counted cycle began from a clean uninstalled Codex restart, then loaded the exact installed hooks through one clean restart before timed migration; candidate binary and repository code were unchanged between both complete cycles",
+        "hook_fingerprint": "candidate binary SHA-256 794b0477be6a202b6520e8047c81a382c7015d454cb6d174001caec3c71d5559; installed hook wrapper fingerprint unknown: the declared uninstalls removed the wrappers before registry closure",
+        "guidance_fingerprint": "managed guidance SHA-256 15642eb59a5c5cb9abe6d01e331ec6b540995139f70423d1b03219ce710eac0f; installed skill SHA-256 76e5068f167855ea755a7bbfec0f584b610d27531160404abacef47997ccbc01"
+      },
+      "invocation": {
+        "outer_tool": "Codex Desktop native task controls orchestrated through functions.exec with monotonic wall timers and terminal-state Computer Use screenshots",
+        "code": "candidate dry-run and confirmed install; exact canonical home running assertion and immediate readback; verified paused heartbeat; one projectless Terra-medium controller; seven mechanically derived Luna-medium classifier batches; bounded max-eight native title waves; immediate home-owned terminal migration transition; terminal home assertion and immediate readback; prepared serial title cleanup; exact archive restoration; automation deletion at the commit boundary; binary-last confirmed uninstall",
+        "native_tool_identity": "codex_appset_thread_title, codex_appread_thread, codex_appwait_threads, codex_appset_thread_pinned, codex_appset_thread_archived, codex_appautomation_update, codex_appcreate_thread",
+        "target_identity_mode": "current persistent home by omitted task ID only for its required running and terminal status calls; every migration and cleanup mutation used an authoritative explicit native task ID"
+      },
+      "evidence": [
+        "git:40285dd12c26f0dbd34e9ed9d5f2424b6c8320d8",
+        "github-pr:122",
+        "codex-rollout:019fcca7-7093-70f3-a18d-260951571103",
+        "codex-rollout:019fda81-61df-7ec2-8b11-d81a2862c1dd",
+        "codex-rollout:019fda9d-d6f1-7c11-8bed-249b93182c03"
+      ],
+      "result": {
+        "status": "observed",
+        "summary": "Both same-hash counted cycles returned exact ThreadBear for running and terminal current-home calls and immediate readback, reached durable migration_complete with 98 applied and zero remaining under six minutes, verified one active exact maintenance heartbeat, then returned uninstalled true after serially cleaning all 98 decorations. Each teardown preserved the active home and archived controller states, preserved the neighboring user file byte-exactly, and left the binary, private state, installed skill, owned automation, managed guidance, and hooks absent.",
+        "timing_ms": "cycle 1 migration 326311; cycle 1 uninstall 95540; cycle 2 migration 255414; cycle 2 uninstall 92440",
+        "hook_participation": "trusted PreToolUse mapped compact running, terminal, migration, and cleanup proposals; PostToolUse committed exact returned target and title results; every write wave and lifecycle boundary reconciled through fresh authoritative inventory or title readback",
+        "rendered_proof": "Four privacy-safe Desktop sidebar screenshots were retained outside the repository. Cycle 1 installed and uninstalled screenshots have SHA-256 f590b4974bf15a540dfb1f09ede044ee78336d97cf04a14d25ba91d02e3c0a66 and b3f01021fdc9c56450dc4bd484385593a1c7f3eeffdef2c5407eb1204db9c18a. Cycle 2 installed and uninstalled screenshots have SHA-256 3ac4d189d92cab82d79d26f057a21756fd8185992dcbca58e217d29d05ba946a and cb19be8bc82392797e8376562639cf2cc67af1954466ee3974b4825405d3aafd. Native status, inventory, title readback, archive readback, automation ownership, filesystem absence, and neighboring-file checksum supplied the remaining terminal evidence."
+      },
+      "confidence": "high",
+      "applicability": "Establishes TB-CAP-BOUNDED-MIGRATION-WAVES for exact candidate 40285dd and binary SHA-256 794b0477 on the recorded Desktop build, 98-task catalog, Terra-medium controller, Luna-medium classifiers, and max-eight native waves. A preliminary orchestration rehearsal before the two declared counted cycles was discarded because the home delayed its durable terminal transition beyond six minutes; it is not used as supporting evidence. The preflight result consists only of the subsequent two complete same-hash cycles, and no supplemental probe followed them. Older signed-in ChatGPT history remained outside the native task-title boundary.",
+      "supersedes": [
+        "TB-EXP-0120-004"
+      ],
+      "conflicts": []
     }
   ],
   "preflights": [
@@ -995,7 +1040,7 @@
       "id": "TB-PRE-0120-003",
       "issue": "BEAR-115",
       "capability_id": "TB-CAP-BOUNDED-MIGRATION-WAVES",
-      "status": "pending",
+      "status": "closed",
       "consulted": [
         "TB-EXP-0120-004",
         "TB-EXP-0120-005"
@@ -1008,7 +1053,7 @@
         "If the action-grammar correction weakens another boundary or the existing canonical-home path fails during the declared cycles, either cycle will reject a valid classification, retain an unsettled title, drift the home title, exceed six minutes, fail zero-remaining reconciliation, remove neighboring content, or leave an owned artifact; the candidate must not merge or release."
       ],
       "stop_condition": "Stop after exactly two complete install/migration/uninstall cycles against the same corrected built candidate and binary hash. In each cycle capture authoritative running and terminal current-home results plus immediate readback exactly equal to ThreadBear, 98-applied/zero-remaining status and inventory, migration and uninstall timers, terminal privacy-safe screenshots, neighboring-user-content preservation, and final owned-artifact absence. Do not run a supplemental probe or claim capability until one linked result is recorded and this preflight is closed.",
-      "result_experiment_id": ""
+      "result_experiment_id": "TB-EXP-0120-006"
     }
   ]
 }
