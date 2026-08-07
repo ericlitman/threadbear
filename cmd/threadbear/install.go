@@ -181,7 +181,7 @@ func reconcileTitles(ctx context.Context, caller string) (count int, err error) 
 			if readErr != nil {
 				return false, readErr
 			}
-			applied := found && task.User && task.Visible && task.Title == pending.Proposed && (pending.Prior != pending.Proposed || id == value.MainTaskID && pending.Proposed == mainTitle)
+			applied := found && task.User && task.Visible && pending.Prior != pending.Proposed && task.Title == pending.Proposed
 			cleared := pending.CallerTaskID == value.ControllerTaskID && value.MigrationFailure == "controller reported a settled migration failure" && (!found || task.Title == pending.Prior) || current && pending.Attempt != "" && pending.Attempt == attempt && found && task.User && task.Visible && !task.Archived && task.Title == pending.Prior
 			if !applied && !cleared {
 				return false, fmt.Errorf("native title operation for task %q has not settled; wait for its exact PostToolUse result", id)
