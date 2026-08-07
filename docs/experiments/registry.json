@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "updated_at": "2026-08-05",
+  "updated_at": "2026-08-06",
   "canonical_for": "ThreadBear title-path architecture and live experiments",
   "capabilities": [
     {
@@ -60,13 +60,14 @@
     {
       "id": "TB-CAP-BOUNDED-MIGRATION-WAVES",
       "premise": "One exact candidate can migrate the full native-addressable local task inventory in bounded concurrent title waves within six minutes and uninstall without a queued hook recreating state or a pending title landing after teardown.",
-      "status": "unresolved",
+      "status": "established",
       "supported_by": [
-        "TB-EXP-0120-001"
+        "TB-EXP-0120-001",
+        "TB-EXP-0120-004"
       ],
       "contradicted_by": [],
-      "decision": "Candidate 09fc5241 proved the bounded-wave mechanism with two complete 98-task migrations in 5:27.999 and 5:03.690 plus clean uninstalls, but it is not the final reviewed candidate and the run did not begin from the clean application restart required by the release matrix. TB-EXP-0120-002 and TB-EXP-0120-003 remain useful procedural seam observations but had no declared preflights and therefore do not support this capability or release. TB-PRE-0120-002 must close with two complete clean-restart cycles on one exact final candidate before the capability can be re-established.",
-      "next_preflight": "TB-PRE-0120-002"
+      "decision": "Exact candidate 8894c6ed completed two clean-restart 98-task migrations in 5:36.753 and 5:50.108, followed by clean uninstalls in 1:45.849 and 2:02.624. Both cycles reached migration_complete with zero remaining rows, preserved the neighboring user file, and removed every owned artifact. The cycle-2 home briefly observed the completed controller through status before recording the terminal phase; the candidate failed closed and the documented same-controller zero-write recovery still completed inside the six-minute ceiling. A supplemental clean-restart canary against the same binary then proved that running, terminal, and next-running status inputs all leave the persistent home exactly ThreadBear before a no-migration uninstall removed every owned artifact. TB-EXP-0120-004 closes the declared final-candidate preflight and establishes the capability for this release boundary.",
+      "next_preflight": null
     }
   ],
   "experiments": [
@@ -796,6 +797,51 @@
       "applicability": "Procedural seam observation for the legacy format-3 upgrade, pre-controller uninstall, decorated-home fallback cleanup, and unowned inventory-title scope. This probe had no declared preflight, so it cannot support a capability or release claim; TB-PRE-0120-002 requires the exact final candidate to repeat the complete release lifecycle.",
       "supersedes": [],
       "conflicts": []
+    },
+    {
+      "id": "TB-EXP-0120-004",
+      "date": "2026-08-06",
+      "issue": "BEAR-1",
+      "preflight_id": "TB-PRE-0120-002",
+      "question": "Does exact final v2.2.1 candidate 8894c6ed complete two clean-restart 98-title migrations within six minutes and then uninstall cleanly while preserving controller authentication, fail-closed settlement, home-title restoration, and neighboring user files?",
+      "invariant": "One exact built candidate must reach migration_complete with zero remaining native-addressable rows twice, keep every native call accounted, preserve exact task and transaction ownership, and remove only ThreadBear-owned artifacts after each timed uninstall.",
+      "environment": {
+        "threadbear_version": "2.2.1 exact release candidate",
+        "git_sha": "8894c6ed12970fe69d0725b4982f9b3f82821f31",
+        "codex_version": "Desktop 26.730.61639 build 6234; embedded CLI 0.147.0-alpha.1.2",
+        "codex_source": "vscode",
+        "host": "local macOS arm64",
+        "task_state": "98 native-addressable active regular tasks; persistent home active and pinned; one distinct Terra-medium controller archived after each completed migration; one neighboring user-created skill file retained across both uninstalls",
+        "restart_state": "each install and uninstall phase began after a clean Codex restart; candidate binary and repository code were unchanged between both complete cycles",
+        "hook_fingerprint": "candidate binary SHA-256 d2a80c263b241e5029edc1162b0cfa626339cd2bcb1cc8e587c75c2c3c7cb731; hook source SHA-256 86afe22d99ec6083809b41fb22016ceeb3cae578bbb5cb6306f6c2cd70aada69",
+        "guidance_fingerprint": "managed guidance SHA-256 15642eb59a5c5cb9abe6d01e331ec6b540995139f70423d1b03219ce710eac0f; installed skill SHA-256 76e5068f167855ea755a7bbfec0f584b610d27531160404abacef47997ccbc01"
+      },
+      "invocation": {
+        "outer_tool": "Codex Desktop native task controls orchestrated through functions.exec with monotonic wall timers and terminal-state Computer Use screenshots",
+        "code": "candidate dry-run and confirmed install; exact canonical home-title assertion; verified paused heartbeat; one projectless Terra-medium controller; seven mechanically derived Luna-medium classifier batches; bounded max-eight native title waves; home-owned terminal migration transition; prepared serial title cleanup; exact archive restoration; automation deletion at the commit boundary; binary-last confirmed uninstall",
+        "native_tool_identity": "codex_appset_thread_title, codex_appread_thread, codex_appwait_threads, codex_appset_thread_pinned, codex_appset_thread_archived, codex_appautomation_update, codex_appcreate_thread",
+        "target_identity_mode": "current persistent home by omitted task ID only for its required status calls; every migration and cleanup mutation used an authoritative explicit native task ID"
+      },
+      "evidence": [
+        "git:8894c6ed12970fe69d0725b4982f9b3f82821f31",
+        "github-pr:120",
+        "codex-rollout:019fcca7-7093-70f3-a18d-260951571103",
+        "codex-rollout:019fd799-352d-7280-b785-16b0ff7142af",
+        "codex-rollout:019fd8e3-55ee-7c01-8436-735b5d71d938"
+      ],
+      "result": {
+        "status": "observed",
+        "summary": "Both exact-candidate cycles reached migration_complete, ready true, and 98 applied with zero remaining before clean uninstall returned uninstalled true. Each uninstall serially removed all 98 active title decorations, preserved the archived completed controller and active home state, preserved the neighboring user file byte-exactly, and left the binary, private state, installed skill, owned automation, managed guidance, and hooks absent. A supplemental clean-restart canary against the same binary kept the home exactly ThreadBear through running, terminal, and next-running native current-task calls, then uninstalled from quiescent migration_pending without touching any of the 98 inventory rows and again left every owned artifact absent.",
+        "timing_ms": "cycle 1 migration 336753; cycle 1 uninstall 105849; cycle 2 migration 350108; cycle 2 uninstall 122624",
+        "hook_participation": "trusted PreToolUse staged compact controller and cleanup proposals; PostToolUse committed exact returned target and title results; fresh inventory reconciled every native call before the next wave or lifecycle boundary",
+        "rendered_proof": "Five privacy-safe Desktop screenshots were retained outside the repository. The two installed and two uninstalled terminal-state screenshots have SHA-256 values 2d645feda21d1d9e208551fcc4ecd0438f56f98d34f574af70cd87b9652385fd, 921c5b5d46b05e391319f0e047d49253f73b9bbb6b98577fc889c657037ea668, 840b91ef6ddad4dd2326bb956c3b0e91aa0d7a349a932c2f4fc10b990be86d74, and 926609a6d683668b9c30d44d0a1e74e06757ecf55e56d379614c7f2fb5dfd24b. The supplemental clean-restart running-state home-title canary has SHA-256 b29729f4a36d9ec25a42296efd52309b03f155f21cebed3cc64c9133a93a45ee. Native call results and immediate readback proved the home stayed exactly ThreadBear through running, terminal, and next-running inputs; status, inventory, title readback, archive readback, filesystem checks, and automation ownership supplied the remaining lifecycle proof."
+      },
+      "confidence": "high",
+      "applicability": "Establishes the exact 8894c6ed v2.2.1 candidate on the recorded Desktop build and 98-task catalog. The cycle-2 installed screenshot captured the deliberate install sentinel before the post-install restart, so it did not by itself prove the canonical home-status path. A supplemental clean-restart canary against the unchanged binary closed that evidence gap: three successive running, terminal, and next-running native current-task results and immediate readback were exactly ThreadBear with no status prefix or opaque attempt suffix; teardown then removed the quiescent installation without starting migration or touching the 98 rows. In cycle 2, the home called status after the controller completed but before recording the terminal phase, so ThreadBear conservatively marked migration_failed; complete settled-call accounting and fresh 98-of-98 inventory then supported the documented same-controller recovery with no additional title write, worker, or code change, and durable completion still landed under six minutes. Older signed-in ChatGPT history remained outside the native task-title boundary.",
+      "supersedes": [
+        "TB-EXP-0120-001"
+      ],
+      "conflicts": []
     }
   ],
   "preflights": [
@@ -890,7 +936,7 @@
       "id": "TB-PRE-0120-002",
       "issue": "BEAR-1",
       "capability_id": "TB-CAP-BOUNDED-MIGRATION-WAVES",
-      "status": "pending",
+      "status": "closed",
       "consulted": [
         "TB-EXP-0120-001",
         "TB-EXP-0120-002",
@@ -898,13 +944,13 @@
       ],
       "remaining_unknown": "Whether one exact final v2.2.1 candidate containing the native-subagent controller guard, non-destructive skill teardown, and canonical undecorated home-title rule completes the entire current native-addressable task inventory under six minutes twice after clean Codex restarts, keeps the persistent home exactly ThreadBear through running and terminal status inputs, then uninstalls cleanly while preserving user-created files beside the managed skill.",
       "single_changed_variable": "Candidate implementation and binary fingerprint: replace candidate 09fc5241 and the later un-preflighted seam canaries with the final reviewed candidate that adds native thread_source authentication for controller registration, removes only the managed skill file plus an empty directory during teardown, maps every persistent-home status transaction to the canonical visible title ThreadBear, and ignores surplus action fields only for non-action-consuming classifier statuses.",
-      "held_constant": "Desktop 26.727.51351 and CLI 0.146.0-alpha.9.2; local macOS host; one exact candidate for both cycles; the complete native-addressable inventory present at run time; one Terra-medium controller; Luna-medium read-only classifier batches; reconciled max-eight title waves; authoritative inventory/status checks; privacy-safe terminal screenshots; monotonic timers; no code change between cycles.",
+      "held_constant": "Desktop 26.730.61639 build 6234 and embedded CLI 0.147.0-alpha.1.2; local macOS arm64 host; one exact candidate for both cycles; the complete 98-row native-addressable inventory; one Terra-medium controller per cycle; Luna-medium read-only classifier batches; reconciled max-eight title waves; authoritative inventory/status checks; privacy-safe terminal screenshots; monotonic timers; no code change between cycles.",
       "predicted_outcomes": [
         "If the exact final candidate preserves the migration mechanism, stable home identity, and safe teardown, both clean-restart cycles will keep the persistent home exactly ThreadBear, reach migration_complete with zero remaining rows in under six minutes of full-list migration, return uninstalled true with every ThreadBear-owned artifact absent, and preserve a user-created neighboring skill file byte-exactly.",
         "If the new source guard blocks the legitimate native controller, concurrent migration or settlement regresses, the home receives a status prefix or replacement subject, or teardown mishandles owned versus neighboring files, either cycle will fail registration, exceed six minutes, retain rows or pending state, drift the home title, remove the user file, or leave a ThreadBear-owned artifact; the candidate must not merge or release."
       ],
       "stop_condition": "Stop after exactly two complete install/migration/uninstall cycles against one built candidate, each beginning from a clean Codex restart and including an exact persistent-home title assertion before and after status traffic, authoritative status/inventory, terminal timer and screenshot evidence, neighboring-user-file preservation, final artifact checks, and title/archive restoration. Record one linked result experiment and close this preflight before claiming release evidence.",
-      "result_experiment_id": ""
+      "result_experiment_id": "TB-EXP-0120-004"
     }
   ]
 }
