@@ -112,7 +112,7 @@ func TestArchivedControlUninstallPersistsInitiatorAndAuthorizesCleanup(t *testin
 		t.Fatal(err)
 	}
 	proposed := rewrittenTitle(t, output.Bytes())
-	if proposed != "Control task" {
+	if proposed != mainTitle {
 		t.Fatalf("owner cleanup title = %q", proposed)
 	}
 	if _, err := db.Exec(`UPDATE threads SET title=?, archived=1 WHERE id='main'`, proposed); err != nil {
@@ -413,7 +413,7 @@ func TestArchivedControlUninstallCommitRequiresRestoredArchiveAndSettledTitles(t
 	}
 }
 
-func TestUninstallHomeCleanupRestoresPreSentinelSubject(t *testing.T) {
+func TestUninstallHomeCleanupRestoresCanonicalTitle(t *testing.T) {
 	root, db := testIndex(t)
 	addTask(t, db, root, "main", "Investigate install failure", nil, "vscode", 0)
 	if _, err := install("main", false, true, false); err != nil {
@@ -437,7 +437,7 @@ func TestUninstallHomeCleanupRestoresPreSentinelSubject(t *testing.T) {
 	}
 	var output bytes.Buffer
 	cleanup := hookPayload("PreToolUse", "main", "cleanup", map[string]any{"title": cleanupMarker}, nil)
-	if err := hook(context.Background(), strings.NewReader(cleanup), &output); err != nil || rewrittenTitle(t, output.Bytes()) != "Investigate install failure" {
+	if err := hook(context.Background(), strings.NewReader(cleanup), &output); err != nil || rewrittenTitle(t, output.Bytes()) != mainTitle {
 		t.Fatalf("home cleanup = %q, %v", output.String(), err)
 	}
 }
@@ -489,6 +489,25 @@ func TestUninstallPrepareClearsHomeAttestedSettledFailure(t *testing.T) {
 	value, _ := newStore(stateDir()).read()
 	if value.Tasks["target"].Pending != nil {
 		t.Fatal("settled failed proposal remained pending")
+	}
+}
+
+func TestReconcileTitlesRejectsCanonicalHomeNoopWithoutSettlement(t *testing.T) {
+	root, db := testIndex(t)
+	addTask(t, db, root, "main", mainTitle, nil, "vscode", 0)
+	if err := newStore(stateDir()).update(func(value *state) (bool, error) {
+		value.MainTaskID, value.Phase = "main", phaseMigrationComplete
+		value.Tasks["main"] = taskState{Pending: &pendingProposal{Prior: mainTitle, Proposed: mainTitle}}
+		return true, nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := reconcileTitles(context.Background(), ""); err == nil {
+		t.Fatal("canonical home no-op reconciled without settlement")
+	}
+	value, _ := newStore(stateDir()).read()
+	if value.Tasks["main"].Pending == nil {
+		t.Fatal("canonical home no-op was cleared")
 	}
 }
 

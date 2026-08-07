@@ -167,7 +167,7 @@ func parseFooter(message string) (footer, bool) {
 	statusText, ownerAction, ok := strings.Cut(remainder, " (")
 	owner, action, ownerOK := strings.Cut(ownerAction, "): ")
 	status, statusOK := map[string]string{"next steps": "next_steps", "needs input": "needs_input", "blocked": "blocked"}[statusText]
-	if remainder == line || !ok || !ownerOK || !statusOK || strings.TrimSpace(action) != action || len(strings.Fields(action)) < 2 {
+	if remainder == line || !ok || !ownerOK || !statusOK || strings.TrimSpace(action) != action || len(strings.Fields(action)) < 1 {
 		return footer{}, false
 	}
 	if status == "needs_input" && owner != "you" || status == "blocked" && owner != "external" || status == "next_steps" && owner != "you" && owner != "agent" && owner != "external" {

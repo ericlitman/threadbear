@@ -30,7 +30,7 @@ Make exactly one native attempt. The hook strips the opaque attempt suffix befor
 
 This bounded current-task shape applies only to the two ordinary title moments above, where `threadId` is omitted. Explicit-target lifecycle mutations are governed by the installed ThreadBear skill instead. Follow that lifecycle's batching and wait rules; do not add this `Promise.race` unless the skill explicitly requires a four-second attempt.
 
-ThreadBear uses that first-call subject only when a fresh task still exposes its raw first message; explicit names, generated short titles, committed subjects, and later user renames remain authoritative. Its hooks expand the compact inputs into the stable visible title. They do not repair stopped turns. If the user stops a turn, the running title remains until the next real turn replaces it.
+The persistent ThreadBear home is the one exception: every status input leaves its visible title exactly `ThreadBear`. For other tasks, ThreadBear uses the first-call subject only when a fresh task still exposes its raw first message; explicit names, generated short titles, committed subjects, and later user renames remain authoritative. Its hooks expand the compact inputs into the stable visible title. They do not repair stopped turns. If the user stops a turn, the running title remains until the next real turn replaces it.
 
 ## Status footer
 

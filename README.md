@@ -18,7 +18,7 @@ The canonical shape is `<mark> <subject>[ → <action>]`. ThreadBear owns only d
 
 Open [INSTALL.md](INSTALL.md) in a new Codex task and follow the guided preview, consent, persistent-home setup, and supervised controller migration.
 
-ThreadBear installs a standalone Go binary, one small private state file, managed guidance, two Codex hook entries, and one consented hourly Luna heartbeat. The initiating task becomes the persistent `🧵🐻 ThreadBear 🐻🧵` home; one ephemeral controller owns installation migration so that home returns promptly, while the heartbeat later handles quiet housekeeping from that task.
+ThreadBear installs a standalone Go binary, one small private state file, managed guidance, two Codex hook entries, and one consented hourly Luna heartbeat. The initiating task becomes the persistent `ThreadBear` home and never receives a status title; one ephemeral controller owns installation migration so that home returns promptly, while the heartbeat later handles quiet housekeeping from that task.
 
 ## Commands
 
@@ -40,6 +40,6 @@ From the persistent ThreadBear task, ask to “strip title icons” or “check 
 
 ## Boundaries
 
-ThreadBear installs no daemon or LaunchAgent. One explicitly consented hourly Codex heartbeat runs maintenance from the persistent Luna-medium task and stays quiet on no-op runs. The CLI alone selects archive candidates, stages one operation, reconciles ownership, and chooses the exact Darwin asset from the official release manifest. Luna calls supported native controls and communicates typed results; it never edits private UI storage, interprets prose to add targets, or chooses/downloads/checksums a release. Updates refuse while archive work is pending, verify repository URLs, SHA-256, embedded version, candidate self-test, candidate install, and installed status, and never downgrade. ThreadBear adds no token counts, model call, or narration to ordinary turns. Installation uses one Terra-medium controller, bounded concurrent native-title waves, and bounded read-only Luna-low classifier waves only when genuinely ambiguous history cannot be classified deterministically; workers classify and never write titles.
+ThreadBear installs no daemon or LaunchAgent. One explicitly consented hourly Codex heartbeat runs maintenance from the persistent Luna-medium task and stays quiet on no-op runs. The CLI alone selects archive candidates, stages one operation, reconciles ownership, and chooses the exact Darwin asset from the official release manifest. Luna calls supported native controls and communicates typed results; it never edits private UI storage, interprets prose to add targets, or chooses/downloads/checksums a release. Updates refuse while archive work is pending, verify repository URLs, SHA-256, embedded version, candidate self-test, candidate install, and installed status, and never downgrade. ThreadBear adds no token counts, model call, or narration to ordinary turns. Installation uses one Terra-medium controller, bounded concurrent native-title waves, and bounded read-only Luna-medium classifier waves only when genuinely ambiguous history cannot be classified deterministically; workers classify and never write titles.
 
 See [architecture](docs/architecture.md), [compatibility](docs/compatibility.md), and the [status footer convention](docs/status-convention.md).
