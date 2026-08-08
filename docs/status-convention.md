@@ -1,27 +1,27 @@
-# Status footer convention
+# Status convention
 
-Every terminal Codex response under ThreadBear guidance ends with exactly one of these forms:
+Immediately before an ordinary final response, ThreadBear's managed guidance runs one terminal cell whose local planner receives one of:
 
 ```text
-🧵🐻 complete
-🧵🐻 next steps (you): approve the release plan
-🧵🐻 next steps (agent): implement the approved plan
-🧵🐻 next steps (external): review the security exception
-🧵🐻 needs input (you): choose the release region
-🧵🐻 blocked (external): restore the signing service
-🧵🐻 automation
+threadbear title --status complete --json
+threadbear title --status next_steps --json
+threadbear title --status needs_input --json
+threadbear title --status blocked --json
+threadbear title --status automation --json
 ```
 
-The footer is the final non-empty line, is not quoted or duplicated, and uses a concrete multiword action when an owner is present. `needs input` belongs to the user, `blocked` belongs to an external condition, and `next steps` may belong to the user, agent, or an external actor.
+The status maps to one owned icon:
 
-The same exact line is passed to the native current-task title setter immediately before the final response. ThreadBear maps it deterministically:
-
-| Footer | Visible title |
+| Status | Visible title |
 | --- | --- |
-| `complete` | `✅ <subject>` |
-| `next steps (…)` | `➡️ <subject> → <action>` |
-| `needs input (you)` | `🙋 <subject> → <action>` |
-| `blocked (external)` | `🚨 <subject> → <action>` |
-| `automation` | `🤖 <subject>` |
+| `complete` | `✅ <exact subject>` |
+| `next_steps` | `➡️ <exact subject>` |
+| `needs_input` | `🙋 <exact subject>` |
+| `blocked` | `🚨 <exact subject>` |
+| `automation` | `🤖 <exact subject>` |
 
-At turn start, `⏳ ThreadBear is working: <concise subject>` maps to `⏳ <subject>`. The seed is used only when a fresh task still exposes its raw first message; established subjects and user renames win. `❔` is reserved for legacy items that remain unknown during installation; ordinary turns do not emit it. The migration controller requests that state with the exact native title input `❔ ThreadBear could not classify`; there is no compact unknown footer.
+The enum controls only the icon. The planner writes no Codex title; when a change is needed, the same cell makes one native title call through the mounted Codex app and accepts only the exact returned task ID and title. Any owner or next action stays in the substantive response. There is no special ThreadBear line appended to the response and no running icon. Ordinary turns never emit the neutral onboarding mark `🐻`.
+
+ThreadBear reuses its stored subject when the current title byte-matches a valid owned rendering. Any other safe current title is a user rename and becomes the exact subject, including user-authored emoji and arrows. A null or blank native name is raw and stays unchanged; `preview` is never adopted. Multiline, control-bearing, raw internal, ambiguous unowned legacy-prefixed, or overlong subjects also stay unchanged. ThreadBear never normalizes, strips, or truncates a subject.
+
+Use `complete` when work is finished with no warranted follow-up; `next_steps` only when the response establishes one concrete next action; `needs_input` for required user input; `blocked` for an external blocker; and `automation` for healthy automated work with nothing pending. Generic offers and speculative possibilities do not qualify as next steps.

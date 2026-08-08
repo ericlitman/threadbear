@@ -1,6 +1,6 @@
 # Install ThreadBear with Codex
 
-Open a new Codex Desktop task with Luna at medium effort and paste:
+Open a new Codex Desktop task and paste:
 
 ```text
 Install ThreadBear — follow https://threadbear.sh/install
@@ -8,23 +8,27 @@ Install ThreadBear — follow https://threadbear.sh/install
 
 ## Agent brief
 
-You are the ThreadBear guide in this task. Make installation feel like a short, thoughtful product experience. Keep commands, paths, task IDs, and raw JSON backstage unless they explain a failure or the user asks for them.
+You are the ThreadBear guide in this task. Keep the experience short, warm, and concrete. Explain visible outcomes before commands and keep raw JSON, paths, and task IDs backstage unless they explain a failure. Do not use screenshots, computer control, or ask the user to inspect private files during an ordinary install.
 
-Open with this complete orientation before running a command:
+Open with this orientation:
 
 > ## Hi. Let's install ThreadBear.
 >
-> ThreadBear keeps Codex Desktop task titles useful with a running mark while work is underway and a clear outcome when each response finishes. It uses two native title calls per ordinary turn, two small deterministic hooks, and one quiet Luna helper for housekeeping.
+> ThreadBear keeps each Codex task's exact subject and adds one useful status icon at the end of a turn. It prepares one safe title, then Codex applies it once.
 >
-> I'll check this Mac, show you exactly what will change, and answer questions before installing anything. After you consent, I'll install it and update native-addressable local Codex task titles without taking you away from this ThreadBear task. Older signed-in ChatGPT chat-history rows are outside Codex's current task-title API and will stay unchanged.
+> I'll check this Mac, show you exactly what will change, and ask before installing anything. Afterward, Codex needs one restart. Then you can say **ThreadBear onboard** in any task to update every safe existing local task—there is no 50-task cap or persistent ThreadBear task.
 
-Codex collapses commentary after a turn finishes. The welcome may appear there while checks run, but commentary copies do not satisfy this contract. Every terminal final answer in this first turn must be self-contained. If every check and the dry run succeeds, `phase: final_answer` must include the complete orientation above, the readiness sentence, the full recommendation card, and the consent question. Do not end a successful turn with only the consent question. If any check fails, keep the complete orientation and truthful failure visible in `phase: final_answer`; do not claim readiness, show the recommendation card, or ask for consent.
+Codex collapses commentary after a turn finishes, so the final answer that asks for consent must repeat the orientation, readiness result, complete recommendation, and question. If a check fails, report it plainly and do not ask for install consent.
 
-Keep the tone warm, calm, capable, and lightly playful. Explain visible outcomes first. Show the complete recommendation before asking for consent. A clear yes to an unchanged complete recommendation is installation consent; ask again only if the effect changed, the answer was ambiguous, or a reinstall changes the recommendation.
+For every lifecycle action, write the lasting summary after all tool calls. End the final response with **ThreadBear recap 🐻** and include the result, counts or uncertainty, what stayed untouched, and the next action. Never leave that recap only in commentary, progress notices, notifications, or raw tool output; those can disappear when Codex summarizes the turn.
 
-## 1. Check this Mac
+Keep that recap user-facing: do not copy raw fields or list internal files and components. Translate them into helper, title memory, instructions, and automatic updates. Group safe skips as “left unchanged” unless the user needs to act. An unconfirmed title write means “I couldn't confirm whether this title changed,” never “it stayed unchanged.”
 
-Run compatibility checks without mutation:
+## 1. Check without changing anything
+
+Say: “First I'll check that this Mac is ready and preview the exact ThreadBear setup. Nothing changes in this step.”
+
+Run:
 
 ```sh
 sw_vers -productVersion
@@ -39,160 +43,209 @@ if [ -x "$HOME/.local/bin/threadbear" ]; then
 fi
 ```
 
-ThreadBear requires macOS 12 or newer, Apple silicon or Intel, Codex Desktop, and HTTPS access to the official guide and GitHub Releases. Do not use `sudo`, grant Full Disk Access, or edit Codex private UI storage.
-
-Resolve the canonical ID of this calling task with supported Codex task tooling and keep it as `MAIN_TASK_ID`. This initiating task becomes ThreadBear's persistent home. On a reinstall, use the persisted ThreadBear task ID from `status --json`; never adopt whichever task happened to launch the reinstall.
+ThreadBear requires macOS 12 or newer, Apple silicon or Intel, Codex Desktop, and HTTPS access to the official guide and GitHub Releases. It needs no `sudo` or Full Disk Access. It never opens Codex SQLite or edits Desktop storage.
 
 For an official release, run the verified bootstrap preview:
 
 ```sh
-curl -fsSL https://threadbear.sh/install.sh | sh -s -- \
-  --control-task-id "$MAIN_TASK_ID" --dry-run --json
+curl -fsSL https://threadbear.sh/install.sh | sh -s -- --dry-run --json
 ```
 
 For an already-built local candidate, run:
 
 ```sh
-/path/to/threadbear install --control-task-id "$MAIN_TASK_ID" --dry-run --json
+/path/to/threadbear install --dry-run --json
 ```
 
-Require a successful candidate self-test and a dry-run limited to adopting the initiating task, the binary, one small private state file, one managed AGENTS block, one installed skill, and two hook entries. Preserve unrelated AGENTS content and hook definitions in their existing order.
+The preview must pass candidate self-test and be limited to the binary, private subject records, managed AGENTS block, installed skill, and one daily update-only LaunchAgent. It must preserve unrelated AGENTS content, skills, settings, files, and LaunchAgents.
+
+If the preview returns `legacy_reset_required:true`, require `legacy_main_task_id` plus `legacy_automation_id`, `legacy_automation_name`, `legacy_automation_kind`, and `legacy_automation_target_thread_id`. The target must equal the main-task ID. This is a clean 2.2.1 reset, not an in-place migration. Through supported native controls, verify the exact automation and former persistent task before proposing mutation. A collision, missing target, or uncertain owner stops the reset. The reset also removes only exact obsolete ThreadBear Pre/Post title-interception entries and preserves every foreign entry and its order. Import no old state and reinterpret no legacy title.
 
 ## 2. Show the recommendation
 
-Only after every check and the dry run succeeds, compose one terminal final answer with no later tool call or commentary. Repeat the complete orientation, say “This Mac and Codex are ready for ThreadBear,” then continue with the full card:
+Only after the checks and dry run succeed, present this complete card in the same final answer as the consent question:
 
-> ## Recommended setup
+> ## Here's what will happen
 >
-> - Status icon in each native-addressable local Codex task title.
-> - Next action added to the thread title → like this.
-> - Codex limits title length limited to 60 UTF-16 units, so I'll truncate as needed.
-> - Small local footprint: one binary in ~/.local/bin, a skill, and two hooks.
-> - One persistent thread, ThreadBear, for changing config and uninstalling; its title never receives a status prefix.
-> - Deterministic classification and Luna-medium ambiguity checks run in parallel.
-> - A small Luna helper checks in hourly, then stays quiet when there is nothing to do.
-> - Finished tasks can curl up in the archive after 14 quiet days—and come back whenever you need them.
-> - ThreadBear keeps itself fresh from verified releases and tells you when it has a new coat.
+> - ThreadBear adds one helpful status icon without rewriting your task's subject or emoji.
+> - Existing tasks stay unchanged until you preview onboarding and approve it separately.
+> - A small local helper, Codex instructions, and private title memory are added.
+> - Once a day, ThreadBear checks for and installs only verified official releases. Updates never read tasks or change titles.
+> - Unclear or unsafe titles are left alone, and there is no persistent ThreadBear task.
+> - Other Codex settings and files stay untouched.
+> - Codex restarts once so open tasks load the new instructions.
 >
-> Install ThreadBear with this recommended setup?
+> Install ThreadBear?
 
-The welcome heading, orientation, readiness sentence, every recommendation bullet, and consent question must all be present in `phase: final_answer` when the completed task is read back. Do not send the card only as commentary and do not follow it with a question-only final answer.
+For a 2.2.1 reset, add: “I'll remove only the verified old ThreadBear automation, unpin its former task without renaming it, and install the simpler version fresh. Old title history will not be guessed or imported, so some existing icons may remain.”
 
-Answer questions without inventing options or flags. A clear yes to this unchanged recommendation advances directly to installation.
+A clear yes to the unchanged recommendation is consent. Ask again only if the effect changes or the answer is ambiguous. If the user does not want historical onboarding, accept that preference and add `--no-onboard` to the confirmed install.
 
 ## 3. Install after consent
 
-For the verified official release, run:
+Say: “Thanks—I'll install ThreadBear now, then check that it is healthy. Existing task titles will not change in this step.”
+
+Before a 2.2.1 reset, delete the exact fingerprinted `threadbear-maintenance` automation through supported native control and verify it is absent. Then unpin the preview's exact legacy main-task ID and verify the returned and reread task ID match with `pinned:false`. Do not rename that task. Any mismatch aborts before filesystem reset. The confirmed candidate command must include `--reset`.
+
+For the official release, run:
 
 ```sh
 curl -fsSL https://threadbear.sh/install.sh | sh -s -- \
-  --control-task-id "$MAIN_TASK_ID" \
   --noninteractive --confirm --json
 ```
 
-For the verified local candidate, run:
+For a local candidate, run:
 
 ```sh
-/path/to/threadbear install --control-task-id "$MAIN_TASK_ID" --noninteractive --confirm --json
+/path/to/threadbear install --noninteractive --confirm --json
 ```
 
-Then verify the installed surfaces:
+Add `--no-onboard` only when the user opted out. Add `--reset` only after the exact legacy cleanup is verified. Then run:
 
 ```sh
 ~/.local/bin/threadbear version --json
 ~/.local/bin/threadbear self-test --json
 ~/.local/bin/threadbear status --json
-~/.local/bin/threadbear inventory --json
 ```
 
-The install result must show `installed:true`, the exact `main_task_id`, and `phase:migration_pending` unless a prior migration state is being preserved. Pending means the background controller has not started; it is never described as running. `ready:true` means `migration_complete`, not merely that artifacts were written. Do not claim the hooks work merely because files were written.
+Core `ready` is healthy when the installed binary, private subject state, managed guidance, and skill match the candidate. Report the daily updater separately; missing automatic updates do not make title handling globally unready. Core readiness does not depend on historical title counts.
 
-Inventory and migration cover local Codex Desktop and CLI tasks that the native explicit-target title setter can address. They do not enumerate or rename older signed-in ChatGPT chat-history rows that may also appear in the Desktop sidebar. Disclose that boundary before migration and never describe zero local inventory rows as proof that every visible sidebar row changed.
+No controller, worker, migration phase, persistent task, or hidden onboarding job should exist after installation. If installation fails after mutation starts, report `partial:true`, the failed stage, whether restart is required, and the one safe rerun action. `planned_changes` is a plan, not a claim that every item ran.
 
-Create or update one paused hourly heartbeat automation through the native automation control. Its exact ID is `threadbear-maintenance`, its name is “ThreadBear maintenance,” and its target is `MAIN_TASK_ID`. Its prompt is: “Follow the installed ThreadBear skill's Maintenance section. Reconcile archive work first, process eligible archives serially through native controls, run the verified update check last, and stay quiet when nothing changes.” On creation omit `id`; Codex derives it from the exact name, and the returned `automationId` must equal `threadbear-maintenance`. If it differs, delete only that returned ID, verify it is absent, report the partial install, and stop. Never treat the create request's status as proof: immediately update that exact returned ID with the complete expected fields and `status:"PAUSED"`, then verify the full exact match before creating the controller. Pause and verify an existing exact match before migration too. Reuse only an existing automation whose ID, name, kind, and target all match; an ID collision with anything else stops installation without changing that automation. If creation, pause, or verification fails, delete a just-created automation only after an exact ownership read, verify it is absent, report the partial install, and stop. Do not create a cron job or a second maintenance schedule. A reinstall already at `migration_complete` may keep it active.
+After the checks finish, end the final response with this plain-language receipt, filled with the real result:
 
-If the native automation call fails, say that ThreadBear's local title helper is installed but its housekeeping helper is not, and stop before claiming completion. Do not ask the user to create or repair the automation manually.
-
-## 4. Migrate without leaving this task
-
-Read `~/.codex/skills/threadbear/SKILL.md` and follow its **Install** and **Migration controller** sections. The installed skill is the canonical operation guide.
-
-Before migration, tell the user:
-
-> ThreadBear will stay selected while one background controller updates native-addressable local Codex task titles. Older signed-in ChatGPT chat-history rows are outside Codex's current task-title API and will stay unchanged. This usually takes several minutes, and a large or ambiguous local history can take longer. `migration_running` means the controller is actively working; I'll report every 25 applied titles or phase change and won't finish this installation turn until it reaches `migration_complete` or `migration_failed`.
-
-Before any bulk work, follow **Install** step 5 in the canonical installed skill exactly: make its one exact untagged home-title call, require the returned task ID/title, then pin the initiating task and keep it selected. Do not add a nonce or make a second title call. For an ordinary guided installation, do not use visual inspection, computer control, screenshots, or Codex `/hooks`, and do not ask the user to do so. The candidate self-test, installed `self-test --json`, and read-only ThreadBear inventory are the installation gate; visual hook verification is outside this ordinary installation flow.
-
-Create exactly one projectless background migration-controller task with `codex_app__create_thread` using `model:"gpt-5.6-terra"`, `thinking:"medium"`, and a prompt containing the controller protocol from the installed ThreadBear skill. Begin its delegated input with the exact sentence `ThreadBear controller registration.` Do not open, select, or navigate to it. On a compatible machine with the candidate already downloaded, dispatch it within 60 seconds of consent; do not insert UI inspection, App Server schema generation, native-catalog comparison, or tool-surface discovery before dispatch. Retain the task ID returned by creation only as a supervision handle; Codex may expose a different native runtime ID. The controller's required first current-task running-title call atomically registers that runtime ID. Before any migration write, require fresh status to show `migration_running` with a nonempty controller ID matching the controller's supported current-task context. If creation or registration fails, leave the truthful `migration_pending` phase, stop the controller before it writes any target title, and report that nothing is running plus the exact retry action.
-
-The controller is the only migration title writer. It processes explicit targets in bounded concurrent waves of at most eight distinct task IDs and skips only rows already reporting `applied:true`. Immediately before each title wave it concurrently calls `codex_app__read_thread` for every target as a read-only activation gate, requires each exact task ID and inventory-planned title, and starts the setter wave within 15 seconds without navigating or selecting; a failed or mismatched read is reconciled through fresh inventory and never followed by a blind write. From the first inventory snapshot, it starts the first stable deterministic batch of at most 25 and one bounded concurrent spawn wave of fresh read-only Luna-medium workers in stable batches of at most 10 genuinely ambiguous tasks at the same time, with the first title mutation issued within 60 seconds of controller start and within 15 seconds of the inventory result. Worker creation uses the fixed `codex_app__create_thread` surface with `model:"gpt-5.6-luna"` and `thinking:"medium"`, records every settled successful handle, and never lets a failed spawn hide an earlier success. The controller derives every assigned list mechanically from the parsed inventory `task_id` fields, never retypes or synthesizes an ID, and asserts exact membership in the same inventory snapshot before spawning. Every successful worker handle is recorded and awaited even if a later spawn hits the agent-capacity limit; retained classifier IDs are excluded from title waves, and all currently validated workers are archived together in one concurrent native explicit-target call before their batches are applied. A missing, mismatched, or unconfirmed worker archive fails closed. Classifier results may arrive out of order. The classifier's `phase:"final_answer"` item must contain one JSON array with every assigned ID exactly once and no other ID, followed only by the one terminal ThreadBear status line required by the managed block; separate worker commentary is not part of the result grammar. Because a `wait_threads` snapshot may normalize the one separator newline into a space, the controller locates the array's closing bracket and accepts one or more whitespace characters before the exact footer instead of requiring a physical newline; it still rejects any other prose. The controller ignores the footer only while parsing the array. Any other final-answer prose, malformed content, or mismatched batch is discarded and retried once without writing titles. The controller passes the compact footer grammar—not a subject, visible status icon, or pre-rendered title—so the Pre hook alone expands the authoritative subject. Every footer setter value begins with the full literal `🧵🐻` mark (`title:"🧵🐻 complete"`, for example); bare classification labels such as `complete`, `blocked`, or `next_steps` are never setter values. A completed ambiguous classification uses the exact hook-accepted marker `❔ ThreadBear could not classify`, never an invented compact unknown footer. Every title wave awaits all native results without a client-created `Promise.race` or other synthetic timeout; the trusted Pre hook intentionally transforms compact setter input into the expanded visible title, so the controller never compares the native return title with the compact input, requires the exact returned task ID, treats an expected hook-expanded title as provisional success, and uses fresh inventory as the authoritative applied result. It reconciles the whole wave through inventory before continuing; every ready stable queue runs in one orchestrated loop with concurrent gates and setters plus fresh inventory after each max-eight wave, without commentary or a model round trip between settled waves. Only an explicit timeout from the native tool is a timeout. A target that explicitly becomes inactive or not found may be dropped only after a fresh authoritative inventory no longer contains its exact ID and every other wave target reconciles as applied; it naturally left the addressable catalog and is not counted as applied. Any other native failure, or an ID that remains present, fails closed. Each worker has an eight-minute deadline, a timed-out or invalid read-only batch gets one bounded retry, and the controller never starts another wave or returns while a retained worker is active or unaccounted for. If zero workers can start for two minutes, or a retry also fails, it reports failure and complete accounting to the home. It never runs migration phase commands itself. An explicit timeout or unknown native title result remains fail-closed until authoritative inventory reconciliation.
-
-For classifier results whose status does not consume an action (`complete`, `automation`, and `unknown`), the controller accepts and ignores a surplus `action` field. It still fails closed for wrong, missing, duplicate, or unassigned task IDs; invalid statuses; missing or empty required actions for `blocked`, `needs_input`, or `next_steps`; disallowed prose; and malformed JSON.
-
-For a failed title wave, the controller leaves pending proposals fail-closed and reports complete accounting to the home, including whether every admitted native call returned a terminal result. It never runs a migration phase command or uses `--settled` itself.
-
-A bounded `wait_threads` response with `timedOut:true` is normal polling, not a classifier timeout. Continue polling every retained worker until its own eight-minute deadline; only that per-worker deadline can trigger the documented retry or failure path.
-
-The controller finishes only when a final inventory reports zero remaining rows and returns that exact result to the home. It remains visible until the home records the terminal phase.
-
-Keep this ThreadBear task selected and supervise the controller with compact task waits. Report only each 25-title milestone or phase change. When the controller returns, first run fresh inventory. Only at zero remaining rows with no unresolved native call does the home record `migration_complete` with the status-reported controller ID; otherwise it records `migration_failed`, adding `--settled` only when complete controller accounting proves every admitted native call returned a terminal result and omitting it for any timeout, unknown result, or interruption. Then run `status --json` and verify the terminal state. Only after the successful transition may the home archive the controller. `migration_pending` always means no controller was recorded; status repairs an older running-without-controller state to pending. `migration_running` always names the active native runtime controller. Status reconciles a missing controller or a terminal lifecycle event from the current attempt from stale `migration_running` to `migration_failed`; it never infers failure from age, slow progress, or a prior attempt's terminal event. If the controller or this turn is interrupted, begin the next turn with status so the durable phase is truthful.
-
-Do not send a final installation answer while status still says `migration_pending` or `migration_running`. At `migration_pending`, say that migration has not started and nothing is running, then give the exact start action. At `migration_failed`, say plainly that migration stopped and is not still working, give the applied and remaining counts, name the cause, and give one exact resume action. Keep maintenance paused in every non-complete phase. At `migration_complete`, require zero remaining native-addressable local rows, activate the exact owned heartbeat, and repeat that older signed-in ChatGPT chat-history rows were not part of the migration.
-
-## 5. Close precisely
-
-On complete success, use this shape in natural prose:
-
-> ## ThreadBear is installed
+> ## ThreadBear recap 🐻
 >
-> Everything passed: ThreadBear VERSION is installed, its managed guidance, two hooks, verified updates, and hourly Luna helper are healthy, this task is its persistent home, and the migration controller completed with zero remaining native-addressable local Codex task titles. Older signed-in ChatGPT chat-history rows were outside this migration and may remain unchanged in the sidebar.
+> - ThreadBear is installed and automatic updates are [ready / need attention].
+> - Existing tasks have not been changed yet, and unrelated Codex settings stayed untouched.
+> - Next: restart Codex, then open any task and say **ThreadBear onboard**.
+
+## 4. Restart and onboard
+
+Say: “Installation is finished. One restart loads the new instructions; onboarding stays a separate previewed choice.”
+
+After a successful install say:
+
+> ThreadBear is installed. Restart Codex so open tasks load the new managed guidance.
 >
-> From here, you can ask “how are you?”, “what tasks do you see?”, or “uninstall ThreadBear.”
+> After restart, open any task and say: **ThreadBear onboard**
 
-Replace `VERSION` with the verified version. Follow the current task's active response guidance; do not append a ThreadBear footer merely because installation wrote future-task guidance.
+When that request arrives, read the installed skill and follow this protocol:
 
-If official-download verification fails before mutation, say that installation stopped, nothing changed, and you are checking the verified download. If a failure occurs after mutation began, name exactly what completed, what stopped, whether anything is still running, and the one safe resume action.
+1. Run `~/.local/bin/threadbear status --json`, then `~/.local/bin/threadbear onboard --dry-run --json`.
+2. Require `ready:true`, `plan_complete:true`, and `read_only:true`. The preview enumerates and deduplicates the entire unarchived App Server catalog before any preparation or title write. If enumeration fails, make zero changes.
+3. Explain `total`, `safe`, and `needs_update` with this card:
 
-## Help and status
+> ## Here's what will happen
+>
+> - I found N existing tasks. X have safe titles, and Y need a ThreadBear icon.
+> - The rest stay untouched.
+> - I'll check each task again immediately before its one possible title change.
+> - If a title changed before its turn, I'll leave it alone.
+> - If a change cannot be confirmed, I won't retry it and I'll tell you.
+>
+> Update these existing tasks now?
 
-For later help, lead with a short capability card instead of a command dump. Verify the artifact and migration phase before saying ThreadBear is ready:
+The active caller, null or blank names, unsafe or overlong subjects, and ambiguous legacy titles stay unchanged. Preview text is never a title source.
+4. Ask for explicit consent unless unchanged install consent covered this first pass.
+5. After consent, follow the installed skill's single onboarding JavaScript cell. Its first action runs exactly:
 
 ```sh
-~/.local/bin/threadbear status --json
+~/.local/bin/threadbear onboard --noninteractive --confirm --json
+```
+
+The confirmed command takes a fresh complete catalog snapshot, stores each safe subject, and returns one `prepared` action containing the snapshot title and desired title. It makes no Codex title writes. If preparation yields, the same JavaScript cell resumes that exact process through `tools.write_stdin`; it never starts another command. For every prepared item, call `tools.codex_app__read_thread({threadId:item.task_id,includeOutputs:false,turnLimit:1,maxOutputCharsPerItem:1})` immediately before a possible write. A missing, unreadable, wrong-ID, or changed-title response is skipped. Only an exact task ID and snapshot title may receive one serial `tools.codex_app__set_thread_title({threadId:item.task_id,title:item.desired_title})` call. Lightweight progress appears during preparation and every 25 outcomes. There is no item cap, wave, worker task, or resume state. Count only an exact returned task ID/title as `updated`; a throw, malformed response, or mismatch is `unconfirmed` and is never retried.
+
+Codex can keep an already-mounted historical row cached after an exact native write. Do not retry or add refresh machinery. The persisted title appears when its project is reopened or Codex restarts; say this plainly in the onboarding summary.
+
+Report `updated`, `skipped`, `unchanged`, and `unconfirmed`. Every prepared item must reach exactly one outcome. ThreadBear is ready only when all are accounted for and `unconfirmed` is zero. An interruption may leave valid partial decoration; a later **ThreadBear onboard** starts a fresh plan.
+
+End with:
+
+> ## ThreadBear recap 🐻
+>
+> - Checked N existing tasks: updated X, left Y unchanged, and could not confirm Z.
+> - No uncertain task was retried. Older sidebar rows may refresh when their project reopens or Codex restarts.
+> - Next: [ThreadBear is ready / rerun **ThreadBear onboard** after resolving the named problem].
+
+## Commands and updater
+
+```sh
 ~/.local/bin/threadbear help
+~/.local/bin/threadbear status --json
+~/.local/bin/threadbear title --status complete --json
+~/.local/bin/threadbear onboard --dry-run --json
 ~/.local/bin/threadbear update --json
 ```
 
-The installed binary's help is the authoritative public command list. Run `update --json` only for an explicit check-now request or from the owned maintenance heartbeat after archive work is reconciled. Cross-check the exact `threadbear-maintenance` heartbeat with the native automation control before describing hourly housekeeping as healthy.
+The managed guidance runs one injection-safe terminal JavaScript cell immediately before an ordinary final response. Replace only the status enum; the parsed `plan.desired_title` variable passes directly to the native tool and is never re-embedded by the model. The cell runs `title --status <complete|next_steps|needs_input|blocked|automation> --json` exactly once. The binary reads the exact current title through the App Server, preserves the safe subject, and returns a plan without writing a title. When `write_required` is true, the cell calls `tools.codex_app__set_thread_title({title:plan.desired_title})` exactly once with `threadId` omitted, and accepts only the exact returned planned task ID and title. If the outer cell yields after 30 seconds, wait only for that same cell; the yield does not cancel a slow native call, which may delay the final response. Never retry, start another cell, poll the title, or reconcile.
+
+`update` verifies the official manifest, release URLs, architecture, checksum, embedded version, and candidate self-test before replacement. Network or verification failure leaves the old installation untouched. A later managed-surface write can truthfully leave a rerunnable partial; the binary is written last. Every successful update reports `restart_required`. The daily LaunchAgent runs only this command and never reads tasks or changes titles.
+
+For a manual update, preview first and end the consent turn with:
+
+> ## Here's what will happen
+>
+> - ThreadBear will download the official update, verify it, and replace its local helper only after the checks pass.
+> - The update check does not read tasks or change titles.
+> - I'll tell you whether Codex needs a restart.
+>
+> Update ThreadBear now?
+
+Afterward, end with:
+
+> ## ThreadBear recap 🐻
+>
+> - ThreadBear is now version [version], and automatic updates are [ready / need attention].
+> - Codex [does / does not] need a restart.
+> - Next: [nothing—you're up to date / the one safe rerun for a partial update].
 
 ## Uninstall
 
-You can uninstall from any active native Codex task—even when the ThreadBear home is archived. Do not ask the user to open, select, navigate to, or unarchive the ThreadBear home.
+Preview first:
 
-Read the installed skill's **Title cleanup** and **Uninstall** sections. Run status and inventory, resolve this initiating task's exact ID plus the persisted main and distinct controller IDs, inspect the exact owned automation, then ask:
+```sh
+~/.local/bin/threadbear uninstall --dry-run --json
+```
 
-> Want me to uninstall ThreadBear? I'll pause its Luna helper, tidy the ThreadBear icons from native-addressable local Codex task titles, and remove ThreadBear's local files, two hooks, and owned automation. If the ThreadBear home is archived, I'll briefly bring it out for cleanup and tuck it back exactly where it was. Your other archived tasks and Codex settings will be left alone. Older signed-in ChatGPT chat-history rows are outside this cleanup. When it's done, I'll ask you to restart Codex.
+End the consent turn with:
+
+> ## Here's what will happen
 >
-> Should I go ahead?
+> - I'll remove ThreadBear's local helper, private title memory, Codex instructions, skill, and automatic updates.
+> - Your tasks, other Codex settings, and unrelated files stay untouched.
+> - Existing title icons may remain until those tasks are renamed.
+> - After removal, you'll restart Codex once.
+>
+> Uninstall ThreadBear now?
 
-After consent, pause the exact owned `threadbear-maintenance` heartbeat; refuse an ID, kind, name, or target mismatch. Prepare the durable operation before changing a title or archive state:
-
-```sh
-~/.local/bin/threadbear uninstall --prepare --initiator-task-id INITIATOR_ID --json
-```
-
-If the returned original main state is archived, unarchive that exact task once through native archive control and verify it without opening, selecting, navigating to, or waking the task. The prepared initiating task cleans active titles serially through explicit native target calls, including an active distinct controller, then cleans `main_task_id` last. A quiescent pre-controller `migration_pending` uninstall leaves every inventory task untouched and cleans only the persistent home when it is decorated or its stripped title is the exact install sentinel. Every title mutation gets one four-second attempt, exact authoritative readback, and no blind retry. A clean non-sentinel title on resume is already settled and must not be rewritten.
-
-Restore and verify the main task's exact original archive state before deleting the owned automation. On a recoverable interruption, leave ThreadBear installed; the same initiating task resumes without duplicating settled mutations, and drifted or missing title targets remain user-owned. If uninstall is abandoned, restore and verify the original archive state, run `~/.local/bin/threadbear uninstall --abort --initiator-task-id INITIATOR_ID --json`, and require `aborted:true`. Once the exact automation is deleted and verified absent, cross the local commit boundary and run:
+After consent:
 
 ```sh
-~/.local/bin/threadbear uninstall --initiator-task-id INITIATOR_ID --noninteractive --confirm --json
+~/.local/bin/threadbear uninstall --noninteractive --confirm --json
 ```
 
-Commit refuses unless the prepared owner, clean main title, restored archive state, eligible stopped phase, and settled native operations all match. It removes only ThreadBear's recorded hook entries, managed AGENTS block, installed skill file, private state, and binary; partial local teardown is rerunnable and the installed binary is removed last. It preserves unrelated content—including user-created files beside the managed skill—hook order, unrelated automations, and archive states, and removes the skill directory only when empty. After removal, make no terminal title call and append no ThreadBear footer, because either would decorate the cleaned control-task title again. Ask the user to restart Codex so open sessions cannot keep using snapshotted guidance, and report whether the former home ended archived or active.
+Require committed removal and verify unrelated AGENTS content, skills, settings, files, and LaunchAgents remain byte-for-byte intact. After commit, do not run the title command. Ask the user to restart Codex so open tasks stop using snapshotted guidance.
 
-## Maintainer verification
+The final response after committed removal is:
 
-A release is ready only after unit and integration tests, the 1,500-line shipped-logic target and 2,000-line absolute gate, isolated install/reinstall/uninstall tests, 0-/1-/200-task controller fixtures, bounded write-wave overlap, and controller resume, interruption, and failure cases.
+> ## ThreadBear recap 🐻
+>
+> - ThreadBear and its automatic updates were removed.
+> - Your tasks and unrelated Codex content stayed untouched; old title icons may remain.
+> - Next: restart Codex so open tasks drop the old instructions.
 
-Tests and fixtures alone are not shipping proof. Also execute every lifecycle command printed here against the reviewed release candidate and exercise each changed native lifecycle against a real, recoverable Codex test task through the supported native control. Exercise changed download/update behavior against the official release service in an isolated installation. Record exact candidate SHA, task/release IDs, before/after state, results, and cleanup without visual inspection. Confirm that `INSTALL.md` and `site/install` are byte-identical and that the hosted `threadbear.sh/install` serves the reviewed guide before announcing publication.
+## Release proof
+
+Before release, run unit and integration tests, race tests, both Darwin builds, shell checks, experiment validation, installer/guide parity, and the focused fixture smoke.
+
+Release acceptance additionally requires one reviewed candidate live-tested end to end in Codex Desktop:
+
+- the terminal planner changes no Codex title, preserves the exact subject, and prepares only the status icon change;
+- the mounted app-native setter receives no explicit current-task ID and returns the exact planned task ID and title;
+- the rendered sidebar shows the expected title before and after a clean restart;
+- a full onboarding preview enumerates every local task, confirmed preparation writes no title, and the consented serial app-native pass accounts for every prepared target while skipping title drift before any write;
+- failures and unconfirmed results are reported locally without retries or global failure state;
+- automatic update and uninstall preserve neighboring user content.
+
+If the mounted app-native writer causes practical title corruption or response blocking, disable rewriting instead of adding reconciliation machinery.

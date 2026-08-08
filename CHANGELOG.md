@@ -2,6 +2,22 @@
 
 ## Unreleased
 
+## v3.0.0 - 2026-08-08
+
+### Changed
+
+- Reset ThreadBear to one terminal local title command that preserves exact subjects, changes only the status icon, keeps actions in response prose, and leaves unsafe titles unchanged.
+- Made one short-lived official Codex App Server the read/planning authority and the mounted app-native setter the sole title writer: one prepared current-task title, one-time decoding of native JSON-text results, at most one native call, and exact returned ID/title validation, with no SQLite access, detached write, fallback, or retry.
+- Replaced controller migration with explicit, uncapped onboarding that prepares a fresh complete snapshot, immediately checks each app-native task ID and title before its one possible write, reports honest updated, skipped, unchanged, and unconfirmed counts, and discloses that cached historical rows may redraw on project reopen or restart.
+- Removed title interception and configuration dependencies; installation now manages only the binary, subject records, guidance, skill, and daily update-only LaunchAgent.
+- Separated title-core readiness from updater health, made successful updates report restart requirements, made uninstall wait for any in-flight updater before teardown, and made queued updater processes reject a replaced installed binary; pre-install failures preserve the old install while later local write failures report a rerunnable partial with the binary last.
+- Made 2.2.1 upgrades an explicit reset that previews the exact automation and former persistent task, verifies deletion and unpinning before filesystem mutation, imports no state, and performs no heuristic title cleanup.
+- Made install, onboarding, manual update, and uninstall guidance friendly and plain: each action now previews what changes and what stays untouched, clearly discloses verified automatic updates, distinguishes safe skips from uncertain writes, and leaves a durable final-response recap with the result and next step.
+
+### Removed
+
+- Removed the running-title call, Post hook, persistent ThreadBear task, migration/controller/classifier machinery, archive maintenance, pending title transactions, repair flows, and global title-failure states.
+
 ## v2.2.1 - 2026-08-07
 
 ### Fixed

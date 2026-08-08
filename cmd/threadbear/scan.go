@@ -1,202 +1,282 @@
 package main
 
 import (
-	"bytes"
 	"context"
-	"database/sql"
-	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/BurntSushi/toml"
-	"io"
-	_ "modernc.org/sqlite"
-	"net/url"
 	"os"
-	"path/filepath"
-	"strconv"
-	"strings"
 )
 
-type indexedTask struct{ ID, Title, RolloutPath, Name, FirstMessage, ThreadSource string }
+const (
+	onboardingNeedsUpdate = "needs_update"
+	onboardingPrepared    = "prepared"
+	onboardingUnchanged   = "unchanged"
+	onboardingSkipped     = "skipped"
+)
 
-func inventory(ctx context.Context) ([]indexedTask, error) {
-	db, err := openIndex()
-	if err != nil {
-		return nil, err
-	}
-	defer db.Close()
-	rows, err := db.QueryContext(ctx, `SELECT id, COALESCE(name,title,''), COALESCE(rollout_path,''), COALESCE(name,''), COALESCE(first_user_message,''), COALESCE(thread_source,'')
-		FROM threads WHERE archived=0 AND preview<>'' AND source IN ('vscode','cli') ORDER BY id`)
-	if err != nil {
-		return nil, fmt.Errorf("read Codex task index: %w", err)
-	}
-	defer rows.Close()
-	var tasks []indexedTask
-	for rows.Next() {
-		var task indexedTask
-		if err := rows.Scan(&task.ID, &task.Title, &task.RolloutPath, &task.Name, &task.FirstMessage, &task.ThreadSource); err != nil {
-			return nil, err
-		}
-		tasks = append(tasks, task)
-	}
-	return tasks, rows.Err()
-}
-func oneTask(ctx context.Context, id string) (indexedTask, bool, error) {
-	if strings.TrimSpace(id) == "" {
-		return indexedTask{}, false, errors.New("task ID is empty")
-	}
-	db, err := openIndex()
-	if err != nil {
-		return indexedTask{}, false, err
-	}
-	defer db.Close()
-	var task indexedTask
-	err = db.QueryRowContext(ctx, `SELECT id, COALESCE(name,title,''), COALESCE(rollout_path,''), COALESCE(name,''), COALESCE(first_user_message,''), COALESCE(thread_source,'')
-		FROM threads WHERE id=? AND archived=0 AND preview<>'' AND source IN ('vscode','cli')`, id).Scan(&task.ID, &task.Title, &task.RolloutPath, &task.Name, &task.FirstMessage, &task.ThreadSource)
-	if errors.Is(err, sql.ErrNoRows) {
-		return indexedTask{}, false, nil
-	}
-	if err != nil {
-		return indexedTask{}, false, fmt.Errorf("read Codex task index: %w", err)
-	}
-	return task, true, nil
-}
-func openIndex() (*sql.DB, error) {
-	home, err := sqliteHome()
-	if err != nil {
-		return nil, err
-	}
-	matches, _ := filepath.Glob(filepath.Join(home, "state_*.sqlite"))
-	latest, latestNumber := "", -1
-	for _, path := range matches {
-		value := strings.TrimSuffix(strings.TrimPrefix(filepath.Base(path), "state_"), ".sqlite")
-		if number, _ := strconv.Atoi(value); number > latestNumber {
-			latest, latestNumber = path, number
-		}
-	}
-	if latest == "" {
-		return nil, errors.New("Codex state index not found")
-	}
-	dsn := (&url.URL{Scheme: "file", Path: latest, RawQuery: "mode=ro"}).String()
-	return sql.Open("sqlite", dsn)
-}
-func sqliteHome() (string, error) {
-	base := codexHome()
-	var config struct {
-		SQLiteHome string `toml:"sqlite_home"`
-	}
-	if _, err := toml.DecodeFile(filepath.Join(base, "config.toml"), &config); err != nil {
-		if errors.Is(err, os.ErrNotExist) {
-			return base, nil
-		}
-		return "", fmt.Errorf("parse Codex config: %w", err)
-	}
-	value := strings.TrimSpace(config.SQLiteHome)
-	switch {
-	case value == "":
-		value = base
-	case !filepath.IsAbs(value):
-		value = filepath.Join(base, value)
-	}
-	return value, nil
-}
-func rolloutFooter(path string) (footer, bool) {
-	if path == "" {
-		return footer{}, false
-	}
-	f, err := os.Open(path)
-	if err != nil {
-		return footer{}, false
-	}
-	defer f.Close()
-	info, err := f.Stat()
-	if err != nil {
-		return footer{}, false
-	}
-	const limit = int64(256 << 10)
-	start := max(int64(0), info.Size()-limit)
-	data, err := io.ReadAll(io.NewSectionReader(f, start, info.Size()-start))
-	if err != nil {
-		return footer{}, false
-	}
-	if len(data) == 0 || bytes.IndexByte(data, '\n') < 0 {
-		return footer{}, false
-	}
-	if start > 0 {
-		data = data[bytes.IndexByte(data, '\n')+1:]
-	}
-	lines := bytes.Split(data, []byte{'\n'})
-	for i := len(lines) - 2; i >= 0; i-- {
-		var item struct {
-			Type    string `json:"type"`
-			Payload struct {
-				Type, Role, Phase, Message string
-				Content                    []struct {
-					Text string `json:"text"`
-				} `json:"content"`
-			} `json:"payload"`
-		}
-		if json.Unmarshal(lines[i], &item) != nil {
-			continue
-		}
-		if item.Type == "turn_context" || item.Type == "event_msg" && (item.Payload.Type == "turn_aborted" || item.Payload.Type == "task_started") ||
-			item.Type == "response_item" && item.Payload.Type == "message" && item.Payload.Role == "user" {
-			return footer{}, false
-		}
-		if item.Type != "response_item" || item.Payload.Type != "message" || item.Payload.Role != "assistant" || item.Payload.Phase != "final_answer" {
-			continue
-		}
-		message := item.Payload.Message
-		for _, part := range item.Payload.Content {
-			message += part.Text
-		}
-		return parseFooter(message)
-	}
-	return footer{}, false
+type indexedTask struct {
+	ID          string `json:"task_id"`
+	Title       string `json:"title"`
+	RawFallback bool   `json:"-"`
 }
 
-type inventoryItem struct {
+type currentTitleResult struct {
+	Ready         bool   `json:"ready"`
 	TaskID        string `json:"task_id"`
-	Title         string `json:"title"`
-	Subject       string `json:"subject"`
 	Status        string `json:"status"`
-	Action        string `json:"action,omitempty"`
-	Deterministic bool   `json:"deterministic"`
-	Applied       bool   `json:"applied"`
+	PreviousTitle string `json:"previous_title"`
+	DesiredTitle  string `json:"desired_title"`
+	WriteRequired bool   `json:"write_required"`
+	Unchanged     bool   `json:"unchanged"`
+	Reason        string `json:"reason"`
 }
 
-func migrationInventory(ctx context.Context) ([]inventoryItem, int, state, error) {
-	tasks, err := inventory(ctx)
+type onboardingItem struct {
+	TaskID       string `json:"task_id"`
+	Title        string `json:"title,omitempty"`
+	Subject      string `json:"subject,omitempty"`
+	DesiredTitle string `json:"desired_title,omitempty"`
+	Safe         bool   `json:"safe"`
+	Outcome      string `json:"outcome"`
+	Reason       string `json:"reason,omitempty"`
+}
+
+type onboardingResult struct {
+	Ready              bool             `json:"ready"`
+	PlanComplete       bool             `json:"plan_complete"`
+	ReadOnly           bool             `json:"read_only"`
+	OnboardingComplete bool             `json:"onboarding_complete"`
+	Total              int              `json:"total"`
+	Safe               int              `json:"safe"`
+	NeedsUpdate        int              `json:"needs_update"`
+	Prepared           int              `json:"prepared"`
+	Unchanged          int              `json:"unchanged"`
+	Skipped            int              `json:"skipped"`
+	Items              []onboardingItem `json:"items"`
+}
+
+func runCurrentTitle(ctx context.Context, taskID, status string) (currentTitleResult, error) {
+	result := currentTitleResult{TaskID: taskID, Status: status}
+	if _, ok := statusIcons[status]; !ok {
+		return result, fmt.Errorf("unsupported ThreadBear status %q", status)
+	}
+	if !taskIDPattern.MatchString(taskID) {
+		return result, errors.New("CODEX_THREAD_ID is unavailable or invalid")
+	}
+
+	disk := newStore(stateDir())
+	fence, err := disk.lifecycleFence()
 	if err != nil {
-		return nil, 0, state{}, err
+		return result, err
 	}
-	known, readErr := currentStateOrEmpty()
-	if readErr != nil {
-		return nil, 0, state{}, readErr
+	defer unlock(fence)
+	client, err := startAppServer(ctx, appServerCurrentBudget)
+	if err != nil {
+		return result, err
 	}
-	items := make([]inventoryItem, 0, len(tasks))
-	remaining := 0
-	for _, task := range tasks {
-		if task.ID == known.MainTaskID || task.ID == known.ControllerTaskID {
+	defer client.abort()
+	err = func() error {
+		task, err := client.currentTask(2, taskID)
+		if err != nil {
+			return err
+		}
+		if task.RawFallback {
+			result.Reason = "native task name is blank; task is raw or unowned"
+			return errors.New(result.Reason)
+		}
+
+		subject, err := persistSubjectUnderFence(disk, task.ID, task.Title)
+		if err != nil {
+			result.Reason = "subject could not be resolved or saved"
+			return err
+		}
+		desired, err := renderTitle(status, subject)
+		if err != nil {
+			result.Reason = "desired title could not be rendered"
+			return err
+		}
+		result.PreviousTitle, result.DesiredTitle = task.Title, desired
+		result.WriteRequired = desired != task.Title
+		result.Unchanged = !result.WriteRequired
+		if result.WriteRequired {
+			result.Reason = "app-native title write required"
+		} else {
+			result.Reason = "native title already matches desired title"
+		}
+		result.Ready = true
+		return nil
+	}()
+	if err != nil {
+		return result, err
+	}
+
+	// The exact native name was already read and the plan is complete. Process
+	// exit cannot change that proof, so close and reap without promoting it into
+	// another title observation.
+	client.close()
+	return result, nil
+}
+
+func persistSubjectUnderFence(disk store, taskID, currentTitle string) (string, error) {
+	var subject string
+	err := disk.updateTaskUnderFence(taskID, func(record *taskState) (bool, error) {
+		resolved, err := resolveSubject(currentTitle, *record)
+		if err != nil {
+			return false, err
+		}
+		subject = resolved
+		changed := record.Subject != resolved
+		*record = taskState{Subject: resolved}
+		return changed, nil
+	})
+	return subject, err
+}
+
+func runOnboarding(ctx context.Context, apply bool, activeTaskID string) (onboardingResult, error) {
+	if apply && !taskIDPattern.MatchString(activeTaskID) {
+		return onboardingResult{}, errors.New("CODEX_THREAD_ID is unavailable or invalid")
+	}
+	disk := newStore(stateDir())
+	var fence *os.File
+	var err error
+	if apply {
+		fence, err = disk.lifecycleFence()
+		if err != nil {
+			return onboardingResult{}, err
+		}
+		defer unlock(fence)
+	}
+	budget := appServerListBudget
+	if apply {
+		budget = appServerOnboardingBudget
+	}
+	client, err := startAppServer(ctx, budget)
+	if err != nil {
+		return onboardingResult{}, err
+	}
+	defer client.abort()
+	nextRequestID := 2
+	tasks, err := client.inventory(&nextRequestID)
+	if err != nil {
+		return onboardingResult{}, err
+	}
+	items := prepareOnboardingItems(tasks)
+	excludeActiveOnboardingTask(items, activeTaskID)
+	result := summarizeOnboarding(items, !apply)
+	result.Ready, result.PlanComplete = true, true
+	if !apply {
+		client.close()
+		return result, nil
+	}
+
+	var operationErr error
+	// The completed thread/list snapshot is the preparation authority. Subject
+	// state is safe to pre-persist: the later app-native writer owns the immediate
+	// title observation and a future planner adopts any safe intervening rename.
+	for index := range items {
+		item := &items[index]
+		if !item.Safe || item.TaskID == activeTaskID || item.Outcome != onboardingNeedsUpdate {
 			continue
 		}
-		record := known.Tasks[task.ID]
-		subject := canonicalSubject(task.Title, record)
-		result, ok := rolloutFooter(task.RolloutPath)
-		if !ok {
-			if record.Pending == nil && record.Last == task.Title && statusIcons[record.Status] != "" {
-				result = footer{Status: record.Status, Action: record.Action}
-				ok = true
-			} else {
-				result.Status = "unknown"
+		targetErr := func() error {
+			if _, err := persistSubjectUnderFence(disk, item.TaskID, item.Title); err != nil {
+				item.Outcome = onboardingSkipped
+				item.Reason = "subject state could not be saved"
+				return fmt.Errorf("save subject state for %s: %w", item.TaskID, err)
+			}
+			item.Outcome = onboardingPrepared
+			item.Reason = "app-native title write required"
+			return nil
+		}()
+		if targetErr != nil {
+			if item.Outcome != onboardingSkipped {
+				item.Outcome = onboardingSkipped
+				item.Reason = "the ThreadBear lifecycle changed before this task could be prepared"
+			}
+			operationErr = errors.Join(operationErr, targetErr)
+		}
+	}
+	// Reap the one long-lived process after every admitted task has been
+	// prepared. Exit is proof-neutral once the plan is complete.
+	client.close()
+	result = summarizeOnboarding(items, false)
+	result.Ready, result.PlanComplete = operationErr == nil, true
+	result.OnboardingComplete = result.OnboardingComplete && operationErr == nil
+	return result, operationErr
+}
+
+func excludeActiveOnboardingTask(items []onboardingItem, activeTaskID string) {
+	if activeTaskID == "" {
+		return
+	}
+	for index := range items {
+		if items[index].TaskID == activeTaskID {
+			items[index].Outcome = onboardingUnchanged
+			items[index].Reason = "active task is handled by the terminal title writer"
+			return
+		}
+	}
+}
+
+func prepareOnboardingItems(tasks []indexedTask) []onboardingItem {
+	items := make([]onboardingItem, 0, len(tasks))
+	disk := newStore(stateDir())
+	for _, task := range tasks {
+		item := onboardingItem{TaskID: task.ID, Outcome: onboardingSkipped}
+		if task.RawFallback {
+			item.Reason = "native task name is blank; task is raw or unowned"
+			items = append(items, item)
+			continue
+		}
+		record, readErr := disk.readTask(task.ID)
+		if errors.Is(readErr, os.ErrNotExist) {
+			record = taskState{}
+		} else if readErr != nil {
+			item.Reason = "subject state is unreadable"
+			items = append(items, item)
+			continue
+		}
+		if record.Subject != "" && isOwnedRendering(task.Title, record.Subject) {
+			item.Title, item.Subject, item.DesiredTitle = task.Title, record.Subject, task.Title
+			item.Safe, item.Outcome, item.Reason = true, onboardingUnchanged, "already decorated"
+			items = append(items, item)
+			continue
+		}
+		subject, subjectErr := resolveSubject(task.Title, record)
+		if subjectErr != nil {
+			item.Reason = subjectErr.Error()
+			items = append(items, item)
+			continue
+		}
+		item.Title, item.Subject, item.DesiredTitle = task.Title, subject, "🐻 "+subject
+		item.Safe, item.Outcome = true, onboardingNeedsUpdate
+		items = append(items, item)
+	}
+	return items
+}
+
+func summarizeOnboarding(items []onboardingItem, readOnly bool) onboardingResult {
+	result := onboardingResult{ReadOnly: readOnly, Total: len(items), Items: items}
+	for _, item := range items {
+		if item.Safe {
+			result.Safe++
+			if item.Outcome == onboardingNeedsUpdate || item.Outcome == onboardingPrepared {
+				result.NeedsUpdate++
 			}
 		}
-		desired := renderTitle(result.Status, subject, result.Action)
-		applied := record.Pending == nil && record.Last == task.Title && record.Last == desired
-		items = append(items, inventoryItem{TaskID: task.ID, Title: task.Title, Subject: subject, Status: result.Status, Action: result.Action, Deterministic: ok, Applied: applied})
-		if !applied {
-			remaining++
+		switch item.Outcome {
+		case onboardingPrepared:
+			result.Prepared++
+		case onboardingUnchanged:
+			result.Unchanged++
+		case onboardingSkipped:
+			result.Skipped++
 		}
 	}
-	return items, remaining, known, nil
+	if readOnly {
+		result.OnboardingComplete = result.NeedsUpdate == 0
+	} else {
+		result.OnboardingComplete = result.Prepared == 0
+	}
+	return result
 }

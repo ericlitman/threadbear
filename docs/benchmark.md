@@ -1,9 +1,11 @@
 # Benchmark
 
-Run the read-only local inventory with:
+Run the complete read-only local onboarding inventory with:
 
 ```sh
-threadbear inventory --json
+threadbear onboard --dry-run --json
 ```
 
-Report task count, deterministic count, ambiguous count, and elapsed time. Inventory reads the Codex index and settled rollout tails; it does not write titles, call a model, or create migration work.
+Report App Server page count, elapsed time, total deduplicated unarchived tasks, safe candidates, needed updates, and unchanged tasks by reason. Exercise more than 100 tasks so at least two `thread/list` pages are required. Assert that enumeration applies no arbitrary page or item cap, source-label filter, task mutation, model call, or SQLite access. Include null and blank `name` rows with plausible `preview` text and prove both remain raw and unowned.
+
+Separately benchmark confirmed preparation and the serial mounted app-native pass. Report prepared, updated, unchanged, skipped, and unconfirmed counts. Performance is informative; correctness, exact native responses, and complete accounting are acceptance gates.

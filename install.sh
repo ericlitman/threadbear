@@ -124,7 +124,6 @@ chmod 700 "$candidate"
 if ! selftest_output=$("$candidate" self-test --candidate 2>&1); then
 	printf '%s\n' "$selftest_output" >&2
 	echo "threadbear: the downloaded candidate failed its self-test; nothing was installed." >&2
-	echo "threadbear: the check named above is the reason. If it mentions installed_state, a previous install may have left partial state in ~/.local/share/threadbear." >&2
 	exit 1
 fi
 embedded=$("$candidate" version --json | sed -n 's/.*"version":"\([^"]*\)".*/\1/p')

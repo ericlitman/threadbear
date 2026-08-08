@@ -1,356 +1,349 @@
 package main
 
 import (
-	"bytes"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 )
 
-func TestPublishedInstallGuideMatchesCurrentCLI(t *testing.T) {
-	root := filepath.Join("..", "..")
-	guide, err := os.ReadFile(filepath.Join(root, "INSTALL.md"))
+func readRepoFile(t *testing.T, path ...string) string {
+	t.Helper()
+	data, err := os.ReadFile(filepath.Join(append([]string{"..", ".."}, path...)...))
 	if err != nil {
 		t.Fatal(err)
 	}
-	published, err := os.ReadFile(filepath.Join(root, "site", "install"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !bytes.Equal(guide, published) {
-		t.Fatal("INSTALL.md and site/install must be byte-identical")
-	}
+	return string(data)
+}
 
-	text := string(guide)
-	for _, removed := range []string{
-		"--archive-control-task",
-		"--archive-after-days",
-		"--auto-update",
-		"--classifier-model",
-		"--heartbeat-seconds",
-		"--status-guidance",
-		"--token-display",
-		"threadbear configure",
-		"threadbear disable",
-		"threadbear enable",
-		"threadbear inspect",
-	} {
-		if strings.Contains(text, removed) {
-			t.Errorf("published install guide contains removed CLI surface %q", removed)
+func requireText(t *testing.T, text string, values ...string) {
+	t.Helper()
+	for _, value := range values {
+		if !strings.Contains(text, value) {
+			t.Errorf("missing product contract %q", value)
 		}
 	}
-	for _, required := range []string{
-		"## Hi. Let's install ThreadBear.",
-		"## Recommended setup",
-		"Status icon in each native-addressable local Codex task title.",
-		"Next action added to the thread title → like this.",
-		"Codex limits title length limited to 60 UTF-16 units, so I'll truncate as needed.",
-		"Small local footprint: one binary in ~/.local/bin, a skill, and two hooks.",
-		"One persistent thread, ThreadBear, for changing config and uninstalling; its title never receives a status prefix.",
-		"Deterministic classification and Luna-medium ambiguity checks run in parallel.",
-		"A small Luna helper checks in hourly, then stays quiet when there is nothing to do.",
-		"Finished tasks can curl up in the archive after 14 quiet days—and come back whenever you need them.",
-		"ThreadBear keeps itself fresh from verified releases and tells you when it has a new coat.",
-		"run the verified update check last",
-		"threadbear-maintenance",
-		"native automation control",
-		"On creation omit `id`",
-		"returned `automationId` must equal `threadbear-maintenance`",
-		"Never treat the create request's status as proof",
-		"immediately update that exact returned ID",
-		"status:\"PAUSED\"",
-		"paused hourly heartbeat",
-		"activate the exact owned heartbeat",
-		"--control-task-id",
+}
+
+func rejectText(t *testing.T, text string, values ...string) {
+	t.Helper()
+	for _, value := range values {
+		if strings.Contains(text, value) {
+			t.Errorf("contains removed product contract %q", value)
+		}
+	}
+}
+
+func TestPublishedInstallGuideMatchesCurrentProduct(t *testing.T) {
+	guide := readRepoFile(t, "INSTALL.md")
+	published := readRepoFile(t, "site", "install")
+	if guide != published {
+		t.Fatal("INSTALL.md and site/install must be byte-identical")
+	}
+	requireText(t, guide,
+		"It prepares one safe title, then Codex applies it once.",
+		"For every lifecycle action, write the lasting summary after all tool calls.",
+		"Nothing changes in this step.",
+		"Existing task titles will not change in this step.",
+		"onboarding stays a separate previewed choice.",
+		"Never leave that recap only in commentary, progress notices, notifications, or raw tool output",
+		"do not copy raw fields or list internal files and components",
+		"Group safe skips as “left unchanged” unless the user needs to act.",
+		"I couldn't confirm whether this title changed",
+		"## Here's what will happen",
+		"## ThreadBear recap 🐻",
+		"Other Codex settings and files stay untouched.",
+		"Existing tasks have not been changed yet",
+		"Checked N existing tasks: updated X, left Y unchanged, and could not confirm Z.",
+		"installs only verified official releases",
+		"Updates never read tasks or change titles.",
+		"ThreadBear and its automatic updates were removed.",
+		"--dry-run --json",
 		"--noninteractive --confirm --json",
-		"~/.local/bin/threadbear inventory --json",
-		"~/.local/bin/threadbear update --json",
+		"--no-onboard",
+		"ThreadBear onboard",
+		"entire unarchived App Server catalog before any preparation or title write",
+		"fresh complete catalog snapshot",
+		"returns one `prepared` action containing the snapshot title and desired title",
+		"tools.write_stdin",
+		"tools.codex_app__read_thread({threadId:item.task_id,includeOutputs:false,turnLimit:1,maxOutputCharsPerItem:1})",
+		"A missing, unreadable, wrong-ID, or changed-title response is skipped.",
+		"tools.codex_app__set_thread_title({threadId:item.task_id,title:item.desired_title})",
+		"Every prepared item must reach exactly one outcome.",
+		"Checked N existing tasks: updated X, left Y unchanged, and could not confirm Z.",
+		"tools.codex_app__set_thread_title({title:plan.desired_title})",
+		"one injection-safe terminal JavaScript cell",
+		"never re-embedded by the model",
+		"wait only for that same cell",
+		"yield does not cancel a slow native call",
+		"exact returned planned task ID and title",
+		"never opens Codex SQLite",
+		"binary is written last",
+		"Every successful update reports `restart_required`",
+		"daily update-only LaunchAgent",
+		"do not run the title command",
+	)
+	rejectText(t, guide,
+		"quiet daily update check",
+		"this title stayed as-is",
+		"the result is uncertain, I'll leave it alone",
+		"makes at most one App Server name update",
+		"acknowledgement without exact readback",
+		"only task read/write authority",
+		"thread/name/set",
+		"ThreadBear footer",
+		"--control-task-id",
+		"threadbear inventory",
+		"threadbear migration",
+		"threadbear maintenance",
 		"migration_pending",
 		"migration_running",
 		"migration_complete",
 		"migration_failed",
-		"exactly one projectless background migration-controller task",
-		"one exact untagged home-title call",
-		"Do not add a nonce or make a second title call.",
-		"do not use visual inspection, computer control, screenshots, or Codex `/hooks`",
-		"Older signed-in ChatGPT chat-history rows are outside Codex's current task-title API and will stay unchanged.",
-		"never describe zero local inventory rows as proof that every visible sidebar row changed",
-		"dispatch it within 60 seconds of consent",
-		"using `model:\"gpt-5.6-terra\"`, `thinking:\"medium\"`",
-		"first title mutation issued within 60 seconds of controller start and within 15 seconds of the inventory result",
-		"Worker creation uses the fixed `codex_app__create_thread` surface with `model:\"gpt-5.6-luna\"` and `thinking:\"medium\"`",
-		"❔ ThreadBear could not classify",
-		"Do not open, select, or navigate to it.",
-		"one bounded concurrent spawn wave of fresh read-only Luna-medium workers",
-		"accepts and ignores a surplus `action` field",
-		"missing or empty required actions for `blocked`, `needs_input`, or `next_steps`",
-		"Every successful worker handle is recorded and awaited",
-		"results may arrive out of order",
-		"bounded concurrent waves of at most eight distinct task IDs",
-		"without a client-created `Promise.race` or other synthetic timeout",
-		"Only an explicit timeout from the native tool is a timeout",
-		"eight-minute deadline",
-		"active or unaccounted for",
-		"status still says `migration_pending` or `migration_running`",
-		"migration stopped and is not still working",
-		"two native title calls per ordinary turn",
-		"~/.local/bin/threadbear uninstall --prepare --initiator-task-id",
-		"~/.local/bin/threadbear uninstall --initiator-task-id",
-		"You can uninstall from any active native Codex task—even when the ThreadBear home is archived.",
-		"Do not ask the user to open, select, navigate to, or unarchive the ThreadBear home.",
-		"same initiating task",
-		"Want me to uninstall ThreadBear?",
+		"background migration-controller",
+		"Luna helper",
+		"uninstall --prepare",
+		"state_N.sqlite",
+		"rereads every candidate",
+		"serially exactly once for every prepared item",
+		"do not poll, retry, reconcile, or delay the response",
+	)
+}
+
+func TestReleaseDocsKeepTheEstablishedImmediateRepaintGate(t *testing.T) {
+	architecture := readRepoFile(t, "docs", "architecture.md")
+	checklist := readRepoFile(t, "docs", "release-checklist.md")
+	requireText(t, architecture,
+		"repaint one current task and one controlled historical task immediately",
+		"preserve both titles across a clean Codex restart",
+	)
+	requireText(t, checklist,
+		"Require immediate mounted repaint for the active header and one controlled historical row",
+		"A stale controlled row fails this canary",
+	)
+	rejectText(t, checklist, "if Codex keeps it cached, reopen the project once")
+}
+
+func TestInstalledGuidanceDefinesOneTerminalPlannerAndNativeWrite(t *testing.T) {
+	guidance := readRepoFile(t, "assets", "AGENTS.threadbear.md")
+	requireText(t, guidance,
+		"Write the substantive response first.",
+		`\"$HOME/.local/bin/threadbear\" title --status STATUS --json`,
+		`// @exec: {"yield_time_ms": 30000, "max_output_tokens": 1000}`,
+		"Replace only `STATUS` with the exact enum",
+		"if (local.exit_code !== 0) { text(local); exit(); }",
+		"plan = JSON.parse(local.output)",
+		`typeof plan.write_required !== "boolean"`,
+		"if (!plan.write_required) { text(local); exit(); }",
+		"tools.codex_app__set_thread_title({title:plan.desired_title})",
+		"const decodeNative = value =>",
+		`typeof value !== "string"`,
+		"renamed = decodeNative(await tools.codex_app__set_thread_title",
+		"renamed.threadId !== plan.task_id",
+		"renamed.title !== plan.desired_title",
+		"mounted Codex app is the sole writer",
+		"If the outer cell yields, wait only for that same cell",
+		"yield does not cancel a slow native call",
+		"Never start another cell, poll the title, retry, or reconcile.",
+		"A returned failure is local to this turn.",
+		"The status controls only the visible icon.",
+	)
+	if count := strings.Count(guidance, "```js"); count != 1 {
+		t.Fatalf("managed guidance contains %d JavaScript cells; want one", count)
+	}
+	if count := strings.Count(guidance, "title --status STATUS --json"); count != 1 {
+		t.Fatalf("managed guidance contains %d terminal planners; want one", count)
+	}
+	if count := strings.Count(guidance, "tools.codex_app__set_thread_title("); count != 1 {
+		t.Fatalf("managed guidance contains %d native title calls; want one", count)
+	}
+	rejectText(t, guidance,
+		"threadId:plan.task_id",
+		"thread/name/set",
+		"Promise.race",
+		"setTimeout",
+		"delay the response",
+		"PreToolUse",
+		"PostToolUse",
+		"ThreadBear footer",
+		"maintenance --cancel",
+		"prepared uninstall",
+	)
+}
+
+func TestInstalledSkillStaysCompactAndRunsOneSerialNativePass(t *testing.T) {
+	protocol := readRepoFile(t, "assets", "skill", "SKILL.md")
+	if size := len([]byte(protocol)); size > 5*1024 {
+		t.Fatalf("installed skill is %d bytes; compact-guide ceiling is 5 KiB", size)
+	}
+	requireText(t, protocol,
+		"Be upbeat/plain.",
+		"Before consent, end with **Here's what will happen**",
+		"After tools, end with **ThreadBear recap 🐻**",
+		"Never leave it in commentary/tool output.",
+		"Recap visible facts",
+		"not raw results or internal names",
+		"Safe skips are “left unchanged.”",
+		"I couldn't confirm whether this title changed",
+		"## Install or reset",
+		"automatic installation of verified official updates",
+		"leave tasks/settings/titles",
+		"## Onboard existing tasks",
+		"onboard --dry-run --json",
+		`\"$HOME/.local/bin/threadbear\" onboard --noninteractive --confirm --json`,
+		"full catalog",
+		`item.outcome === "prepared"`,
+		`typeof item.title !== "string"`,
+		"for (const item of prepared)",
+		"tools.write_stdin({",
+		"session_id:local.session_id",
+		"tools.codex_app__read_thread({threadId:item.task_id",
+		"includeOutputs:false,turnLimit:1,maxOutputCharsPerItem:1",
+		"const parseNative = value =>",
+		`typeof value !== "string"`,
+		"current = parseNative(await tools.codex_app__read_thread",
+		"current?.thread?.id !== item.task_id || current.thread.title !== item.title",
+		"tools.codex_app__set_thread_title({",
+		"renamed = parseNative(await tools.codex_app__set_thread_title",
+		"threadId:item.task_id",
+		"title:item.desired_title",
+		"renamed.threadId === item.task_id",
+		"renamed.title === item.desired_title",
+		"notify(`ThreadBear onboarding: ${done}/${prepared.length}`)",
+		"const accounted = updated + skipped + unconfirmed === prepared.length",
+		"ready:accounted && unconfirmed === 0",
+		"onboarding_complete:accounted && unconfirmed === 0",
+		"unchanged:plan.total - updated - unconfirmed",
+		"Updated X of N existing tasks; Y were left unchanged; Z could not be confirmed.",
+		"No cap or persistent task.",
+		"## Update",
+		"Preview official download, verification, replacement, restart.",
+		"## Uninstall",
+		"uninstall --dry-run --json",
+		"uninstall --noninteractive --confirm --json",
+		"Only `uninstalled:true` means removed",
+		"keep tasks/settings/files; icons may remain.",
+		"no title cell.",
+		"Recap exactly: “ThreadBear was removed.",
+	)
+	rejectText(t, protocol, "this title stayed as-is")
+	if count := strings.Count(protocol, "tools.codex_app__set_thread_title("); count != 1 {
+		t.Fatalf("installed skill contains %d native title call sites; want one", count)
+	}
+	if count := strings.Count(protocol, "tools.codex_app__read_thread("); count != 1 {
+		t.Fatalf("installed skill contains %d mounted title read call sites; want one", count)
+	}
+	if count := strings.Count(protocol, "tools.exec_command("); count != 1 {
+		t.Fatalf("installed skill contains %d preparation process call sites; want one", count)
+	}
+	rejectText(t, protocol,
+		"thread/name/set",
+		"exact readback",
+		"Promise.all",
+		"Promise.race",
+		"setTimeout",
+		"ready:unconfirmed === 0",
+		"rereads every candidate",
+		"PreToolUse",
+		"PostToolUse",
+		"Migration controller",
+		"migration --phase",
+		"maintenance --cancel",
+		"uninstall --prepare",
+	)
+}
+
+func TestLifecycleCopyLeavesADurableFriendlyRecap(t *testing.T) {
+	guide := readRepoFile(t, "INSTALL.md")
+	protocol := readRepoFile(t, "assets", "skill", "SKILL.md")
+	help := readRepoFile(t, "assets", "help.txt")
+	var userFacing strings.Builder
+	for _, line := range strings.Split(guide, "\n") {
+		if strings.HasPrefix(line, "> ") {
+			userFacing.WriteString(strings.TrimPrefix(line, "> "))
+			userFacing.WriteByte('\n')
+		}
+	}
+
+	if count := strings.Count(guide, "## Here's what will happen"); count < 4 {
+		t.Fatalf("install guide has %d lifecycle previews; want install, onboarding, update, and uninstall guidance", count)
+	}
+	if count := strings.Count(guide, "## ThreadBear recap 🐻"); count < 4 {
+		t.Fatalf("install guide has %d durable recaps; want universal plus lifecycle results", count)
+	}
+	requireText(t, guide,
+		"end the final response",
+		"after all tool calls",
+		"what stayed untouched",
+		"the next action",
+		"those can disappear when Codex summarizes the turn",
+	)
+	requireText(t, protocol,
+		"Before consent, end with",
+		"After tools, end with",
+		"result, uncertainty, next action",
+	)
+	requireText(t, help,
+		"Show what will change, then install ThreadBear",
+		"Show what will be removed, then remove ThreadBear",
+		"the final response must recap the result, uncertainty, and next action",
+	)
+	rejectText(t, userFacing.String(),
+		"binary",
+		"LaunchAgent",
+		"App Server",
+		"JSON",
+		"subject record",
+		"native setter",
+	)
+}
+
+func TestCurrentDocsNameThePlannerAndSoleMountedWriter(t *testing.T) {
+	for _, path := range [][]string{
+		{"README.md"},
+		{"docs", "architecture.md"},
+		{"docs", "compatibility.md"},
+		{"docs", "status-convention.md"},
 	} {
-		if !strings.Contains(text, required) {
-			t.Errorf("published install guide is missing %q", required)
-		}
-	}
-	if strings.Contains(text, "foreground migration") {
-		t.Error("published install guide still assigns migration to the persistent task")
-	}
-	if strings.Contains(text, "Use Codex `/hooks` to inspect") {
-		t.Error("published install guide still asks end users to inspect Codex hooks")
-	}
-	for _, debugOnly := range []string{"canary", "--debug-canaries", "genuinely fresh Codex Desktop task"} {
-		if strings.Contains(strings.ToLower(text), strings.ToLower(debugOnly)) {
-			t.Errorf("published install guide discloses debug-only verification %q", debugOnly)
-		}
+		text := readRepoFile(t, path...)
+		requireText(t, text, "mounted Codex app")
+		rejectText(t, text,
+			"only task read/write authority",
+			"makes at most one `thread/name/set`",
+			"immediate read/write/readback",
+			"exact readback",
+		)
 	}
 }
 
-func TestInstalledSkillDefinesAdaptiveMigrationWaves(t *testing.T) {
-	data, err := os.ReadFile(filepath.Join("..", "..", "assets", "skill", "SKILL.md"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	protocol := string(data)
-
-	for _, required := range []string{
-		"never use visual inspection, computer control, screenshots, or Codex `/hooks`",
-		"dispatch it within 60 seconds of consent",
-		"first stable batch of at most 25",
-		"start the initial bounded worker-spawn wave concurrently with the first deterministic activation-and-setter wave",
-		"within 15 seconds of the inventory result",
-		"`codex_app__create_thread` using `model:\"gpt-5.6-luna\"`, `thinking:\"medium\"`",
-		"Do not inspect or compare alternative agent surfaces at runtime.",
-		"stable batches of at most 10 tasks",
-		"Derive each assigned list mechanically from the parsed inventory `task_id` fields in stable order",
-		"never retype, transform, or synthesize an ID",
-		"one JSON array with every assigned ID exactly once and no other ID",
-		"For statuses that do not consume an action (`complete`, `automation`, and `unknown`), accept and ignore a surplus `action` field.",
-		"missing or empty required actions for `blocked`, `needs_input`, or `next_steps`",
-		"Validate only that final-answer item; separate worker commentary is not part of the result grammar.",
-		"followed only by the one terminal ThreadBear status line required by the managed block",
-		"A `wait_threads` snapshot may normalize the one separator newline before the footer into a space",
-		"accept one or more whitespace characters followed by the exact required footer",
-		"do not require a physical newline",
-		"Ignore that required footer only while parsing the array",
-		"one bounded concurrent wave of fresh, read-only Luna-medium workers",
-		"archive all currently validated workers together",
-		"one concurrent `Promise.all` call",
-		"never serialize those archives",
-		"never wait for every worker before applying an already validated and archived batch",
-		"A `wait_threads` response with `timedOut:true` is only a normal polling snapshot and is never a worker timeout",
-		"Immediately record every successful handle with its assigned task IDs",
-		"Retained classifier worker IDs are installation internals: exclude them from every migration title wave.",
-		"A missing, mismatched, or unconfirmed archive result fails closed",
-		"At an agent-capacity error, account for every earlier success",
-		"Never reinterpret that error as zero workers when earlier spawns succeeded.",
-		"even when results arrive out of order",
-		"give each worker eight minutes from spawn",
-		"discard only that batch's uncommitted classifications",
-		"retry that read-only batch once in the next wave",
-		"A second invalid result or actual worker deadline reports failure and complete accounting to the home",
-		"bounded waves of at most eight distinct targets",
-		"call `codex_app__read_thread` concurrently for every target as a bounded read-only activation gate",
-		"require each response's exact task ID and the inventory-planned title",
-		"begin the setter wave within 15 seconds",
-		"never include the same target twice in a wave",
-		"without a client-created `Promise.race` or other synthetic timeout",
-		"Only an explicit timeout from the native tool is a timeout.",
-		"never compare the native return title with the compact input",
-		"use fresh inventory as the authoritative applied result",
-		"Account for the whole wave before reconciling it with inventory",
-		"Execute every ready stable queue in one orchestrated script loop",
-		"do not add commentary, model deliberation, or a separate outer tool round trip between settled waves",
-		"one narrow stale-snapshot exception",
-		"explicitly says a target is inactive or not found",
-		"its exact ID is absent from the refreshed inventory",
-		"the task naturally left the addressable catalog and is not counted as applied",
-		"status `complete` requires `title:\"🧵🐻 complete\"`",
-		"status `needs_input` requires `title:\"🧵🐻 needs input (you): ACTION\"`",
-		"status `next_steps` requires `title:\"🧵🐻 next steps (agent): ACTION\"`",
-		"bare inputs such as `complete`, `blocked`, or `next_steps` are invalid",
-		"Never prepend the visible status icon, insert the word `ThreadBear`, include the task subject, or pre-render the visible title",
-		"the Pre hook alone expands the compact input around the authoritative subject",
-		"Do not start another wave or return while a retained worker is still active or unaccounted for.",
-		"If zero workers can start, wait 30 seconds and retry for at most two minutes",
-		"ThreadBear controller registration.",
-		"retain the create result only as a supervision handle",
-		"adding `--settled` only when the controller's complete wave accounting proves every admitted native call returned a terminal result",
-		"The failed phase denies every new title proposal",
-		"Unknown proposals remain pending for manual fail-closed recovery",
-	} {
-		if !strings.Contains(protocol, required) {
-			t.Errorf("installed skill is missing adaptive migration invariant %q", required)
-		}
-	}
-	if !strings.Contains(protocol, "`"+unknownMarker+"`") {
-		t.Errorf("installed skill does not name the hook-accepted unknown marker %q", unknownMarker)
-	}
-	if strings.Contains(protocol, "Use Codex `/hooks` to inspect") {
-		t.Error("installed skill still asks end users to inspect Codex hooks")
-	}
-	firstBatch := strings.Index(protocol, "first stable batch of at most 25")
-	workerSurface := strings.LastIndex(protocol, "`codex_app__create_thread` using")
-	if firstBatch < 0 || workerSurface < 0 || firstBatch > workerSurface {
-		t.Error("installed skill does not put prompt deterministic progress before Luna worker creation")
-	}
-}
-
-func TestActiveReleaseDocsUseLunaMedium(t *testing.T) {
-	root := filepath.Join("..", "..")
-	paths := []string{
-		"README.md",
-		"INSTALL.md",
-		filepath.Join("site", "install"),
-		filepath.Join("assets", "skill", "SKILL.md"),
-		filepath.Join("docs", "architecture.md"),
-		filepath.Join("docs", "live-eval.md"),
-		filepath.Join("docs", "release-checklist.md"),
-	}
-	for _, path := range paths {
-		data, err := os.ReadFile(filepath.Join(root, path))
-		if err != nil {
-			t.Fatal(err)
-		}
-		for _, stale := range []string{"Luna-low", `thinking:"low"`} {
-			if strings.Contains(string(data), stale) {
-				t.Errorf("%s contains stale classifier setting %q", path, stale)
-			}
-		}
-	}
-}
-
-func TestPublishedInstallGuideKeepsFirstConsentTurnVisible(t *testing.T) {
-	data, err := os.ReadFile(filepath.Join("..", "..", "INSTALL.md"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	guide := string(data)
-
-	for _, required := range []string{
-		"Codex collapses commentary after a turn finishes.",
-		"commentary copies do not satisfy this contract",
-		"Every terminal final answer in this first turn must be self-contained.",
-		"If every check and the dry run succeeds, `phase: final_answer` must include the complete orientation above, the readiness sentence, the full recommendation card, and the consent question.",
-		"Do not end a successful turn with only the consent question.",
-		"compose one terminal final answer with no later tool call or commentary",
-		"every recommendation bullet, and consent question must all be present in `phase: final_answer`",
-		"do not follow it with a question-only final answer",
-	} {
-		if !strings.Contains(guide, required) {
-			t.Errorf("published install guide is missing visible consent-turn contract %q", required)
-		}
-	}
-
-	if strings.Contains(guide, "Continue in the same response with the full card") {
-		t.Error("published install guide retains the ambiguous response-boundary rule")
-	}
-}
-
-func TestPublishedInstallGuideDoesNotRequestConsentAfterFailedChecks(t *testing.T) {
-	data, err := os.ReadFile(filepath.Join("..", "..", "INSTALL.md"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	guide := string(data)
-
-	for _, required := range []string{
-		"If any check fails, keep the complete orientation and truthful failure visible in `phase: final_answer`",
-		"do not claim readiness, show the recommendation card, or ask for consent",
-		"Only after every check and the dry run succeeds, compose one terminal final answer",
-	} {
-		if !strings.Contains(guide, required) {
-			t.Errorf("published install guide is missing truthful failure-turn contract %q", required)
-		}
-	}
-}
-
-func TestHomepageMatchesNativeMaintenanceCapabilities(t *testing.T) {
-	data, err := os.ReadFile(filepath.Join("..", "..", "site", "index.html"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	page := string(data)
-	for _, requiredClaim := range []string{
-		"Create a new session in ChatGPT Desktop using Luna on medium effort, and paste this in:",
-		"14 quiet days",
-		"native task control",
-		"never archives active work",
-		"installs no LaunchAgent",
-		"verified official release",
-		"update check last",
-	} {
-		if !strings.Contains(page, requiredClaim) {
-			t.Errorf("homepage is missing maintenance capability claim %q", requiredClaim)
-		}
-	}
-	for _, removedClaim := range []string{
-		"zero-token idle",
-		"Unchanged heartbeats use zero model tokens",
-		"produce zero output",
-		"exits silently",
-		"control task",
-	} {
-		if strings.Contains(page, removedClaim) {
-			t.Errorf("homepage contains removed capability claim %q", removedClaim)
-		}
-	}
-}
-
-func TestManagedCleanupContractIsShipped(t *testing.T) {
-	root := filepath.Join("..", "..", "assets")
-	for path, required := range map[string][]string{
-		filepath.Join(root, "skill", "SKILL.md"):    {"## Title cleanup", "same controller ID", "A stopped `migration_failed` installation is uninstallable", "prepared uninstall task", "persistent home remains exactly `ThreadBear`", "For uninstall, target the control task last", "no attempt suffix"},
-		filepath.Join(root, "AGENTS.threadbear.md"): {"A prepared uninstall suspends this turn protocol", "respond without another title call or ThreadBear footer", "THREADBEAR_TITLE_ATTEMPT='${attempt}'"},
-	} {
-		data, err := os.ReadFile(path)
-		if err != nil {
-			t.Fatal(err)
-		}
-		for _, text := range required {
-			if !strings.Contains(string(data), text) {
-				t.Errorf("%s is missing %q", path, text)
-			}
-		}
-	}
-}
-
-func TestShippedLogicStaysBelowAbsoluteLineCeiling(t *testing.T) {
-	root := filepath.Join("..", "..")
-	paths, err := filepath.Glob(filepath.Join(root, "cmd", "threadbear", "*.go"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	paths = append(paths, filepath.Join(root, "assets", "embed.go"), filepath.Join(root, "install.sh"))
-	count := 0
-	for _, path := range paths {
-		if strings.HasSuffix(path, "_test.go") {
-			continue
-		}
-		data, err := os.ReadFile(path)
-		if err != nil {
-			t.Fatal(err)
-		}
-		count += bytes.Count(data, []byte{'\n'})
-		if len(data) > 0 && data[len(data)-1] != '\n' {
-			count++
-		}
-	}
-	t.Logf("shipped executable logic: %d lines (target 1500, absolute ceiling 2000)", count)
-	if count > 2000 {
-		t.Fatalf("shipped executable logic is %d lines; absolute ceiling is 2000", count)
-	}
+func TestHomepageDescribesOnlyShippedCapabilities(t *testing.T) {
+	page := readRepoFile(t, "site", "index.html")
+	requireText(t, page,
+		"One terminal update",
+		"The mounted app writes",
+		"App Server client prepares the safe title; Codex's native setter applies it",
+		"App Server pagination before serial app-native writes",
+		"no arbitrary first-50 cap",
+		"read/planning authority only",
+		"native setter is the sole title writer",
+		"immediately rereads each prepared task through the mounted app",
+		"skips drift",
+		"null or blank <code>name</code>",
+		"<code>preview</code> is never adopted",
+		"daily update-only LaunchAgent",
+		"There is no SQLite access, daemon, proxy, cache, model, retry, fallback, queue, or repair pass.",
+		"rerunnable partial",
+		"title-core readiness",
+	)
+	rejectText(t, page,
+		"One direct writer",
+		"writes at most once, and verifies exact readback",
+		"only task read/write authority",
+		"thread/name/set",
+		"PreToolUse",
+		"PostToolUse",
+		"deterministic hook",
+		"automatic archive",
+		"read-only SQLite lookup",
+	)
 }

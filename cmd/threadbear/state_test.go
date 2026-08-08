@@ -2,36 +2,47 @@ package main
 
 import (
 	"errors"
+	"golang.org/x/sys/unix"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
-	"unicode/utf16"
-	"unicode/utf8"
+	"time"
 )
 
-func utf16Len(value string) int { return len(utf16.Encode([]rune(value))) }
-
-func TestNativeStateStoreInitializesPrivatelyAndRoundTrips(t *testing.T) {
-	dir := filepath.Join(t.TempDir(), "state")
-	disk := newStore(dir)
-	if filepath.Base(disk.path()) != "native.json" {
-		t.Fatalf("state path = %q", disk.path())
+func testSubjectStore(t testing.TB) store {
+	t.Helper()
+	disk := newStore(filepath.Join(t.TempDir(), "state"))
+	if err := os.MkdirAll(disk.subjectDir(), 0o700); err != nil {
+		t.Fatal(err)
 	}
-	if _, err := disk.read(); !errors.Is(err, os.ErrNotExist) {
+	if err := os.WriteFile(filepath.Join(disk.dir, "lifecycle.lock"), nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return disk
+}
+
+func TestSubjectRecordsArePrivateAndPerTask(t *testing.T) {
+	disk := testSubjectStore(t)
+	if _, err := disk.readTask(testTaskID); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("absent read error = %v", err)
 	}
-	want := taskState{Subject: "Customer outage", Last: "🚨 Customer outage → restore service"}
-	if err := disk.update(func(value *state) (bool, error) {
-		if value.Format != stateFormat || value.Tasks == nil {
-			t.Fatalf("initial state = %#v", value)
-		}
-		value.Tasks["task-1"] = want
+	if err := disk.updateTask(testTaskID, func(record *taskState) (bool, error) {
+		record.Subject = "Customer  outage "
 		return true, nil
 	}); err != nil {
 		t.Fatal(err)
 	}
-	for path, mode := range map[string]os.FileMode{dir: 0o700, disk.path(): 0o600, filepath.Join(dir, "native.lock"): 0o600} {
+	dataPath, lockPath, err := disk.paths(testTaskID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for path, mode := range map[string]os.FileMode{
+		disk.subjectDir():                         0o700,
+		filepath.Join(disk.dir, "lifecycle.lock"): 0o600,
+		dataPath: 0o600,
+		lockPath: 0o600,
+	} {
 		info, err := os.Stat(path)
 		if err != nil {
 			t.Fatal(err)
@@ -40,211 +51,231 @@ func TestNativeStateStoreInitializesPrivatelyAndRoundTrips(t *testing.T) {
 			t.Fatalf("%s mode = %o, want %o", path, info.Mode().Perm(), mode)
 		}
 	}
-	got, err := disk.read()
-	if err != nil {
-		t.Fatal(err)
+	got, err := disk.readTask(testTaskID)
+	if err != nil || got.Subject != "Customer  outage " {
+		t.Fatalf("record = %#v, %v", got, err)
 	}
-	if got.Format != stateFormat || got.Tasks["task-1"] != want {
-		t.Fatalf("read = %#v", got)
+	data, err := os.ReadFile(dataPath)
+	if err != nil || string(data) != "{\"subject\":\"Customer  outage \"}\n" {
+		t.Fatalf("record bytes = %q, %v", data, err)
 	}
-	data, err := os.ReadFile(disk.path())
-	if err != nil {
-		t.Fatal(err)
+	if _, err := os.Stat(filepath.Join(disk.dir, "subjects.json")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatal("global subject map exists")
 	}
-	for _, key := range []string{`"format"`, `"tasks"`, `"subject"`} {
-		if !strings.Contains(string(data), key) {
-			t.Fatalf("state JSON %q lacks %s", data, key)
+}
+
+func TestSubjectRecordCorruptionFailsOnlyThatRecord(t *testing.T) {
+	disk := testSubjectStore(t)
+	for _, item := range []struct{ id, subject string }{{testBadID, "bad"}, {testGoodID, "good"}} {
+		if err := disk.updateTask(item.id, func(record *taskState) (bool, error) {
+			record.Subject = item.subject
+			return true, nil
+		}); err != nil {
+			t.Fatal(err)
 		}
 	}
-}
-
-func TestNativeStateCorruptionFailsClosed(t *testing.T) {
-	for name, body := range map[string]string{
-		"malformed":     `{`,
-		"wrong format":  `{"format":2,"tasks":{}}`,
-		"missing tasks": `{"format":3}`,
-	} {
-		t.Run(name, func(t *testing.T) {
-			dir := t.TempDir()
-			disk := newStore(dir)
-			if err := os.WriteFile(disk.path(), []byte(body), 0o600); err != nil {
-				t.Fatal(err)
-			}
-			called := false
-			if err := disk.update(func(*state) (bool, error) { called = true; return false, nil }); err == nil {
-				t.Fatal("corrupt state was accepted")
-			}
-			if called {
-				t.Fatal("mutation ran against corrupt state")
-			}
-			got, err := os.ReadFile(disk.path())
-			if err != nil || string(got) != body {
-				t.Fatalf("corrupt state was replaced: %q, %v", got, err)
-			}
-		})
+	badPath, _, _ := disk.paths(testBadID)
+	if err := os.WriteFile(badPath, []byte(`{"subject":"bad","unexpected":true}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := disk.readTask(testBadID); err == nil {
+		t.Fatal("corrupt record was accepted")
+	}
+	if got, err := disk.readTask(testGoodID); err != nil || got.Subject != "good" {
+		t.Fatalf("healthy record = %#v, %v", got, err)
 	}
 }
 
-func TestNativeStateRejectsUnsafePaths(t *testing.T) {
+func TestSubjectRecordRejectsUnsafePaths(t *testing.T) {
+	disk := testSubjectStore(t)
+	for _, id := range []string{"", "task", "../escape", "a/b", strings.Repeat("x", 129), strings.ToUpper(testDelegatedID)} {
+		if err := disk.updateTask(id, func(*taskState) (bool, error) { return false, nil }); err == nil {
+			t.Fatalf("unsafe task ID %q was accepted", id)
+		}
+	}
 	realDir := t.TempDir()
-	link := filepath.Join(filepath.Dir(realDir), "state-link")
-	if err := os.Symlink(realDir, link); err != nil {
+	linkState := filepath.Join(t.TempDir(), "state")
+	if err := os.Mkdir(linkState, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	if err := newStore(link).update(func(*state) (bool, error) { return false, nil }); err == nil {
-		t.Fatal("symlink state directory was accepted")
-	}
-	dir := filepath.Join(t.TempDir(), "state")
-	disk := newStore(dir)
-	if err := os.Mkdir(dir, 0o700); err != nil {
+	if err := os.WriteFile(filepath.Join(linkState, "lifecycle.lock"), nil, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(disk.path(), []byte(`{"format":3,"tasks":{}}`), 0o644); err != nil {
+	if err := os.Symlink(realDir, filepath.Join(linkState, "subjects")); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.Chmod(disk.path(), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := disk.read(); err == nil {
-		t.Fatal("public state file was accepted")
+	if err := newStore(linkState).updateTask(testTaskID, func(record *taskState) (bool, error) {
+		record.Subject = "subject"
+		return true, nil
+	}); err == nil {
+		t.Fatal("symlink subject directory was accepted")
 	}
 }
 
-func TestNativeStateMutationErrorDoesNotSave(t *testing.T) {
-	disk := newStore(filepath.Join(t.TempDir(), "state"))
+func TestSubjectMutationErrorDoesNotSave(t *testing.T) {
+	disk := testSubjectStore(t)
 	want := errors.New("stop")
-	if err := disk.update(func(value *state) (bool, error) {
-		value.Tasks["task-1"] = taskState{Subject: "not saved"}
+	if err := disk.updateTask(testTaskID, func(record *taskState) (bool, error) {
+		record.Subject = "not saved"
 		return false, want
 	}); !errors.Is(err, want) {
 		t.Fatalf("update error = %v", err)
 	}
-	if _, err := disk.read(); !errors.Is(err, os.ErrNotExist) {
+	if _, err := disk.readTask(testTaskID); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("failed mutation wrote state: %v", err)
 	}
 }
 
-func TestCanonicalSubjectUsesOnlyExactOwnership(t *testing.T) {
-	previous := taskState{
-		Subject: "Customer outage",
-		Last:    "🚨 Customer outage → restore service",
-		Pending: &pendingProposal{BaseSubject: "Customer outage", Prior: "⏳ Customer outage", Proposed: "✅ Customer outage"},
-	}
-	for name, pair := range map[string][2]string{
-		"last committed":      {previous.Last, previous.Subject},
-		"pending prior":       {previous.Pending.Prior, previous.Subject},
-		"pending proposed":    {previous.Pending.Proposed, previous.Subject},
-		"lost post near miss": {"✅ Customer outage!", "✅ Customer outage!"},
-		"user rename":         {"🚨 Billing → literal user arrow", "🚨 Billing → literal user arrow"},
-		"outer whitespace":    {" ✅ Customer outage ", "✅ Customer outage"},
-	} {
-		t.Run(name, func(t *testing.T) {
-			if got := canonicalSubject(pair[0], previous); got != pair[1] {
-				t.Fatalf("canonicalSubject(%q) = %q, want %q", pair[0], got, pair[1])
-			}
+func TestSubjectWritesShareLifecycleFence(t *testing.T) {
+	disk := testSubjectStore(t)
+	firstEntered := make(chan struct{})
+	releaseFirst := make(chan struct{})
+	firstDone := make(chan error, 1)
+	go func() {
+		firstDone <- disk.updateTask(testFirstID, func(record *taskState) (bool, error) {
+			close(firstEntered)
+			<-releaseFirst
+			record.Subject = "first"
+			return true, nil
 		})
-	}
-	if got := canonicalSubject("🚨 User title → do not parse", taskState{}); got != "🚨 User title → do not parse" {
-		t.Fatalf("fresh title was parsed as owned: %q", got)
-	}
-	if got := canonicalSubject("Fresh task\n  subject", taskState{}); got != "Fresh task subject" {
-		t.Fatalf("fresh subject was not normalized: %q", got)
-	}
-}
-
-func TestParseFooterExactGrammar(t *testing.T) {
-	valid := map[string]footer{
-		"Done.\n\n🧵🐻 complete":                               {Status: "complete"},
-		"🧵🐻 automation\r\n":                                  {Status: "automation"},
-		"🧵🐻 next steps (you): approve the release":           {Status: "next_steps", Action: "approve the release"},
-		"🧵🐻 next steps (agent): retry the title handoff":     {Status: "next_steps", Action: "retry the title handoff"},
-		"🧵🐻 next steps (external): review the pull request":  {Status: "next_steps", Action: "review the pull request"},
-		"🧵🐻 needs input (you): choose the release region":    {Status: "needs_input", Action: "choose the release region"},
-		"🧵🐻 needs input (you): approve":                      {Status: "needs_input", Action: "approve"},
-		"🧵🐻 blocked (external): restore the signing service": {Status: "blocked", Action: "restore the signing service"},
-	}
-	for message, want := range valid {
-		got, ok := parseFooter(message)
-		if !ok || got != want {
-			t.Errorf("parseFooter(%q) = %#v, %v; want %#v", message, got, ok, want)
-		}
-	}
-	invalid := []string{
-		"", "🧵🐻 Complete", "> 🧵🐻 complete", "🧵🐻 complete\nextra",
-		"🧵🐻 complete\n🧵🐻 automation", "🧵🐻 needs input (you): ", "🧵🐻 needs input (you):   ",
-		"🧵🐻 needs input (agent): choose the region", "🧵🐻 blocked (you): restore the service",
-		"🧵🐻 next steps (bear): approve the release", " 🧵🐻 complete", "🧵🐻 complete ",
-	}
-	for _, message := range invalid {
-		if got, ok := parseFooter(message); ok {
-			t.Errorf("parseFooter(%q) accepted %#v", message, got)
-		}
-	}
-}
-
-func TestStripStatusIcons(t *testing.T) {
-	for title, want := range map[string]string{
-		"✅ ✅ ❔ hello":        "hello",
-		"✅✅❔hello":           "hello",
-		"➡ task":             "task",
-		"❔ ❔ ❔":              "",
-		"➡️ 🙋 task → action": "task → action",
-		"🎉 ✅ user title":     "🎉 ✅ user title",
-		"text ✅ suffix":      "text ✅ suffix",
-	} {
-		if got := stripStatusIcons(title); got != want {
-			t.Errorf("stripStatusIcons(%q) = %q, want %q", title, got, want)
-		}
-	}
-}
-
-func TestRenderTitleContractAndSubjectPriority(t *testing.T) {
-	for name, values := range map[string][4]string{
-		"running":    {"running", "Ship BEAR-102", "", "⏳ Ship BEAR-102"},
-		"next steps": {"next_steps", "Ship BEAR-102", "approve the release", "➡️ Ship BEAR-102 → approve the release"},
-		"complete":   {"complete", "Ship BEAR-102", "ignored action", "✅ Ship BEAR-102"},
-		"automation": {"automation", "Nightly cleanup", "ignored action", "🤖 Nightly cleanup"},
-		"unknown":    {"not-a-status", "Legacy task", "", "❔ Legacy task"},
-	} {
-		t.Run(name, func(t *testing.T) {
-			if got := renderTitle(values[0], values[1], values[2]); got != values[3] {
-				t.Fatalf("renderTitle() = %q, want %q", got, values[3])
-			}
+	}()
+	<-firstEntered
+	secondDone := make(chan error, 1)
+	go func() {
+		secondDone <- disk.updateTask(testSecondID, func(record *taskState) (bool, error) {
+			record.Subject = "second"
+			return true, nil
 		})
+	}()
+	select {
+	case err := <-secondDone:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("independent subject writes serialized on the lifecycle fence")
 	}
-	got := renderTitle("next_steps", strings.Repeat("s", 100), "keep this action")
-	want := renderTitle("next_steps", strings.Repeat("s", 100), "")
-	if got != want || utf16Len(got) != 60 {
-		t.Fatalf("action displaced durable subject: %q, want %q", got, want)
-	}
-	got = renderTitle("blocked", "keep subject", strings.Repeat("a", 100))
-	if utf16Len(got) > 60 || !strings.HasPrefix(got, "🚨 keep subject → ") || !strings.HasSuffix(got, "…") {
-		t.Fatalf("long action truncation = %q (%d units)", got, utf16Len(got))
-	}
-	subject := strings.Repeat("d", 45)
-	got = renderTitle("next_steps", subject, "this action must be truncated before the subject")
-	if !strings.HasPrefix(got, "➡️ "+subject+" → ") || utf16Len(got) != 60 || !strings.HasSuffix(got, "…") {
-		t.Fatalf("bounded action displaced subject: %q (%d units)", got, utf16Len(got))
+	close(releaseFirst)
+	if err := <-firstDone; err != nil {
+		t.Fatal(err)
 	}
 }
 
-func TestRenderTitleUTF16Boundaries(t *testing.T) {
-	for subjectLen, want := range map[int][2]int{
-		57: {59, 0},
-		58: {60, 0},
-		59: {60, 1},
-	} {
-		got := renderTitle("complete", strings.Repeat("x", subjectLen), "")
-		if utf16Len(got) != want[0] || strings.HasSuffix(got, "…") != (want[1] == 1) {
-			t.Errorf("subject %d: %q has %d units", subjectLen, got, utf16Len(got))
+func TestSubjectWriteRefusesBusyTeardownFenceWithoutWaiting(t *testing.T) {
+	disk := testSubjectStore(t)
+	path := filepath.Join(disk.dir, "lifecycle.lock")
+	lifecycle, err := os.OpenFile(path, os.O_RDWR, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := unix.Flock(int(lifecycle.Fd()), unix.LOCK_EX); err != nil {
+		t.Fatal(err)
+	}
+	started := time.Now()
+	err = disk.updateTask(testLateID, func(record *taskState) (bool, error) {
+		record.Subject = "late"
+		return true, nil
+	})
+	if err == nil || !strings.Contains(err.Error(), "lifecycle is busy") {
+		unlock(lifecycle)
+		t.Fatalf("subject write with exclusive lifecycle fence = %v", err)
+	}
+	if elapsed := time.Since(started); elapsed > 250*time.Millisecond {
+		unlock(lifecycle)
+		t.Fatalf("subject write waited behind lifecycle teardown for %s", elapsed)
+	}
+	unlock(lifecycle)
+	if _, err := disk.readTask(testLateID); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("refused subject write created state: %v", err)
+	}
+}
+
+func TestSubjectWriteWithoutLifecycleFenceDoesNotCreateState(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "absent")
+	disk := newStore(dir)
+	if err := disk.updateTask(testLateID, func(record *taskState) (bool, error) {
+		record.Subject = "late"
+		return true, nil
+	}); err == nil {
+		t.Fatal("subject write without lifecycle fence succeeded")
+	}
+	if _, err := os.Stat(dir); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("failed subject write created state: %v", err)
+	}
+}
+
+func TestResolveSubjectUsesFiniteOwnershipAndAdoptsRenameVerbatim(t *testing.T) {
+	record := taskState{Subject: "Stable subject"}
+	for _, icon := range ownedIcons {
+		current := icon + " Stable subject"
+		if got, err := resolveSubject(current, record); err != nil || got != record.Subject {
+			t.Errorf("owned %q = %q, %v", current, got, err)
 		}
 	}
-	got := renderTitle("next_steps", strings.Repeat("🧵", 29), "")
-	if utf16Len(got) > 60 || !utf8.ValidString(got) || !strings.HasSuffix(got, "…") {
-		t.Fatalf("emoji title = %q (%d units, valid=%v)", got, utf16Len(got), utf8.ValidString(got))
+	rename := "✅ User  rename "
+	if got, err := resolveSubject(rename, record); err != nil || got != rename {
+		t.Fatalf("rename = %q, %v", got, err)
 	}
-	got = renderTitle("complete", strings.Repeat("🧵", 28), "")
-	if got != "✅ "+strings.Repeat("🧵", 28) || !utf8.ValidString(got) {
-		t.Fatalf("fitting emoji pair was split: %q", got)
+	for _, operation := range []string{
+		"🧵🐻 complete",
+		"🧵🐻 automation",
+		"🧵🐻 next steps (agent): finish the release",
+		"🧵🐻 needs input (you): approve onboarding 190 safe tasks",
+		"🧵🐻 blocked (external): restore the signing service",
+		"⏳ ThreadBear is working",
+		"⏳ ThreadBear is working: stale running title",
+	} {
+		if got, err := resolveSubject(operation, record); err != nil || got != record.Subject {
+			t.Fatalf("operation recovery %q = %q, %v", operation, got, err)
+		}
+		if _, err := resolveSubject(operation, taskState{}); err == nil {
+			t.Fatalf("unowned operation title %q was adopted", operation)
+		}
+	}
+	for _, rename := range []string{"🧵🐻 Personal project", "🧵🐻 needs attention"} {
+		if got, err := resolveSubject(rename, record); err != nil || got != rename {
+			t.Fatalf("bear-prefixed user rename %q = %q, %v", rename, got, err)
+		}
+	}
+	if _, err := resolveSubject("✅ Unowned", taskState{}); err == nil {
+		t.Fatal("unowned legacy prefix was adopted")
+	}
+	if _, err := resolveSubject("<codex_delegation>raw", record); err == nil {
+		t.Fatal("raw envelope was adopted as a rename")
+	}
+	if _, err := resolveSubject("<codex_internal_context source=\"goal\">raw", record); err == nil {
+		t.Fatal("internal context was adopted as a rename")
+	}
+	if _, err := resolveSubject("✅ <codex_delegation>raw", record); err == nil {
+		t.Fatal("decorated delegation envelope was adopted as a rename")
+	}
+	for _, envelope := range []string{
+		"<app-context>Codex desktop context</app-context>",
+		"<collaboration_mode>Default</collaboration_mode>",
+		"<multi_agent_mode>active</multi_agent_mode>",
+		"<permissions instructions>unrestricted</permissions instructions>",
+	} {
+		if _, err := resolveSubject(envelope, record); err == nil || !strings.Contains(err.Error(), "internal envelope") {
+			t.Fatalf("internal envelope %q was adopted: %v", envelope, err)
+		}
+	}
+}
+
+func TestRenderTitlePreservesSubjectAndNeverTruncates(t *testing.T) {
+	subject := "  🎉 Exact  whitespace "
+	got, err := renderTitle("complete", subject)
+	if err != nil || got != "✅ "+subject {
+		t.Fatalf("render = %q, %v", got, err)
+	}
+	fit := strings.Repeat("x", 57)
+	if got, err := renderTitle("blocked", fit); err != nil || utf16Units(got) != 60 {
+		t.Fatalf("fitting title = %q (%d), %v", got, utf16Units(got), err)
+	}
+	if got, err := renderTitle("complete", strings.Repeat("x", 58)); err == nil || got != "" {
+		t.Fatalf("too-long title = %q, %v", got, err)
+	}
+	emojiFit := strings.Repeat("🧵", 28)
+	if got, err := renderTitle("complete", emojiFit); err != nil || got != "✅ "+emojiFit {
+		t.Fatalf("emoji title = %q, %v", got, err)
 	}
 }

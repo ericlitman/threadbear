@@ -1,19 +1,17 @@
 {
   "schema_version": 1,
-  "updated_at": "2026-08-07",
+  "updated_at": "2026-08-08",
   "canonical_for": "ThreadBear title-path architecture and live experiments",
   "capabilities": [
     {
       "id": "TB-CAP-DIRECT-REPAINT",
       "premise": "A standalone App Server title write repaints a mounted Codex Desktop task when the result is representable and materially different within the persisted boundary.",
-      "status": "conditional",
-      "supported_by": [
-        "TB-EXP-0059-003"
-      ],
+      "status": "rejected",
+      "supported_by": [],
       "contradicted_by": [
         "TB-EXP-0059-001"
       ],
-      "decision": "The 60 UTF-16-unit representation change reconciles the earlier stale-row observation. Reuse this result only for the standalone thread/name/set path and still require rendered proof.",
+      "decision": "TB-EXP-0059-001 shows that detached thread/name/set can persist and read back an exact representable title without repainting the mounted Desktop catalog. TB-EXP-0116-001 reproduced that boundary without a declared preflight and remains exploratory corroboration rather than capability evidence. TB-EXP-0059-003 did not isolate this boundary: its only accessibility proof followed Codex-hosted native setters, while its later standalone probes used list_threads rather than rendered inspection. ThreadBear must use the mounted Codex native setter for visible title mutation.",
       "next_preflight": null
     },
     {
@@ -66,6 +64,31 @@
       ],
       "contradicted_by": [],
       "decision": "Exact corrected candidate 40285dd completed the two declared clean-restart 98-task migrations in 5:26.311 and 4:15.414, followed by serial clean uninstalls in 1:35.540 and 1:32.440. Both cycles captured authoritative running and terminal current-home results plus immediate readback exactly equal to ThreadBear, reached migration_complete with 98 applied and zero remaining, archived every classifier and controller, preserved the neighboring user file byte-exactly, and left every ThreadBear-owned artifact absent. TB-EXP-0120-006 closes TB-PRE-0120-003 and establishes the bounded migration premise for this exact candidate, Desktop build, inventory, and protocol.",
+      "next_preflight": null
+    },
+    {
+      "id": "TB-CAP-MOUNTED-NATIVE-REPAINT",
+      "premise": "The final ThreadBear planner plus mounted Codex native setter repaints current and historical task titles immediately and preserves those rendered titles across a clean Codex restart.",
+      "status": "established",
+      "supported_by": [
+        "TB-EXP-0116-003",
+        "TB-EXP-0116-004",
+        "TB-EXP-0116-006"
+      ],
+      "contradicted_by": [],
+      "decision": "TB-EXP-0116-003 established the mounted-writer path, TB-EXP-0116-004 repeated it against corrected candidate b5cc0cbe, and TB-EXP-0116-006 closes the final BEAR-117 artifact gate. Exact candidate a1ecec67 repainted the current and controlled historical rows immediately through the mounted writer, preserved both exact titles across a clean Desktop restart, and kept the friendly preview and committed-removal recap visible after reopen and restart.",
+      "next_preflight": null
+    },
+    {
+      "id": "TB-CAP-UPDATER-TEARDOWN-SERIALIZATION",
+      "premise": "Confirmed uninstall waits for an in-flight verified updater before removing its lock or any managed surface, so that updater cannot later replace a fresh installation with its stale candidate.",
+      "status": "established",
+      "supported_by": [
+        "TB-EXP-0116-004",
+        "TB-EXP-0116-005"
+      ],
+      "contradicted_by": [],
+      "decision": "TB-EXP-0116-004 proves that uninstall drains a process already holding the original update.lock inode. TB-EXP-0116-005 closes the narrower replacement-lock admission gap: an exact final updater waiting on update.lock rejected a different installed binary at local installation admission, before update work or a receipt, and the restored final candidate then passed release smoke and clean-restart health. Together they establish bounded updater teardown and stale-process rejection for the exact v3.0.0 candidate.",
       "next_preflight": null
     }
   ],
@@ -183,18 +206,279 @@
         "git:a3dcdc0798737d4cbd1cde249a4922751649cabd"
       ],
       "result": {
-        "status": "observed",
-        "summary": "Titles that differed inside the 60 UTF-16-unit limit repainted active and unloaded tasks immediately. Earlier overlong proposals had differed only beyond the persisted prefix, creating a false cache diagnosis.",
-        "timing_ms": "unknown: live proof recorded immediate repaint, not a numeric latency",
+        "status": "invalidated",
+        "summary": "The rollout does not establish standalone repaint. Its only captured accessibility proof followed three Codex-hosted set_thread_title calls. Later standalone canaries were followed by app-native list_threads observations with no post-standalone accessibility capture, and the final scheduled-heartbeat claim also lacked rendered evidence.",
+        "timing_ms": "unknown: no isolated standalone-to-rendered interval was captured",
         "hook_participation": "none",
-        "rendered_proof": "mounted Desktop task repainted; unnecessary shared-daemon and model-actuator machinery was removed"
+        "rendered_proof": "insufficient: native-setter contamination and no accessibility-tree or screenshot proof after the standalone writes"
       },
-      "confidence": "high",
-      "applicability": "Standalone bounded thread/name/set only. This reconciles TB-EXP-0059-001 by isolating representability; it does not establish current-task native hook participation.",
+      "confidence": "low",
+      "applicability": "Historical implementation and persistence evidence only. Do not use this record as support for mounted standalone repaint or to override TB-EXP-0059-001 and TB-EXP-0116-001.",
       "supersedes": [],
       "conflicts": [
-        "TB-EXP-0059-001"
+        "TB-EXP-0059-001",
+        "TB-EXP-0116-001"
       ]
+    },
+    {
+      "id": "TB-EXP-0116-001",
+      "date": "2026-08-07",
+      "issue": "BEAR-116",
+      "preflight_id": null,
+      "question": "Do exact detached title writes repaint the mounted Codex Desktop task catalog, and does the mounted Codex native setter repaint the same catalog under a reversible control?",
+      "invariant": "Exact persistence and readback are provisional; user-visible success requires separate mounted header and sidebar evidence.",
+      "environment": {
+        "threadbear_version": "3.0.0 exact local candidate; binary SHA-256 c34ecfbee913fe62780c68f9ade85d69c4fceed332047af54e7f423a7c8ea968",
+        "git_sha": "a7765477f2b80db5efe347a0e8577570d0cb212d",
+        "codex_version": "Desktop 26.803.41515 build 6321; embedded CLI 0.147.0-alpha.6.5; detached CLI 0.146.0",
+        "codex_source": "vscode",
+        "host": "local macOS arm64",
+        "task_state": "one active mounted task plus visible mounted historical project rows; confirmed onboarding prepared and detached-wrote 190 safe historical titles across a complete 360-task catalog",
+        "restart_state": "detached current-task write was inspected before restart and after a clean Codex restart; historical rows were inspected before restart and after project collapse and expansion",
+        "hook_fingerprint": "no candidate title hook; installed hooks inventory SHA-256 43d2619e3510054cc165f9b1f7915e16c20a162fa4427d2ed0b20294141ddf04 remained unchanged",
+        "guidance_fingerprint": "unknown: installed managed guidance hash was not separately recorded for this seam observation"
+      },
+      "invocation": {
+        "outer_tool": "exact ThreadBear binary through functions.exec, read-only Computer Use inspection, and one reversible Codex-hosted native setter control",
+        "code": "one detached current-task thread/name/set with exact readback; one confirmed full-catalog serial detached onboarding pass; mounted inspection before and after collapse and expansion; clean restart; one distinct app-native explicit-target title followed by exact restoration",
+        "native_tool_identity": "thread/name/set for detached writes; codex_app__set_thread_title for the reversible mounted control",
+        "target_identity_mode": "exact active caller ID for the terminal write and authoritative explicit task IDs for onboarding and the reversible control"
+      },
+      "evidence": [
+        "linear:BEAR-116",
+        "github-pr:124",
+        "git:a7765477f2b80db5efe347a0e8577570d0cb212d",
+        "codex-rollout:019fdcce-d0dc-7522-ad8e-a0c3c1c02110"
+      ],
+      "result": {
+        "status": "observed",
+        "summary": "Detached current-task and onboarding writes persisted and read back exactly, but the mounted header and neighboring historical sidebar rows stayed stale; collapsing and expanding the project did not refresh them. A clean restart rendered the persisted current title. On one historical row, a distinct Codex-hosted native setter repainted immediately and exact restoration repainted immediately, while untouched neighboring detached-written rows remained stale.",
+        "timing_ms": "unknown: the seam was observed immediately and across a clean restart, but numeric repaint latency was not the measured variable",
+        "hook_participation": "none for detached writes; the reversible control used the mounted Codex native setter directly",
+        "rendered_proof": "Privacy-safe evidence retained outside the repository: pre-restart current-task SHA-256 d009a3c0a4c7746a0b21e85b3fed3ddc7b49688f3b04e6000de8dbee0da493bf; post-restart current-task SHA-256 2163b0d896552050ff72f7e733fd183cd31dc4073be92d9a51917b9597de3575; initial stale onboarding SHA-256 ebd55474edb4f4c9d2ba22e01a89ffeb14a5bfdcd8d56bea805b9bd3f3537bf9; collapse-expand stale SHA-256 e4eb9b7de5eb63991a0def1f5923f6facbd7656735c11c575da0cd6f04a33322; app-native repaint and restoration SHA-256 56956b07eb12f49e0f6ab76065588bc0fc3b1465881390234130ed5f14aa7983"
+      },
+      "confidence": "high",
+      "applicability": "Establishes the detached persistence-versus-mounted-render boundary for exact candidate a7765477 on the recorded Desktop build and catalog, and independently confirms the mounted native setter control. It does not establish the corrected product path or release readiness.",
+      "supersedes": [
+        "TB-EXP-0059-003"
+      ],
+      "conflicts": [
+        "TB-EXP-0059-003"
+      ]
+    },
+    {
+      "id": "TB-EXP-0116-002",
+      "date": "2026-08-07",
+      "issue": "BEAR-116",
+      "preflight_id": null,
+      "question": "Does the exact corrected ThreadBear planner plus mounted Codex native setter repaint current and historical task titles immediately and preserve both rendered titles across a clean Codex restart?",
+      "invariant": "The binary may plan and persist only a safe subject; the mounted Codex app is the sole title writer, and release success requires exact native response validation plus rendered sidebar and header proof before and after restart.",
+      "environment": {
+        "threadbear_version": "3.0.0 exact local candidate; arm64 CGO=0 binary SHA-256 f20bf5c778ce37ac2910680fea432179ffe7125f75b5a71ec149aee5ae6a2836",
+        "git_sha": "d9accd55418b37520e9a61a76f9bd0cdf73a19b8",
+        "codex_version": "Desktop 26.803.41515 build 6321; detached CLI 0.146.0",
+        "codex_source": "vscode",
+        "host": "local macOS arm64",
+        "task_state": "one active mounted task plus one visible historical target selected from a complete 360-task native catalog; controlled canaries began from exact undecorated subjects",
+        "restart_state": "both mounted titles were captured before restart; the replacement ChatGPT process started at 2026-08-07 21:07:48 EDT and both were recaptured in the mounted UI at 21:14:31 EDT",
+        "hook_fingerprint": "no ThreadBear title hook; hooks.json SHA-256 43d2619e3510054cc165f9b1f7915e16c20a162fa4427d2ed0b20294141ddf04 remained byte-identical",
+        "guidance_fingerprint": "installed skill SHA-256 d6936e3b44dce04507b4fc3919e927c96bc3c4f065ccabd0d58c545100454763; complete AGENTS.md SHA-256 b6828aa9f9e13e4305dcc2b268fcc3e5c7a2a4123325c2f0062d554079bf8dd7"
+      },
+      "invocation": {
+        "outer_tool": "the exact installed ordinary-turn and onboarding JavaScript cells through functions.exec, followed by read-only Computer Use mounted inspection",
+        "code": "ordinary path: one local title plan, one current-task mounted setter with threadId omitted, exact raw-JSON response decoding and ID/title validation; onboarding path: complete preview, one safe prepared target, immediate mounted read requiring exact task ID and snapshot title, one explicit-target mounted setter, and exact result validation; then one clean Codex restart",
+        "native_tool_identity": "codex_app__set_thread_title as sole writer; codex_app__read_thread only for immediate onboarding drift validation; thread/list App Server reads only inside the local planner",
+        "target_identity_mode": "current task by omitted threadId; historical target by authoritative explicit ID after exact mounted ID/title reread"
+      },
+      "evidence": [
+        "linear:BEAR-116",
+        "github-pr:124",
+        "git:d9accd55418b37520e9a61a76f9bd0cdf73a19b8",
+        "codex-rollout:019fdcce-d0dc-7522-ad8e-a0c3c1c02110"
+      ],
+      "result": {
+        "status": "observed",
+        "summary": "The exact ordinary cell decoded the mounted raw JSON response, confirmed one write, and immediately repainted the active header and sidebar to `➡️ Diagnose ThreadBear failures`. The exact onboarding cell enumerated 360 tasks, prepared one controlled target, reread its exact ID/title, confirmed one write with zero unconfirmed outcomes, and immediately repainted its sidebar row to `🐻 Update website copy boxes`. After a clean Codex restart, both exact titles remained rendered and the installed binary, updater, guidance, and state remained healthy.",
+        "timing_ms": "unknown: both repaints were present in the next mounted accessibility capture; persistence was recaptured 6 minutes 43 seconds after the replacement process started",
+        "hook_participation": "none; current-format install left hooks.json byte-identical and all title mutation used the mounted native setter directly",
+        "rendered_proof": "Privacy-safe evidence retained outside the repository: corrected onboarding immediate repaint SHA-256 459700e6bfbb96a0d3a693024213ae6b2c496454fc490572487d939a92d6aada; corrected current-task immediate repaint SHA-256 f8f8596e8a348e168476ee01d4a886bf3ddbb5e517e6b3e4686114419f5d08c5; clean-restart persistence SHA-256 23887c1a498f1064db14f13431dc169395a448ba9e02cf43472e3d582c28e600"
+      },
+      "confidence": "high",
+      "applicability": "Establishes the corrected planner-plus-mounted-writer product path, raw JSON-text decoding boundary, immediate current and historical repaint, and clean-restart persistence for exact artifact f20bf5c7 on Desktop 26.803.41515. It does not override TB-EXP-0116-001: detached App Server title mutation remains rejected, and future Desktop builds still require the recorded release canary.",
+      "supersedes": [],
+      "conflicts": []
+    },
+    {
+      "id": "TB-EXP-0116-003",
+      "date": "2026-08-07",
+      "issue": "BEAR-116",
+      "preflight_id": "TB-PRE-0116-001",
+      "question": "Does the exact post-review v3.0.0 candidate repaint one current task and one controlled historical task through the mounted native writer, then preserve both exact rendered titles across a full Codex process restart?",
+      "invariant": "The local binary prepares safe subjects and desired titles, the mounted Codex app performs the sole title mutation, and release success requires exact native responses plus rendered current and historical title persistence after a genuinely new Desktop process starts.",
+      "environment": {
+        "threadbear_version": "3.0.0 exact local candidate; arm64 CGO=0 binary SHA-256 f1ba83079d8bfbd0d2013e89aa76cf03fd320857e40bbb8c551792950d213e7a",
+        "git_sha": "4cc3670911de9ac8f9c82a2b36a91b472ed84293",
+        "codex_version": "Desktop 26.803.41515 build 6321; detached CLI 0.146.0",
+        "codex_source": "vscode",
+        "host": "local macOS arm64",
+        "task_state": "one active mounted task plus one visible historical target selected from a complete 360-task native catalog; both controlled canaries began from exact undecorated subjects",
+        "restart_state": "both mounted titles were captured before restart; the replacement ChatGPT process PID 16852 started at 2026-08-07 22:17:01 EDT and both exact titles were recaptured in the mounted UI at 22:18:31 EDT",
+        "hook_fingerprint": "no ThreadBear title hook; current-format title mutation used only the mounted native setter",
+        "guidance_fingerprint": "installed skill SHA-256 d6936e3b44dce04507b4fc3919e927c96bc3c4f065ccabd0d58c545100454763; complete AGENTS.md SHA-256 b6828aa9f9e13e4305dcc2b268fcc3e5c7a2a4123325c2f0062d554079bf8dd7"
+      },
+      "invocation": {
+        "outer_tool": "the exact installed ordinary-turn and onboarding JavaScript cells through functions.exec, followed by read-only Computer Use mounted inspection before and after a full app quit and relaunch",
+        "code": "ordinary path: one local title plan and one current-task mounted setter with task ID omitted; onboarding path: complete 360-task preparation, exact mounted target ID/title reread, and one explicit-target mounted setter; both decoded raw JSON text and required exact returned ID/title",
+        "native_tool_identity": "codex_app__set_thread_title as sole writer; codex_app__read_thread only for immediate onboarding drift validation; paginated thread/list reads only inside the local planner",
+        "target_identity_mode": "current task by omitted task ID; historical target by authoritative explicit ID after exact mounted ID/title reread"
+      },
+      "evidence": [
+        "linear:BEAR-116",
+        "github-pr:124",
+        "git:4cc3670911de9ac8f9c82a2b36a91b472ed84293",
+        "codex-rollout:019fdcce-d0dc-7522-ad8e-a0c3c1c02110"
+      ],
+      "result": {
+        "status": "observed",
+        "summary": "The exact current-task cell confirmed one mounted write and repainted the active task to `➡️ Diagnose ThreadBear failures`. The exact onboarding cell enumerated 360 tasks, prepared one controlled target, confirmed one mounted write with zero skipped or unconfirmed outcomes, and repainted it to `🐻 Update website copy boxes`. After a full Codex quit and relaunch created a new process, both exact titles remained rendered. The exact candidate binary, guidance, subject store, and update-only LaunchAgent then remained ready and byte-identical.",
+        "timing_ms": "unknown: each immediate repaint was present in the next mounted capture; restart persistence was captured 90 seconds after the replacement app process started",
+        "hook_participation": "none; no current-format ThreadBear title hook participated and every title mutation used the mounted native setter directly",
+        "rendered_proof": "Privacy-safe evidence retained outside the repository: historical immediate repaint SHA-256 bf09d1a9590360345e694bd2c83a5dc7c41f6dd50b6c4c88163f886ffd865051; current immediate repaint SHA-256 6258278fcd0d5a944b7c426a43254d6c7148551f09f428a0dc84d36c3c5b05d8; full-process-restart persistence SHA-256 7e333370cad7054e69bd620ff03fc7d3b173d1c67c74872eb6ea25b1b7715621"
+      },
+      "confidence": "high",
+      "applicability": "Closes TB-PRE-0116-001 and establishes the mounted-writer repaint and restart-persistence premise for exact candidate f1ba8307 on Desktop 26.803.41515. It supersedes the unpreflighted exploratory reproduction but does not override detached-writer rejection or remove the need for future Desktop-build release canaries.",
+      "supersedes": [
+        "TB-EXP-0116-002"
+      ],
+      "conflicts": []
+    },
+    {
+      "id": "TB-EXP-0116-004",
+      "date": "2026-08-07",
+      "issue": "BEAR-116",
+      "preflight_id": "TB-PRE-0116-002",
+      "question": "Does the exact final v3.0.0 candidate serialize confirmed uninstall behind an already-running updater, then retain the mounted native repaint and clean-restart behavior already proved for the prior candidate?",
+      "invariant": "Confirmed uninstall must not remove the updater lock or any managed surface while an updater holds that lock; after release it must complete cleanly, and the exact same artifact must still pass the full release, mounted-title, restart-persistence, and runtime-health gates.",
+      "environment": {
+        "threadbear_version": "3.0.0 exact final local candidate; arm64 CGO=0 binary SHA-256 b5cc0cbe89cd7849e40c9cf49af95da183a093d528656a3869e21204a7f33cca",
+        "git_sha": "6e3da67c5f1943c84d3ba5a58bb5ba8cd16d9e49",
+        "codex_version": "Desktop 26.803.41515 build 6321; detached CLI 0.146.0",
+        "codex_source": "vscode",
+        "host": "local macOS arm64",
+        "task_state": "one active mounted task plus one controlled visible historical task selected from a complete 360-task native catalog; both canaries began from exact undecorated subjects",
+        "restart_state": "both mounted titles were captured before restart; the replacement ChatGPT process PID 31578 started at 2026-08-07 22:59:25 EDT and both exact titles were recaptured in the mounted UI at 23:01:31 EDT",
+        "hook_fingerprint": "no ThreadBear title hook; current-format title mutation used only the mounted native setter",
+        "guidance_fingerprint": "installed skill SHA-256 d6936e3b44dce04507b4fc3919e927c96bc3c4f065ccabd0d58c545100454763; complete AGENTS.md SHA-256 b6828aa9f9e13e4305dcc2b268fcc3e5c7a2a4123325c2f0062d554079bf8dd7"
+      },
+      "invocation": {
+        "outer_tool": "one coordinated live update.lock hold around confirmed uninstall; the exact-candidate release-smoke script; the exact installed ordinary-turn and onboarding JavaScript cells through functions.exec; and read-only Computer Use inspection before and after a full app quit and relaunch",
+        "code": "hold the installed update.lock until explicit release; start confirmed uninstall and verify no teardown; release the lock and verify complete teardown; run exact-candidate smoke; reinstall the same artifact; perform one current-task mounted write and one historical mounted write with exact response checks; restart Codex; verify titles, status, hashes, and update-only LaunchAgent",
+        "native_tool_identity": "codex_app__set_thread_title as sole title writer; codex_app__read_thread only for immediate onboarding drift validation; paginated thread/list reads only inside the local planner",
+        "target_identity_mode": "current task by omitted task ID; historical target by authoritative explicit ID after exact mounted ID/title reread"
+      },
+      "evidence": [
+        "linear:BEAR-116",
+        "github-pr:124",
+        "git:6e3da67c5f1943c84d3ba5a58bb5ba8cd16d9e49",
+        "codex-rollout:019fdcce-d0dc-7522-ad8e-a0c3c1c02110"
+      ],
+      "result": {
+        "status": "observed",
+        "summary": "While the live updater lock was held, confirmed uninstall remained pending and the binary, skill, LaunchAgent plist, loaded updater job, and exact candidate SHA all remained intact. Releasing the lock let uninstall complete and left the binary, skill, plist, state directory, and loaded job absent. Candidate b5cc0cbe then passed the isolated exact-candidate release smoke, reinstalled healthy, repainted the active task to `➡️ Diagnose ThreadBear failures`, repainted the controlled historical task to `🐻 Update website copy boxes`, and preserved both titles across a genuinely new Desktop process. Post-restart status was ready with the exact update-only LaunchAgent loaded, and the binary plus managed guidance remained byte-identical.",
+        "timing_ms": "unknown: teardown remained blocked for the full explicit hold and completed immediately after release; each repaint was present in the next mounted capture; restart persistence was captured 126 seconds after the replacement app process started",
+        "hook_participation": "none; no current-format ThreadBear title hook participated and every title mutation used the mounted native setter directly",
+        "rendered_proof": "Privacy-safe evidence retained outside the repository: final-candidate immediate mounted repaint SHA-256 076c34e84e2833c65f7787185dac19375d3ca5d7a1a2f9be20f9516f1ef40aaf; full-process-restart persistence SHA-256 551a63af5d21c48762f18a29aa9e2ff2b141ceaf76dc0b6c267ba0a48c0f250a"
+      },
+      "confidence": "high",
+      "applicability": "Closes TB-PRE-0116-002 and establishes both updater-teardown serialization and the mounted-writer restart-persistence premise for exact final candidate b5cc0cbe on Desktop 26.803.41515. It does not override detached-writer rejection or remove the need for future Desktop-build release canaries.",
+      "supersedes": [],
+      "conflicts": []
+    },
+    {
+      "id": "TB-EXP-0116-005",
+      "date": "2026-08-08",
+      "issue": "BEAR-116",
+      "preflight_id": "TB-PRE-0116-003",
+      "question": "Does an updater from the exact final v3.0.0 candidate reject a different binary installed while it waits on update.lock, and does the restored artifact retain the release, restart, title, and BEAR-117 conversational UX gates?",
+      "invariant": "A queued updater may act only while the installed binary remains byte-identical to the executable that started it; failure must be local before update work, and the exact restored candidate must remain healthy and user-legible after a clean restart.",
+      "environment": {
+        "threadbear_version": "3.0.0 exact final local candidate; arm64 CGO=0 binary SHA-256 489ca988d6a3c7487500c64366bd07e9a7cd35187dc46d38f19eb34274c84424; amd64 SHA-256 fd3d0684ee2ceb286adb3ff9a3c9fffc5b1e49cfd1b4f42b62ed4a1a32e16dd2",
+        "git_sha": "2cd2d5377b19edf9b72b80e2297357f83459d7dd",
+        "codex_version": "Desktop 26.803.41515 build 6321; detached CLI 0.146.0",
+        "codex_source": "vscode",
+        "host": "local macOS arm64",
+        "task_state": "active task rendered as `➡️ Diagnose ThreadBear failures`; dedicated local lifecycle task retained the final friendly uninstall recap; native catalog contained 360 tasks in the prior full-catalog product canary",
+        "restart_state": "the restored exact candidate launched replacement ChatGPT PID 83381 at 2026-08-08 09:46:08 EDT; the exact active title and lifecycle recap were present after restart, with the recap reread at 09:47:30 EDT",
+        "hook_fingerprint": "no current-format ThreadBear title hook; hooks.json SHA-256 43d2619e3510054cc165f9b1f7915e16c20a162fa4427d2ed0b20294141ddf04 remained outside the product path",
+        "guidance_fingerprint": "installed skill SHA-256 f78f5c58ded4d361be8feaca79be1f43d06fdf8eeb2fc52a7a1f21a4ad15191b at 4,884 bytes; complete AGENTS.md SHA-256 b6828aa9f9e13e4305dcc2b268fcc3e5c7a2a4123325c2f0062d554079bf8dd7"
+      },
+      "invocation": {
+        "outer_tool": "one coordinated real update.lock hold and binary replacement; exact-candidate release smoke; exact install/status/self-test; Codex list_threads; and read-only Computer Use inspection across a full app quit and relaunch",
+        "code": "start the exact installed updater while a real process holds update.lock; verify both processes hold the same inode; replace the installed binary through the automatic-install path; release the lock; require local stage=installation rejection and no update receipt; restore the exact final candidate; run exact-candidate smoke; verify byte hashes, runtime health, current title, and the durable BEAR-117 recap after clean restart",
+        "native_tool_identity": "codex_app__set_thread_title remains the sole title writer; this experiment made no title mutation",
+        "target_identity_mode": "no title target; read-only mounted checks used the exact active and lifecycle task IDs"
+      },
+      "evidence": [
+        "linear:BEAR-116",
+        "linear:BEAR-117",
+        "github-pr:124",
+        "git:2cd2d5377b19edf9b72b80e2297357f83459d7dd",
+        "codex-rollout:019fdcce-d0dc-7522-ad8e-a0c3c1c02110"
+      ],
+      "result": {
+        "status": "observed",
+        "summary": "The exact 489ca988 updater blocked on the held update.lock. After the installed binary was replaced with prior candidate b5cc0cbe and the lock was released, the queued process exited `stage:installation` with `installed binary changed after this updater process started`; it created no update receipt and did not continue as the replacement install. The exact 489ca988 candidate was restored, reproduced from source, passed the isolated exact-candidate release smoke, reported version/self-test/status ready with the exact update-only LaunchAgent, and retained `➡️ Diagnose ThreadBear failures` after a full app restart. The lifecycle canary's final response remained visible after reopen and restart as `ThreadBear recap 🐻` with plain removal, preservation, icon, and restart language.",
+        "timing_ms": "the queued updater remained blocked for the explicit hold and rejected immediately after release; the restored recap was reread 82 seconds after the replacement ChatGPT process started",
+        "hook_participation": "none; the updater probe and recap inspection do not use title hooks",
+        "rendered_proof": "Privacy-safe final-response recap screenshot SHA-256 dbbb35cf4f5e8083abab5da57fcf7ffc0369691372d790ae3ebd2a5f46a6035a; final restored restart also has exact accessibility-text proof in the linked rollout"
+      },
+      "confidence": "high",
+      "applicability": "Closes TB-PRE-0116-003 and establishes stale-updater rejection plus restored exact-candidate release health for v3.0.0 on Desktop 26.803.41515. The BEAR-117 evidence establishes final-response durability and tone for the recorded lifecycle canary; future Desktop builds and future user-facing guidance changes still require their release canaries.",
+      "supersedes": [],
+      "conflicts": []
+    },
+    {
+      "id": "TB-EXP-0116-006",
+      "date": "2026-08-08",
+      "issue": "BEAR-116",
+      "preflight_id": "TB-PRE-0116-004",
+      "question": "Does the exact v3.0.0 artifact containing the final BEAR-117 consent, uncertainty, and uninstall protocol retain immediate mounted current and historical repaint, clean-restart persistence, and a durable end-user lifecycle recap?",
+      "invariant": "The local planner may prepare titles but the mounted Codex app remains the sole writer; the exact release artifact must repaint both controlled rows immediately, preserve them after restart, remove only previewed owned lifecycle surfaces after consent, and leave its plain-language recap as the final visible content after reopen and restart.",
+      "environment": {
+        "threadbear_version": "3.0.0 exact final local candidate; arm64 CGO=0 binary SHA-256 a1ecec67bc7c2fb5c2a166d454c113c307bcd9a8d220fabd9c5f3825d8210a31; amd64 SHA-256 99a20910d5ff8f6c3bc04920853509dd52c28a343964ba0b4fb6ad82ea35658d",
+        "git_sha": "f745f50ae2e5c71805a282b03841c9b7ca1bdc67",
+        "codex_version": "Desktop 26.803.41515 build 6321; detached CLI 0.146.0",
+        "codex_source": "vscode",
+        "host": "local macOS arm64",
+        "task_state": "one active mounted task plus the visible controlled historical task `Update website copy boxes`; the complete onboarding catalog contained 360 tasks, with two safe rows and exactly one historical row needing a write after controlled setup",
+        "restart_state": "the lifecycle recap remained visible after replacement ChatGPT process PID 15260 started at 2026-08-08 11:08:52 EDT; after exact-candidate restoration, replacement PID 37695 started at 12:47:10 EDT, native list_threads still returned `➡️ Diagnose ThreadBear failures` and `🐻 Update website copy boxes`, and status remained ready",
+        "hook_fingerprint": "no ThreadBear title hook; hooks.json SHA-256 43d2619e3510054cc165f9b1f7915e16c20a162fa4427d2ed0b20294141ddf04 remained byte-identical across install, onboarding, uninstall, and reinstall",
+        "guidance_fingerprint": "installed skill SHA-256 4fa64eb271df4f639d4f5aaf5b6a2abd8f04aa153a9ec7edab5c26da20ef0d44 at 5,061 bytes; complete installed AGENTS.md SHA-256 b6828aa9f9e13e4305dcc2b268fcc3e5c7a2a4123325c2f0062d554079bf8dd7"
+      },
+      "invocation": {
+        "outer_tool": "the exact installed ordinary-turn and onboarding JavaScript cells through functions.exec; one dedicated lifecycle task using the installed skill for dry-run, consent, confirmed uninstall, and final recap; read-only Computer Use inspection before and after restart; exact-candidate release smoke, reinstall, status, hashes, and LaunchAgent inspection",
+        "code": "run one current-task plan followed by one mounted setter with task ID omitted; enumerate all 360 tasks, prepare one controlled historical target, reread its exact mounted ID/title, and make one explicit-target mounted write; in a separate task run uninstall dry-run, present the final consent card, accept explicit yes, require uninstalled:true, reopen and restart; reinstall the same exact artifact and verify bytes and health after another clean process start",
+        "native_tool_identity": "codex_app__set_thread_title as sole title writer; codex_app__read_thread only for the immediate historical ID/title drift guard; paginated native thread/list reads only inside the local planner",
+        "target_identity_mode": "current task by omitted task ID; historical target by authoritative explicit ID after exact mounted ID/title reread; lifecycle task by exact task ID for read-only reopen and evidence"
+      },
+      "evidence": [
+        "linear:BEAR-116",
+        "linear:BEAR-117",
+        "github-pr:124",
+        "git:f745f50ae2e5c71805a282b03841c9b7ca1bdc67",
+        "codex-rollout:019fdcce-d0dc-7522-ad8e-a0c3c1c02110"
+      ],
+      "result": {
+        "status": "observed",
+        "summary": "The exact ordinary cell confirmed one mounted write and immediately rendered `➡️ Diagnose ThreadBear failures`. The exact onboarding cell enumerated 360 tasks, prepared the one controlled historical target, confirmed one write with zero skipped or unconfirmed outcomes, and immediately rendered `🐻 Update website copy boxes`. The lifecycle task first showed a jargon-light removal preview and one yes/no question, then after explicit consent required committed removal before ending with the exact friendly recap. Computer Use showed that recap as the final visible content after reopen and after a genuinely new Desktop process. Confirmed uninstall removed the binary, skill, managed guidance, subject state, plist, and loaded updater while preserving hooks; the same a1ecec67 artifact then reinstalled byte-exactly, survived another clean process start, and reported ready with the exact update-only LaunchAgent.",
+        "timing_ms": "both title repaints were present in the next mounted accessibility capture; the lifecycle recap was recaptured after the replacement Desktop process started, and restored title persistence was confirmed by native list_threads after the final replacement process started",
+        "hook_participation": "none; current-format title mutation used only the mounted native setter and hooks.json remained byte-identical",
+        "rendered_proof": "Privacy-safe evidence retained outside the repository: current immediate repaint SHA-256 6aaee653769df1ba3f6841906cf1b1d4303267adf4f7046cb9098f8d99dbfce9; historical controlled before SHA-256 e7af320d57dc0b51d9496d4aa01fae5162a5af581a7b400598da350a69c1c675 and immediate after SHA-256 91245ab1345d7cbbc1de5b7852a01f2e316b3bd4b3871305f6b7e225044ab589; lifecycle recap before restart SHA-256 e952fb2fb4b88fe0ab6f944a249c6bcf4fbcb43bac1029ea8686bc6864828931 and after restart SHA-256 be2b771b4a5d5269c86a8788c3953e60e26211eb14085a836d0178b24da5b8e3"
+      },
+      "confidence": "high",
+      "applicability": "Closes TB-PRE-0116-004 and establishes the final BEAR-117 artifact's mounted current and historical repaint, restart persistence, exact consent boundary, committed uninstall, and durable final recap on Desktop 26.803.41515. Detached App Server title mutation remains rejected, and future Desktop builds or changes to the mounted cells still require their recorded release canary.",
+      "supersedes": [],
+      "conflicts": []
     },
     {
       "id": "TB-EXP-0102-001",
@@ -1054,6 +1338,85 @@
       ],
       "stop_condition": "Stop after exactly two complete install/migration/uninstall cycles against the same corrected built candidate and binary hash. In each cycle capture authoritative running and terminal current-home results plus immediate readback exactly equal to ThreadBear, 98-applied/zero-remaining status and inventory, migration and uninstall timers, terminal privacy-safe screenshots, neighboring-user-content preservation, and final owned-artifact absence. Do not run a supplemental probe or claim capability until one linked result is recorded and this preflight is closed.",
       "result_experiment_id": "TB-EXP-0120-006"
+    },
+    {
+      "id": "TB-PRE-0116-001",
+      "issue": "BEAR-116",
+      "capability_id": "TB-CAP-MOUNTED-NATIVE-REPAINT",
+      "status": "closed",
+      "consulted": [
+        "TB-EXP-0059-001",
+        "TB-EXP-0059-002",
+        "TB-EXP-0116-001",
+        "TB-EXP-0116-002"
+      ],
+      "remaining_unknown": "Whether the exact post-review v3.0.0 candidate still produces immediate mounted current-task and historical-task repaint through the sole app-native writer and preserves both rendered titles after a clean Codex restart.",
+      "single_changed_variable": "Executable candidate and binary fingerprint: replace the earlier f20bf5c7 exploratory candidate with the final reviewed candidate containing only the lifecycle-lock and structured-update-receipt corrections required by PR #124 review.",
+      "held_constant": "Desktop 26.803.41515 build 6321; local macOS arm64 host; no ThreadBear title hooks or SQLite access; one exact current-task planner followed by one mounted setter with omitted task ID; one complete onboarding snapshot followed by one immediate exact-ID/title historical reread and one explicit-target mounted setter; raw JSON-text decoding; no retry or reconciliation; the same controlled current and historical subjects; one clean Codex restart; mounted header/sidebar capture before and after restart.",
+      "predicted_outcomes": [
+        "If the final candidate preserves the corrected product path, both one-attempt mounted writes will return exact IDs and titles, repaint the mounted header/sidebar immediately, and remain rendered after the clean restart while status and updater health remain ready.",
+        "If either mounted response is non-exact, either row fails to repaint immediately, either title changes or disappears after restart, or the candidate reports unhealthy state, the release capability remains unproved and v3.0.0 must not ship."
+      ],
+      "stop_condition": "Stop after one exact current-task mounted write, one exact controlled historical onboarding write, immediate mounted inspection, one clean Codex restart, post-restart mounted inspection, and read-only status/artifact checks. Do not retry a failed title write, add another target, change architecture, or claim release readiness until the result is recorded and this preflight is closed.",
+      "result_experiment_id": "TB-EXP-0116-003"
+    },
+    {
+      "id": "TB-PRE-0116-002",
+      "issue": "BEAR-116",
+      "capability_id": "TB-CAP-UPDATER-TEARDOWN-SERIALIZATION",
+      "status": "closed",
+      "consulted": [
+        "TB-EXP-0116-002",
+        "TB-EXP-0116-003"
+      ],
+      "remaining_unknown": "Whether the exact candidate with the corrected lock order truly waits for an already-running updater before teardown, completes cleanly after that updater releases its lock, and retains the already-proved mounted title behavior and restart persistence as the final release artifact.",
+      "single_changed_variable": "Lifecycle serialization and executable fingerprint: confirmed uninstall now acquires the existing update.lock before the stable boundary and lifecycle fence, replacing candidate f1ba8307 with the exact corrected build while leaving title planner, mounted writer, onboarding, guidance, and updater command unchanged.",
+      "held_constant": "Desktop 26.803.41515 build 6321; local macOS arm64 host; same current and historical controlled subjects; no title hooks, SQLite, detached writer, retry, or reconciliation; update-only LaunchAgent; exact release build flags; one serial current-task mounted write and one controlled historical mounted write; one full Codex process restart; read-only post-restart status and artifact checks.",
+      "predicted_outcomes": [
+        "If the corrected lock order closes the race, confirmed uninstall will remain pending without booting out the updater while the current update.lock is held, complete only after that lock is released, leave no owned artifact, and the same exact candidate will pass the isolated release smoke, reinstall, mounted title checks, and full-restart persistence check.",
+        "If teardown can still bypass or deadlock with the updater, it will remove a managed surface before lock release, fail to finish after release, permit stale replacement, leave an owned artifact, fail the release smoke, or disturb the mounted title/restart behavior; the candidate must not merge or release."
+      ],
+      "stop_condition": "Stop after one timed hold of the live current update.lock around confirmed uninstall, one exact-candidate isolated release smoke, one live reinstall, one controlled current and historical mounted-write check, one full Codex process restart, and read-only runtime/artifact verification. Do not add another concurrency protocol, retry a title write, or claim release readiness until one linked result closes this preflight.",
+      "result_experiment_id": "TB-EXP-0116-004"
+    },
+    {
+      "id": "TB-PRE-0116-003",
+      "issue": "BEAR-116",
+      "capability_id": "TB-CAP-UPDATER-TEARDOWN-SERIALIZATION",
+      "status": "closed",
+      "consulted": [
+        "TB-EXP-0116-003",
+        "TB-EXP-0116-004"
+      ],
+      "remaining_unknown": "Whether an updater process from the pre-teardown executable rejects a different binary installed while it waits on a replacement update.lock, before it reads the release manifest or launches an automatic candidate install, and whether the exact corrected candidate retains the already-proved release, mounted-title, and restart behavior.",
+      "single_changed_variable": "Updater admission and executable fingerprint: the process records the SHA-256 of its own executable during package initialization and requires the installed binary to remain byte-identical both before and after acquiring update.lock. No lock order, state format, title path, onboarding path, LaunchAgent command, retry, or reconciliation changes.",
+      "held_constant": "Desktop 26.803.41515 build 6321; local macOS arm64 host; update -> stable boundary -> lifecycle lock order; exact uninstall sequence; task-blind update-only LaunchAgent; mounted native title writer; complete native onboarding catalog; same controlled current and historical subjects; exact release build flags; no hooks, SQLite, detached title writer, controller task, retry, or reconciliation.",
+      "predicted_outcomes": [
+        "If the executable guard closes the admission gap, replacing the installed binary while an updater waits on update.lock will make that updater fail locally at installation admission with zero manifest requests, while the exact corrected candidate still passes the release smoke, live updater teardown, mounted title checks, clean restart, and post-restart health checks.",
+        "If the queued updater reaches the manifest, launches candidate installation, accepts the replacement binary, leaves a receipt in the replacement installation, or the correction disturbs any previously proved lifecycle or title behavior, the capability remains unresolved and v3.0.0 must not ship."
+      ],
+      "stop_condition": "Stop after one deterministic real-binary replacement-while-waiting probe with zero network admission, one exact-candidate release smoke, one live updater-lock uninstall check, one live reinstall, one controlled current and historical mounted-write check, one full Codex process restart, and read-only post-restart runtime/artifact verification. Do not add a generation file, another lock, retry a title write, or claim release readiness until one linked result closes this preflight.",
+      "result_experiment_id": "TB-EXP-0116-005"
+    },
+    {
+      "id": "TB-PRE-0116-004",
+      "issue": "BEAR-116",
+      "capability_id": "TB-CAP-MOUNTED-NATIVE-REPAINT",
+      "status": "closed",
+      "consulted": [
+        "TB-EXP-0116-003",
+        "TB-EXP-0116-004",
+        "TB-EXP-0116-005"
+      ],
+      "remaining_unknown": "Whether the exact v3.0.0 artifact containing the final BEAR-117 consent, uncertainty, and uninstall protocol still repaints one current and one controlled historical task immediately, preserves both titles across a clean Codex restart, and leaves the lifecycle recap visible after reopen and restart.",
+      "single_changed_variable": "Embedded skill and executable fingerprint: replace candidate 489ca988 with the final reviewed skill that discloses automatic verified installs, runs previewed confirmed uninstall before claiming removal, and reports unconfirmed title writes as unknown. The planner, mounted writer, onboarding read-before-write guard, one-attempt rule, and lifecycle implementation are unchanged.",
+      "held_constant": "Desktop 26.803.41515 build 6321; local macOS arm64 host; same controlled current and historical subjects; one exact current-task mounted write with task ID omitted; one complete onboarding plan, exact immediate historical ID/title reread, and one explicit-target mounted write; raw JSON-text decoding; no hooks, SQLite, detached writer, retry, reconciliation, or cache edit; one clean Codex restart; exact install/status/self-test and updater checks.",
+      "predicted_outcomes": [
+        "If the final embedded skill preserves the proved release path, both one-attempt writes return exact IDs and titles, repaint the mounted current and controlled historical rows immediately, remain rendered after restart, and the installed artifact stays healthy while the final lifecycle recap remains visible and accurate.",
+        "If either native result is non-exact, either controlled row stays stale, either title changes or disappears after restart, the artifact is unhealthy, or the lifecycle task claims removal before committed uninstall or loses its recap after reopen/restart, v3.0.0 must not ship."
+      ],
+      "stop_condition": "Stop after one exact current-task mounted write, one exact controlled historical onboarding write, immediate mounted inspection, one previewed and confirmed lifecycle canary with its final recap, one clean Codex restart, post-restart mounted inspection, and read-only runtime/artifact checks. Do not retry a title write, add another target, add refresh machinery, or claim release readiness until one linked result closes this preflight.",
+      "result_experiment_id": "TB-EXP-0116-006"
     }
   ]
 }

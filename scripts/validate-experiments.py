@@ -413,9 +413,10 @@ def mutated_fixture(registry: dict[str, Any], mutation: str) -> Any:
     elif mutation == "bare-unknown":
         candidate["experiments"][0]["result"]["timing_ms"] = "unknown"
     elif mutation == "capability-evidence-overlap":
-        candidate["capabilities"][0]["contradicted_by"].append(
-            candidate["capabilities"][0]["supported_by"][0]
+        capability = next(
+            item for item in candidate["capabilities"] if item["supported_by"]
         )
+        capability["contradicted_by"].append(capability["supported_by"][0])
     return candidate
 
 

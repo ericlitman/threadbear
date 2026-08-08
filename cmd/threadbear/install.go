@@ -1,82 +1,85 @@
 package main
 
 import (
-	"cmp"
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/ericlitman/threadbear/assets"
-	"maps"
 	"os"
 	"path/filepath"
 	"runtime"
-	"slices"
 	"strings"
 	"syscall"
+
+	"github.com/ericlitman/threadbear/assets"
+	"golang.org/x/sys/unix"
 )
 
-const blockStart, blockEnd, managedHeading, managedProtocol = "<!-- BEGIN THREADBEAR MANAGED BLOCK -->", "<!-- END THREADBEAR MANAGED BLOCK -->", "# ThreadBear", "For every ordinary interactive turn"
+const (
+	blockStart           = "<!-- BEGIN THREADBEAR MANAGED BLOCK -->"
+	blockEnd             = "<!-- END THREADBEAR MANAGED BLOCK -->"
+	legacyAutomationID   = "threadbear-maintenance"
+	legacyAutomationName = "ThreadBear maintenance"
+	legacyAutomationKind = "heartbeat"
+	legacyTitleTool      = "codex_appset_thread_title"
+)
 
-type lifecyclePaths struct{ binary, agents, skill, hooks string }
-type rawObject map[string]json.RawMessage
-
-func hasPendingTitle(value state) bool {
-	return slices.ContainsFunc(slices.Collect(maps.Values(value.Tasks)), func(task taskState) bool { return task.Pending != nil })
+type lifecyclePaths struct {
+	binary, agents, skill, launchAgent, updateReceipt string
 }
-func codexHome() string { return cmp.Or(os.Getenv("CODEX_HOME"), filepath.Join(homeDir(), ".codex")) }
-func homeDir() string   { home, _ := os.UserHomeDir(); return home }
-func stateDir() string  { return filepath.Join(homeDir(), ".local", "share", "threadbear") }
+
+type installOptions struct {
+	DryRun, Confirmed, Reset, NoOnboard, Automatic bool
+	SelectedVersion                                string
+}
+
+type uninstallOptions struct {
+	DryRun, Confirmed bool
+}
+
+type legacyInstall struct{ MainTaskID string }
+
+var postResetStatus = status
+
+func codexHome() string {
+	if value := strings.TrimSpace(os.Getenv("CODEX_HOME")); value != "" {
+		return value
+	}
+	return filepath.Join(homeDir(), ".codex")
+}
+
+func homeDir() string { home, _ := os.UserHomeDir(); return home }
+
+func stateDir() string { return filepath.Join(homeDir(), ".local", "share", "threadbear") }
+
+func legacyHooksPath() string { return filepath.Join(codexHome(), "hooks.json") }
+
 func installPaths() lifecyclePaths {
-	return lifecyclePaths{filepath.Join(homeDir(), ".local/bin/threadbear"), filepath.Join(codexHome(), "AGENTS.md"), filepath.Join(codexHome(), "skills/threadbear/SKILL.md"), filepath.Join(codexHome(), "hooks.json")}
+	return lifecyclePaths{
+		binary:        filepath.Join(homeDir(), ".local", "bin", "threadbear"),
+		agents:        filepath.Join(codexHome(), "AGENTS.md"),
+		skill:         filepath.Join(codexHome(), "skills", "threadbear", "SKILL.md"),
+		launchAgent:   updateAgentPath(),
+		updateReceipt: filepath.Join(stateDir(), "update.json"),
+	}
 }
-func install(controlTaskID string, dry, confirmed, debugCanaries bool) (any, error) {
-	controlTaskID = strings.TrimSpace(controlTaskID)
-	value, err := currentStateOrEmpty()
-	if err != nil {
+
+func install(ctx context.Context, options installOptions) (any, error) {
+	if _, err := selfTest(); err != nil {
 		return nil, err
 	}
-	mainTaskID := value.MainTaskID
-	if mainTaskID != "" && controlTaskID != "" && controlTaskID != mainTaskID {
-		return nil, fmt.Errorf("install would replace persisted ThreadBear task %q with %q", mainTaskID, controlTaskID)
+	if options.DryRun && options.Confirmed {
+		return nil, errors.New("install preview cannot also be confirmed")
 	}
-	if mainTaskID == "" {
-		if controlTaskID == "" {
-			return nil, errors.New("first install requires --control-task-id for the active ThreadBear task")
-		}
-		mainTaskID = controlTaskID
+	if options.Automatic && (options.DryRun || options.Reset) {
+		return nil, errors.New("automatic install accepts neither preview nor legacy reset")
 	}
-	p := installPaths()
-	hooks, write, err := editHooks(p.hooks, p.binary, true)
-	if err != nil {
-		return nil, err
+	if options.SelectedVersion != "" && options.SelectedVersion != version {
+		return nil, fmt.Errorf("installer selected version %q but candidate is %q", options.SelectedVersion, version)
 	}
-	if dry {
-		phase := cmp.Or(value.Phase, phaseMigrationPending)
-		result := map[string]any{"ready": true, "dry_run": true, "main_task_id": mainTaskID, "phase": phase, "controller_task_id": value.ControllerTaskID, "controller_required": phase == phaseMigrationPending, "debug_canaries": true}
-		maps.DeleteFunc(result, func(key string, _ any) bool { return key == "debug_canaries" && !debugCanaries })
-		return result, nil
-	}
-	if !confirmed {
-		return nil, errors.New("install requires --noninteractive --confirm after its preview")
-	}
-	titleLock, lockErr := newStore(stateDir()).installLock()
-	if lockErr != nil {
-		return nil, lockErr
-	}
-	defer unlock(titleLock)
-	if value, err = currentStateOrEmpty(); err != nil {
-		return nil, err
-	}
-	if value.MainTaskID != "" && value.MainTaskID != mainTaskID {
-		return nil, errors.New("persisted ThreadBear task changed during install")
-	}
-	if hasPendingTitle(value) {
-		return nil, errors.New("install requires all native title operations to settle")
-	}
-	main, found, taskErr := archiveTaskByID(context.Background(), mainTaskID)
-	if taskErr != nil || !found || !main.User {
-		return nil, errors.Join(taskErr, errors.New("persisted ThreadBear control task is not available in Codex"))
+	if options.Automatic {
+		options.NoOnboard = true
 	}
 	source, err := os.Executable()
 	if err != nil {
@@ -86,404 +89,973 @@ func install(controlTaskID string, dry, confirmed, debugCanaries bool) (any, err
 	if err != nil {
 		return nil, err
 	}
-	if err = writeAtomic(p.binary, binary, 0o755); err == nil {
-		err = newStore(stateDir()).update(func(saved *state) (bool, error) {
-			changed := saved.MainTaskID != mainTaskID || saved.Format != stateFormat
-			record := saved.Tasks[mainTaskID]
-			if record.Original == "" {
-				record.Original = map[bool]string{true: main.Title, false: cmp.Or(map[bool]string{true: cmp.Or(map[bool]string{true: stripStatusIcons(record.Subject)}[stripStatusIcons(record.Subject) != homeTitle], "ThreadBear")}[stripStatusIcons(main.Title) == homeTitle], stripStatusIcons(main.Title))}[saved.MainTaskID == ""]
-				saved.Tasks[mainTaskID] = record
-			}
-			saved.MainTaskID, saved.Format = mainTaskID, stateFormat
-			if saved.Phase == "" {
-				saved.Phase, changed = phaseMigrationPending, true
-			}
-			value = *saved
-			return changed, nil
-		})
-	}
-	if err == nil {
-		err = manageBlock(p.agents, assets.AgentsManagedContent)
-	}
-	if err == nil {
-		err = writeAtomic(p.skill, []byte(assets.SkillManagedContent), 0o600)
-	}
-	if err == nil && write {
-		err = writeAtomic(p.hooks, hooks, 0o600)
-	}
-	result := map[string]any{"ready": err == nil && value.Phase == phaseMigrationComplete, "installed": err == nil, "main_task_id": value.MainTaskID, "controller_task_id": value.ControllerTaskID, "phase": value.Phase, "controller_required": err == nil && value.Phase == phaseMigrationPending, "debug_canaries": true}
-	maps.DeleteFunc(result, func(key string, _ any) bool { return key == "debug_canaries" && !debugCanaries })
-	return result, err
-}
-func prepareUninstall(ctx context.Context, initiatorTaskID string) (any, error) {
-	if initiatorTaskID = strings.TrimSpace(initiatorTaskID); initiatorTaskID == "" {
-		return nil, errors.New("uninstall prepare requires the active initiating task ID")
-	}
-	return withUninstallLocks(func() (any, error) {
-		value, err := newStore(stateDir()).read()
-		if err != nil {
-			return nil, err
-		}
-		if value.Phase != phaseMigrationComplete && value.Phase != phaseMigrationFailed && (value.Phase != phaseMigrationPending || value.ControllerTaskID != "" || hasPendingTitle(value)) || value.ArchivePending != nil {
-			return nil, errors.New("uninstall requires a completed, stopped failed, or quiescent pre-controller installation with no pending archive")
-		}
-		initiator, found, err := archiveTaskByID(ctx, initiatorTaskID)
-		if err != nil || !found || !initiator.User || !initiator.Visible || initiator.Archived {
-			return nil, errors.Join(err, errors.New("uninstall initiator is not an active user task in Codex"))
-		}
-		if pending := value.UninstallPending; pending != nil {
-			if pending.InitiatorTaskID != initiatorTaskID || pending.MainTaskID != value.MainTaskID || pending.ControllerTaskID != value.ControllerTaskID {
-				return nil, errors.New("uninstall is already owned by another task or installation identity")
-			}
-			reconciled, err := reconcileTitles(ctx, "")
-			if err != nil {
-				return nil, err
-			}
-			return map[string]any{"ready": true, "prepared": true, "resumed": true, "reconciled_titles": reconciled, "initiator_task_id": pending.InitiatorTaskID, "main_task_id": pending.MainTaskID, "main_archived": pending.MainArchived, "controller_task_id": pending.ControllerTaskID}, nil
-		}
-		reconciled, err := reconcileTitles(ctx, "")
-		if err != nil {
-			return nil, err
-		}
-		main, found, err := archiveTaskByID(ctx, value.MainTaskID)
-		if err != nil || !found || !main.User {
-			return nil, errors.Join(err, errors.New("persisted ThreadBear control task is not available in Codex"))
-		}
-		pending := &uninstallOperation{InitiatorTaskID: initiatorTaskID, MainTaskID: value.MainTaskID, MainArchived: main.Archived, ControllerTaskID: value.ControllerTaskID}
-		err = newStore(stateDir()).update(func(saved *state) (bool, error) {
-			saved.UninstallPending = pending
-			return true, nil
-		})
-		if err != nil {
-			return nil, err
-		}
-		return map[string]any{"ready": true, "prepared": true, "resumed": false, "reconciled_titles": reconciled, "initiator_task_id": pending.InitiatorTaskID, "main_task_id": pending.MainTaskID, "main_archived": pending.MainArchived, "controller_task_id": pending.ControllerTaskID}, nil
-	})
-}
-func reconcileTitles(ctx context.Context, caller string) (count int, err error) {
-	err = newStore(stateDir()).update(func(value *state) (bool, error) {
-		current, attempt := caller != "" && (value.Phase == phaseMigrationPending || value.Phase == phaseMigrationRunning || value.Phase == phaseMigrationComplete) && value.UninstallPending == nil && os.Getenv("CODEX_THREAD_ID") == caller, os.Getenv("THREADBEAR_TITLE_ATTEMPT")
-		if attempt != "" && !current {
-			return false, errors.New("title recovery requires its exact active current task")
-		}
-		for id, record := range value.Tasks {
-			pending := record.Pending
-			if pending == nil {
-				continue
-			}
-			if current && id != caller {
-				continue
-			}
-			if caller != "" && (pending.CallerTaskID != caller || value.Phase == phaseMigrationFailed && os.Getenv("CODEX_THREAD_ID") != caller && (value.MigrationFailure != "controller reported a settled migration failure" || os.Getenv("CODEX_THREAD_ID") != value.MainTaskID)) {
-				return false, fmt.Errorf("pending native title operation for task %q is not owned by this migration controller", id)
-			}
-			task, found, readErr := archiveTaskByID(ctx, id)
-			if readErr != nil {
-				return false, readErr
-			}
-			applied := found && task.User && task.Visible && pending.Prior != pending.Proposed && task.Title == pending.Proposed
-			cleared := pending.CallerTaskID == value.ControllerTaskID && value.MigrationFailure == "controller reported a settled migration failure" && (!found || task.Title == pending.Prior) || current && pending.Attempt != "" && pending.Attempt == attempt && found && task.User && task.Visible && !task.Archived && task.Title == pending.Prior
-			if !applied && !cleared {
-				return false, fmt.Errorf("native title operation for task %q has not settled; wait for its exact PostToolUse result", id)
-			}
-			if applied {
-				record.Subject, record.Last, record.Status, record.Action = pending.BaseSubject, pending.Proposed, pending.Status, pending.Action
-			}
-			count, record.Pending = count+1, nil
-			value.Tasks[id] = record
-		}
-		return count > 0, map[bool]error{true: errors.New("title recovery found no matching pending operation")}[attempt != "" && count == 0]
-	})
-	return count, err
-}
-func completeUninstall(ctx context.Context, initiatorTaskID string, confirmed, abort bool) (any, error) {
-	if !confirmed && !abort {
-		return nil, errors.New("uninstall requires --noninteractive --confirm")
-	}
-	if initiatorTaskID = strings.TrimSpace(initiatorTaskID); initiatorTaskID == "" {
-		return nil, errors.New("uninstall requires the initiating task ID")
-	}
-	if !abort {
-		if committed, err := finishCommittedUninstall(); err != nil || committed {
-			return map[string]any{"ready": err == nil, "uninstalled": err == nil}, err
-		}
-	}
-	return withUninstallLocks(func() (any, error) {
-		value, err := newStore(stateDir()).read()
-		if err != nil {
-			return nil, err
-		}
-		pending := value.UninstallPending
-		if pending == nil || pending.InitiatorTaskID != initiatorTaskID || pending.MainTaskID != value.MainTaskID || pending.ControllerTaskID != value.ControllerTaskID {
-			return nil, errors.New("uninstall commit requires the exact prepared initiating task")
-		}
-		main, found, err := archiveTaskByID(ctx, pending.MainTaskID)
-		if err != nil || !found || !main.User {
-			return nil, errors.Join(err, errors.New("persisted ThreadBear control task is not available in Codex"))
-		}
-		if main.Archived != pending.MainArchived {
-			return nil, errors.New("control task archive state must be restored before uninstall completion")
-		}
-		if abort {
-			err = newStore(stateDir()).update(func(saved *state) (bool, error) {
-				for id, record := range saved.Tasks {
-					record.Pending = nil
-					saved.Tasks[id] = record
-				}
-				saved.UninstallPending = nil
-				return true, nil
-			})
-			return map[string]any{"ready": err == nil, "aborted": err == nil, "main_archived": pending.MainArchived}, err
-		}
-		if stripStatusIcons(main.Title) != main.Title || stripStatusIcons(main.Title) == homeTitle {
-			return nil, errors.New("uninstall requires title cleanup from the ThreadBear control task")
-		}
-		return uninstallLocked(ctx, value)
-	})
-}
-func withUninstallLocks(action func() (any, error)) (any, error) {
-	store := newStore(stateDir())
-	operationLock, err := store.operationLock()
-	if err != nil {
-		return nil, err
-	}
-	defer unlock(operationLock)
-	titleLock, err := store.titleLock()
-	if err != nil {
-		return nil, err
-	}
-	defer unlock(titleLock)
-	return action()
-}
-func finishCommittedUninstall() (bool, error) {
 	p := installPaths()
-	if _, err := os.Stat(newStore(stateDir()).path()); !errors.Is(err, os.ErrNotExist) {
-		return false, err
-	}
-	_, skillErr := os.Stat(p.skill)
-	agents, agentsErr := os.ReadFile(p.agents)
-	_, hooksChanged, hooksErr := editHooks(p.hooks, p.binary, false)
-	if !errors.Is(skillErr, os.ErrNotExist) || agentsErr == nil && (strings.Contains(string(agents), blockStart) || strings.Contains(string(agents), blockEnd) || strings.Contains(string(agents), managedHeading) || strings.Contains(string(agents), managedProtocol)) || agentsErr != nil && !errors.Is(agentsErr, os.ErrNotExist) || hooksErr != nil || hooksChanged {
-		return false, errors.Join(agentsErr, hooksErr, errors.New("uninstall state is missing before local artifacts were settled"))
-	}
-	if err := errors.Join(removeFiles(filepath.Dir(p.skill), p.skill, filepath.Dir(p.skill)), os.RemoveAll(stateDir())); err != nil {
-		return false, err
-	}
-	return true, removeFiles("", p.binary)
-}
-func uninstallLocked(ctx context.Context, value state) (any, error) {
-	for _, record := range value.Tasks {
-		if record.Pending != nil {
-			return nil, errors.New("cannot uninstall while a native title operation is pending; reconcile it first")
-		}
-	}
-	if value.MainTaskID != "" && value.Phase != phaseMigrationPending {
-		tasks, scanErr := inventory(ctx)
-		if scanErr != nil {
-			return nil, scanErr
-		}
-		if slices.ContainsFunc(tasks, func(task indexedTask) bool { return stripStatusIcons(task.Title) != task.Title }) {
-			return nil, errors.New("uninstall requires title cleanup from the ThreadBear control task")
-		}
-	}
-	p := installPaths()
-	hooks, write, err := editHooks(p.hooks, p.binary, false)
+	legacy, legacyFound, err := readLegacyInstall()
 	if err != nil {
 		return nil, err
 	}
-	err = validateFile(p.skill, assets.SkillManagedContent)
-	if err == nil {
-		err = manageBlock(p.agents, "")
+	preview := installResult(options, legacy, legacyFound, options.DryRun)
+	if err := preflightInstall(ctx, p, binary, legacyFound); err != nil {
+		return preview, err
 	}
-	if err == nil && write {
-		if len(hooks) == 0 {
-			err = os.Remove(p.hooks)
+	if options.DryRun {
+		return preview, nil
+	}
+	if !options.Confirmed {
+		return preview, errors.New("install requires --noninteractive --confirm after its preview")
+	}
+
+	var updateLock *os.File
+	// Manual install orders update -> stable boundary -> lifecycle. The updater
+	// already owns update.lock before its automatic child reaches this path.
+	if !options.Automatic {
+		updateLock, err = lifecycleLock("update.lock")
+		if err != nil {
+			return preview, err
+		}
+		defer unlock(updateLock)
+	}
+	boundaryLock, err := lifecycleBoundaryLock()
+	if err != nil {
+		return preview, err
+	}
+	defer unlock(boundaryLock)
+	if updateLock != nil {
+		if err := currentLockPath(updateLock); err != nil {
+			return preview, err
+		}
+	}
+	var lock *os.File
+	if options.Automatic {
+		lock, err = existingLifecycleLock("lifecycle.lock")
+	} else {
+		lock, err = lifecycleLock("lifecycle.lock")
+	}
+	if err != nil {
+		return preview, err
+	}
+	defer unlock(lock)
+	legacy, legacyFound, err = readLegacyInstall()
+	if err != nil {
+		return preview, err
+	}
+	if legacyFound && !options.Reset {
+		return preview, errors.New("legacy 2.2.1 state requires guided removal of threadbear-maintenance and install --reset")
+	}
+	if !legacyFound && options.Reset {
+		return preview, errors.New("--reset is only valid for an exact legacy native.json installation")
+	}
+	if options.Automatic {
+		if err := requireCurrentFormatInstall(p); err != nil {
+			return preview, fmt.Errorf("automatic install refused because the current installation disappeared or is legacy: %w", err)
+		}
+	}
+	if err := preflightInstall(ctx, p, binary, legacyFound); err != nil {
+		return preview, err
+	}
+	agents, removeAgents, agentsChanged, err := editManagedBlock(p.agents, true, legacyFound || currentInstallPresent(p))
+	if err != nil || removeAgents {
+		return preview, errors.Join(err, errors.New("managed AGENTS block could not be prepared"))
+	}
+	if err := os.MkdirAll(newStore(stateDir()).subjectDir(), 0o700); err != nil {
+		return installPartial(preview, "subject_state", false, options), err
+	}
+	if agentsChanged {
+		if err := writeAtomic(p.agents, agents, 0o600); err != nil {
+			return installPartial(preview, "managed_guidance", true, options), err
+		}
+	}
+	if err := writeAtomic(p.skill, []byte(assets.SkillManagedContent), 0o600); err != nil {
+		return installPartial(preview, "skill", true, options), err
+	}
+	if legacyFound {
+		hooks, changed, remove, cleanupErr := removeLegacyHooks(legacyHooksPath(), p.binary)
+		if cleanupErr != nil {
+			return installPartial(preview, "legacy_hook", true, options), cleanupErr
+		}
+		if changed {
+			if remove {
+				cleanupErr = os.Remove(legacyHooksPath())
+			} else {
+				cleanupErr = writeAtomic(legacyHooksPath(), hooks, 0o600)
+			}
+			if cleanupErr != nil && !errors.Is(cleanupErr, os.ErrNotExist) {
+				return installPartial(preview, "legacy_hook", true, options), cleanupErr
+			}
+		}
+	}
+	if err := installUpdateAgent(ctx, p.launchAgent, p.binary); err != nil {
+		return installPartial(preview, "updater", true, options), err
+	}
+	// Replacement is last: any earlier failure leaves the previously installed
+	// executable active, and a fresh non-RunAtLoad job cannot invoke a partial
+	// installation.
+	if err := writeAtomic(p.binary, binary, 0o755); err != nil {
+		return installPartial(preview, "binary", true, options), err
+	}
+
+	checked, checkErr := statusAllowingLegacy(ctx, options.Reset)
+	legacyCleanupCommitted := false
+	if checkErr == nil && options.Reset {
+		if checkErr = clearLegacyState(); checkErr == nil {
+			legacyCleanupCommitted = true
+			checked, checkErr = postResetStatus(ctx)
+		}
+	}
+	result := installResult(options, legacyInstall{}, false, false)
+	for key, value := range checked.(map[string]any) {
+		if key == "ready" || key == "installed" || key == "automatic_updates_enabled" {
+			result[key] = value
+		}
+	}
+	result["restart_required"] = checkErr == nil
+	if checkErr != nil {
+		stage := "status"
+		if options.Reset && !legacyCleanupCommitted {
+			stage = "legacy_cleanup"
+			result["legacy_reset_required"] = true
+			result["legacy_main_task_id"] = legacy.MainTaskID
+			result["legacy_automation_id"] = legacyAutomationID
+			result["legacy_automation_name"] = legacyAutomationName
+			result["legacy_automation_kind"] = legacyAutomationKind
+			result["legacy_automation_target_thread_id"] = legacy.MainTaskID
+		}
+		partial := installPartial(result, stage, true, options)
+		if legacyCleanupCommitted {
+			partial["safe_rerun"] = confirmedInstallRerun(p, options.NoOnboard)
+		}
+		return partial, checkErr
+	}
+	return result, nil
+}
+
+func installResult(options installOptions, legacy legacyInstall, legacyFound, dry bool) map[string]any {
+	onboarding := !options.NoOnboard && !options.Automatic
+	result := map[string]any{
+		"ready":                     dry,
+		"installed":                 false,
+		"version":                   version,
+		"dry_run":                   dry,
+		"legacy_reset_required":     legacyFound,
+		"reset":                     options.Reset,
+		"onboarding_requested":      onboarding,
+		"automatic_updates_enabled": false,
+		"restart_required":          false,
+		"partial":                   false,
+		"planned_changes":           installChanges(installPaths(), legacyFound),
+	}
+	if legacyFound {
+		result["legacy_main_task_id"] = legacy.MainTaskID
+		result["legacy_automation_id"] = legacyAutomationID
+		result["legacy_automation_name"] = legacyAutomationName
+		result["legacy_automation_kind"] = legacyAutomationKind
+		result["legacy_automation_target_thread_id"] = legacy.MainTaskID
+	}
+	if onboarding {
+		result["next_request"] = "threadbear onboard --dry-run --json"
+	}
+	return result
+}
+
+func installPartial(result map[string]any, stage string, restart bool, options installOptions) map[string]any {
+	rerun := "repeat the same confirmed install command"
+	if options.Automatic {
+		rerun = quoteArgument(installPaths().binary) + " update --json"
+	}
+	return partialResult(result, stage, restart, rerun)
+}
+
+func confirmedInstallRerun(p lifecyclePaths, noOnboard bool) string {
+	command := quoteArgument(p.binary) + " install"
+	if noOnboard {
+		command += " --no-onboard"
+	}
+	return command + " --noninteractive --confirm --json"
+}
+
+func installChanges(p lifecyclePaths, legacy bool) []string {
+	changes := []string{}
+	if legacy {
+		changes = append(changes,
+			"remove legacy state "+filepath.Join(stateDir(), "native.json"),
+			"remove legacy locks native.lock, title.lock, and operation.lock under "+stateDir(),
+			"remove exact legacy ThreadBear title hooks from "+legacyHooksPath())
+	}
+	changes = append(changes,
+		"manage subject records under "+newStore(stateDir()).subjectDir(),
+		"manage update receipt "+p.updateReceipt,
+		"replace managed AGENTS block in "+p.agents,
+		"write skill "+p.skill,
+		"install "+updateAgentLabel+" LaunchAgent "+p.launchAgent,
+		"write binary "+p.binary)
+	return changes
+}
+
+func onboard(ctx context.Context, dryRun, confirmed bool) (any, error) {
+	if dryRun && confirmed {
+		return nil, errors.New("onboarding preview cannot also be confirmed")
+	}
+	if !dryRun && !confirmed {
+		return nil, errors.New("onboarding requires --dry-run or --noninteractive --confirm")
+	}
+	p := installPaths()
+	if err := requireCurrentFormatInstall(p); err != nil {
+		return nil, fmt.Errorf("onboarding requires the current ThreadBear installation: %w", err)
+	}
+	return runOnboarding(ctx, confirmed, os.Getenv("CODEX_THREAD_ID"))
+}
+
+func uninstall(ctx context.Context, options uninstallOptions) (any, error) {
+	if options.DryRun && options.Confirmed {
+		return nil, errors.New("uninstall preview cannot also be confirmed")
+	}
+	preview := map[string]any{
+		"ready": true, "dry_run": options.DryRun, "uninstalled": false,
+		"icons_may_remain": true, "restart_required": false, "partial": false,
+		"warning":         "Existing ThreadBear title icons may remain until renamed.",
+		"planned_changes": uninstallChanges(installPaths()),
+	}
+	p := installPaths()
+	partialAdmission, err := preflightUninstall(ctx, p)
+	if err != nil {
+		return preview, err
+	}
+	if options.DryRun {
+		return preview, nil
+	}
+	if !options.Confirmed {
+		return preview, errors.New("uninstall requires --noninteractive --confirm after its preview")
+	}
+	// Use the same update -> stable boundary -> lifecycle order as install.
+	// Waiting for an in-flight updater before teardown keeps its locked inode
+	// current, so it cannot resume later over a fresh installation.
+	updateLock, err := existingLifecycleLock("update.lock")
+	if err != nil {
+		if !partialAdmission || !errors.Is(err, os.ErrNotExist) {
+			return preview, err
+		}
+		updateLock = nil
+	}
+	defer func() {
+		if updateLock != nil {
+			unlock(updateLock)
+		}
+	}()
+	boundaryLock, err := lifecycleBoundaryLock()
+	if err != nil {
+		return preview, err
+	}
+	defer unlock(boundaryLock)
+	if updateLock != nil {
+		if err := currentLockPath(updateLock); err != nil {
+			return preview, err
+		}
+	}
+	lock, err := existingLifecycleLock("lifecycle.lock")
+	if err != nil {
+		if !partialAdmission || !errors.Is(err, os.ErrNotExist) {
+			return preview, err
+		}
+		lock = nil
+	}
+	defer func() {
+		if lock != nil {
+			unlock(lock)
+		}
+	}()
+	confirmedPartial, err := preflightUninstall(ctx, p)
+	if err != nil {
+		return preview, err
+	}
+	if confirmedPartial != partialAdmission {
+		return preview, errors.New("uninstall state changed during admission")
+	}
+	agents, removeAgents, agentsChanged, err := editManagedBlock(p.agents, false, false)
+	if err != nil {
+		return preview, err
+	}
+
+	// Stop the only background entry point before removing any executable or
+	// instruction surface. The binary is deliberately removed last.
+	if err := removeUpdateAgent(ctx, p.launchAgent, p.binary); err != nil {
+		return partialResult(preview, "updater", true, uninstallRerun(p)), err
+	}
+	if agentsChanged {
+		if removeAgents {
+			err = os.Remove(p.agents)
 		} else {
-			err = writeAtomic(p.hooks, hooks, 0o600)
+			err = writeAtomic(p.agents, agents, 0o600)
+		}
+		if err != nil && !errors.Is(err, os.ErrNotExist) {
+			return partialResult(preview, "managed_guidance", true, uninstallRerun(p)), err
 		}
 	}
-	if err == nil {
-		err = removeFiles(filepath.Dir(p.skill), p.skill, filepath.Dir(p.skill))
+	if err := os.Remove(p.skill); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return partialResult(preview, "skill", true, uninstallRerun(p)), err
 	}
-	if err == nil {
-		err = os.RemoveAll(stateDir())
+	skillDir := filepath.Dir(p.skill)
+	if info, _ := os.Lstat(skillDir); info == nil || info.Mode()&os.ModeSymlink == 0 {
+		if err := os.Remove(skillDir); err != nil && !errors.Is(err, os.ErrNotExist) && !errors.Is(err, syscall.ENOTEMPTY) {
+			return partialResult(preview, "skill", true, uninstallRerun(p)), err
+		}
 	}
-	if err == nil {
-		err = removeFiles("", p.binary)
+	if err := removeOwnedState(); err != nil {
+		return partialResult(preview, "state", true, uninstallRerun(p)), err
 	}
-	return map[string]any{"ready": err == nil, "uninstalled": err == nil}, err
+	if err := os.Remove(filepath.Join(stateDir(), "lifecycle.lock")); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return partialResult(preview, "state", true, uninstallRerun(p)), err
+	}
+	if lock != nil {
+		unlock(lock)
+		lock = nil
+	}
+	if err := os.Remove(stateDir()); err != nil && !errors.Is(err, os.ErrNotExist) && !errors.Is(err, syscall.ENOTEMPTY) {
+		return partialResult(preview, "state", true, uninstallRerun(p)), err
+	}
+	if err := os.Remove(p.binary); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return partialResult(preview, "binary", true, uninstallRerun(p)), err
+	}
+	return map[string]any{
+		"ready": true, "dry_run": false, "uninstalled": true,
+		"icons_may_remain": true, "restart_required": true, "partial": false,
+		"warning":         "Existing ThreadBear title icons may remain until renamed.",
+		"planned_changes": uninstallChanges(p),
+	}, nil
 }
-func status(ctx context.Context) (any, error) {
+
+func uninstallRerun(p lifecyclePaths) string {
+	return quoteArgument(p.binary) + " uninstall --noninteractive --confirm --json"
+}
+
+func partialResult(result map[string]any, stage string, restart bool, rerun string) map[string]any {
+	result["ready"], result["dry_run"], result["partial"] = false, false, true
+	result["stage"], result["restart_required"], result["safe_rerun"] = stage, restart, rerun
+	return result
+}
+
+func uninstallChanges(p lifecyclePaths) []string {
+	return []string{
+		"boot out and remove " + updateAgentLabel + " LaunchAgent " + p.launchAgent,
+		"remove managed AGENTS block from " + p.agents,
+		"remove skill " + p.skill,
+		"remove owned subject records under " + newStore(stateDir()).subjectDir(),
+		"remove update receipt " + p.updateReceipt,
+		"remove binary last " + p.binary,
+	}
+}
+
+func status(ctx context.Context) (any, error) { return statusAllowingLegacy(ctx, false) }
+
+func statusAllowingLegacy(ctx context.Context, allowLegacy bool) (any, error) {
 	p := installPaths()
-	_, changed, err := editHooks(p.hooks, p.binary, true)
-	if err == nil && changed {
-		err = errors.New("native title hooks are incomplete")
+	stateErr := validateRuntimeState()
+	legacy, legacyErr := legacyStatePresent()
+	legacyClear := legacyErr == nil && !legacy
+	if allowLegacy && legacy && legacyErr == nil {
+		legacyClear = true
 	}
-	for _, path := range []string{p.binary, p.agents, p.skill} {
-		if err == nil {
-			_, err = os.Stat(path)
+	artifacts := map[string]bool{
+		"binary": regularExecutable(p.binary), "agents": managedBlockExact(p.agents),
+		"skill":    exactFile(p.skill, []byte(assets.SkillManagedContent)),
+		"subjects": stateErr == nil, "legacy_state_absent": legacyClear,
+	}
+	var problems []error
+	for name, healthy := range artifacts {
+		if !healthy {
+			problems = append(problems, fmt.Errorf("managed %s surface is missing or changed", name))
 		}
 	}
-	value, stateErr := reconcileMigration(ctx)
-	err = errors.Join(err, validateFile(p.skill, assets.SkillManagedContent), validateFile(p.agents, blockStart+"\n"+strings.TrimSpace(assets.AgentsManagedContent)+"\n"+blockEnd), stateErr)
-	result := map[string]any{"ready": err == nil && value.Phase == phaseMigrationComplete && value.MainTaskID != "", "installed": err == nil, "version": version, "phase": value.Phase, "main_task_id": value.MainTaskID, "controller_task_id": value.ControllerTaskID, "maintenance_automation_id": "threadbear-maintenance", "archive_pending": value.ArchivePending != nil, "uninstall_pending": value.UninstallPending != nil, "owned_archives": len(value.Archives)}
-	if value.MigrationFailure != "" {
-		result["migration_failure"] = value.MigrationFailure
-		result["next_action"] = "resume migration from the ThreadBear task"
-	} else if value.Phase == phaseMigrationPending {
-		result["next_action"] = "start migration from the ThreadBear task"
+	updater, _, updaterErr := inspectUpdateAgent(ctx, p.launchAgent, p.binary)
+	automaticUpdates := updaterErr == nil && updater.Exact && updater.Loaded
+	if !legacyClear {
+		legacyErr = errors.Join(legacyErr, errors.New("legacy or unsupported native.json state is present"))
 	}
-	return result, err
+	coreErr := errors.Join(errors.Join(problems...), stateErr, legacyErr)
+	ready := coreErr == nil
+	binaryPresent, binaryPresenceErr := regularLeaf(p.binary, false)
+	if binaryPresenceErr != nil {
+		binaryPresent = false
+	}
+	result := map[string]any{
+		"ready": ready, "installed": binaryPresent, "version": version,
+		"automatic_updates_enabled": automaticUpdates,
+		"artifacts":                 artifacts, "updater": updater,
+	}
+	if updaterErr != nil {
+		result["updater_error"] = updaterErr.Error()
+	}
+	if receipt, err := readUpdateReceipt(p.updateReceipt); err == nil {
+		result["latest_update"] = receipt
+	} else if !errors.Is(err, os.ErrNotExist) {
+		result["update_receipt_error"] = err.Error()
+	}
+	return result, coreErr
 }
+
 func selfTest() (any, error) {
 	if runtime.GOOS != "darwin" || assets.AgentsManagedContent == "" || assets.SkillManagedContent == "" || version == "" {
 		return nil, errors.New("candidate is incomplete or unsupported")
 	}
 	return map[string]any{"ready": true, "version": version}, nil
 }
-func editHooks(path, binary string, add bool) ([]byte, bool, error) {
-	data, err := os.ReadFile(path)
-	missing := errors.Is(err, os.ErrNotExist)
-	if missing && !add {
-		return nil, false, nil
-	}
-	if err != nil && !missing {
-		return nil, false, err
-	}
-	root, events := rawObject{}, rawObject{}
-	if !missing && (json.Unmarshal(data, &root) != nil || root == nil) {
-		return nil, false, errors.New("hooks.json must contain an object")
-	}
-	if raw, ok := root["hooks"]; ok && (json.Unmarshal(raw, &events) != nil || events == nil) {
-		return nil, false, errors.New("hooks.json hooks must be an object")
-	}
-	before := encodedJSON(decodedJSON(data))
-	owner, removed := encodedJSON(map[string]any{"matcher": "codex_appset_thread_title", "hooks": []any{map[string]any{"type": "command", "command": quoteCommand(binary), "timeout": 1}}}), false
-	for _, event := range []string{"PreToolUse", "PostToolUse"} {
-		var groups []json.RawMessage
-		if raw, ok := events[event]; ok && (json.Unmarshal(raw, &groups) != nil || groups == nil) {
-			return nil, false, fmt.Errorf("hooks.json %s must be an array", event)
-		}
-		kept := slices.DeleteFunc(groups, func(group json.RawMessage) bool {
-			owned := ownedHookGroup(group, binary)
-			removed = removed || owned
-			return owned
-		})
-		if add {
-			kept = append(kept, owner)
-		}
-		if raw, _ := json.Marshal(kept); len(kept) == 0 {
-			delete(events, event)
-		} else {
-			events[event] = raw
-		}
-	}
-	if !add && !removed {
-		return data, false, nil
-	}
-	if !add && len(events) == 0 {
-		delete(root, "hooks")
-	} else {
-		root["hooks"], _ = json.Marshal(events)
-	}
-	if !add && len(root) == 0 {
-		return nil, true, nil
-	}
-	updated, err := json.MarshalIndent(root, "", "  ")
-	return append(updated, '\n'), string(before) != string(encodedJSON(decodedJSON(updated))), err
+
+func lifecycleLock(name string) (*os.File, error) { return openLifecycleLock(name, true, true) }
+func existingLifecycleLock(name string) (*os.File, error) {
+	return openLifecycleLock(name, false, false)
 }
-func encodedJSON(value any) json.RawMessage { data, _ := json.Marshal(value); return data }
-func ownedHookGroup(group json.RawMessage, binary string) bool {
-	value, hooks := rawObject{}, []rawObject{}
-	return json.Unmarshal(group, &value) == nil && json.Unmarshal(value["hooks"], &hooks) == nil && len(hooks) == 1 && string(value["matcher"]) == `"codex_appset_thread_title"` && string(hooks[0]["type"]) == `"command"` && string(hooks[0]["command"]) == string(encodedJSON(quoteCommand(binary)))
-}
-func decodedJSON(data []byte) any  { var value any; _ = json.Unmarshal(data, &value); return value }
-func quoteCommand(s string) string { return "'" + strings.ReplaceAll(s, "'", "'\"'\"'") + "' hook" }
-func validateFile(path, content string) error {
-	data, err := os.ReadFile(path)
-	if errors.Is(err, os.ErrNotExist) {
-		return nil
+func updateCheckLock() (*os.File, error) { return openLifecycleLock("update.lock", false, true) }
+
+func lifecycleBoundaryLock() (*os.File, error) {
+	path := filepath.Dir(stateDir())
+	if err := os.MkdirAll(path, 0o700); err != nil {
+		return nil, err
 	}
-	text := string(data)
-	valid := text == content
-	if strings.HasPrefix(content, blockStart) {
-		valid = strings.Count(text, blockStart) == 1 && strings.Count(text, blockEnd) == 1 && strings.Contains(text, content)
-	}
-	if err == nil && !valid {
-		return errors.New("managed file was modified: " + path)
-	}
-	return err
-}
-func manageBlock(path, content string) error {
-	data, err := os.ReadFile(path)
-	if errors.Is(err, os.ErrNotExist) && content == "" {
-		return nil
-	}
-	if err != nil && !errors.Is(err, os.ErrNotExist) {
-		return err
-	}
-	text := string(data)
-	start, end := strings.Index(text, blockStart), strings.Index(text, blockEnd)
-	block := blockStart + "\n" + strings.TrimSpace(assets.AgentsManagedContent) + "\n" + blockEnd
-	if strings.Count(text, blockStart) > 1 || strings.Count(text, blockEnd) > 1 || start < 0 != (end < 0) || end >= 0 && end < start {
-		return errors.New("invalid ThreadBear managed block")
-	}
-	if content == "" && (start < 0 && (strings.Contains(text, managedHeading) || strings.Contains(text, managedProtocol)) || start >= 0 && !strings.Contains(text, block)) {
-		return errors.New("managed file was modified: " + path)
-	}
-	if content == "" && start < 0 {
-		return nil
-	}
-	if content != "" {
-		if start >= 0 {
-			text = text[:start] + block + text[end+len(blockEnd):]
-		} else {
-			if text != "" && !strings.HasSuffix(text, "\n") {
-				text += "\n"
-			}
-			text += block + "\n"
-		}
-	} else if start >= 0 {
-		after := text[end+len(blockEnd):]
-		if strings.HasSuffix(text[:start], "\n") && strings.HasPrefix(after, "\n") {
-			after = after[1:]
-		}
-		text = text[:start] + after
-	}
-	if strings.TrimSpace(text) == "" {
-		return os.Remove(path)
-	}
-	return writeAtomic(path, []byte(text), 0o600)
-}
-func writeAtomic(path string, data []byte, mode os.FileMode) error {
-	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
-		return err
-	}
-	f, err := os.CreateTemp(filepath.Dir(path), ".threadbear-*")
+	fd, err := unix.Open(path, unix.O_RDONLY|unix.O_DIRECTORY|unix.O_NOFOLLOW, 0)
 	if err != nil {
-		return err
+		return nil, err
 	}
-	defer os.Remove(f.Name())
-	err = f.Chmod(mode)
-	if err == nil {
-		_, err = f.Write(data)
+	file := os.NewFile(uintptr(fd), path)
+	if err := unix.Flock(fd, unix.LOCK_EX); err != nil {
+		return nil, errors.Join(err, file.Close())
 	}
-	if err == nil {
-		err = f.Sync()
+	info, statErr := file.Stat()
+	current, pathErr := os.Lstat(path)
+	if statErr != nil || pathErr != nil || !current.IsDir() || !os.SameFile(info, current) {
+		unlock(file)
+		return nil, errors.Join(errors.New("ThreadBear lifecycle boundary changed while the operation was waiting"), statErr, pathErr)
 	}
-	if err = errors.Join(err, f.Close()); err != nil {
-		return err
-	}
-	return os.Rename(f.Name(), path)
+	return file, nil
 }
-func removeFiles(nonEmptyOK string, paths ...string) error {
-	for _, path := range paths {
-		if info, _ := os.Lstat(path); path == nonEmptyOK && info != nil && !info.IsDir() {
-			continue
+
+func currentLockPath(file *os.File) error {
+	info, statErr := file.Stat()
+	current, pathErr := os.Lstat(file.Name())
+	if statErr != nil || pathErr != nil || !current.Mode().IsRegular() || current.Mode().Perm() != 0o600 || !os.SameFile(info, current) {
+		return errors.Join(errors.New("ThreadBear lifecycle changed while the operation was waiting"), statErr, pathErr)
+	}
+	return nil
+}
+
+func openLifecycleLock(name string, createDir, createFile bool) (*os.File, error) {
+	if createDir {
+		if err := os.MkdirAll(stateDir(), 0o700); err != nil {
+			return nil, err
 		}
-		if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) && !(path == nonEmptyOK && errors.Is(err, syscall.ENOTEMPTY)) {
+	}
+	dir, err := unix.Open(stateDir(), unix.O_RDONLY|unix.O_DIRECTORY|unix.O_NOFOLLOW, 0)
+	if err != nil {
+		return nil, err
+	}
+	defer unix.Close(dir)
+	if err := unix.Fchmod(dir, 0o700); err != nil {
+		return nil, err
+	}
+	flags := unix.O_RDWR | unix.O_NOFOLLOW
+	if createFile {
+		flags |= unix.O_CREAT
+	}
+	fd, err := unix.Openat(dir, name, flags, 0o600)
+	if err != nil {
+		return nil, err
+	}
+	file := os.NewFile(uintptr(fd), filepath.Join(stateDir(), name))
+	info, statErr := file.Stat()
+	if statErr != nil || !info.Mode().IsRegular() || info.Mode().Perm() != 0o600 {
+		return nil, errors.Join(errors.New("ThreadBear lifecycle lock is not a private regular file"), statErr, file.Close())
+	}
+	if err := unix.Flock(fd, unix.LOCK_EX); err != nil {
+		return nil, errors.Join(err, file.Close())
+	}
+	if err := currentLockPath(file); err != nil {
+		unlock(file)
+		return nil, err
+	}
+	return file, nil
+}
+
+func readLegacyInstall() (legacyInstall, bool, error) {
+	path := filepath.Join(stateDir(), "native.json")
+	info, err := os.Lstat(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return legacyInstall{}, false, nil
+	}
+	if err != nil {
+		return legacyInstall{}, false, err
+	}
+	if !info.Mode().IsRegular() || info.Mode().Perm() != 0o600 {
+		return legacyInstall{}, false, errors.New("legacy native.json is not a private regular file")
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return legacyInstall{}, false, err
+	}
+	var value struct {
+		Format     int                        `json:"format"`
+		MainTaskID string                     `json:"main_task_id"`
+		Tasks      map[string]json.RawMessage `json:"tasks"`
+	}
+	if json.Unmarshal(data, &value) != nil || value.Format != 4 || value.Tasks == nil || !taskIDPattern.MatchString(value.MainTaskID) {
+		return legacyInstall{}, false, errors.New("native.json is not exact supported 2.2.1 state")
+	}
+	return legacyInstall{MainTaskID: value.MainTaskID}, true, nil
+}
+
+func legacyStatePresent() (bool, error) { _, found, err := readLegacyInstall(); return found, err }
+
+func clearLegacyState() error {
+	// Keep native.json until every other obsolete leaf is gone so --reset is
+	// still admissible after any interrupted or failed cleanup.
+	for _, name := range []string{"native.lock", "title.lock", "operation.lock", "update.json", "native.json"} {
+		if err := os.Remove(filepath.Join(stateDir(), name)); err != nil && !errors.Is(err, os.ErrNotExist) {
 			return err
 		}
 	}
 	return nil
+}
+
+func requireCurrentFormatInstall(p lifecyclePaths) error {
+	legacy, err := legacyStatePresent()
+	if err != nil || legacy {
+		return errors.Join(err, map[bool]error{true: errors.New("legacy native.json is present")}[legacy])
+	}
+	if !regularExecutable(p.binary) {
+		return errors.New("installed binary is absent")
+	}
+	return validateRuntimeState()
+}
+
+func currentInstallPresent(p lifecyclePaths) bool {
+	legacy, err := legacyStatePresent()
+	if err != nil || legacy || !regularExecutable(p.binary) {
+		return false
+	}
+	return validateRuntimeState() == nil
+}
+
+func removeOwnedState() error {
+	if err := validateRemovableState(); err != nil {
+		return err
+	}
+	subjectDir := newStore(stateDir()).subjectDir()
+	if entries, err := os.ReadDir(subjectDir); err == nil {
+		for _, entry := range entries {
+			ext := filepath.Ext(entry.Name())
+			if (ext == ".json" || ext == ".lock") && taskIDPattern.MatchString(strings.TrimSuffix(entry.Name(), ext)) {
+				if err := os.Remove(filepath.Join(subjectDir, entry.Name())); err != nil {
+					return err
+				}
+			}
+		}
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
+	if err := os.Remove(subjectDir); err != nil && !errors.Is(err, os.ErrNotExist) && !errors.Is(err, syscall.ENOTEMPTY) {
+		return err
+	}
+	for _, name := range []string{"update.json", "update.lock"} {
+		if err := os.Remove(filepath.Join(stateDir(), name)); err != nil && !errors.Is(err, os.ErrNotExist) {
+			return err
+		}
+	}
+	return nil
+}
+
+func validateRuntimeState() error {
+	found, err := privateDirectory(stateDir())
+	if err != nil || !found {
+		return errors.Join(err, errors.New("state root is missing or not private"))
+	}
+	found, err = privateDirectory(newStore(stateDir()).subjectDir())
+	if err != nil || !found {
+		return errors.Join(err, errors.New("subject store is missing or not private"))
+	}
+	found, err = privateRegular(filepath.Join(stateDir(), "lifecycle.lock"))
+	if err != nil || !found {
+		return errors.Join(err, errors.New("lifecycle fence is missing or not private"))
+	}
+	return nil
+}
+
+func preflightInstall(ctx context.Context, p lifecyclePaths, candidate []byte, legacy bool) error {
+	if err := validateManagedParents(p); err != nil {
+		return err
+	}
+	if found, err := privateDirectory(stateDir()); err != nil {
+		return err
+	} else if found {
+		if _, err := privateDirectory(newStore(stateDir()).subjectDir()); err != nil {
+			return err
+		}
+	}
+	if legacy {
+		if _, err := regularLeaf(legacyHooksPath(), false); err != nil {
+			return err
+		}
+		if _, _, _, err := removeLegacyHooks(legacyHooksPath(), p.binary); err != nil {
+			return err
+		}
+	}
+	current, owned := currentInstallPresent(p), legacy
+	owned = owned || current
+	if exists, err := regularLeaf(p.binary, false); err != nil {
+		return err
+	} else if exists {
+		data, readErr := os.ReadFile(p.binary)
+		if readErr != nil || !regularExecutable(p.binary) || !owned && !bytes.Equal(data, candidate) {
+			return errors.Join(readErr, errors.New("binary path contains non-ThreadBear content"))
+		}
+	}
+	if _, err := regularLeaf(p.agents, false); err != nil {
+		return err
+	}
+	if exists, err := regularLeaf(p.skill, false); err != nil {
+		return err
+	} else if exists && !owned && !exactFile(p.skill, []byte(assets.SkillManagedContent)) {
+		return errors.New("skill path contains non-ThreadBear content")
+	}
+	if _, _, _, err := editManagedBlock(p.agents, true, owned); err != nil {
+		return err
+	}
+	if _, _, err := inspectUpdateAgent(ctx, p.launchAgent, p.binary); err != nil {
+		return err
+	}
+	if _, err := privateRegular(p.updateReceipt); err != nil {
+		return err
+	}
+	for _, name := range []string{"lifecycle.lock", "update.lock"} {
+		if _, err := privateRegular(filepath.Join(stateDir(), name)); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func preflightUninstall(ctx context.Context, p lifecyclePaths) (bool, error) {
+	currentErr := preflightCurrentUninstall(ctx, p)
+	if currentErr == nil {
+		return false, nil
+	}
+	if partialErr := preflightPartialUninstall(ctx, p); partialErr != nil {
+		return false, errors.Join(currentErr, fmt.Errorf("partial uninstall admission refused: %w", partialErr))
+	}
+	return true, nil
+}
+
+func preflightCurrentUninstall(ctx context.Context, p lifecyclePaths) error {
+	if err := validateManagedParents(p); err != nil {
+		return err
+	}
+	if err := requireCurrentFormatInstall(p); err != nil {
+		return fmt.Errorf("uninstall requires a valid current installation: %w", err)
+	}
+	if err := validateOwnedState(); err != nil {
+		return err
+	}
+	for _, path := range []string{p.agents, p.skill} {
+		if _, err := regularLeaf(path, false); err != nil {
+			return err
+		}
+	}
+	if _, _, _, err := editManagedBlock(p.agents, false, false); err != nil {
+		return err
+	}
+	_, _, err := inspectUpdateAgent(ctx, p.launchAgent, p.binary)
+	return err
+}
+
+func preflightPartialUninstall(ctx context.Context, p lifecyclePaths) error {
+	if err := validateManagedParents(p); err != nil {
+		return err
+	}
+	if err := runningInstalledBinary(p.binary); err != nil {
+		return err
+	}
+	if legacy, err := legacyStatePresent(); err != nil || legacy {
+		return errors.Join(err, map[bool]error{true: errors.New("legacy native.json is present")}[legacy])
+	}
+	if err := validateRemovableState(); err != nil {
+		return err
+	}
+	if _, err := regularLeaf(p.agents, false); err != nil {
+		return err
+	}
+	if exists, err := regularLeaf(p.skill, false); err != nil {
+		return err
+	} else if exists && !exactFile(p.skill, []byte(assets.SkillManagedContent)) {
+		return errors.New("partial uninstall found replacement content at the skill path")
+	}
+	if _, _, _, err := editManagedBlock(p.agents, false, false); err != nil {
+		return err
+	}
+	_, _, err := inspectUpdateAgent(ctx, p.launchAgent, p.binary)
+	return err
+}
+
+func runningInstalledBinary(path string) error {
+	running, err := os.Executable()
+	if err != nil {
+		return err
+	}
+	runningInfo, runningErr := os.Stat(running)
+	installedInfo, installedErr := os.Lstat(path)
+	if runningErr != nil || installedErr != nil || !installedInfo.Mode().IsRegular() || installedInfo.Mode().Perm()&0o111 == 0 || !os.SameFile(runningInfo, installedInfo) {
+		return errors.Join(runningErr, installedErr, errors.New("uninstall rerun must execute the exact installed binary"))
+	}
+	return nil
+}
+
+func validateManagedParents(p lifecyclePaths) error {
+	paths := []string{p.binary, p.agents, p.skill, p.launchAgent, p.updateReceipt,
+		newStore(stateDir()).subjectDir(), filepath.Join(stateDir(), "lifecycle.lock"), filepath.Join(stateDir(), "update.lock")}
+	for _, path := range paths {
+		anchor := homeDir()
+		if rel, err := filepath.Rel(anchor, path); err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(os.PathSeparator)) {
+			anchor = filepath.Dir(codexHome())
+		}
+		current := anchor
+		rel, err := filepath.Rel(anchor, filepath.Dir(path))
+		if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(os.PathSeparator)) {
+			return errors.New("managed path is outside its trusted parent")
+		}
+		for _, part := range append([]string{"."}, strings.Split(rel, string(os.PathSeparator))...) {
+			if part != "." {
+				current = filepath.Join(current, part)
+			}
+			info, err := os.Lstat(current)
+			if errors.Is(err, os.ErrNotExist) {
+				break
+			}
+			if err != nil || !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
+				return errors.Join(err, fmt.Errorf("managed parent is not a real directory: %s", current))
+			}
+		}
+	}
+	return nil
+}
+
+func regularLeaf(path string, private bool) (bool, error) {
+	info, err := os.Lstat(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return false, nil
+	}
+	if err != nil || !info.Mode().IsRegular() || private && info.Mode().Perm() != 0o600 {
+		return false, errors.Join(err, fmt.Errorf("managed path is not a%s regular file: %s", map[bool]string{true: " private", false: ""}[private], path))
+	}
+	return true, nil
+}
+
+func privateRegular(path string) (bool, error) { return regularLeaf(path, true) }
+func privateDirectory(path string) (bool, error) {
+	info, err := os.Lstat(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return false, nil
+	}
+	if err != nil || !info.IsDir() || info.Mode().Perm() != 0o700 {
+		return false, errors.Join(err, fmt.Errorf("managed path is not a private directory: %s", path))
+	}
+	return true, nil
+}
+
+func validateOwnedState() error {
+	if err := validateRuntimeState(); err != nil {
+		return err
+	}
+	if err := validateOwnedSubjectLeaves(); err != nil {
+		return err
+	}
+	if _, err := privateRegular(filepath.Join(stateDir(), "update.lock")); err != nil {
+		return err
+	}
+	_, err := privateRegular(installPaths().updateReceipt)
+	return err
+}
+
+func validateRemovableState() error {
+	found, err := privateDirectory(stateDir())
+	if err != nil || !found {
+		return err
+	}
+	found, err = privateDirectory(newStore(stateDir()).subjectDir())
+	if err != nil {
+		return err
+	}
+	if found {
+		if err := validateOwnedSubjectLeaves(); err != nil {
+			return err
+		}
+	}
+	for _, path := range []string{
+		filepath.Join(stateDir(), "lifecycle.lock"),
+		filepath.Join(stateDir(), "update.lock"),
+		installPaths().updateReceipt,
+	} {
+		if _, err := privateRegular(path); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func validateOwnedSubjectLeaves() error {
+	dir := newStore(stateDir()).subjectDir()
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return err
+	}
+	for _, entry := range entries {
+		ext := filepath.Ext(entry.Name())
+		if ext != ".json" && ext != ".lock" || !taskIDPattern.MatchString(strings.TrimSuffix(entry.Name(), ext)) {
+			continue
+		}
+		info, err := os.Lstat(filepath.Join(dir, entry.Name()))
+		if err != nil || !info.Mode().IsRegular() || info.Mode().Perm() != 0o600 {
+			return errors.Join(err, fmt.Errorf("owned subject path is not a private regular file: %s", entry.Name()))
+		}
+	}
+	return nil
+}
+
+func regularExecutable(path string) bool {
+	info, err := os.Lstat(path)
+	return err == nil && info.Mode().IsRegular() && info.Mode().Perm()&0o111 != 0
+}
+func exactFile(path string, want []byte) bool {
+	data, err := os.ReadFile(path)
+	return err == nil && bytes.Equal(data, want)
+}
+
+func managedBlockExact(path string) bool {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return false
+	}
+	block := blockStart + "\n" + strings.TrimSpace(assets.AgentsManagedContent) + "\n" + blockEnd
+	return strings.Count(string(data), blockStart) == 1 && strings.Count(string(data), blockEnd) == 1 && strings.Contains(string(data), block)
+}
+
+func editManagedBlock(path string, add, replace bool) ([]byte, bool, bool, error) {
+	data, err := os.ReadFile(path)
+	missing := errors.Is(err, os.ErrNotExist)
+	if err != nil && !missing {
+		return nil, false, false, err
+	}
+	text := string(data)
+	start, end := strings.Index(text, blockStart), strings.Index(text, blockEnd)
+	if strings.Count(text, blockStart) > 1 || strings.Count(text, blockEnd) > 1 || (start < 0) != (end < 0) || (end >= 0 && end < start) {
+		return nil, false, false, errors.New("invalid ThreadBear managed block")
+	}
+	block := blockStart + "\n" + strings.TrimSpace(assets.AgentsManagedContent) + "\n" + blockEnd
+	before := text
+	if add {
+		if start >= 0 {
+			if text[start:end+len(blockEnd)] != block && !replace {
+				return nil, false, false, errors.New("managed AGENTS block was modified; refusing to replace it")
+			}
+			text = text[:start] + block + text[end+len(blockEnd):]
+		} else if text == "" {
+			text = block
+		} else {
+			text += "\n" + block
+		}
+	} else {
+		if start < 0 {
+			return data, false, false, nil
+		}
+		beforeBlock, after := text[:start], text[end+len(blockEnd):]
+		if strings.HasSuffix(beforeBlock, "\n") {
+			beforeBlock = strings.TrimSuffix(beforeBlock, "\n")
+		}
+		text = beforeBlock + after
+	}
+	remove := text == ""
+	return []byte(text), remove, text != before, nil
+}
+
+// removeLegacyHooks exists only for the explicit 2.2.1 --reset transition.
+// Current-format install, status, and uninstall are deliberately hook-blind.
+func removeLegacyHooks(path, binary string) ([]byte, bool, bool, error) {
+	data, err := os.ReadFile(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil, false, false, nil
+	}
+	if err != nil {
+		return nil, false, false, err
+	}
+	root, events := map[string]json.RawMessage{}, map[string]json.RawMessage{}
+	if json.Unmarshal(data, &root) != nil || root == nil {
+		return nil, false, false, errors.New("legacy hooks.json must contain an object")
+	}
+	if raw, ok := root["hooks"]; ok && (json.Unmarshal(raw, &events) != nil || events == nil) {
+		return nil, false, false, errors.New("legacy hooks.json hooks must be an object")
+	}
+	removed := false
+	for _, event := range []string{"PreToolUse", "PostToolUse"} {
+		var groups []json.RawMessage
+		if raw, ok := events[event]; ok && (json.Unmarshal(raw, &groups) != nil || groups == nil) {
+			return nil, false, false, fmt.Errorf("legacy hooks.json %s must be an array", event)
+		}
+		kept := groups[:0]
+		for _, group := range groups {
+			if ownedLegacyHookGroup(group, binary) {
+				removed = true
+				continue
+			}
+			kept = append(kept, group)
+		}
+		if len(kept) == 0 {
+			delete(events, event)
+		} else {
+			events[event], _ = json.Marshal(kept)
+		}
+	}
+	if !removed {
+		return data, false, false, nil
+	}
+	if len(events) == 0 {
+		delete(root, "hooks")
+	} else {
+		root["hooks"], _ = json.Marshal(events)
+	}
+	if len(root) == 0 {
+		return nil, true, true, nil
+	}
+	updated, err := json.MarshalIndent(root, "", "  ")
+	updated = append(updated, '\n')
+	return updated, true, false, err
+}
+
+func ownedLegacyHookGroup(group json.RawMessage, binary string) bool {
+	var value struct {
+		Matcher string `json:"matcher"`
+		Hooks   []struct {
+			Type, Command string
+		} `json:"hooks"`
+	}
+	if json.Unmarshal(group, &value) != nil || value.Matcher != legacyTitleTool || len(value.Hooks) != 1 {
+		return false
+	}
+	return value.Hooks[0].Type == "command" && value.Hooks[0].Command == quoteArgument(binary)+" hook"
+}
+
+func quoteArgument(value string) string { return "'" + strings.ReplaceAll(value, "'", "'\"'\"'") + "'" }
+
+func writeAtomic(path string, data []byte, mode os.FileMode) error {
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		return err
+	}
+	file, err := os.CreateTemp(filepath.Dir(path), ".threadbear-*")
+	if err != nil {
+		return err
+	}
+	defer os.Remove(file.Name())
+	if err = file.Chmod(mode); err == nil {
+		_, err = file.Write(data)
+	}
+	if err == nil {
+		err = file.Sync()
+	}
+	if err = errors.Join(err, file.Close()); err != nil {
+		return err
+	}
+	return os.Rename(file.Name(), path)
 }
