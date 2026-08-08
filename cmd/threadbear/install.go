@@ -326,11 +326,31 @@ func uninstall(ctx context.Context, options uninstallOptions) (any, error) {
 	if !options.Confirmed {
 		return preview, errors.New("uninstall requires --noninteractive --confirm after its preview")
 	}
+	// Use the same update -> stable boundary -> lifecycle order as install.
+	// Waiting for an in-flight updater before teardown keeps its locked inode
+	// current, so it cannot resume later over a fresh installation.
+	updateLock, err := existingLifecycleLock("update.lock")
+	if err != nil {
+		if !partialAdmission || !errors.Is(err, os.ErrNotExist) {
+			return preview, err
+		}
+		updateLock = nil
+	}
+	defer func() {
+		if updateLock != nil {
+			unlock(updateLock)
+		}
+	}()
 	boundaryLock, err := lifecycleBoundaryLock()
 	if err != nil {
 		return preview, err
 	}
 	defer unlock(boundaryLock)
+	if updateLock != nil {
+		if err := currentLockPath(updateLock); err != nil {
+			return preview, err
+		}
+	}
 	lock, err := existingLifecycleLock("lifecycle.lock")
 	if err != nil {
 		if !partialAdmission || !errors.Is(err, os.ErrNotExist) {

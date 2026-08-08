@@ -850,6 +850,48 @@ func TestUninstallInvalidatesPreopenedLifecycleWaiter(t *testing.T) {
 	unlock(lock)
 }
 
+func TestUninstallWaitsForInFlightUpdaterBeforeTeardown(t *testing.T) {
+	p := isolatedLifecycle(t)
+	fake := currentFakeLaunchctl(t)
+	if _, err := install(context.Background(), installOptions{Confirmed: true}); err != nil {
+		t.Fatal(err)
+	}
+	updateLock, err := updateCheckLock()
+	if err != nil {
+		t.Fatal(err)
+	}
+	locked := true
+	t.Cleanup(func() {
+		if locked {
+			unlock(updateLock)
+		}
+	})
+	done := make(chan error, 1)
+	go func() {
+		_, uninstallErr := uninstall(context.Background(), uninstallOptions{Confirmed: true})
+		done <- uninstallErr
+	}()
+	select {
+	case err := <-done:
+		t.Fatalf("uninstall bypassed in-flight updater: %v", err)
+	case <-time.After(50 * time.Millisecond):
+	}
+	fake.mu.Lock()
+	bootouts := fake.bootouts
+	fake.mu.Unlock()
+	if bootouts != 0 {
+		t.Fatal("uninstall began teardown while an updater was active")
+	}
+	unlock(updateLock)
+	locked = false
+	if err := <-done; err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Lstat(p.binary); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("uninstall retained binary: %v", err)
+	}
+}
+
 func TestUninstallRemovesOwnedArtifactsAndPreservesNeighbors(t *testing.T) {
 	p := isolatedLifecycle(t)
 	fake := currentFakeLaunchctl(t)

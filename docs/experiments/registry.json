@@ -76,6 +76,15 @@
       "contradicted_by": [],
       "decision": "TB-EXP-0116-003 executed the declared preflight against exact reviewed candidate f1ba8307. One current-task mounted write and one controlled historical mounted write returned exact IDs and titles, repainted the mounted UI, survived a full Codex process restart, and left the installed core and update-only LaunchAgent healthy. This establishes the release premise for that exact candidate and Desktop build; future Desktop builds still require the release canary.",
       "next_preflight": null
+    },
+    {
+      "id": "TB-CAP-UPDATER-TEARDOWN-SERIALIZATION",
+      "premise": "Confirmed uninstall waits for an in-flight verified updater before removing its lock or any managed surface, so that updater cannot later replace a fresh installation with its stale candidate.",
+      "status": "unresolved",
+      "supported_by": [],
+      "contradicted_by": [],
+      "decision": "The first stable-boundary fix did not cover an updater already holding the old update.lock inode. The corrected candidate now takes update.lock before the stable boundary and lifecycle fence, but the exact lock-hold teardown and final candidate still require the declared live proof before release.",
+      "next_preflight": "TB-PRE-0116-002"
     }
   ],
   "experiments": [
@@ -1217,6 +1226,25 @@
       ],
       "stop_condition": "Stop after one exact current-task mounted write, one exact controlled historical onboarding write, immediate mounted inspection, one clean Codex restart, post-restart mounted inspection, and read-only status/artifact checks. Do not retry a failed title write, add another target, change architecture, or claim release readiness until the result is recorded and this preflight is closed.",
       "result_experiment_id": "TB-EXP-0116-003"
+    },
+    {
+      "id": "TB-PRE-0116-002",
+      "issue": "BEAR-116",
+      "capability_id": "TB-CAP-UPDATER-TEARDOWN-SERIALIZATION",
+      "status": "pending",
+      "consulted": [
+        "TB-EXP-0116-002",
+        "TB-EXP-0116-003"
+      ],
+      "remaining_unknown": "Whether the exact candidate with the corrected lock order truly waits for an already-running updater before teardown, completes cleanly after that updater releases its lock, and retains the already-proved mounted title behavior and restart persistence as the final release artifact.",
+      "single_changed_variable": "Lifecycle serialization and executable fingerprint: confirmed uninstall now acquires the existing update.lock before the stable boundary and lifecycle fence, replacing candidate f1ba8307 with the exact corrected build while leaving title planner, mounted writer, onboarding, guidance, and updater command unchanged.",
+      "held_constant": "Desktop 26.803.41515 build 6321; local macOS arm64 host; same current and historical controlled subjects; no title hooks, SQLite, detached writer, retry, or reconciliation; update-only LaunchAgent; exact release build flags; one serial current-task mounted write and one controlled historical mounted write; one full Codex process restart; read-only post-restart status and artifact checks.",
+      "predicted_outcomes": [
+        "If the corrected lock order closes the race, confirmed uninstall will remain pending without booting out the updater while the current update.lock is held, complete only after that lock is released, leave no owned artifact, and the same exact candidate will pass the isolated release smoke, reinstall, mounted title checks, and full-restart persistence check.",
+        "If teardown can still bypass or deadlock with the updater, it will remove a managed surface before lock release, fail to finish after release, permit stale replacement, leave an owned artifact, fail the release smoke, or disturb the mounted title/restart behavior; the candidate must not merge or release."
+      ],
+      "stop_condition": "Stop after one timed hold of the live current update.lock around confirmed uninstall, one exact-candidate isolated release smoke, one live reinstall, one controlled current and historical mounted-write check, one full Codex process restart, and read-only runtime/artifact verification. Do not add another concurrency protocol, retry a title write, or claim release readiness until one linked result closes this preflight.",
+      "result_experiment_id": ""
     }
   ]
 }
