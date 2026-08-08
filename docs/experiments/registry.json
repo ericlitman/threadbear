@@ -71,20 +71,23 @@
       "premise": "The final ThreadBear planner plus mounted Codex native setter repaints current and historical task titles immediately and preserves those rendered titles across a clean Codex restart.",
       "status": "established",
       "supported_by": [
-        "TB-EXP-0116-003"
+        "TB-EXP-0116-003",
+        "TB-EXP-0116-004"
       ],
       "contradicted_by": [],
-      "decision": "TB-EXP-0116-003 executed the declared preflight against exact reviewed candidate f1ba8307. One current-task mounted write and one controlled historical mounted write returned exact IDs and titles, repainted the mounted UI, survived a full Codex process restart, and left the installed core and update-only LaunchAgent healthy. This establishes the release premise for that exact candidate and Desktop build; future Desktop builds still require the release canary.",
+      "decision": "TB-EXP-0116-003 established the mounted-writer path, and TB-EXP-0116-004 repeated it against final corrected candidate b5cc0cbe. One current-task mounted write and one controlled historical mounted write returned exact IDs and titles, repainted the mounted UI, survived a full Codex process restart, and left the installed core and update-only LaunchAgent healthy. This establishes the release premise for the final candidate and Desktop build; future Desktop builds still require the release canary.",
       "next_preflight": null
     },
     {
       "id": "TB-CAP-UPDATER-TEARDOWN-SERIALIZATION",
       "premise": "Confirmed uninstall waits for an in-flight verified updater before removing its lock or any managed surface, so that updater cannot later replace a fresh installation with its stale candidate.",
-      "status": "unresolved",
-      "supported_by": [],
+      "status": "established",
+      "supported_by": [
+        "TB-EXP-0116-004"
+      ],
       "contradicted_by": [],
-      "decision": "The first stable-boundary fix did not cover an updater already holding the old update.lock inode. The corrected candidate now takes update.lock before the stable boundary and lifecycle fence, but the exact lock-hold teardown and final candidate still require the declared live proof before release.",
-      "next_preflight": "TB-PRE-0116-002"
+      "decision": "TB-EXP-0116-004 held the live current update.lock while confirmed uninstall ran. Teardown remained pending with every managed surface and the updater job intact, then completed immediately after the lock was released and left every owned artifact absent. The same exact candidate passed the isolated release smoke, reinstalled cleanly, preserved both mounted titles across a new Desktop process, and remained healthy after restart.",
+      "next_preflight": null
     }
   ],
   "experiments": [
@@ -345,6 +348,48 @@
       "supersedes": [
         "TB-EXP-0116-002"
       ],
+      "conflicts": []
+    },
+    {
+      "id": "TB-EXP-0116-004",
+      "date": "2026-08-07",
+      "issue": "BEAR-116",
+      "preflight_id": "TB-PRE-0116-002",
+      "question": "Does the exact final v3.0.0 candidate serialize confirmed uninstall behind an already-running updater, then retain the mounted native repaint and clean-restart behavior already proved for the prior candidate?",
+      "invariant": "Confirmed uninstall must not remove the updater lock or any managed surface while an updater holds that lock; after release it must complete cleanly, and the exact same artifact must still pass the full release, mounted-title, restart-persistence, and runtime-health gates.",
+      "environment": {
+        "threadbear_version": "3.0.0 exact final local candidate; arm64 CGO=0 binary SHA-256 b5cc0cbe89cd7849e40c9cf49af95da183a093d528656a3869e21204a7f33cca",
+        "git_sha": "6e3da67c5f1943c84d3ba5a58bb5ba8cd16d9e49",
+        "codex_version": "Desktop 26.803.41515 build 6321; detached CLI 0.146.0",
+        "codex_source": "vscode",
+        "host": "local macOS arm64",
+        "task_state": "one active mounted task plus one controlled visible historical task selected from a complete 360-task native catalog; both canaries began from exact undecorated subjects",
+        "restart_state": "both mounted titles were captured before restart; the replacement ChatGPT process PID 31578 started at 2026-08-07 22:59:25 EDT and both exact titles were recaptured in the mounted UI at 23:01:31 EDT",
+        "hook_fingerprint": "no ThreadBear title hook; current-format title mutation used only the mounted native setter",
+        "guidance_fingerprint": "installed skill SHA-256 d6936e3b44dce04507b4fc3919e927c96bc3c4f065ccabd0d58c545100454763; complete AGENTS.md SHA-256 b6828aa9f9e13e4305dcc2b268fcc3e5c7a2a4123325c2f0062d554079bf8dd7"
+      },
+      "invocation": {
+        "outer_tool": "one coordinated live update.lock hold around confirmed uninstall; the exact-candidate release-smoke script; the exact installed ordinary-turn and onboarding JavaScript cells through functions.exec; and read-only Computer Use inspection before and after a full app quit and relaunch",
+        "code": "hold the installed update.lock until explicit release; start confirmed uninstall and verify no teardown; release the lock and verify complete teardown; run exact-candidate smoke; reinstall the same artifact; perform one current-task mounted write and one historical mounted write with exact response checks; restart Codex; verify titles, status, hashes, and update-only LaunchAgent",
+        "native_tool_identity": "codex_app__set_thread_title as sole title writer; codex_app__read_thread only for immediate onboarding drift validation; paginated thread/list reads only inside the local planner",
+        "target_identity_mode": "current task by omitted task ID; historical target by authoritative explicit ID after exact mounted ID/title reread"
+      },
+      "evidence": [
+        "linear:BEAR-116",
+        "github-pr:124",
+        "git:6e3da67c5f1943c84d3ba5a58bb5ba8cd16d9e49",
+        "codex-rollout:019fdcce-d0dc-7522-ad8e-a0c3c1c02110"
+      ],
+      "result": {
+        "status": "observed",
+        "summary": "While the live updater lock was held, confirmed uninstall remained pending and the binary, skill, LaunchAgent plist, loaded updater job, and exact candidate SHA all remained intact. Releasing the lock let uninstall complete and left the binary, skill, plist, state directory, and loaded job absent. Candidate b5cc0cbe then passed the isolated exact-candidate release smoke, reinstalled healthy, repainted the active task to `➡️ Diagnose ThreadBear failures`, repainted the controlled historical task to `🐻 Update website copy boxes`, and preserved both titles across a genuinely new Desktop process. Post-restart status was ready with the exact update-only LaunchAgent loaded, and the binary plus managed guidance remained byte-identical.",
+        "timing_ms": "unknown: teardown remained blocked for the full explicit hold and completed immediately after release; each repaint was present in the next mounted capture; restart persistence was captured 126 seconds after the replacement app process started",
+        "hook_participation": "none; no current-format ThreadBear title hook participated and every title mutation used the mounted native setter directly",
+        "rendered_proof": "Privacy-safe evidence retained outside the repository: final-candidate immediate mounted repaint SHA-256 076c34e84e2833c65f7787185dac19375d3ca5d7a1a2f9be20f9516f1ef40aaf; full-process-restart persistence SHA-256 551a63af5d21c48762f18a29aa9e2ff2b141ceaf76dc0b6c267ba0a48c0f250a"
+      },
+      "confidence": "high",
+      "applicability": "Closes TB-PRE-0116-002 and establishes both updater-teardown serialization and the mounted-writer restart-persistence premise for exact final candidate b5cc0cbe on Desktop 26.803.41515. It does not override detached-writer rejection or remove the need for future Desktop-build release canaries.",
+      "supersedes": [],
       "conflicts": []
     },
     {
@@ -1231,7 +1276,7 @@
       "id": "TB-PRE-0116-002",
       "issue": "BEAR-116",
       "capability_id": "TB-CAP-UPDATER-TEARDOWN-SERIALIZATION",
-      "status": "pending",
+      "status": "closed",
       "consulted": [
         "TB-EXP-0116-002",
         "TB-EXP-0116-003"
@@ -1244,7 +1289,7 @@
         "If teardown can still bypass or deadlock with the updater, it will remove a managed surface before lock release, fail to finish after release, permit stale replacement, leave an owned artifact, fail the release smoke, or disturb the mounted title/restart behavior; the candidate must not merge or release."
       ],
       "stop_condition": "Stop after one timed hold of the live current update.lock around confirmed uninstall, one exact-candidate isolated release smoke, one live reinstall, one controlled current and historical mounted-write check, one full Codex process restart, and read-only runtime/artifact verification. Do not add another concurrency protocol, retry a title write, or claim release readiness until one linked result closes this preflight.",
-      "result_experiment_id": ""
+      "result_experiment_id": "TB-EXP-0116-004"
     }
   ]
 }
