@@ -1,16 +1,16 @@
-ThreadBear keeps Codex task titles useful with one local update at the end of each turn.
+ThreadBear keeps Codex task titles useful with one status icon at the end of each turn.
 
 Usage:
   threadbear <command> [flags]
 
 Commands:
-  install      Preview or install ThreadBear
+  install      Show what will change, then install ThreadBear
   title        Prepare this task's safe status title for Codex to apply
   onboard      Preview or prepare existing-task onboarding
-  status       Check title-core readiness and updater health separately
+  status       Check whether ThreadBear and daily updates are ready
   self-test    Validate a release candidate
-  update       Install the latest verified release and report restart need
-  uninstall    Remove ThreadBear-owned local artifacts
+  update       Verify and install the latest release
+  uninstall    Show what will be removed, then remove ThreadBear
   version      Show the installed version
 
 Every command accepts --json.
@@ -39,3 +39,5 @@ Uninstall flags:
   --dry-run         Preview without changing the machine
   --noninteractive  Do not prompt
   --confirm         Confirm removal
+
+Guided actions preview what will happen and what stays untouched before consent. After tools finish, the final response must recap the result, uncertainty, and next action so the summary stays visible.

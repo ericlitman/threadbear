@@ -8,6 +8,8 @@ When `write_required` is true, the same terminal cell calls the mounted Codex ap
 
 `onboard --dry-run --json` follows the complete unarchived `thread/list` catalog, tolerates interleaved notifications, and deduplicates IDs. Rows with null or blank `name` remain raw and unowned regardless of `preview`. Any page failure aborts before mutation. After consent, `onboard --noninteractive --confirm --json` takes a fresh complete snapshot, stores safe subjects, and returns every prepared action with its snapshot title and desired title, no item cap, no per-target app read, and zero title writes. The installed skill resumes only that same preparation process if it yields, then serially reads each prepared target through the mounted app immediately before any explicit-target write. It decodes raw JSON-text reads and setter results once while retaining object compatibility. A read failure, wrong returned ID, or title drift is skipped without a write; an exact ID/title match receives at most one setter call.
 
+An exact historical setter response proves persistence, not an immediate repaint of an already-mounted row. Codex may show that title only after the project is reopened or the app restarts. ThreadBear does not retry or manipulate the sidebar cache.
+
 ThreadBear never opens Codex SQLite or edits Desktop storage. It runs no App Server daemon or proxy, keeps no App Server cache, uses no model, and has no retry or alternate read/write path.
 
 Visible titles are at most 60 UTF-16 units and never split a surrogate pair. A subject that would not fit intact is left unchanged. ThreadBear does not truncate it. Native acknowledgement is not rendered-product proof, so every release verifies the active header and sidebar before and after restart.

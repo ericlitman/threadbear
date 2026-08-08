@@ -1,32 +1,31 @@
 ---
 name: threadbear
-description: Operate ThreadBear for Codex Desktop on macOS.
+description: Install, onboard, update, check, or uninstall ThreadBear for Codex Desktop on macOS.
 ---
 
 # ThreadBear
 
-Be brief and warm. Explain effects first. Get explicit consent before install/reset, historical onboarding, manual update, or uninstall.
+Be upbeat/plain. For each lifecycle change:
 
-One terminal cell plans, then makes at most one mounted title write. Status changes only the icon; actions stay in prose. No persistent task or background title machinery.
+- Before consent, end with **Here's what will happen**: changes, untouched items, restart, one question.
+- After tools, end with **ThreadBear recap 🐻**: result/counts, uncertainty, next action.
 
-## Help and status
-
-Run `status --json` before calling it healthy. `threadbear help` is authoritative; core and updater health are separate.
+Never leave it in commentary/tool output. Recap visible facts—no JSON/self-test/state/files/planners/records/booleans. Safe skips are “left unchanged”; title failure is “this title stayed as-is.” Give partial work one safe next action.
 
 ## Install or reset
 
-Follow `https://threadbear.sh/install` and candidate help. Preview the binary, subject records, guidance, skill, and updater.
+Follow `https://threadbear.sh/install`. Preview helper, title memory, instructions, daily check; leave tasks/settings/titles. Restart, then onboard.
 
-For a 2.2.1 reset, require the exact former task and automation. Delete only that automation, unpin only that task without renaming, and remove exact old title hooks. Verify deletion and unpin before `install --reset`; stop on mismatch. Import no old state or title guess.
+For 2.2.1, verify old task/automation; delete/unpin only those, without renaming. Stop on mismatch; import nothing.
 
-After consent, install; verify `version`, `self-test`, and `status` JSON. Ask for one restart, then say:
+Install with consent; verify `version`, `self-test`, `status`. Recap:
 
 > Open any task after restart and say: **ThreadBear onboard**
 
 ## Onboard existing tasks
 
-1. Run `status --json`, then `onboard --dry-run --json`. Require `ready:true`, `plan_complete:true`, and `read_only:true`; it must enumerate and deduplicate the complete unarchived App Server catalog.
-2. Report `total`, `safe`, and `needs_update`. Leave active, blank, unsafe, ambiguous, or overlong titles unchanged; never adopt `preview`. Ask for explicit consent.
+1. Run `status --json`, then `onboard --dry-run --json`. Require `ready:true`, `plan_complete:true`, `read_only:true`, full catalog.
+2. Say: “I found N tasks. X are safe; Y need an icon. The rest stay untouched. I'll recheck each before one change.” Ask consent; ignore `preview`.
 3. After consent, run this exact cell once:
 
 ```js
@@ -98,12 +97,12 @@ text(JSON.stringify({
 }));
 ```
 
-If it yields, wait for that cell; start no second process or title call. Show progress during preparation and every 25 items. Report: `Updated X of N existing tasks; Y were left unchanged; Z could not be confirmed.` Ready requires zero `unconfirmed`; drift is skipped. A later **ThreadBear onboard** replans. Never create a cap, wave, controller, worker task, queue, or persistent ThreadBear task.
+Wait if yielded; progress every 25. Recap: `Updated X of N existing tasks; Y were left unchanged; Z could not be confirmed.` Ready needs no `unconfirmed`. Skip drift; no retry. Rows may refresh after reopen/restart. Reruns replan. No cap, controller, worker, queue, or persistent task.
 
 ## Update
 
-The daily LaunchAgent runs only `threadbear update` and never reads tasks. For manual update, get consent, run `update --json`, and report `restart_required`. A partial is rerunnable; the binary is last.
+Daily checks never read tasks. Preview download, verification, replacement, restart. After consent run `update --json`; recap version, restart, safe rerun.
 
 ## Uninstall
 
-Run status and uninstall dry run. Explain removal and remaining icons; ask consent. Preserve unrelated content. Do not run the title cell again. Ask for restart.
+Preview removing helper, title memory, instructions, skill, daily check; keep tasks/settings/files; icons may remain. Then no title cell. Recap exactly: “ThreadBear was removed. Its helper, title memory, instructions, skill, and daily check are gone. Tasks/settings/files stayed; icons may remain. Restart Codex.”

@@ -45,6 +45,8 @@ Mutation requires explicit consent. `onboard --noninteractive --confirm --json` 
 
 The installed skill runs preparation and the native pass in one managed JavaScript cell. If the preparation process yields, the cell resumes that same process with `write_stdin`; it never starts another command. Immediately before each possible write, the cell serially reads the prepared target through the mounted app and requires the returned task ID and current title to equal the prepared ID and snapshot `title`. A read failure, wrong ID, or drift is `skipped` and receives no write. An exact match receives at most one native title call. Only an exact returned target ID and desired title counts as `updated`; a throw, undecodable or non-object response, or mismatch is `unconfirmed` and is never retried.
 
+The current task repaints with its mounted write. An already-mounted historical row can retain a cached label after its exact write; the persisted native title appears on a supported project redraw or clean Codex restart. ThreadBear reports that boundary and never retries, reconciles, edits a private cache, or drives the sidebar UI.
+
 The final receipt reports the complete catalog and `updated`, `skipped`, `unchanged`, and `unconfirmed` counts. Every prepared item must reach exactly one deliberate outcome. ThreadBear is ready only when all prepared items are accounted for and no call is unconfirmed; skipped tasks are honestly left unchanged.
 
 An interrupted pass may leave valid partial decoration. A rerun takes a fresh complete snapshot and continues without a controller, worker task, pending queue, or hidden resume state.

@@ -14,13 +14,19 @@ Open with this orientation:
 
 > ## Hi. Let's install ThreadBear.
 >
-> ThreadBear keeps each Codex task's exact subject and adds one useful status icon at the end of a turn. Its small local command safely prepares the title, then the mounted Codex app applies it once through the native title setter.
+> ThreadBear keeps each Codex task's exact subject and adds one useful status icon at the end of a turn. It prepares one safe title, then Codex applies it once.
 >
 > I'll check this Mac, show you exactly what will change, and ask before installing anything. Afterward, Codex needs one restart. Then you can say **ThreadBear onboard** in any task to update every safe existing local task—there is no 50-task cap or persistent ThreadBear task.
 
 Codex collapses commentary after a turn finishes, so the final answer that asks for consent must repeat the orientation, readiness result, complete recommendation, and question. If a check fails, report it plainly and do not ask for install consent.
 
+For every lifecycle action, write the lasting summary after all tool calls. End the final response with **ThreadBear recap 🐻** and include the result, counts or uncertainty, what stayed untouched, and the next action. Never leave that recap only in commentary, progress notices, notifications, or raw tool output; those can disappear when Codex summarizes the turn.
+
+Keep that recap user-facing: do not copy raw fields or list internal files and components. Translate them into helper, title memory, instructions, and daily update check. Group safe skips as “left unchanged” unless the user needs to act.
+
 ## 1. Check without changing anything
+
+Say: “First I'll check that this Mac is ready and preview the exact ThreadBear setup. Nothing changes in this step.”
 
 Run:
 
@@ -59,24 +65,25 @@ If the preview returns `legacy_reset_required:true`, require `legacy_main_task_i
 
 Only after the checks and dry run succeed, present this complete card in the same final answer as the consent question:
 
-> ## Recommended setup
+> ## Here's what will happen
 >
-> - One status icon in each task title, prepared locally and updated once by the mounted Codex app immediately before the final response.
-> - Your exact subject stays intact; owners and actions remain in response prose.
-> - Unsafe, ambiguous, active, drifted, or overlong titles are left alone.
-> - Existing tasks can be previewed completely and onboarded serially, with no item cap.
-> - Small local footprint: one binary, tiny subject records, one skill, and one managed instruction block.
-> - One daily LaunchAgent installs only verified official updates and never reads tasks or changes titles.
-> - No persistent ThreadBear task, controller, classifier, archive automation, queue, or background repair.
-> - Codex restarts once after install so open tasks load the new guidance.
+> - ThreadBear adds one helpful status icon without rewriting your task's subject or emoji.
+> - Existing tasks stay unchanged until you preview onboarding and approve it separately.
+> - A small local helper, Codex instructions, private title memory, and a quiet daily update check are added.
+> - The daily check never reads tasks or changes titles.
+> - Unclear or unsafe titles are left alone, and there is no persistent ThreadBear task.
+> - Other Codex settings and files stay untouched.
+> - Codex restarts once so open tasks load the new instructions.
 >
-> Install ThreadBear with this recommended setup?
+> Install ThreadBear?
 
-For a 2.2.1 reset, add one sentence: the exact old maintenance automation will be deleted, its exact former persistent task will be unpinned but not renamed, managed artifacts will be replaced, old state will not be imported, and ambiguous historical icons may remain.
+For a 2.2.1 reset, add: “I'll remove only the verified old ThreadBear automation, unpin its former task without renaming it, and install the simpler version fresh. Old title history will not be guessed or imported, so some existing icons may remain.”
 
 A clear yes to the unchanged recommendation is consent. Ask again only if the effect changes or the answer is ambiguous. If the user does not want historical onboarding, accept that preference and add `--no-onboard` to the confirmed install.
 
 ## 3. Install after consent
+
+Say: “Thanks—I'll install ThreadBear now, then check that it is healthy. Existing task titles will not change in this step.”
 
 Before a 2.2.1 reset, delete the exact fingerprinted `threadbear-maintenance` automation through supported native control and verify it is absent. Then unpin the preview's exact legacy main-task ID and verify the returned and reread task ID match with `pinned:false`. Do not rename that task. Any mismatch aborts before filesystem reset. The confirmed candidate command must include `--reset`.
 
@@ -105,7 +112,17 @@ Core `ready` is healthy when the installed binary, private subject state, manage
 
 No controller, worker, migration phase, persistent task, or hidden onboarding job should exist after installation. If installation fails after mutation starts, report `partial:true`, the failed stage, whether restart is required, and the one safe rerun action. `planned_changes` is a plan, not a claim that every item ran.
 
+After the checks finish, end the final response with this plain-language receipt, filled with the real result:
+
+> ## ThreadBear recap 🐻
+>
+> - ThreadBear is installed and its daily update check is [ready / needs attention].
+> - Existing tasks have not been changed yet, and unrelated Codex settings stayed untouched.
+> - Next: restart Codex, then open any task and say **ThreadBear onboard**.
+
 ## 4. Restart and onboard
+
+Say: “Installation is finished. One restart loads the new instructions; onboarding stays a separate previewed choice.”
 
 After a successful install say:
 
@@ -117,7 +134,18 @@ When that request arrives, read the installed skill and follow this protocol:
 
 1. Run `~/.local/bin/threadbear status --json`, then `~/.local/bin/threadbear onboard --dry-run --json`.
 2. Require `ready:true`, `plan_complete:true`, and `read_only:true`. The preview enumerates and deduplicates the entire unarchived App Server catalog before any preparation or title write. If enumeration fails, make zero changes.
-3. Explain `total`, `safe`, and `needs_update`. The active caller, null or blank names, unsafe or overlong subjects, and ambiguous legacy titles stay unchanged. Preview text is never a title source.
+3. Explain `total`, `safe`, and `needs_update` with this card:
+
+> ## Here's what will happen
+>
+> - I found N existing tasks. X have safe titles, and Y need a ThreadBear icon.
+> - The rest stay untouched.
+> - I'll check each task again immediately before its one possible title change.
+> - If a title changed or the result is uncertain, I'll leave it alone and tell you.
+>
+> Update these existing tasks now?
+
+The active caller, null or blank names, unsafe or overlong subjects, and ambiguous legacy titles stay unchanged. Preview text is never a title source.
 4. Ask for explicit consent unless unchanged install consent covered this first pass.
 5. After consent, follow the installed skill's single onboarding JavaScript cell. Its first action runs exactly:
 
@@ -127,7 +155,17 @@ When that request arrives, read the installed skill and follow this protocol:
 
 The confirmed command takes a fresh complete catalog snapshot, stores each safe subject, and returns one `prepared` action containing the snapshot title and desired title. It makes no Codex title writes. If preparation yields, the same JavaScript cell resumes that exact process through `tools.write_stdin`; it never starts another command. For every prepared item, call `tools.codex_app__read_thread({threadId:item.task_id,includeOutputs:false,turnLimit:1,maxOutputCharsPerItem:1})` immediately before a possible write. A missing, unreadable, wrong-ID, or changed-title response is skipped. Only an exact task ID and snapshot title may receive one serial `tools.codex_app__set_thread_title({threadId:item.task_id,title:item.desired_title})` call. Lightweight progress appears during preparation and every 25 outcomes. There is no item cap, wave, worker task, or resume state. Count only an exact returned task ID/title as `updated`; a throw, malformed response, or mismatch is `unconfirmed` and is never retried.
 
-Report `updated`, `skipped`, `unchanged`, and `unconfirmed`: `Updated X of N existing tasks; Y were left unchanged; Z could not be confirmed.` Every prepared item must reach exactly one outcome. ThreadBear is ready only when all are accounted for and `unconfirmed` is zero. An interruption may leave valid partial decoration; a later **ThreadBear onboard** starts a fresh plan.
+Codex can keep an already-mounted historical row cached after an exact native write. Do not retry or add refresh machinery. The persisted title appears when its project is reopened or Codex restarts; say this plainly in the onboarding summary.
+
+Report `updated`, `skipped`, `unchanged`, and `unconfirmed`. Every prepared item must reach exactly one outcome. ThreadBear is ready only when all are accounted for and `unconfirmed` is zero. An interruption may leave valid partial decoration; a later **ThreadBear onboard** starts a fresh plan.
+
+End with:
+
+> ## ThreadBear recap 🐻
+>
+> - Checked N existing tasks: updated X, left Y unchanged, and could not confirm Z.
+> - No uncertain task was retried. Older sidebar rows may refresh when their project reopens or Codex restarts.
+> - Next: [ThreadBear is ready / rerun **ThreadBear onboard** after resolving the named problem].
 
 ## Commands and updater
 
@@ -143,6 +181,24 @@ The managed guidance runs one injection-safe terminal JavaScript cell immediatel
 
 `update` verifies the official manifest, release URLs, architecture, checksum, embedded version, and candidate self-test before replacement. Network or verification failure leaves the old installation untouched. A later managed-surface write can truthfully leave a rerunnable partial; the binary is written last. Every successful update reports `restart_required`. The daily LaunchAgent runs only this command and never reads tasks or changes titles.
 
+For a manual update, preview first and end the consent turn with:
+
+> ## Here's what will happen
+>
+> - ThreadBear will download the official update, verify it, and replace its local helper only after the checks pass.
+> - The update check does not read tasks or change titles.
+> - I'll tell you whether Codex needs a restart.
+>
+> Update ThreadBear now?
+
+Afterward, end with:
+
+> ## ThreadBear recap 🐻
+>
+> - ThreadBear is now version [version], and the daily update check is [ready / needs attention].
+> - Codex [does / does not] need a restart.
+> - Next: [nothing—you're up to date / the one safe rerun for a partial update].
+
 ## Uninstall
 
 Preview first:
@@ -151,9 +207,16 @@ Preview first:
 ~/.local/bin/threadbear uninstall --dry-run --json
 ```
 
-Explain:
+End the consent turn with:
 
-> Want me to uninstall ThreadBear? I'll remove only its binary, private subject records, managed guidance, installed skill, and daily updater. Existing title icons may remain until those tasks are renamed. Other Codex settings and files stay untouched. When removal finishes, you'll restart Codex.
+> ## Here's what will happen
+>
+> - I'll remove ThreadBear's local helper, private title memory, Codex instructions, skill, and daily update check.
+> - Your tasks, other Codex settings, and unrelated files stay untouched.
+> - Existing title icons may remain until those tasks are renamed.
+> - After removal, you'll restart Codex once.
+>
+> Uninstall ThreadBear now?
 
 After consent:
 
@@ -162,6 +225,14 @@ After consent:
 ```
 
 Require committed removal and verify unrelated AGENTS content, skills, settings, files, and LaunchAgents remain byte-for-byte intact. After commit, do not run the title command. Ask the user to restart Codex so open tasks stop using snapshotted guidance.
+
+The final response after committed removal is:
+
+> ## ThreadBear recap 🐻
+>
+> - ThreadBear and its daily update check were removed.
+> - Your tasks and unrelated Codex content stayed untouched; old title icons may remain.
+> - Next: restart Codex so open tasks drop the old instructions.
 
 ## Release proof
 

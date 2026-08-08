@@ -41,7 +41,21 @@ func TestPublishedInstallGuideMatchesCurrentProduct(t *testing.T) {
 		t.Fatal("INSTALL.md and site/install must be byte-identical")
 	}
 	requireText(t, guide,
-		"mounted Codex app applies it once through the native title setter",
+		"It prepares one safe title, then Codex applies it once.",
+		"For every lifecycle action, write the lasting summary after all tool calls.",
+		"Nothing changes in this step.",
+		"Existing task titles will not change in this step.",
+		"onboarding stays a separate previewed choice.",
+		"Never leave that recap only in commentary, progress notices, notifications, or raw tool output",
+		"do not copy raw fields or list internal files and components",
+		"Group safe skips as “left unchanged” unless the user needs to act.",
+		"## Here's what will happen",
+		"## ThreadBear recap 🐻",
+		"Other Codex settings and files stay untouched.",
+		"Existing tasks have not been changed yet",
+		"Checked N existing tasks: updated X, left Y unchanged, and could not confirm Z.",
+		"The update check does not read tasks or change titles.",
+		"ThreadBear and its daily update check were removed.",
 		"--dry-run --json",
 		"--noninteractive --confirm --json",
 		"--no-onboard",
@@ -54,7 +68,7 @@ func TestPublishedInstallGuideMatchesCurrentProduct(t *testing.T) {
 		"A missing, unreadable, wrong-ID, or changed-title response is skipped.",
 		"tools.codex_app__set_thread_title({threadId:item.task_id,title:item.desired_title})",
 		"Every prepared item must reach exactly one outcome.",
-		"Updated X of N existing tasks; Y were left unchanged; Z could not be confirmed.",
+		"Checked N existing tasks: updated X, left Y unchanged, and could not confirm Z.",
 		"tools.codex_app__set_thread_title({title:plan.desired_title})",
 		"one injection-safe terminal JavaScript cell",
 		"never re-embedded by the model",
@@ -144,12 +158,20 @@ func TestInstalledSkillStaysCompactAndRunsOneSerialNativePass(t *testing.T) {
 		t.Fatalf("installed skill is %d bytes; compact-guide ceiling is 5 KiB", size)
 	}
 	requireText(t, protocol,
-		"Get explicit consent before install/reset, historical onboarding, manual update, or uninstall.",
+		"Be upbeat/plain.",
+		"Before consent, end with **Here's what will happen**",
+		"After tools, end with **ThreadBear recap 🐻**",
+		"Never leave it in commentary/tool output.",
+		"Recap visible facts",
+		"no JSON/self-test/state/files/planners/records/booleans",
+		"Safe skips are “left unchanged”",
+		"title failure is “this title stayed as-is.”",
 		"## Install or reset",
+		"leave tasks/settings/titles",
 		"## Onboard existing tasks",
 		"onboard --dry-run --json",
 		`\"$HOME/.local/bin/threadbear\" onboard --noninteractive --confirm --json`,
-		"enumerate and deduplicate the complete unarchived App Server catalog",
+		"full catalog",
 		`item.outcome === "prepared"`,
 		`typeof item.title !== "string"`,
 		"for (const item of prepared)",
@@ -173,11 +195,13 @@ func TestInstalledSkillStaysCompactAndRunsOneSerialNativePass(t *testing.T) {
 		"onboarding_complete:accounted && unconfirmed === 0",
 		"unchanged:plan.total - updated - unconfirmed",
 		"Updated X of N existing tasks; Y were left unchanged; Z could not be confirmed.",
-		"Never create a cap, wave, controller, worker task, queue, or persistent ThreadBear task.",
+		"No cap, controller, worker, queue, or persistent task.",
 		"## Update",
-		"`restart_required`",
+		"Preview download, verification, replacement, restart.",
 		"## Uninstall",
-		"Do not run the title cell again.",
+		"keep tasks/settings/files; icons may remain.",
+		"no title cell.",
+		"Recap exactly: “ThreadBear was removed.",
 	)
 	if count := strings.Count(protocol, "tools.codex_app__set_thread_title("); count != 1 {
 		t.Fatalf("installed skill contains %d native title call sites; want one", count)
@@ -202,6 +226,51 @@ func TestInstalledSkillStaysCompactAndRunsOneSerialNativePass(t *testing.T) {
 		"migration --phase",
 		"maintenance --cancel",
 		"uninstall --prepare",
+	)
+}
+
+func TestLifecycleCopyLeavesADurableFriendlyRecap(t *testing.T) {
+	guide := readRepoFile(t, "INSTALL.md")
+	protocol := readRepoFile(t, "assets", "skill", "SKILL.md")
+	help := readRepoFile(t, "assets", "help.txt")
+	var userFacing strings.Builder
+	for _, line := range strings.Split(guide, "\n") {
+		if strings.HasPrefix(line, "> ") {
+			userFacing.WriteString(strings.TrimPrefix(line, "> "))
+			userFacing.WriteByte('\n')
+		}
+	}
+
+	if count := strings.Count(guide, "## Here's what will happen"); count < 4 {
+		t.Fatalf("install guide has %d lifecycle previews; want install, onboarding, update, and uninstall guidance", count)
+	}
+	if count := strings.Count(guide, "## ThreadBear recap 🐻"); count < 4 {
+		t.Fatalf("install guide has %d durable recaps; want universal plus lifecycle results", count)
+	}
+	requireText(t, guide,
+		"end the final response",
+		"after all tool calls",
+		"what stayed untouched",
+		"the next action",
+		"those can disappear when Codex summarizes the turn",
+	)
+	requireText(t, protocol,
+		"Before consent, end with",
+		"After tools, end with",
+		"result/counts, uncertainty, next action",
+	)
+	requireText(t, help,
+		"Show what will change, then install ThreadBear",
+		"Show what will be removed, then remove ThreadBear",
+		"the final response must recap the result, uncertainty, and next action",
+	)
+	rejectText(t, userFacing.String(),
+		"binary",
+		"LaunchAgent",
+		"App Server",
+		"JSON",
+		"subject record",
+		"native setter",
 	)
 }
 
