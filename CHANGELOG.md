@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+## v3.0.1 - 2026-08-08
+
+### Fixed
+
+- Made ordinary title updates work under Codex's default workspace permissions by moving the current-title read to the mounted app and removing ordinary App Server and filesystem access.
+- Stopped resolving Codex from repository-controlled `PATH`; onboarding now uses a fixed Desktop executable and install, self-test, and status require Codex Desktop 0.146.0 or newer.
+
+### Changed
+
+- Removed the per-task subject database. ThreadBear now uses six explicit visible icon prefixes as its small ownership boundary and keeps every other safe title byte intact.
+- Made historical onboarding explain and request its one catalog-read permission while keeping the preview, separate consent, immediate native reread, one-write limit, and durable friendly recap; approval-disabled tasks now stop with a plain no-change next step.
+
 ## v3.0.0 - 2026-08-08
 
 ### Changed

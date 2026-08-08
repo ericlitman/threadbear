@@ -41,13 +41,13 @@ func TestPublishedInstallGuideMatchesCurrentProduct(t *testing.T) {
 		t.Fatal("INSTALL.md and site/install must be byte-identical")
 	}
 	requireText(t, guide,
-		"It prepares one safe title, then Codex applies it once.",
+		"the stateless helper returns the calling task ID and fixed title policy",
 		"For every lifecycle action, write the lasting summary after all tool calls.",
 		"Nothing changes in this step.",
 		"Existing task titles will not change in this step.",
 		"onboarding stays a separate previewed choice.",
 		"Never leave that recap only in commentary, progress notices, notifications, or raw tool output",
-		"do not copy raw fields or list internal files and components",
+		"do not copy raw fields or list internal files",
 		"Group safe skips as “left unchanged” unless the user needs to act.",
 		"I couldn't confirm whether this title changed",
 		"## Here's what will happen",
@@ -71,12 +71,11 @@ func TestPublishedInstallGuideMatchesCurrentProduct(t *testing.T) {
 		"tools.codex_app__set_thread_title({threadId:item.task_id,title:item.desired_title})",
 		"Every prepared item must reach exactly one outcome.",
 		"Checked N existing tasks: updated X, left Y unchanged, and could not confirm Z.",
-		"tools.codex_app__set_thread_title({title:plan.desired_title})",
+		"tools.codex_app__set_thread_title({title:desired})",
 		"one injection-safe terminal JavaScript cell",
-		"never re-embedded by the model",
 		"wait only for that same cell",
 		"yield does not cancel a slow native call",
-		"exact returned planned task ID and title",
+		"Exact returned task ID/title is required.",
 		"never opens Codex SQLite",
 		"binary is written last",
 		"Every successful update reports `restart_required`",
@@ -114,12 +113,12 @@ func TestReleaseDocsKeepTheEstablishedImmediateRepaintGate(t *testing.T) {
 	architecture := readRepoFile(t, "docs", "architecture.md")
 	checklist := readRepoFile(t, "docs", "release-checklist.md")
 	requireText(t, architecture,
-		"repaint one current task and one controlled historical task immediately",
-		"preserve both titles across a clean Codex restart",
+		"release acceptance still verifies the mounted header and sidebar",
+		"If live canaries show practical corruption or response blocking, rewriting is disabled",
 	)
 	requireText(t, checklist,
 		"Require immediate mounted repaint for the active header and one controlled historical row",
-		"A stale controlled row fails this canary",
+		"verify both titles after restart",
 	)
 	rejectText(t, checklist, "if Codex keeps it cached, reopen the project once")
 }
@@ -133,15 +132,15 @@ func TestInstalledGuidanceDefinesOneTerminalPlannerAndNativeWrite(t *testing.T) 
 		"Replace only `STATUS` with the exact enum",
 		"if (local.exit_code !== 0) { text(local); exit(); }",
 		"plan = JSON.parse(local.output)",
-		`typeof plan.write_required !== "boolean"`,
-		"if (!plan.write_required) { text(local); exit(); }",
-		"tools.codex_app__set_thread_title({title:plan.desired_title})",
+		`typeof plan.icon !== "string"`,
+		"tools.codex_app__read_thread({threadId:plan.task_id",
+		"tools.codex_app__set_thread_title({title:desired})",
 		"const decodeNative = value =>",
 		`typeof value !== "string"`,
 		"renamed = decodeNative(await tools.codex_app__set_thread_title",
 		"renamed.threadId !== plan.task_id",
-		"renamed.title !== plan.desired_title",
-		"mounted Codex app is the sole writer",
+		"renamed.title !== desired",
+		"mounted Codex app reads the exact current title and is the sole writer",
 		"If the outer cell yields, wait only for that same cell",
 		"yield does not cancel a slow native call",
 		"Never start another cell, poll the title, retry, or reconcile.",
@@ -158,7 +157,6 @@ func TestInstalledGuidanceDefinesOneTerminalPlannerAndNativeWrite(t *testing.T) 
 		t.Fatalf("managed guidance contains %d native title calls; want one", count)
 	}
 	rejectText(t, guidance,
-		"threadId:plan.task_id",
 		"thread/name/set",
 		"Promise.race",
 		"setTimeout",
@@ -173,25 +171,25 @@ func TestInstalledGuidanceDefinesOneTerminalPlannerAndNativeWrite(t *testing.T) 
 
 func TestInstalledSkillStaysCompactAndRunsOneSerialNativePass(t *testing.T) {
 	protocol := readRepoFile(t, "assets", "skill", "SKILL.md")
-	if size := len([]byte(protocol)); size > 5*1024 {
-		t.Fatalf("installed skill is %d bytes; compact-guide ceiling is 5 KiB", size)
+	if size := len([]byte(protocol)); size > 6*1024 {
+		t.Fatalf("installed skill is %d bytes; want a compact one-page guide", size)
 	}
 	requireText(t, protocol,
-		"Be upbeat/plain.",
+		"Be upbeat and plain.",
 		"Before consent, end with **Here's what will happen**",
 		"After tools, end with **ThreadBear recap 🐻**",
-		"Never leave it in commentary/tool output.",
-		"Recap visible facts",
-		"not raw results or internal names",
-		"Safe skips are “left unchanged.”",
-		"I couldn't confirm whether this title changed",
+		"Put the recap in the final answer",
+		"Call safe skips “left unchanged.”",
 		"## Install or reset",
-		"automatic installation of verified official updates",
-		"leave tasks/settings/titles",
+		"helper, instructions, skill, and daily updates",
+		"leave tasks, settings, and titles alone",
 		"## Onboard existing tasks",
 		"onboard --dry-run --json",
 		`\"$HOME/.local/bin/threadbear\" onboard --noninteractive --confirm --json`,
-		"full catalog",
+		`sandbox_permissions:"require_escalated"`,
+		"This preview changes nothing.",
+		"If Codex says approval requests are disabled, stop.",
+		"Never change settings or bypass permission.",
 		`item.outcome === "prepared"`,
 		`typeof item.title !== "string"`,
 		"for (const item of prepared)",
@@ -215,14 +213,14 @@ func TestInstalledSkillStaysCompactAndRunsOneSerialNativePass(t *testing.T) {
 		"onboarding_complete:accounted && unconfirmed === 0",
 		"unchanged:plan.total - updated - unconfirmed",
 		"Updated X of N existing tasks; Y were left unchanged; Z could not be confirmed.",
-		"No cap or persistent task.",
+		"No retry, cap, or persistent task.",
 		"## Update",
-		"Preview official download, verification, replacement, restart.",
+		"Preview download, checks, replacement, and restart.",
 		"## Uninstall",
 		"uninstall --dry-run --json",
 		"uninstall --noninteractive --confirm --json",
 		"Only `uninstalled:true` means removed",
-		"keep tasks/settings/files; icons may remain.",
+		"keep tasks, settings, and files; icons may remain.",
 		"no title cell.",
 		"Recap exactly: “ThreadBear was removed.",
 	)
@@ -303,10 +301,9 @@ func TestCurrentDocsNameThePlannerAndSoleMountedWriter(t *testing.T) {
 		{"README.md"},
 		{"docs", "architecture.md"},
 		{"docs", "compatibility.md"},
-		{"docs", "status-convention.md"},
 	} {
 		text := readRepoFile(t, path...)
-		requireText(t, text, "mounted Codex app")
+		requireText(t, text, "mounted")
 		rejectText(t, text,
 			"only task read/write authority",
 			"makes at most one `thread/name/set`",
@@ -314,24 +311,25 @@ func TestCurrentDocsNameThePlannerAndSoleMountedWriter(t *testing.T) {
 			"exact readback",
 		)
 	}
+	status := readRepoFile(t, "docs", "status-convention.md")
+	requireText(t, status, "mounted app")
+	rejectText(t, status, "thread/name/set", "exact readback")
 }
 
 func TestHomepageDescribesOnlyShippedCapabilities(t *testing.T) {
 	page := readRepoFile(t, "site", "index.html")
 	requireText(t, page,
 		"One terminal update",
-		"The mounted app writes",
-		"App Server client prepares the safe title; Codex's native setter applies it",
-		"App Server pagination before serial app-native writes",
+		"Codex reads the title, then makes at most one native title write",
+		"The mounted app owns titles",
+		"Onboarding finishes App Server pagination before serial app-native writes",
 		"no arbitrary first-50 cap",
-		"read/planning authority only",
-		"native setter is the sole title writer",
 		"immediately rereads each prepared task through the mounted app",
 		"skips drift",
 		"null or blank <code>name</code>",
 		"<code>preview</code> is never adopted",
 		"daily update-only LaunchAgent",
-		"There is no SQLite access, daemon, proxy, cache, model, retry, fallback, queue, or repair pass.",
+		"There is no SQLite access, title database, daemon, proxy, cache, model, retry, fallback, queue, or repair pass.",
 		"rerunnable partial",
 		"title-core readiness",
 	)

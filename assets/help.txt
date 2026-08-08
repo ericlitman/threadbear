@@ -5,7 +5,7 @@ Usage:
 
 Commands:
   install      Show what will change, then install ThreadBear
-  title        Prepare this task's safe status title for Codex to apply
+  title        Return this task's status icon policy for Codex to apply
   onboard      Preview or prepare existing-task onboarding
   status       Check whether ThreadBear and daily updates are ready
   self-test    Validate a release candidate
@@ -19,8 +19,7 @@ Title:
   threadbear title --status <complete|next_steps|needs_input|blocked|automation> --json
 
 The managed guidance runs title exactly once immediately before a final response.
-ThreadBear reads the exact current title and prepares one icon plus the safe subject.
-The mounted Codex app applies and confirms the title once. A returned failure stays local and is never retried; a yielded terminal cell is awaited as the same call.
+The helper is stateless. The mounted Codex app reads the exact current title and applies at most one icon change. A returned failure stays local and is never retried.
 
 Onboard:
   threadbear onboard --dry-run --json

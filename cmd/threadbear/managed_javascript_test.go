@@ -157,45 +157,52 @@ func TestEmbeddedOrdinaryJavaScriptAcceptsStringAndObjectNativeResults(t *testin
 
 	harness := fmt.Sprintf(`
 const source = %s;
-const writePlan = {ready:true,write_required:true,task_id:"current",desired_title:"✅ exact subject"};
-const noWritePlan = {ready:true,write_required:false,task_id:"current"};
+const policy = {ready:true,task_id:"current",status:"complete",icon:"✅",
+  owned_prefixes:["✅ ","➡️ ","🙋 ","🚨 ","🤖 ","🐻 "],
+  blocked_prefixes:["➡ ","⏳ ","❔ ","🧵🐻"],
+  internal_markers:["<codex_delegation>"],max_title_units:60};
 const AsyncFunction = Object.getPrototypeOf(async function(){}).constructor;
-async function run(plan,nativeResult) {
+async function run(currentResult,setResult) {
   const trace = [], outputs = [];
   const tools = {
     exec_command: async args => {
       trace.push("exec");
       if (args.cmd !== "\"$HOME/.local/bin/threadbear\" title --status STATUS --json" ||
-          args.yield_time_ms !== 30000 || args.max_output_tokens !== 1000) throw new Error("bad planner args");
-      return {exit_code:0,output:JSON.stringify(plan)};
+          args.yield_time_ms !== 30000 || args.max_output_tokens !== 1000) throw new Error("bad helper args");
+      return {exit_code:0,output:JSON.stringify(policy)};
+    },
+    codex_app__read_thread: async args => {
+      trace.push("read");
+      if (args.threadId !== policy.task_id || args.includeOutputs !== false ||
+          args.turnLimit !== 1 || args.maxOutputCharsPerItem !== 1) throw new Error("bad read args");
+      return currentResult;
     },
     codex_app__set_thread_title: async args => {
-      trace.push("set");
-      if (Object.keys(args).join(",") !== "title" || args.title !== plan.desired_title)
-        throw new Error("bad current-task setter args");
-      return nativeResult;
+      trace.push("set:" + args.title);
+      if (Object.keys(args).join(",") !== "title") throw new Error("setter received explicit task ID");
+      return setResult;
     }
   };
   const text = value => outputs.push(typeof value === "string" ? value : JSON.stringify(value));
   class Exit extends Error {}
   const exit = () => { throw new Exit(); };
-  try {
-    await new AsyncFunction("tools","text","exit",source)(tools,text,exit);
-  } catch (error) {
-    if (!(error instanceof Exit)) throw error;
-  }
+  try { await new AsyncFunction("tools","text","exit",source)(tools,text,exit); }
+  catch (error) { if (!(error instanceof Exit)) throw error; }
   return {trace,outputs};
 }
-const expected = {threadId:writePlan.task_id,title:writePlan.desired_title};
-const stringRun = await run(writePlan,JSON.stringify(expected));
-const objectRun = await run(writePlan,expected);
-const malformedRun = await run(writePlan,"{malformed");
-const wrongIDRun = await run(writePlan,JSON.stringify({...expected,threadId:"wrong"}));
-const wrongTitleRun = await run(writePlan,JSON.stringify({...expected,title:"wrong"}));
-const noWriteRun = await run(noWritePlan,null);
-process.stdout.write(JSON.stringify({
-  stringRun,objectRun,malformedRun,wrongIDRun,wrongTitleRun,noWriteRun
-}));
+const current = {thread:{id:"current",title:"🎉 exact subject"}};
+const expected = {threadId:"current",title:"✅ 🎉 exact subject"};
+const stringRun = await run(JSON.stringify(current),JSON.stringify(expected));
+const objectRun = await run(current,expected);
+const malformedRun = await run(JSON.stringify(current),"{malformed");
+const wrongIDRun = await run(JSON.stringify(current),JSON.stringify({...expected,threadId:"wrong"}));
+const wrongTitleRun = await run(JSON.stringify(current),JSON.stringify({...expected,title:"wrong"}));
+const noWriteRun = await run(JSON.stringify({thread:{id:"current",title:"✅ exact subject"}}),null);
+const badReadRun = await run("{malformed",null);
+const wrongReadIDRun = await run(JSON.stringify({thread:{id:"other",title:"exact subject"}}),null);
+const blockedRun = await run(JSON.stringify({thread:{id:"current",title:"🧵🐻 needs input (you): approve"}}),null);
+process.stdout.write(JSON.stringify({stringRun,objectRun,malformedRun,wrongIDRun,
+  wrongTitleRun,noWriteRun,badReadRun,wrongReadIDRun,blockedRun}));
 `, sourceJSON)
 
 	output, err := exec.Command("node", "--input-type=module", "--eval", harness).CombinedOutput()
@@ -204,19 +211,22 @@ process.stdout.write(JSON.stringify({
 	}
 
 	var got struct {
-		StringRun     javascriptRun `json:"stringRun"`
-		ObjectRun     javascriptRun `json:"objectRun"`
-		MalformedRun  javascriptRun `json:"malformedRun"`
-		WrongIDRun    javascriptRun `json:"wrongIDRun"`
-		WrongTitleRun javascriptRun `json:"wrongTitleRun"`
-		NoWriteRun    javascriptRun `json:"noWriteRun"`
+		StringRun      javascriptRun `json:"stringRun"`
+		ObjectRun      javascriptRun `json:"objectRun"`
+		MalformedRun   javascriptRun `json:"malformedRun"`
+		WrongIDRun     javascriptRun `json:"wrongIDRun"`
+		WrongTitleRun  javascriptRun `json:"wrongTitleRun"`
+		NoWriteRun     javascriptRun `json:"noWriteRun"`
+		BadReadRun     javascriptRun `json:"badReadRun"`
+		WrongReadIDRun javascriptRun `json:"wrongReadIDRun"`
+		BlockedRun     javascriptRun `json:"blockedRun"`
 	}
 	if err := json.Unmarshal(output, &got); err != nil {
 		t.Fatalf("decode ordinary JavaScript harness output: %v\n%s", err, output)
 	}
 	for name, run := range map[string]javascriptRun{"string": got.StringRun, "object": got.ObjectRun} {
-		if !reflect.DeepEqual(run.Trace, []string{"exec", "set"}) {
-			t.Fatalf("%s native result trace = %v; want one planner then one setter", name, run.Trace)
+		if !reflect.DeepEqual(run.Trace, []string{"exec", "read", "set:✅ 🎉 exact subject"}) {
+			t.Fatalf("%s native result trace = %v; want one helper, read, and setter", name, run.Trace)
 		}
 		if len(run.Outputs) != 1 {
 			t.Fatalf("%s native result outputs = %d; want one receipt", name, len(run.Outputs))
@@ -231,7 +241,7 @@ process.stdout.write(JSON.stringify({
 			t.Fatalf("decode %s native result receipt: %v", name, err)
 		}
 		if !receipt.Ready || receipt.TaskID != "current" ||
-			receipt.Title != "✅ exact subject" || !receipt.Updated {
+			receipt.Title != "✅ 🎉 exact subject" || !receipt.Updated {
 			t.Fatalf("unexpected %s native result receipt: %+v", name, receipt)
 		}
 	}
@@ -240,8 +250,8 @@ process.stdout.write(JSON.stringify({
 		"wrong ID":    got.WrongIDRun,
 		"wrong title": got.WrongTitleRun,
 	} {
-		if !reflect.DeepEqual(run.Trace, []string{"exec", "set"}) {
-			t.Fatalf("%s native result trace = %v; want one planner then one setter", name, run.Trace)
+		if !reflect.DeepEqual(run.Trace, []string{"exec", "read", "set:✅ 🎉 exact subject"}) {
+			t.Fatalf("%s native result trace = %v; want one helper, read, and setter", name, run.Trace)
 		}
 		if len(run.Outputs) != 1 {
 			t.Fatalf("%s native result outputs = %d; want one failure", name, len(run.Outputs))
@@ -257,8 +267,15 @@ process.stdout.write(JSON.stringify({
 			t.Fatalf("unexpected %s native result failure: %+v", name, receipt)
 		}
 	}
-	if !reflect.DeepEqual(got.NoWriteRun.Trace, []string{"exec"}) || len(got.NoWriteRun.Outputs) != 1 {
-		t.Fatalf("no-write plan must run one planner and zero setters: %+v", got.NoWriteRun)
+	if !reflect.DeepEqual(got.NoWriteRun.Trace, []string{"exec", "read"}) || len(got.NoWriteRun.Outputs) != 1 {
+		t.Fatalf("exact title must run one helper/read and zero setters: %+v", got.NoWriteRun)
+	}
+	for name, run := range map[string]javascriptRun{
+		"malformed read": got.BadReadRun, "wrong read ID": got.WrongReadIDRun, "blocked title": got.BlockedRun,
+	} {
+		if !reflect.DeepEqual(run.Trace, []string{"exec", "read"}) || len(run.Outputs) != 1 {
+			t.Fatalf("%s must stop before setter: %+v", name, run)
+		}
 	}
 }
 

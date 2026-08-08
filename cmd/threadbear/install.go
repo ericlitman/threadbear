@@ -53,6 +53,8 @@ func homeDir() string { home, _ := os.UserHomeDir(); return home }
 
 func stateDir() string { return filepath.Join(homeDir(), ".local", "share", "threadbear") }
 
+func legacySubjectDir() string { return filepath.Join(stateDir(), "subjects") }
+
 func legacyHooksPath() string { return filepath.Join(codexHome(), "hooks.json") }
 
 func installPaths() lifecyclePaths {
@@ -66,7 +68,7 @@ func installPaths() lifecyclePaths {
 }
 
 func install(ctx context.Context, options installOptions) (any, error) {
-	if _, err := selfTest(); err != nil {
+	if _, err := selfTest(ctx); err != nil {
 		return nil, err
 	}
 	if options.DryRun && options.Confirmed {
@@ -156,9 +158,6 @@ func install(ctx context.Context, options installOptions) (any, error) {
 	agents, removeAgents, agentsChanged, err := editManagedBlock(p.agents, true, legacyFound || currentInstallPresent(p))
 	if err != nil || removeAgents {
 		return preview, errors.Join(err, errors.New("managed AGENTS block could not be prepared"))
-	}
-	if err := os.MkdirAll(newStore(stateDir()).subjectDir(), 0o700); err != nil {
-		return installPartial(preview, "subject_state", false, options), err
 	}
 	if agentsChanged {
 		if err := writeAtomic(p.agents, agents, 0o600); err != nil {
@@ -282,7 +281,6 @@ func installChanges(p lifecyclePaths, legacy bool) []string {
 			"remove exact legacy ThreadBear title hooks from "+legacyHooksPath())
 	}
 	changes = append(changes,
-		"manage subject records under "+newStore(stateDir()).subjectDir(),
 		"manage update receipt "+p.updateReceipt,
 		"replace managed AGENTS block in "+p.agents,
 		"write skill "+p.skill,
@@ -438,7 +436,7 @@ func uninstallChanges(p lifecyclePaths) []string {
 		"boot out and remove " + updateAgentLabel + " LaunchAgent " + p.launchAgent,
 		"remove managed AGENTS block from " + p.agents,
 		"remove skill " + p.skill,
-		"remove owned subject records under " + newStore(stateDir()).subjectDir(),
+		"remove private ThreadBear state under " + stateDir(),
 		"remove update receipt " + p.updateReceipt,
 		"remove binary last " + p.binary,
 	}
@@ -449,6 +447,7 @@ func status(ctx context.Context) (any, error) { return statusAllowingLegacy(ctx,
 func statusAllowingLegacy(ctx context.Context, allowLegacy bool) (any, error) {
 	p := installPaths()
 	stateErr := validateRuntimeState()
+	codex, codexErr := requireCompatibleCodex(ctx)
 	legacy, legacyErr := legacyStatePresent()
 	legacyClear := legacyErr == nil && !legacy
 	if allowLegacy && legacy && legacyErr == nil {
@@ -456,8 +455,8 @@ func statusAllowingLegacy(ctx context.Context, allowLegacy bool) (any, error) {
 	}
 	artifacts := map[string]bool{
 		"binary": regularExecutable(p.binary), "agents": managedBlockExact(p.agents),
-		"skill":    exactFile(p.skill, []byte(assets.SkillManagedContent)),
-		"subjects": stateErr == nil, "legacy_state_absent": legacyClear,
+		"skill": exactFile(p.skill, []byte(assets.SkillManagedContent)),
+		"state": stateErr == nil, "codex": codexErr == nil, "legacy_state_absent": legacyClear,
 	}
 	var problems []error
 	for name, healthy := range artifacts {
@@ -470,7 +469,7 @@ func statusAllowingLegacy(ctx context.Context, allowLegacy bool) (any, error) {
 	if !legacyClear {
 		legacyErr = errors.Join(legacyErr, errors.New("legacy or unsupported native.json state is present"))
 	}
-	coreErr := errors.Join(errors.Join(problems...), stateErr, legacyErr)
+	coreErr := errors.Join(errors.Join(problems...), stateErr, codexErr, legacyErr)
 	ready := coreErr == nil
 	binaryPresent, binaryPresenceErr := regularLeaf(p.binary, false)
 	if binaryPresenceErr != nil {
@@ -480,6 +479,9 @@ func statusAllowingLegacy(ctx context.Context, allowLegacy bool) (any, error) {
 		"ready": ready, "installed": binaryPresent, "version": version,
 		"automatic_updates_enabled": automaticUpdates,
 		"artifacts":                 artifacts, "updater": updater,
+	}
+	if codexErr == nil {
+		result["codex_version"] = codex.Version
 	}
 	if updaterErr != nil {
 		result["updater_error"] = updaterErr.Error()
@@ -492,11 +494,15 @@ func statusAllowingLegacy(ctx context.Context, allowLegacy bool) (any, error) {
 	return result, coreErr
 }
 
-func selfTest() (any, error) {
+func selfTest(ctx context.Context) (any, error) {
 	if runtime.GOOS != "darwin" || assets.AgentsManagedContent == "" || assets.SkillManagedContent == "" || version == "" {
 		return nil, errors.New("candidate is incomplete or unsupported")
 	}
-	return map[string]any{"ready": true, "version": version}, nil
+	codex, err := requireCompatibleCodex(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return map[string]any{"ready": true, "version": version, "codex_version": codex.Version}, nil
 }
 
 func lifecycleLock(name string) (*os.File, error) { return openLifecycleLock(name, true, true) }
@@ -636,7 +642,7 @@ func removeOwnedState() error {
 	if err := validateRemovableState(); err != nil {
 		return err
 	}
-	subjectDir := newStore(stateDir()).subjectDir()
+	subjectDir := legacySubjectDir()
 	if entries, err := os.ReadDir(subjectDir); err == nil {
 		for _, entry := range entries {
 			ext := filepath.Ext(entry.Name())
@@ -665,10 +671,6 @@ func validateRuntimeState() error {
 	if err != nil || !found {
 		return errors.Join(err, errors.New("state root is missing or not private"))
 	}
-	found, err = privateDirectory(newStore(stateDir()).subjectDir())
-	if err != nil || !found {
-		return errors.Join(err, errors.New("subject store is missing or not private"))
-	}
 	found, err = privateRegular(filepath.Join(stateDir(), "lifecycle.lock"))
 	if err != nil || !found {
 		return errors.Join(err, errors.New("lifecycle fence is missing or not private"))
@@ -680,12 +682,8 @@ func preflightInstall(ctx context.Context, p lifecyclePaths, candidate []byte, l
 	if err := validateManagedParents(p); err != nil {
 		return err
 	}
-	if found, err := privateDirectory(stateDir()); err != nil {
+	if _, err := privateDirectory(stateDir()); err != nil {
 		return err
-	} else if found {
-		if _, err := privateDirectory(newStore(stateDir()).subjectDir()); err != nil {
-			return err
-		}
 	}
 	if legacy {
 		if _, err := regularLeaf(legacyHooksPath(), false); err != nil {
@@ -806,7 +804,7 @@ func runningInstalledBinary(path string) error {
 
 func validateManagedParents(p lifecyclePaths) error {
 	paths := []string{p.binary, p.agents, p.skill, p.launchAgent, p.updateReceipt,
-		newStore(stateDir()).subjectDir(), filepath.Join(stateDir(), "lifecycle.lock"), filepath.Join(stateDir(), "update.lock")}
+		filepath.Join(stateDir(), "lifecycle.lock"), filepath.Join(stateDir(), "update.lock")}
 	for _, path := range paths {
 		anchor := homeDir()
 		if rel, err := filepath.Rel(anchor, path); err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(os.PathSeparator)) {
@@ -860,7 +858,7 @@ func validateOwnedState() error {
 	if err := validateRuntimeState(); err != nil {
 		return err
 	}
-	if err := validateOwnedSubjectLeaves(); err != nil {
+	if err := validateOptionalLegacySubjectStore(); err != nil {
 		return err
 	}
 	if _, err := privateRegular(filepath.Join(stateDir(), "update.lock")); err != nil {
@@ -875,14 +873,8 @@ func validateRemovableState() error {
 	if err != nil || !found {
 		return err
 	}
-	found, err = privateDirectory(newStore(stateDir()).subjectDir())
-	if err != nil {
+	if err := validateOptionalLegacySubjectStore(); err != nil {
 		return err
-	}
-	if found {
-		if err := validateOwnedSubjectLeaves(); err != nil {
-			return err
-		}
 	}
 	for _, path := range []string{
 		filepath.Join(stateDir(), "lifecycle.lock"),
@@ -897,7 +889,7 @@ func validateRemovableState() error {
 }
 
 func validateOwnedSubjectLeaves() error {
-	dir := newStore(stateDir()).subjectDir()
+	dir := legacySubjectDir()
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		return err
@@ -913,6 +905,14 @@ func validateOwnedSubjectLeaves() error {
 		}
 	}
 	return nil
+}
+
+func validateOptionalLegacySubjectStore() error {
+	found, err := privateDirectory(legacySubjectDir())
+	if err != nil || !found {
+		return err
+	}
+	return validateOwnedSubjectLeaves()
 }
 
 func regularExecutable(path string) bool {

@@ -16,38 +16,72 @@ const local = await tools.exec_command({
 if (local.exit_code !== 0) { text(local); exit(); }
 let plan;
 try { plan = JSON.parse(local.output); } catch {
-  text(JSON.stringify({ready:false, reason:"ThreadBear title planner returned malformed JSON"}));
-  exit();
+	text(JSON.stringify({ready:false, reason:"ThreadBear title helper returned malformed JSON"}));
+	exit();
 }
-if (!plan || plan.ready !== true || typeof plan.write_required !== "boolean" ||
-    typeof plan.task_id !== "string" ||
-    (plan.write_required && typeof plan.desired_title !== "string")) {
-  text(JSON.stringify({ready:false, reason:"ThreadBear title planner returned an invalid plan"}));
-  exit();
+if (!plan || plan.ready !== true || typeof plan.task_id !== "string" ||
+	typeof plan.icon !== "string" || !Array.isArray(plan.owned_prefixes) ||
+	!Array.isArray(plan.blocked_prefixes) || !Array.isArray(plan.internal_markers) ||
+	!Number.isInteger(plan.max_title_units)) {
+	text(JSON.stringify({ready:false, reason:"ThreadBear title helper returned an invalid policy"}));
+	exit();
 }
 const decodeNative = value => {
-  if (typeof value !== "string") return value;
-  try { return JSON.parse(value); } catch { return null; }
+	if (typeof value !== "string") return value;
+	try { return JSON.parse(value); } catch { return null; }
 };
-if (!plan.write_required) { text(local); exit(); }
+let current;
+try {
+	current = decodeNative(await tools.codex_app__read_thread({threadId:plan.task_id,
+		includeOutputs:false,turnLimit:1,maxOutputCharsPerItem:1}));
+} catch (error) {
+	text(JSON.stringify({ready:false, reason:"Codex title read failed", error:String(error)}));
+	exit();
+}
+if (!current || current?.thread?.id !== plan.task_id ||
+	typeof current.thread.title !== "string") {
+	text(JSON.stringify({ready:false, reason:"Codex title read was not confirmed exactly"}));
+	exit();
+}
+const previous = current.thread.title;
+if (plan.blocked_prefixes.some(prefix => previous.startsWith(prefix))) {
+	text(JSON.stringify({ready:false, reason:"The current title has an ambiguous old ThreadBear prefix"}));
+	exit();
+}
+let subject = previous;
+for (const prefix of plan.owned_prefixes) {
+	if (subject.startsWith(prefix)) { subject = subject.slice(prefix.length); break; }
+}
+const lower = subject.toLowerCase();
+if (subject.trim() === "" || /[\u0000-\u001f\u007f-\u009f\u2028\u2029]/u.test(subject) ||
+	plan.internal_markers.some(marker => lower.includes(marker)) ||
+	(plan.icon + " " + subject).length > plan.max_title_units) {
+	text(JSON.stringify({ready:false, reason:"The current title is not safe to decorate"}));
+	exit();
+}
+const desired = plan.icon + " " + subject;
+if (desired === previous) {
+	text(JSON.stringify({ready:true, task_id:plan.task_id, title:previous, updated:false}));
+	exit();
+}
 let renamed;
 try {
-  renamed = decodeNative(await tools.codex_app__set_thread_title({title:plan.desired_title}));
+	renamed = decodeNative(await tools.codex_app__set_thread_title({title:desired}));
 } catch (error) {
-  text(JSON.stringify({ready:false, reason:"Codex title write failed", error:String(error)}));
-  exit();
+	text(JSON.stringify({ready:false, reason:"Codex title write failed", error:String(error)}));
+	exit();
 }
 if (!renamed || typeof renamed !== "object" || renamed.threadId !== plan.task_id ||
-    renamed.title !== plan.desired_title) {
-  text(JSON.stringify({ready:false, reason:"Codex title write was not confirmed exactly"}));
-  exit();
+	renamed.title !== desired) {
+	text(JSON.stringify({ready:false, reason:"Codex title write was not confirmed exactly"}));
+	exit();
 }
 text(JSON.stringify({ready:true, task_id:plan.task_id, title:renamed.title, updated:true}));
 ```
 
-The local command only prepares a safe title. When a write is needed, the mounted Codex app is the sole writer and receives no explicit task ID, so it can target only the calling task. Make at most one native write attempt. Never run the cell as a progress update. If the outer cell yields, wait only for that same cell; the yield does not cancel a slow native call. Never start another cell, poll the title, retry, or reconcile. A returned failure is local to this turn.
+The local command only returns the calling task ID and fixed title policy. The mounted Codex app reads the exact current title and is the sole writer. It receives no explicit task ID when writing, so it can target only the calling task. Make at most one native write attempt. Never run the cell as a progress update. If the outer cell yields, wait only for that same cell; the yield does not cancel a slow native call. Never start another cell, poll the title, retry, or reconcile. A returned failure is local to this turn.
 
-The status controls only the visible icon. ThreadBear preserves the task's exact safe subject and user-authored emoji. It never puts an owner or action in the title. Use:
+The status controls only the visible icon. ThreadBear reserves its six exact leading icon prefixes, preserves every other safe subject and user-authored emoji, and never puts an owner or action in the title. Use:
 
 - `complete` when the work is finished with no warranted follow-up.
 - `next_steps` when the response establishes one concrete next action for the user, agent, or an external party.

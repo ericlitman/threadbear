@@ -12,12 +12,6 @@ import (
 	"time"
 )
 
-func TestAppServerCurrentBudgetFitsTerminalCall(t *testing.T) {
-	if appServerCurrentTimeout != 3*time.Second {
-		t.Fatalf("App Server current-task timeout = %s", appServerCurrentTimeout)
-	}
-}
-
 func TestAppServerInventoryExhaustsPagesBeforeDedupe(t *testing.T) {
 	_, _ = testIndex(t)
 	installAppServerFixture(t, "multipage")
@@ -39,32 +33,6 @@ func TestAppServerInventoryExhaustsPagesBeforeDedupe(t *testing.T) {
 	}
 }
 
-func TestAppServerCurrentLookupPaginatesPastFirstPage(t *testing.T) {
-	_, index := testIndex(t)
-	index.setTitle(t, testTaskID, "Stable subject")
-	installAppServerFixture(t, "current-multipage")
-
-	result, err := runCurrentTitle(t.Context(), testTaskID, "complete")
-	if err != nil || !result.Ready || result.PreviousTitle != "Stable subject" ||
-		result.DesiredTitle != "✅ Stable subject" || !result.WriteRequired {
-		t.Fatalf("multipage current plan = %#v, %v", result, err)
-	}
-	requests := fixtureRequests(t)
-	if countFixtureMethod(requests, "thread/list") != 2 || countFixtureMethod(requests, "thread/read") != 0 ||
-		countFixtureMethod(requests, "thread/name/set") != 0 {
-		t.Fatalf("multipage current RPCs = %#v", requests)
-	}
-	second := fixtureMethod(requests, "thread/list", 1)
-	if fixtureStringParam(t, second, "cursor") != "current-page-2" ||
-		fixtureStringParam(t, second, "sortKey") != "recency_at" ||
-		fixtureStringParam(t, second, "sortDirection") != "desc" {
-		t.Fatalf("second current page = %#v", second)
-	}
-	if got := index.title(t, testTaskID); got != "Stable subject" {
-		t.Fatalf("multipage planner mutated title = %q", got)
-	}
-}
-
 func TestAppServerInventoryFailsBeforeStateWrites(t *testing.T) {
 	for _, apply := range []bool{false, true} {
 		t.Run(fmt.Sprintf("confirmed=%t", apply), func(t *testing.T) {
@@ -78,9 +46,8 @@ func TestAppServerInventoryFailsBeforeStateWrites(t *testing.T) {
 				!strings.Contains(err.Error(), "page 2") {
 				t.Fatalf("failed inventory = %#v, %v", result, err)
 			}
-			entries, err := os.ReadDir(newStore(stateDir()).subjectDir())
-			if err != nil || len(entries) != 0 {
-				t.Fatalf("failed inventory wrote state: %#v, %v", entries, err)
+			if _, err := os.Stat(stateDir()); !os.IsNotExist(err) {
+				t.Fatalf("failed inventory created ThreadBear state: %v", err)
 			}
 			if requests := fixtureRequests(t); countFixtureMethod(requests, "thread/name/set") != 0 ||
 				countFixtureMethod(requests, "thread/read") != 0 {
@@ -92,47 +59,11 @@ func TestAppServerInventoryFailsBeforeStateWrites(t *testing.T) {
 
 func TestAppServerNonzeroExitCannotOverturnCompleteProof(t *testing.T) {
 	_, index := testIndex(t)
-	index.setTitle(t, testTaskID, "Stable subject")
 	installAppServerFixture(t, "close-nonzero")
-	if result, err := runCurrentTitle(t.Context(), testTaskID, "complete"); err != nil || !result.Ready ||
-		!result.WriteRequired || result.DesiredTitle != "✅ Stable subject" {
-		t.Fatalf("current proof = %#v, %v", result, err)
-	}
-	clearFixtureRequests(t)
 	index.setTitle(t, testAlphaID, "Alpha")
 	if result, err := runOnboarding(t.Context(), true, testActiveID); err != nil || !result.Ready ||
-		result.OnboardingComplete || result.Prepared != 2 || result.NeedsUpdate != 2 {
+		result.OnboardingComplete || result.Prepared != 1 || result.NeedsUpdate != 1 {
 		t.Fatalf("onboarding proof = %#v, %v", result, err)
-	}
-}
-
-func TestAppServerCurrentFailuresStartOnlyOnce(t *testing.T) {
-	for _, test := range []struct {
-		name, scenario, contains string
-	}{
-		{"missing", "current-missing", "current task is absent"},
-		{"protocol", "current-protocol", "current thread/list page"},
-		{"response ID", "current-response-id", "unexpected Codex App Server response ID"},
-		{"repeated cursor", "current-repeated-cursor", "repeated next cursor"},
-		{"timeout", "current-timeout", "context deadline exceeded"},
-	} {
-		t.Run(test.name, func(t *testing.T) {
-			_, _ = testIndex(t)
-			if test.scenario == "current-timeout" {
-				setAppServerCurrentBudget(t, 150*time.Millisecond)
-			}
-			starts := installAppServerFixture(t, test.scenario)
-			if _, err := runCurrentTitle(t.Context(), testTaskID, "complete"); err == nil || !strings.Contains(err.Error(), test.contains) {
-				t.Fatalf("runCurrentTitle err=%v", err)
-			}
-			data, err := os.ReadFile(starts)
-			if test.scenario == "current-timeout" && os.IsNotExist(err) {
-				return // CommandContext may kill the wrapper before its one start marker.
-			}
-			if err != nil || string(data) != "x" {
-				t.Fatalf("App Server starts = %q, %v", data, err)
-			}
-		})
 	}
 }
 
@@ -163,7 +94,7 @@ func installAppServerFixture(t testing.TB, scenario string) string {
 	path, starts := filepath.Join(dir, "codex"), filepath.Join(dir, "starts")
 	requests := filepath.Join(dir, "requests.jsonl")
 	raceMarker := filepath.Join(dir, "concurrent-rename")
-	script := "#!/bin/sh\nprintf x >> \"$THREADBEAR_APP_SERVER_STARTS\"\nexec \"$THREADBEAR_TEST_BINARY\" -test.run=^TestAppServerFixtureProcess$ -- \"$@\"\n"
+	script := "#!/bin/sh\nif [ \"$1\" = \"--version\" ]; then echo 'codex-cli 0.146.0'; exit 0; fi\nprintf x >> \"$THREADBEAR_APP_SERVER_STARTS\"\nexec \"$THREADBEAR_TEST_BINARY\" -test.run=^TestAppServerFixtureProcess$ -- \"$@\"\n"
 	if err := os.WriteFile(path, []byte(script), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -172,7 +103,9 @@ func installAppServerFixture(t testing.TB, scenario string) string {
 	t.Setenv("THREADBEAR_APP_SERVER_STARTS", starts)
 	t.Setenv("THREADBEAR_APP_SERVER_REQUESTS", requests)
 	t.Setenv("THREADBEAR_APP_SERVER_RACE_MARKER", raceMarker)
-	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	previous := locateCodex
+	locateCodex = func() (string, error) { return path, nil }
+	t.Cleanup(func() { locateCodex = previous })
 	return starts
 }
 

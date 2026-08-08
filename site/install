@@ -14,7 +14,7 @@ Open with this orientation:
 
 > ## Hi. Let's install ThreadBear.
 >
-> ThreadBear keeps each Codex task's exact subject and adds one useful status icon at the end of a turn. It prepares one safe title, then Codex applies it once.
+> ThreadBear adds one useful status icon while keeping the rest of each safe task title intact. Codex reads and applies the title itself.
 >
 > I'll check this Mac, show you exactly what will change, and ask before installing anything. Afterward, Codex needs one restart. Then you can say **ThreadBear onboard** in any task to update every safe existing local task—there is no 50-task cap or persistent ThreadBear task.
 
@@ -22,7 +22,7 @@ Codex collapses commentary after a turn finishes, so the final answer that asks 
 
 For every lifecycle action, write the lasting summary after all tool calls. End the final response with **ThreadBear recap 🐻** and include the result, counts or uncertainty, what stayed untouched, and the next action. Never leave that recap only in commentary, progress notices, notifications, or raw tool output; those can disappear when Codex summarizes the turn.
 
-Keep that recap user-facing: do not copy raw fields or list internal files and components. Translate them into helper, title memory, instructions, and automatic updates. Group safe skips as “left unchanged” unless the user needs to act. An unconfirmed title write means “I couldn't confirm whether this title changed,” never “it stayed unchanged.”
+Keep that recap user-facing: do not copy raw fields or list internal files. Translate them into helper, instructions, skill, and automatic updates. Group safe skips as “left unchanged” unless the user needs to act. An unconfirmed title write means “I couldn't confirm whether this title changed,” never “it stayed unchanged.”
 
 ## 1. Check without changing anything
 
@@ -33,8 +33,14 @@ Run:
 ```sh
 sw_vers -productVersion
 uname -m
-command -v codex
-codex --version
+for codex_path in \
+  "$HOME/Applications/ChatGPT.app/Contents/Resources/codex" \
+  "$HOME/Applications/Codex.app/Contents/Resources/codex" \
+  /Applications/ChatGPT.app/Contents/Resources/codex \
+  /Applications/Codex.app/Contents/Resources/codex \
+  "$HOME/.local/bin/codex"; do
+  if [ -x "$codex_path" ]; then "$codex_path" --version; break; fi
+done
 curl --version
 curl -fsSLI https://threadbear.sh/install.sh >/dev/null
 curl -fsSLI https://github.com/ericlitman/threadbear/releases/latest >/dev/null
@@ -43,7 +49,7 @@ if [ -x "$HOME/.local/bin/threadbear" ]; then
 fi
 ```
 
-ThreadBear requires macOS 12 or newer, Apple silicon or Intel, Codex Desktop, and HTTPS access to the official guide and GitHub Releases. It needs no `sudo` or Full Disk Access. It never opens Codex SQLite or edits Desktop storage.
+ThreadBear requires macOS 12 or newer, Apple silicon or Intel, Codex Desktop 0.146.0 or newer, and HTTPS access to the official guide and GitHub Releases. It needs no `sudo` or Full Disk Access. Ordinary title updates work with Codex's default workspace permissions. Historical onboarding asks once for permission to read the complete local task catalog. ThreadBear never opens Codex SQLite.
 
 For an official release, run the verified bootstrap preview:
 
@@ -57,7 +63,7 @@ For an already-built local candidate, run:
 /path/to/threadbear install --dry-run --json
 ```
 
-The preview must pass candidate self-test and be limited to the binary, private subject records, managed AGENTS block, installed skill, and one daily update-only LaunchAgent. It must preserve unrelated AGENTS content, skills, settings, files, and LaunchAgents.
+The preview must pass candidate self-test and be limited to the binary, private lifecycle/update state, managed AGENTS block, installed skill, and one daily update-only LaunchAgent. It must preserve unrelated AGENTS content, skills, settings, files, and LaunchAgents.
 
 If the preview returns `legacy_reset_required:true`, require `legacy_main_task_id` plus `legacy_automation_id`, `legacy_automation_name`, `legacy_automation_kind`, and `legacy_automation_target_thread_id`. The target must equal the main-task ID. This is a clean 2.2.1 reset, not an in-place migration. Through supported native controls, verify the exact automation and former persistent task before proposing mutation. A collision, missing target, or uncertain owner stops the reset. The reset also removes only exact obsolete ThreadBear Pre/Post title-interception entries and preserves every foreign entry and its order. Import no old state and reinterpret no legacy title.
 
@@ -69,7 +75,7 @@ Only after the checks and dry run succeed, present this complete card in the sam
 >
 > - ThreadBear adds one helpful status icon without rewriting your task's subject or emoji.
 > - Existing tasks stay unchanged until you preview onboarding and approve it separately.
-> - A small local helper, Codex instructions, and private title memory are added.
+> - A small local helper, Codex instructions, and a ThreadBear skill are added.
 > - Once a day, ThreadBear checks for and installs only verified official releases. Updates never read tasks or change titles.
 > - Unclear or unsafe titles are left alone, and there is no persistent ThreadBear task.
 > - Other Codex settings and files stay untouched.
@@ -108,7 +114,7 @@ Add `--no-onboard` only when the user opted out. Add `--reset` only after the ex
 ~/.local/bin/threadbear status --json
 ```
 
-Core `ready` is healthy when the installed binary, private subject state, managed guidance, and skill match the candidate. Report the daily updater separately; missing automatic updates do not make title handling globally unready. Core readiness does not depend on historical title counts.
+Core `ready` is healthy when the installed binary, private lifecycle state, compatible Codex Desktop, managed guidance, and skill match the candidate. Report the daily updater separately; missing automatic updates do not make title handling globally unready. Core readiness does not depend on historical title counts.
 
 No controller, worker, migration phase, persistent task, or hidden onboarding job should exist after installation. If installation fails after mutation starts, report `partial:true`, the failed stage, whether restart is required, and the one safe rerun action. `planned_changes` is a plan, not a claim that every item ran.
 
@@ -132,7 +138,8 @@ After a successful install say:
 
 When that request arrives, read the installed skill and follow this protocol:
 
-1. Run `~/.local/bin/threadbear status --json`, then `~/.local/bin/threadbear onboard --dry-run --json`.
+1. Run `~/.local/bin/threadbear status --json`. Explain that Codex will ask once so ThreadBear can read the complete task list and that the preview changes nothing. Then run `~/.local/bin/threadbear onboard --dry-run --json` with `sandbox_permissions:"require_escalated"` and that plain-language justification.
+   If the host says approval requests are disabled, stop without running around that policy. End with **ThreadBear recap 🐻**: “No tasks changed. This task cannot ask for onboarding permission. Next: use a task where Codex can ask, then say **ThreadBear onboard**.” Do not change the user's permission settings.
 2. Require `ready:true`, `plan_complete:true`, and `read_only:true`. The preview enumerates and deduplicates the entire unarchived App Server catalog before any preparation or title write. If enumeration fails, make zero changes.
 3. Explain `total`, `safe`, and `needs_update` with this card:
 
@@ -154,7 +161,7 @@ The active caller, null or blank names, unsafe or overlong subjects, and ambiguo
 ~/.local/bin/threadbear onboard --noninteractive --confirm --json
 ```
 
-The confirmed command takes a fresh complete catalog snapshot, stores each safe subject, and returns one `prepared` action containing the snapshot title and desired title. It makes no Codex title writes. If preparation yields, the same JavaScript cell resumes that exact process through `tools.write_stdin`; it never starts another command. For every prepared item, call `tools.codex_app__read_thread({threadId:item.task_id,includeOutputs:false,turnLimit:1,maxOutputCharsPerItem:1})` immediately before a possible write. A missing, unreadable, wrong-ID, or changed-title response is skipped. Only an exact task ID and snapshot title may receive one serial `tools.codex_app__set_thread_title({threadId:item.task_id,title:item.desired_title})` call. Lightweight progress appears during preparation and every 25 outcomes. There is no item cap, wave, worker task, or resume state. Count only an exact returned task ID/title as `updated`; a throw, malformed response, or mismatch is `unconfirmed` and is never retried.
+The confirmed command asks for the same one-time permission, takes a fresh complete catalog snapshot, and returns one `prepared` action containing the snapshot title and desired title. It stores no titles and makes no Codex title writes. If preparation yields, the same JavaScript cell resumes that exact process through `tools.write_stdin`; it never starts another command. For every prepared item, call `tools.codex_app__read_thread({threadId:item.task_id,includeOutputs:false,turnLimit:1,maxOutputCharsPerItem:1})` immediately before a possible write. A missing, unreadable, wrong-ID, or changed-title response is skipped. Only an exact task ID and snapshot title may receive one serial `tools.codex_app__set_thread_title({threadId:item.task_id,title:item.desired_title})` call. Lightweight progress appears during preparation and every 25 outcomes. There is no item cap, wave, worker task, or resume state. Count only an exact returned task ID/title as `updated`; a throw, malformed response, or mismatch is `unconfirmed` and is never retried.
 
 Codex can keep an already-mounted historical row cached after an exact native write. Do not retry or add refresh machinery. The persisted title appears when its project is reopened or Codex restarts; say this plainly in the onboarding summary.
 
@@ -178,7 +185,7 @@ End with:
 ~/.local/bin/threadbear update --json
 ```
 
-The managed guidance runs one injection-safe terminal JavaScript cell immediately before an ordinary final response. Replace only the status enum; the parsed `plan.desired_title` variable passes directly to the native tool and is never re-embedded by the model. The cell runs `title --status <complete|next_steps|needs_input|blocked|automation> --json` exactly once. The binary reads the exact current title through the App Server, preserves the safe subject, and returns a plan without writing a title. When `write_required` is true, the cell calls `tools.codex_app__set_thread_title({title:plan.desired_title})` exactly once with `threadId` omitted, and accepts only the exact returned planned task ID and title. If the outer cell yields after 30 seconds, wait only for that same cell; the yield does not cancel a slow native call, which may delay the final response. Never retry, start another cell, poll the title, or reconcile.
+The managed guidance runs one injection-safe terminal JavaScript cell immediately before an ordinary final response. Replace only the status enum. The cell runs `title --status <complete|next_steps|needs_input|blocked|automation> --json` exactly once; the stateless helper returns the calling task ID and fixed title policy without starting App Server or writing state. The mounted app then reads that exact task, derives one safe desired title, and—only when it differs—calls `tools.codex_app__set_thread_title({title:desired})` once with `threadId` omitted. Exact returned task ID/title is required. If the outer cell yields after 30 seconds, wait only for that same cell; the yield does not cancel a slow native call. Never retry, start another cell, poll the title, or reconcile.
 
 `update` verifies the official manifest, release URLs, architecture, checksum, embedded version, and candidate self-test before replacement. Network or verification failure leaves the old installation untouched. A later managed-surface write can truthfully leave a rerunnable partial; the binary is written last. Every successful update reports `restart_required`. The daily LaunchAgent runs only this command and never reads tasks or changes titles.
 
@@ -212,7 +219,7 @@ End the consent turn with:
 
 > ## Here's what will happen
 >
-> - I'll remove ThreadBear's local helper, private title memory, Codex instructions, skill, and automatic updates.
+> - I'll remove ThreadBear's local helper, Codex instructions, skill, and automatic updates.
 > - Your tasks, other Codex settings, and unrelated files stay untouched.
 > - Existing title icons may remain until those tasks are renamed.
 > - After removal, you'll restart Codex once.
@@ -241,8 +248,8 @@ Before release, run unit and integration tests, race tests, both Darwin builds, 
 
 Release acceptance additionally requires one reviewed candidate live-tested end to end in Codex Desktop:
 
-- the terminal planner changes no Codex title, preserves the exact subject, and prepares only the status icon change;
-- the mounted app-native setter receives no explicit current-task ID and returns the exact planned task ID and title;
+- the stateless terminal helper works under Codex's default workspace permissions and starts no App Server or title-state write;
+- the mounted app-native reader supplies the exact current title, and the setter receives no explicit current-task ID and returns the exact task ID/title;
 - the rendered sidebar shows the expected title before and after a clean restart;
 - a full onboarding preview enumerates every local task, confirmed preparation writes no title, and the consented serial app-native pass accounts for every prepared target while skipping title drift before any write;
 - failures and unconfirmed results are reported locally without retries or global failure state;
