@@ -203,18 +203,21 @@ for encoded in sys.stdin:
     elif method == "thread/list":
         if params == {
             "archived": False,
-            "limit": 25,
+            "limit": 100,
             "sortKey": "recency_at",
             "sortDirection": "desc",
         }:
-            current_page = [
-                dict(by_id[blank_id]),
-                dict(by_id[delegated_id]),
-                dict(by_id[current_id]),
-                dict(by_id[raw_id]),
-            ]
-            send({"method": "fixture/notification", "params": {"stage": "current-page"}})
-            send({"id": request_id, "result": {"data": current_page, "nextCursor": "must-not-follow"}})
+            send({"method": "fixture/notification", "params": {"stage": "current-page-1"}})
+            send({"id": request_id, "result": {"data": threads[:100], "nextCursor": "current-page-2"}})
+        elif params == {
+            "archived": False,
+            "limit": 100,
+            "sortKey": "recency_at",
+            "sortDirection": "desc",
+            "cursor": "current-page-2",
+        }:
+            send({"method": "fixture/notification", "params": {"stage": "current-page-2"}})
+            send({"id": request_id, "result": {"data": threads[100:], "nextCursor": None}})
         elif params == {"archived": False, "limit": 100}:
             send({"method": "fixture/notification", "params": {"stage": "page-1"}})
             send({"id": request_id, "result": {"data": threads[:100], "nextCursor": "page-2"}})
@@ -678,9 +681,9 @@ PY
 cmp "$codex_home/hooks.json" "$hooks_before" >/dev/null ||
 	fail "current reinstall changed hooks.json"
 
-# The production binary plans from one current-list read and performs no title
-# write. The second fixture boundary simulates the exact mounted native setter
-# cell installed into Codex guidance.
+# The production binary finds the current task on the second sorted 100-item
+# page and performs no title write. The second fixture boundary simulates the
+# exact mounted native setter cell installed into Codex guidance.
 : >"$app_server_log"
 : >"$native_tool_log"
 run_threadbear title --status complete --json >"$root/title-complete-plan.json"
@@ -706,10 +709,13 @@ import json
 import sys
 
 messages = [json.loads(line) for line in open(sys.argv[1], encoding="utf-8")]
-assert [message["method"] for message in messages] == ["initialize", "initialized", "thread/list"], messages
-request = messages[2]
-assert request["id"] == 2, request
-assert request["params"] == {"archived": False, "limit": 25, "sortKey": "recency_at", "sortDirection": "desc"}, request
+assert [message["method"] for message in messages] == ["initialize", "initialized", "thread/list", "thread/list"], messages
+pages = messages[2:]
+assert [message["id"] for message in pages] == [2, 3], pages
+assert [message["params"] for message in pages] == [
+    {"archived": False, "limit": 100, "sortKey": "recency_at", "sortDirection": "desc"},
+    {"archived": False, "limit": 100, "sortKey": "recency_at", "sortDirection": "desc", "cursor": "current-page-2"},
+], pages
 assert not any(message.get("method") == "thread/name/set" for message in messages), messages
 PY
 "$simulate_mounted" current "$root/title-complete-plan.json" "$app_server_state" "$native_tool_log" "$root/title-complete.json" "" ""
@@ -777,7 +783,7 @@ import json
 import sys
 
 messages = [json.loads(line) for line in open(sys.argv[1], encoding="utf-8")]
-assert [message.get("method") for message in messages].count("thread/list") == 1, messages
+assert [message.get("method") for message in messages].count("thread/list") == 2, messages
 assert not any(message.get("method") == "thread/name/set" for message in messages), messages
 PY
 
@@ -803,7 +809,7 @@ import json
 import sys
 
 messages = [json.loads(line) for line in open(sys.argv[1], encoding="utf-8")]
-assert [message.get("method") for message in messages].count("thread/list") == 1, messages
+assert [message.get("method") for message in messages].count("thread/list") == 2, messages
 assert not any(message.get("method") == "thread/name/set" for message in messages), messages
 PY
 cmp "$codex_home/hooks.json" "$hooks_before" >/dev/null ||
