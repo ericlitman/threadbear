@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "updated_at": "2026-08-07",
+  "updated_at": "2026-08-08",
   "canonical_for": "ThreadBear title-path architecture and live experiments",
   "capabilities": [
     {
@@ -81,13 +81,14 @@
     {
       "id": "TB-CAP-UPDATER-TEARDOWN-SERIALIZATION",
       "premise": "Confirmed uninstall waits for an in-flight verified updater before removing its lock or any managed surface, so that updater cannot later replace a fresh installation with its stale candidate.",
-      "status": "unresolved",
+      "status": "established",
       "supported_by": [
-        "TB-EXP-0116-004"
+        "TB-EXP-0116-004",
+        "TB-EXP-0116-005"
       ],
       "contradicted_by": [],
-      "decision": "TB-EXP-0116-004 proves that uninstall drains a process already holding the original update.lock inode. The final review identified a narrower admission gap: an old updater can start before teardown, open the replacement lock after its pathname is unlinked, wait behind a fresh installer, and then act on that replacement installation. The corrected updater now fingerprints its running executable and rechecks the installed binary after locking; TB-PRE-0116-003 must prove that exact guard before release.",
-      "next_preflight": "TB-PRE-0116-003"
+      "decision": "TB-EXP-0116-004 proves that uninstall drains a process already holding the original update.lock inode. TB-EXP-0116-005 closes the narrower replacement-lock admission gap: an exact final updater waiting on update.lock rejected a different installed binary at local installation admission, before update work or a receipt, and the restored final candidate then passed release smoke and clean-restart health. Together they establish bounded updater teardown and stale-process rejection for the exact v3.0.0 candidate.",
+      "next_preflight": null
     }
   ],
   "experiments": [
@@ -389,6 +390,49 @@
       },
       "confidence": "high",
       "applicability": "Closes TB-PRE-0116-002 and establishes both updater-teardown serialization and the mounted-writer restart-persistence premise for exact final candidate b5cc0cbe on Desktop 26.803.41515. It does not override detached-writer rejection or remove the need for future Desktop-build release canaries.",
+      "supersedes": [],
+      "conflicts": []
+    },
+    {
+      "id": "TB-EXP-0116-005",
+      "date": "2026-08-08",
+      "issue": "BEAR-116",
+      "preflight_id": "TB-PRE-0116-003",
+      "question": "Does an updater from the exact final v3.0.0 candidate reject a different binary installed while it waits on update.lock, and does the restored artifact retain the release, restart, title, and BEAR-117 conversational UX gates?",
+      "invariant": "A queued updater may act only while the installed binary remains byte-identical to the executable that started it; failure must be local before update work, and the exact restored candidate must remain healthy and user-legible after a clean restart.",
+      "environment": {
+        "threadbear_version": "3.0.0 exact final local candidate; arm64 CGO=0 binary SHA-256 489ca988d6a3c7487500c64366bd07e9a7cd35187dc46d38f19eb34274c84424; amd64 SHA-256 fd3d0684ee2ceb286adb3ff9a3c9fffc5b1e49cfd1b4f42b62ed4a1a32e16dd2",
+        "git_sha": "2cd2d5377b19edf9b72b80e2297357f83459d7dd",
+        "codex_version": "Desktop 26.803.41515 build 6321; detached CLI 0.146.0",
+        "codex_source": "vscode",
+        "host": "local macOS arm64",
+        "task_state": "active task rendered as `➡️ Diagnose ThreadBear failures`; dedicated local lifecycle task retained the final friendly uninstall recap; native catalog contained 360 tasks in the prior full-catalog product canary",
+        "restart_state": "the restored exact candidate launched replacement ChatGPT PID 83381 at 2026-08-08 09:46:08 EDT; the exact active title and lifecycle recap were present after restart, with the recap reread at 09:47:30 EDT",
+        "hook_fingerprint": "no current-format ThreadBear title hook; hooks.json SHA-256 43d2619e3510054cc165f9b1f7915e16c20a162fa4427d2ed0b20294141ddf04 remained outside the product path",
+        "guidance_fingerprint": "installed skill SHA-256 f78f5c58ded4d361be8feaca79be1f43d06fdf8eeb2fc52a7a1f21a4ad15191b at 4,884 bytes; complete AGENTS.md SHA-256 b6828aa9f9e13e4305dcc2b268fcc3e5c7a2a4123325c2f0062d554079bf8dd7"
+      },
+      "invocation": {
+        "outer_tool": "one coordinated real update.lock hold and binary replacement; exact-candidate release smoke; exact install/status/self-test; Codex list_threads; and read-only Computer Use inspection across a full app quit and relaunch",
+        "code": "start the exact installed updater while a real process holds update.lock; verify both processes hold the same inode; replace the installed binary through the automatic-install path; release the lock; require local stage=installation rejection and no update receipt; restore the exact final candidate; run exact-candidate smoke; verify byte hashes, runtime health, current title, and the durable BEAR-117 recap after clean restart",
+        "native_tool_identity": "codex_app__set_thread_title remains the sole title writer; this experiment made no title mutation",
+        "target_identity_mode": "no title target; read-only mounted checks used the exact active and lifecycle task IDs"
+      },
+      "evidence": [
+        "linear:BEAR-116",
+        "linear:BEAR-117",
+        "github-pr:124",
+        "git:2cd2d5377b19edf9b72b80e2297357f83459d7dd",
+        "codex-rollout:019fdcce-d0dc-7522-ad8e-a0c3c1c02110"
+      ],
+      "result": {
+        "status": "observed",
+        "summary": "The exact 489ca988 updater blocked on the held update.lock. After the installed binary was replaced with prior candidate b5cc0cbe and the lock was released, the queued process exited `stage:installation` with `installed binary changed after this updater process started`; it created no update receipt and did not continue as the replacement install. The exact 489ca988 candidate was restored, reproduced from source, passed the isolated exact-candidate release smoke, reported version/self-test/status ready with the exact update-only LaunchAgent, and retained `➡️ Diagnose ThreadBear failures` after a full app restart. The lifecycle canary's final response remained visible after reopen and restart as `ThreadBear recap 🐻` with plain removal, preservation, icon, and restart language.",
+        "timing_ms": "the queued updater remained blocked for the explicit hold and rejected immediately after release; the restored recap was reread 82 seconds after the replacement ChatGPT process started",
+        "hook_participation": "none; the updater probe and recap inspection do not use title hooks",
+        "rendered_proof": "Privacy-safe final-response recap screenshot SHA-256 dbbb35cf4f5e8083abab5da57fcf7ffc0369691372d790ae3ebd2a5f46a6035a; final restored restart also has exact accessibility-text proof in the linked rollout"
+      },
+      "confidence": "high",
+      "applicability": "Closes TB-PRE-0116-003 and establishes stale-updater rejection plus restored exact-candidate release health for v3.0.0 on Desktop 26.803.41515. The BEAR-117 evidence establishes final-response durability and tone for the recorded lifecycle canary; future Desktop builds and future user-facing guidance changes still require their release canaries.",
       "supersedes": [],
       "conflicts": []
     },
@@ -1295,7 +1339,7 @@
       "id": "TB-PRE-0116-003",
       "issue": "BEAR-116",
       "capability_id": "TB-CAP-UPDATER-TEARDOWN-SERIALIZATION",
-      "status": "pending",
+      "status": "closed",
       "consulted": [
         "TB-EXP-0116-003",
         "TB-EXP-0116-004"
@@ -1308,7 +1352,7 @@
         "If the queued updater reaches the manifest, launches candidate installation, accepts the replacement binary, leaves a receipt in the replacement installation, or the correction disturbs any previously proved lifecycle or title behavior, the capability remains unresolved and v3.0.0 must not ship."
       ],
       "stop_condition": "Stop after one deterministic real-binary replacement-while-waiting probe with zero network admission, one exact-candidate release smoke, one live updater-lock uninstall check, one live reinstall, one controlled current and historical mounted-write check, one full Codex process restart, and read-only post-restart runtime/artifact verification. Do not add a generation file, another lock, retry a title write, or claim release readiness until one linked result closes this preflight.",
-      "result_experiment_id": ""
+      "result_experiment_id": "TB-EXP-0116-005"
     }
   ]
 }
