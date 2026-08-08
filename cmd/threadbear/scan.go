@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"os"
 )
 
 const (
@@ -21,14 +20,14 @@ type indexedTask struct {
 }
 
 type currentTitleResult struct {
-	Ready         bool   `json:"ready"`
-	TaskID        string `json:"task_id"`
-	Status        string `json:"status"`
-	PreviousTitle string `json:"previous_title"`
-	DesiredTitle  string `json:"desired_title"`
-	WriteRequired bool   `json:"write_required"`
-	Unchanged     bool   `json:"unchanged"`
-	Reason        string `json:"reason"`
+	Ready           bool     `json:"ready"`
+	TaskID          string   `json:"task_id"`
+	Status          string   `json:"status"`
+	Icon            string   `json:"icon"`
+	OwnedPrefixes   []string `json:"owned_prefixes"`
+	BlockedPrefixes []string `json:"blocked_prefixes"`
+	InternalMarkers []string `json:"internal_markers"`
+	MaxTitleUnits   int      `json:"max_title_units"`
 }
 
 type onboardingItem struct {
@@ -55,96 +54,27 @@ type onboardingResult struct {
 	Items              []onboardingItem `json:"items"`
 }
 
-func runCurrentTitle(ctx context.Context, taskID, status string) (currentTitleResult, error) {
+func runCurrentTitle(_ context.Context, taskID, status string) (currentTitleResult, error) {
 	result := currentTitleResult{TaskID: taskID, Status: status}
-	if _, ok := statusIcons[status]; !ok {
+	icon, ok := statusIcons[status]
+	if !ok {
 		return result, fmt.Errorf("unsupported ThreadBear status %q", status)
 	}
 	if !taskIDPattern.MatchString(taskID) {
 		return result, errors.New("CODEX_THREAD_ID is unavailable or invalid")
 	}
-
-	disk := newStore(stateDir())
-	fence, err := disk.lifecycleFence()
-	if err != nil {
-		return result, err
-	}
-	defer unlock(fence)
-	client, err := startAppServer(ctx, appServerCurrentBudget)
-	if err != nil {
-		return result, err
-	}
-	defer client.abort()
-	err = func() error {
-		task, err := client.currentTask(2, taskID)
-		if err != nil {
-			return err
-		}
-		if task.RawFallback {
-			result.Reason = "native task name is blank; task is raw or unowned"
-			return errors.New(result.Reason)
-		}
-
-		subject, err := persistSubjectUnderFence(disk, task.ID, task.Title)
-		if err != nil {
-			result.Reason = "subject could not be resolved or saved"
-			return err
-		}
-		desired, err := renderTitle(status, subject)
-		if err != nil {
-			result.Reason = "desired title could not be rendered"
-			return err
-		}
-		result.PreviousTitle, result.DesiredTitle = task.Title, desired
-		result.WriteRequired = desired != task.Title
-		result.Unchanged = !result.WriteRequired
-		if result.WriteRequired {
-			result.Reason = "app-native title write required"
-		} else {
-			result.Reason = "native title already matches desired title"
-		}
-		result.Ready = true
-		return nil
-	}()
-	if err != nil {
-		return result, err
-	}
-
-	// The exact native name was already read and the plan is complete. Process
-	// exit cannot change that proof, so close and reap without promoting it into
-	// another title observation.
-	client.close()
+	result.Ready = true
+	result.Icon = icon
+	result.OwnedPrefixes = append([]string(nil), ownedTitlePrefixes...)
+	result.BlockedPrefixes = append([]string(nil), blockedTitlePrefixes...)
+	result.InternalMarkers = append([]string(nil), internalEnvelopeMarkers...)
+	result.MaxTitleUnits = maxTitleUnits
 	return result, nil
-}
-
-func persistSubjectUnderFence(disk store, taskID, currentTitle string) (string, error) {
-	var subject string
-	err := disk.updateTaskUnderFence(taskID, func(record *taskState) (bool, error) {
-		resolved, err := resolveSubject(currentTitle, *record)
-		if err != nil {
-			return false, err
-		}
-		subject = resolved
-		changed := record.Subject != resolved
-		*record = taskState{Subject: resolved}
-		return changed, nil
-	})
-	return subject, err
 }
 
 func runOnboarding(ctx context.Context, apply bool, activeTaskID string) (onboardingResult, error) {
 	if apply && !taskIDPattern.MatchString(activeTaskID) {
 		return onboardingResult{}, errors.New("CODEX_THREAD_ID is unavailable or invalid")
-	}
-	disk := newStore(stateDir())
-	var fence *os.File
-	var err error
-	if apply {
-		fence, err = disk.lifecycleFence()
-		if err != nil {
-			return onboardingResult{}, err
-		}
-		defer unlock(fence)
 	}
 	budget := appServerListBudget
 	if apply {
@@ -168,41 +98,18 @@ func runOnboarding(ctx context.Context, apply bool, activeTaskID string) (onboar
 		client.close()
 		return result, nil
 	}
-
-	var operationErr error
-	// The completed thread/list snapshot is the preparation authority. Subject
-	// state is safe to pre-persist: the later app-native writer owns the immediate
-	// title observation and a future planner adopts any safe intervening rename.
 	for index := range items {
 		item := &items[index]
 		if !item.Safe || item.TaskID == activeTaskID || item.Outcome != onboardingNeedsUpdate {
 			continue
 		}
-		targetErr := func() error {
-			if _, err := persistSubjectUnderFence(disk, item.TaskID, item.Title); err != nil {
-				item.Outcome = onboardingSkipped
-				item.Reason = "subject state could not be saved"
-				return fmt.Errorf("save subject state for %s: %w", item.TaskID, err)
-			}
-			item.Outcome = onboardingPrepared
-			item.Reason = "app-native title write required"
-			return nil
-		}()
-		if targetErr != nil {
-			if item.Outcome != onboardingSkipped {
-				item.Outcome = onboardingSkipped
-				item.Reason = "the ThreadBear lifecycle changed before this task could be prepared"
-			}
-			operationErr = errors.Join(operationErr, targetErr)
-		}
+		item.Outcome = onboardingPrepared
+		item.Reason = "app-native title write required"
 	}
-	// Reap the one long-lived process after every admitted task has been
-	// prepared. Exit is proof-neutral once the plan is complete.
 	client.close()
 	result = summarizeOnboarding(items, false)
-	result.Ready, result.PlanComplete = operationErr == nil, true
-	result.OnboardingComplete = result.OnboardingComplete && operationErr == nil
-	return result, operationErr
+	result.Ready, result.PlanComplete = true, true
+	return result, nil
 }
 
 func excludeActiveOnboardingTask(items []onboardingItem, activeTaskID string) {
@@ -220,7 +127,6 @@ func excludeActiveOnboardingTask(items []onboardingItem, activeTaskID string) {
 
 func prepareOnboardingItems(tasks []indexedTask) []onboardingItem {
 	items := make([]onboardingItem, 0, len(tasks))
-	disk := newStore(stateDir())
 	for _, task := range tasks {
 		item := onboardingItem{TaskID: task.ID, Outcome: onboardingSkipped}
 		if task.RawFallback {
@@ -228,23 +134,15 @@ func prepareOnboardingItems(tasks []indexedTask) []onboardingItem {
 			items = append(items, item)
 			continue
 		}
-		record, readErr := disk.readTask(task.ID)
-		if errors.Is(readErr, os.ErrNotExist) {
-			record = taskState{}
-		} else if readErr != nil {
-			item.Reason = "subject state is unreadable"
-			items = append(items, item)
-			continue
-		}
-		if record.Subject != "" && isOwnedRendering(task.Title, record.Subject) {
-			item.Title, item.Subject, item.DesiredTitle = task.Title, record.Subject, task.Title
-			item.Safe, item.Outcome, item.Reason = true, onboardingUnchanged, "already decorated"
-			items = append(items, item)
-			continue
-		}
-		subject, subjectErr := resolveSubject(task.Title, record)
+		subject, decorated, subjectErr := subjectFromTitle(task.Title)
 		if subjectErr != nil {
 			item.Reason = subjectErr.Error()
+			items = append(items, item)
+			continue
+		}
+		if decorated {
+			item.Title, item.Subject, item.DesiredTitle = task.Title, subject, task.Title
+			item.Safe, item.Outcome, item.Reason = true, onboardingUnchanged, "already decorated"
 			items = append(items, item)
 			continue
 		}

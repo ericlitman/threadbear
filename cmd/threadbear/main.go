@@ -62,7 +62,7 @@ func run(ctx context.Context, args []string, _ io.Reader, stdout, stderr io.Writ
 		action = func() (any, error) { return status(ctx) }
 	case "self-test":
 		flags.Bool("candidate", false, "validate this binary before installation")
-		action = selfTest
+		action = func() (any, error) { return selfTest(ctx) }
 	case "update":
 		automatic := flags.Bool("automatic", false, "run from the update-only LaunchAgent")
 		action = func() (any, error) { return update(ctx, *automatic) }

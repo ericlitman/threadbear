@@ -95,7 +95,6 @@ func TestInstallPreviewConfirmationAndOnboardingReceipt(t *testing.T) {
 	}
 	planned := got["planned_changes"].([]string)
 	wantPlanned := []string{
-		"manage subject records under " + newStore(stateDir()).subjectDir(),
 		"manage update receipt " + p.updateReceipt,
 		"replace managed AGENTS block in " + p.agents,
 		"write skill " + p.skill,
@@ -166,13 +165,14 @@ func TestLifecycleNeverTouchesCodexHooks(t *testing.T) {
 			}
 		}
 	}
-	if !strings.Contains(string(agents), "plan.write_required") || !strings.Contains(string(skill), `item.outcome === "prepared"`) {
+	if !strings.Contains(string(agents), "plan.owned_prefixes") || !strings.Contains(string(skill), `item.outcome === "prepared"`) {
 		t.Fatalf("installed guidance lacks planner/prepared contract: AGENTS=%q skill=%q", agents, skill)
 	}
 	for _, required := range []string{
 		"const decodeNative = value => {",
 		`if (typeof value !== "string") return value;`,
 		"return JSON.parse(value)",
+		"decodeNative(await tools.codex_app__read_thread",
 		"decodeNative(await tools.codex_app__set_thread_title",
 	} {
 		if !strings.Contains(string(agents), required) {
@@ -328,7 +328,7 @@ func TestResetRerunsAfterPartialInstallWithoutDeletingNewSubjects(t *testing.T) 
 		t.Fatalf("partial reset removed legacy admission state: %v", err)
 	}
 	subjectID := "019fc53a-4aa6-7221-ad51-165301675116"
-	subjectPath := filepath.Join(newStore(stateDir()).subjectDir(), subjectID+".json")
+	subjectPath := filepath.Join(legacySubjectDir(), subjectID+".json")
 	mustWrite(t, subjectPath, `{"subject":"Keep this subject"}`+"\n")
 	fake.bootstrapErr = nil
 	if _, err := install(context.Background(), installOptions{Confirmed: true, Reset: true}); err != nil {
@@ -535,7 +535,7 @@ func TestStatusDoesNotReadCodexDatabase(t *testing.T) {
 	if !regularExecutable(p.binary) {
 		t.Fatal("installed binary disappeared")
 	}
-	mustWrite(t, filepath.Join(newStore(stateDir()).subjectDir(), "corrupt.json"), "not-json")
+	mustWrite(t, filepath.Join(legacySubjectDir(), "corrupt.json"), "not-json")
 	mustWrite(t, p.updateReceipt, "not-json")
 	fake := currentFakeLaunchctl(t)
 	fake.mu.Lock()
@@ -615,7 +615,7 @@ func TestOnboardReturnsCompleteReadOnlyPlan(t *testing.T) {
 		t.Fatal(err)
 	}
 	value := result.(onboardingResult)
-	if !value.Ready || !value.ReadOnly || !value.PlanComplete || value.OnboardingComplete || value.Total != 3 || value.Safe != 1 || value.NeedsUpdate != 1 || value.Prepared != 0 || value.Unchanged != 0 || value.Skipped != 2 {
+	if !value.Ready || !value.ReadOnly || !value.PlanComplete || value.OnboardingComplete || value.Total != 3 || value.Safe != 2 || value.NeedsUpdate != 1 || value.Prepared != 0 || value.Unchanged != 1 || value.Skipped != 1 {
 		t.Fatalf("onboard plan = %#v", value)
 	}
 	items := value.Items
@@ -628,16 +628,15 @@ func TestOnboardReturnsCompleteReadOnlyPlan(t *testing.T) {
 		t.Fatal(err)
 	}
 	active := activeResult.(onboardingResult)
-	if !active.OnboardingComplete || active.NeedsUpdate != 0 || active.Prepared != 0 || active.Unchanged != 1 || active.Items[2].Outcome != onboardingUnchanged || active.Items[2].Reason != "active task is handled by the terminal title writer" {
+	if !active.OnboardingComplete || active.NeedsUpdate != 0 || active.Prepared != 0 || active.Unchanged != 2 || active.Items[2].Outcome != onboardingUnchanged || active.Items[2].Reason != "active task is handled by the terminal title writer" {
 		t.Fatalf("active-task onboarding plan = %#v", active)
 	}
 	data, err := os.ReadFile(requests)
 	if err != nil || !strings.Contains(string(data), `"method":"initialize"`) || !strings.Contains(string(data), `"cursor":"next"`) {
 		t.Fatalf("App Server requests = %q, %v", data, err)
 	}
-	entries, err := os.ReadDir(newStore(stateDir()).subjectDir())
-	if err != nil || len(entries) != 0 {
-		t.Fatalf("read-only onboard wrote subject state: %#v, %v", entries, err)
+	if _, err := os.Stat(legacySubjectDir()); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("read-only onboard created obsolete subject state: %v", err)
 	}
 }
 
@@ -645,6 +644,7 @@ func stubPagedAppServer(t *testing.T) string {
 	t.Helper()
 	dir, requests := t.TempDir(), filepath.Join(t.TempDir(), "requests.jsonl")
 	script := `#!/bin/sh
+if [ "$1" = --version ]; then echo 'codex-cli 0.146.0'; exit 0; fi
 [ "$1" = app-server ] && [ "$2" = --stdio ] || exit 80
 count=0
 while IFS= read -r line; do
@@ -665,7 +665,11 @@ done
 	if err := os.Chmod(path, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	previous := locateCodex
+	locateCodex = func(context.Context) (codexCompatibility, error) {
+		return codexCompatibility{Path: path, Version: "0.146.0"}, nil
+	}
+	t.Cleanup(func() { locateCodex = previous })
 	t.Setenv("TB_APP_SERVER_REQUESTS", requests)
 	return requests
 }
@@ -906,10 +910,10 @@ func TestUninstallRemovesOwnedArtifactsAndPreservesNeighbors(t *testing.T) {
 	neighbor := filepath.Join(filepath.Dir(p.skill), "notes.md")
 	mustWrite(t, neighbor, "preserve")
 	stateNeighbor := filepath.Join(stateDir(), "user-note.txt")
-	subjectNeighbor := filepath.Join(newStore(stateDir()).subjectDir(), "user-note.txt")
+	subjectNeighbor := filepath.Join(legacySubjectDir(), "user-note.txt")
 	ownedID := "019fc53a-4aa6-7221-ad51-165301675116"
-	ownedRecord := filepath.Join(newStore(stateDir()).subjectDir(), ownedID+".json")
-	ownedLock := filepath.Join(newStore(stateDir()).subjectDir(), ownedID+".lock")
+	ownedRecord := filepath.Join(legacySubjectDir(), ownedID+".json")
+	ownedLock := filepath.Join(legacySubjectDir(), ownedID+".lock")
 	mustWrite(t, stateNeighbor, "preserve state neighbor")
 	mustWrite(t, subjectNeighbor, "preserve subject neighbor")
 	mustWrite(t, ownedRecord, `{"subject":"Owned subject"}`+"\n")
@@ -971,7 +975,7 @@ func TestLifecycleIsolatesCorruptOwnedStateAndPreservesNeighbors(t *testing.T) {
 	if _, err := install(context.Background(), installOptions{Confirmed: true}); err != nil {
 		t.Fatal(err)
 	}
-	subjectDir := newStore(stateDir()).subjectDir()
+	subjectDir := legacySubjectDir()
 	owned := filepath.Join(subjectDir, "019fc53a-4aa6-7221-ad51-165301675116.json")
 	unknownJSON := filepath.Join(subjectDir, "unknown.json")
 	unknownLock := filepath.Join(subjectDir, "unknown.lock")
@@ -1017,7 +1021,10 @@ func TestUninstallRefusesUnsafeOwnedSubjectLeafBeforeMutation(t *testing.T) {
 	}
 	target := filepath.Join(t.TempDir(), "mine")
 	mustWrite(t, target, "mine")
-	ownedLink := filepath.Join(newStore(stateDir()).subjectDir(), "019fc53a-4aa6-7221-ad51-165301675116.lock")
+	if err := os.MkdirAll(legacySubjectDir(), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	ownedLink := filepath.Join(legacySubjectDir(), "019fc53a-4aa6-7221-ad51-165301675116.lock")
 	if err := os.Symlink(target, ownedLink); err != nil {
 		t.Fatal(err)
 	}
@@ -1075,7 +1082,7 @@ func TestUninstallPartialNamesStageAndSafeRerun(t *testing.T) {
 	if err := os.Rename(backup, codexHome()); err != nil {
 		t.Fatal(err)
 	}
-	fence, err := newStore(stateDir()).lifecycleFence()
+	fence, err := existingLifecycleLock("lifecycle.lock")
 	if err != nil {
 		t.Fatal(err)
 	}

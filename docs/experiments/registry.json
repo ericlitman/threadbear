@@ -481,6 +481,50 @@
       "conflicts": []
     },
     {
+      "id": "TB-EXP-0116-007",
+      "date": "2026-08-08",
+      "issue": "BEAR-116",
+      "preflight_id": null,
+      "question": "Does the v3.0.1 stateless correction run its ordinary helper inside Codex's default workspace boundary, retain one mounted title write and clean-restart repaint, and preserve the friendly lifecycle contract without per-task title state?",
+      "invariant": "Ordinary title handling must need only the installed stateless helper plus the mounted Codex reader and sole writer; historical catalog access remains a separate permissioned onboarding action, and lifecycle outcomes remain visible in the final response.",
+      "environment": {
+        "threadbear_version": "3.0.1 exact reviewed candidate; arm64 CGO=0 binary SHA-256 df753a0b065d447437ebd157315b11db83e7ce7e55d73f4a5dd086bcd082fca3; amd64 SHA-256 6bd088c1934233e3e9ff89e0eee37e0c6d82e754ba5e5404582b68dc55c0b083",
+        "git_sha": "c792f183d459b7be39f0c8fb002b1addfe548eb2",
+        "codex_version": "Desktop 26.803.41515 build 6321; embedded codex-cli 0.147.0-alpha.6.5",
+        "codex_source": "vscode",
+        "host": "local macOS arm64",
+        "task_state": "active mounted BEAR-116 task; complete native onboarding catalog contained 360 tasks, with 335 safe already-decorated rows and 25 deliberately skipped rows",
+        "restart_state": "the exact reviewed title was rendered under ChatGPT PID 169 and remained mounted after replacement PID 16358 started at 2026-08-08 16:30:55 EDT with the reviewed managed guidance",
+        "hook_fingerprint": "no ThreadBear title hook; hooks configuration SHA-256 43d2619e3510054cc165f9b1f7915e16c20a162fa4427d2ed0b20294141ddf04 remained unchanged",
+        "guidance_fingerprint": "installed skill SHA-256 3f915f1b06485a8f05443cd9cac3e076e07d78f6ffd9f83809cf70175a45deec at 5,108 bytes; complete installed guidance SHA-256 65d8962dcfe53904ce84a7b7a2e655182c88e066a7d7cded2e5173e1deae8fb8"
+      },
+      "invocation": {
+        "outer_tool": "exact installed ordinary-turn JavaScript cell through functions.exec; fixed official Codex sandbox command; read-only onboarding preview; Computer Use inspection; confirmed lifecycle uninstall, release smoke, and reinstall",
+        "code": "run the stateless title helper under the default workspace profile; make one controlled mounted current-task title write with task ID omitted; inspect header and sidebar; replace the Desktop process; reread the exact title and guidance; enumerate the complete catalog without writes; preview and commit removal, exact-smoke the candidate, then reinstall the same bytes",
+        "native_tool_identity": "mounted codex_app__read_thread plus one codex_app__set_thread_title call as the ordinary title boundary; App Server thread/list only for permissioned onboarding enumeration",
+        "target_identity_mode": "current task by exact mounted read and omitted setter task ID; onboarding catalog by complete paginated native IDs with no historical writes in this run"
+      },
+      "evidence": [
+        "linear:BEAR-116",
+        "linear:BEAR-117",
+        "github-pr:125",
+        "github-pr:124",
+        "git:c792f183d459b7be39f0c8fb002b1addfe548eb2",
+        "codex-rollout:019fdcce-d0dc-7522-ad8e-a0c3c1c02110"
+      ],
+      "result": {
+        "status": "observed",
+        "summary": "The exact committed helper ran successfully under the default workspace profile without App Server or ThreadBear title-state access. The exact managed cell made one mounted current-task write and rendered `➡️ Diagnose ThreadBear failures` in the header and sidebar. A genuine Desktop process replacement loaded the new managed block and retained that title. The full live onboarding preview exhausted all 360 tasks with zero writes. The older candidate was previewed and removed, the exact committed candidate passed the real-LaunchAgent release smoke, and the same arm64 bytes reinstalled with core and updater health ready.",
+        "timing_ms": "the mounted write returned in 2.8 seconds; replacement PID 16358 was inspected after launch and retained the exact title",
+        "hook_participation": "none; ordinary turns are stateless and hook-free",
+        "rendered_proof": "Exact reviewed post-restart Desktop screenshot SHA-256 c4fff98071b94df182c0ac0ab11d09740e15cc97e45f11f9dfe54887d31c6c8c; the mounted pre-restart receipt and post-restart native read both returned `➡️ Diagnose ThreadBear failures`"
+      },
+      "confidence": "high",
+      "applicability": "Records the exact v3.0.1 default-workspace, mounted current-title, restart, full-catalog preview, and lifecycle correction on Desktop 26.803.41515. This host disables approval requests, so approvals-enabled onboarding prompt/resume remains covered by executable embedded-JavaScript and smoke fixtures rather than a live prompt; the documented no-change approval-disabled path was honored without bypass.",
+      "supersedes": [],
+      "conflicts": []
+    },
+    {
       "id": "TB-EXP-0102-001",
       "date": "2026-07-31",
       "issue": "BEAR-102",

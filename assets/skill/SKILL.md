@@ -5,27 +5,28 @@ description: Install, onboard, update, check, or uninstall ThreadBear for Codex 
 
 # ThreadBear
 
-Be upbeat/plain. For each lifecycle change:
+Be upbeat and plain.
 
 - Before consent, end with **Here's what will happen**: changes, untouched items, restart, one question.
 - After tools, end with **ThreadBear recap 🐻**: result, uncertainty, next action.
 
-Never leave it in commentary/tool output. Recap visible facts, not raw results or internal names. Safe skips are “left unchanged.” For an unconfirmed title say “I couldn't confirm whether this title changed.” Give partials one safe next action.
+Put the recap in the final answer. Call safe skips “left unchanged.” Give partials one action.
 
 ## Install or reset
 
-Follow `https://threadbear.sh/install`. Preview helper, title memory, instructions, automatic installation of verified official updates; leave tasks/settings/titles. Restart; then onboard.
+Follow `https://threadbear.sh/install`. Preview the helper, instructions, skill, and daily updates; leave tasks, settings, and titles alone. Restart, then onboard.
 
-For 2.2.1, verify old task/automation; delete/unpin only those, without renaming. Stop on mismatch; import nothing.
+For 2.2.1, touch only the verified old task and automation; stop on mismatch.
 
-Install with consent; verify `version`, `self-test`, `status`. Recap:
+After consent, install; verify `version`, `self-test`, `status`. Recap:
 
 > Open any task after restart and say: **ThreadBear onboard**
 
 ## Onboard existing tasks
 
-1. Run `status --json`, then `onboard --dry-run --json`. Require `ready:true`, `plan_complete:true`, `read_only:true`, full catalog.
-2. Say: “I found N tasks. X are safe; Y need an icon. The rest stay untouched. I'll recheck each before one change.” Ask consent; ignore `preview`.
+1. Run `status --json`. Say: “Codex will ask once so ThreadBear can read your complete task list. This preview changes nothing.” Run `onboard --dry-run --json` with `sandbox_permissions:"require_escalated"`. Require `ready:true`, `plan_complete:true`, `read_only:true`.
+   If Codex says approval requests are disabled, stop. Never change settings or bypass permission. Recap: “No tasks changed. This task cannot ask. Next: use a task that can, then say **ThreadBear onboard**.”
+2. Say: “N tasks found. X are safe; Y need an icon. The rest stay untouched. I'll recheck each before one change.” Ask consent.
 3. After consent, run this exact cell once:
 
 ```js
@@ -34,7 +35,9 @@ notify("ThreadBear onboarding: preparing");
 let local = await tools.exec_command({
   cmd:"\"$HOME/.local/bin/threadbear\" onboard --noninteractive --confirm --json",
   yield_time_ms:30000,
-  max_output_tokens:200000
+  max_output_tokens:200000,
+  sandbox_permissions:"require_escalated",
+  justification:"Allow ThreadBear to read the full Codex task list for the onboarding you approved?"
 });
 let output = local.output || "";
 while (local.session_id !== undefined) {
@@ -49,10 +52,10 @@ while (local.session_id !== undefined) {
 if (local.exit_code !== 0) { text(local); exit(); }
 let plan;
 try { plan = JSON.parse(output); }
-catch { text(JSON.stringify({ready:false,reason:"Malformed preparation"})); exit(); }
+catch { text(JSON.stringify({ready:false,reason:"Malformed plan"})); exit(); }
 if (!plan || plan.ready !== true || plan.plan_complete !== true ||
     plan.read_only !== false || !Number.isInteger(plan.total) || !Array.isArray(plan.items)) {
-  text(JSON.stringify({ready:false,reason:"Incomplete preparation"})); exit();
+  text(JSON.stringify({ready:false,reason:"Incomplete plan"})); exit();
 }
 const prepared = plan.items.filter(item => item.outcome === "prepared");
 if (prepared.some(item => !item || typeof item.task_id !== "string" ||
@@ -97,12 +100,12 @@ text(JSON.stringify({
 }));
 ```
 
-If yielded, wait; progress every 25. Recap: `Updated X of N existing tasks; Y were left unchanged; Z could not be confirmed.` Skip drift; no retry. Rows may refresh after reopen/restart. No cap or persistent task.
+Recap: `Updated X of N existing tasks; Y were left unchanged; Z could not be confirmed.` No retry, cap, or persistent task.
 
 ## Update
 
-Automatic updates never read tasks. Preview official download, verification, replacement, restart. With consent run `update --json`; recap version, restart, safe rerun.
+Preview download, checks, replacement, and restart. With consent run `update --json`; recap version and next action.
 
 ## Uninstall
 
-Run `uninstall --dry-run --json`. Preview removing helper, title memory, instructions, skill, automatic updates; keep tasks/settings/files; icons may remain. Ask consent. Run `uninstall --noninteractive --confirm --json`. Only `uninstalled:true` means removed; otherwise recap the partial and its one safe next action. After commit, no title cell. Recap exactly: “ThreadBear was removed. Its helper, title memory, instructions, skill, and automatic updates are gone. Tasks, settings, and files stayed; icons may remain. Restart Codex.”
+Run `uninstall --dry-run --json`. Preview removing the helper, instructions, skill, and updates; keep tasks, settings, and files; icons may remain. Ask consent. Run `uninstall --noninteractive --confirm --json`. Only `uninstalled:true` means removed; otherwise recap the partial and next action. After commit, no title cell. Recap exactly: “ThreadBear was removed. Its helper, instructions, skill, and automatic updates are gone. Tasks, settings, and files stayed; icons may remain. Restart Codex.”

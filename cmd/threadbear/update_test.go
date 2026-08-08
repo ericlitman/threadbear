@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -49,9 +50,8 @@ func TestUpdateNewerCurrentAndAutomaticReceipt(t *testing.T) {
 	if readErr != nil || json.Unmarshal(data, &receipt) != nil || receipt.Outcome != "updated" || receipt.Version != "1.2.4" || !receipt.Automatic || !receipt.RestartRequired || receipt.CheckedAt == "" {
 		t.Fatalf("update receipt = %#v, %v", receipt, readErr)
 	}
-	entries, err := os.ReadDir(newStore(stateDir()).subjectDir())
-	if err != nil || len(entries) != 0 {
-		t.Fatalf("update touched subject records: %#v, %v", entries, err)
+	if _, err := os.Stat(legacySubjectDir()); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("update created obsolete subject state: %v", err)
 	}
 
 	version = "1.2.4"
@@ -111,7 +111,7 @@ func TestUpdateRefusesLegacyAndMissingInstallBeforeNetwork(t *testing.T) {
 	if err := os.Remove(filepath.Join(stateDir(), "native.json")); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.RemoveAll(newStore(stateDir()).subjectDir()); err != nil {
+	if err := os.Remove(filepath.Join(stateDir(), "lifecycle.lock")); err != nil {
 		t.Fatal(err)
 	}
 	_, err = update(context.Background(), false)

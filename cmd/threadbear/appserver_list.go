@@ -13,14 +13,12 @@ import (
 )
 
 const (
-	appServerCurrentTimeout    = 3 * time.Second
 	appServerListLimit         = 100
 	appServerListTimeout       = 30 * time.Second
 	appServerOnboardingTimeout = 10 * time.Minute
 )
 
 var (
-	appServerCurrentBudget    = appServerCurrentTimeout
 	appServerListBudget       = appServerListTimeout
 	appServerOnboardingBudget = appServerOnboardingTimeout
 )
@@ -58,7 +56,12 @@ type appServerClient struct {
 
 func startAppServer(ctx context.Context, timeout time.Duration) (_ *appServerClient, err error) {
 	runCtx, cancel := context.WithTimeout(ctx, timeout)
-	cmd := exec.CommandContext(runCtx, "codex", "app-server", "--stdio")
+	codex, err := locateCodex(runCtx)
+	if err != nil {
+		cancel()
+		return nil, err
+	}
+	cmd := exec.CommandContext(runCtx, codex.Path, "app-server", "--stdio")
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
 		cancel()
@@ -136,47 +139,6 @@ func (client *appServerClient) ioError(operation string, err error) error {
 		return fmt.Errorf("%s: %w", operation, client.ctx.Err())
 	}
 	return fmt.Errorf("%s: %w", operation, err)
-}
-
-func (client *appServerClient) currentTask(requestID int, id string) (indexedTask, error) {
-	seenCursors := make(map[string]struct{})
-	var cursor *string
-	for pageNumber := 1; ; pageNumber++ {
-		params := map[string]any{
-			"archived": false, "limit": appServerListLimit,
-			"sortKey": "recency_at", "sortDirection": "desc",
-		}
-		if cursor != nil {
-			params["cursor"] = *cursor
-		}
-		operation := fmt.Sprintf("read Codex App Server current thread/list page %d", pageNumber)
-		result, err := client.request(requestID, "thread/list", params, operation)
-		if err != nil {
-			return indexedTask{}, err
-		}
-		requestID++
-		page, next, err := decodeAppServerThreadPage(result)
-		if err != nil {
-			return indexedTask{}, fmt.Errorf("%s: %w", operation, err)
-		}
-		for index := range page {
-			if page[index].ID != nil && *page[index].ID == id {
-				return indexedTaskFromAppServer(page[index])
-			}
-		}
-		if next == nil {
-			break
-		}
-		if *next == "" {
-			return indexedTask{}, fmt.Errorf("%s: empty next cursor", operation)
-		}
-		if _, repeated := seenCursors[*next]; repeated {
-			return indexedTask{}, fmt.Errorf("%s: repeated next cursor", operation)
-		}
-		seenCursors[*next] = struct{}{}
-		cursor = next
-	}
-	return indexedTask{}, errors.New("read Codex App Server current thread/list: current task is absent")
 }
 
 func (client *appServerClient) inventory(nextRequestID *int) ([]indexedTask, error) {

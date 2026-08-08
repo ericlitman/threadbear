@@ -46,9 +46,9 @@
   </header>
   <h2>Small by design</h2>
   <div class="grid">
-    <div class="card"><strong>One terminal update</strong>Each turn runs one bounded cell: local planning, then at most one mounted Codex title write.</div>
-    <div class="card"><strong>Your subject stays yours</strong>ThreadBear preserves safe user renames byte-for-byte and changes only its one leading icon.</div>
-    <div class="card"><strong>The mounted app writes</strong>A short-lived App Server client prepares the safe title; Codex's native setter applies it and returns the exact result.</div>
+    <div class="card"><strong>One terminal update</strong>Each turn runs one stateless cell: Codex reads the title, then makes at most one native title write.</div>
+    <div class="card"><strong>Your subject stays yours</strong>ThreadBear reserves six exact current icon prefixes, preserves every other safe emoji and subject byte, and leaves ambiguous old prefixes unchanged.</div>
+    <div class="card"><strong>The mounted app owns titles</strong>Ordinary turns use Codex's mounted native reader and writer—no helper process reaches into Codex storage.</div>
     <div class="card"><strong>Every native page accounted for</strong>Onboarding finishes App Server pagination before serial app-native writes, with no arbitrary first-50 cap.</div>
     <div class="card"><strong>Uncertainty stays local</strong>Unsafe or ambiguous titles are left unchanged. A returned failure is not retried or promoted into global state.</div>
     <div class="card"><strong>A verified new coat</strong>One daily update-only LaunchAgent installs checksummed, self-tested official releases and never reads tasks.</div>
@@ -57,10 +57,10 @@
   <p class="states" aria-label="blocked, needs input, automation, next steps, complete, onboarded">🚨 🙋 🤖 ➡️ ✅ 🐻</p>
   <p>Each mark is followed by the exact user-owned subject. Owners and actions stay in response prose, and overlong subjects are left unchanged instead of truncated.</p>
   <h2>Small, private footprint</h2>
-  <p>ThreadBear installs at <code>~/.local/bin/threadbear</code>, keeps tiny private per-task subject records under <code>~/.local/share/threadbear</code>, and adds one managed instruction block, one skill, and one daily update-only LaunchAgent.</p>
+  <p>ThreadBear installs at <code>~/.local/bin/threadbear</code> and adds one managed instruction block, one skill, small lifecycle/update state, and one daily update-only LaunchAgent. It keeps no per-task title database.</p>
   <p>Release binaries are not Developer ID signed or notarized. The installer verifies the published SHA-256 checksum and candidate self-test before installation.</p>
   <h2>Honest boundaries</h2>
-  <p>One short-lived official App Server is the read/planning authority only; the mounted Codex app's native setter is the sole title writer. The terminal cell prepares the exact current task title, makes at most one native call, and accepts only the exact returned task ID and title. Onboarding fully paginates <code>thread/list</code>, immediately rereads each prepared task through the mounted app, skips drift, and applies at most once with no item cap. A null or blank <code>name</code> is raw and unowned; <code>preview</code> is never adopted. There is no SQLite access, daemon, proxy, cache, model, retry, fallback, queue, or repair pass.</p>
+  <p>Ordinary turns work with Codex's default workspace permissions and start no App Server. Historical onboarding asks once for permission, then launches App Server from a fixed Codex Desktop path, fully paginates <code>thread/list</code>, immediately rereads each prepared task through the mounted app, skips drift, and applies at most once with no item cap. A null or blank <code>name</code> is raw; <code>preview</code> is never adopted. There is no SQLite access, title database, daemon, proxy, cache, model, retry, fallback, queue, or repair pass.</p>
   <p>The updater never reads tasks. Network and candidate-verification failures leave the old install untouched; a later local surface failure is reported as a rerunnable partial with the binary written last. Updater health is reported separately from title-core readiness.</p>
   <footer>MIT licensed. Built for tidy threads and small bears. 🧵🐻</footer>
 </main>
