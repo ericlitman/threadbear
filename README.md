@@ -11,7 +11,7 @@ ThreadBear is a small local title decorator for Codex Desktop. Immediately befor
 | ✅ | complete |
 | 🐻 | existing task onboarded, status not yet known |
 
-The visible shape is `<mark> <exact subject>`. ThreadBear reserves those six exact leading icon prefixes; every other safe leading emoji and the rest of the subject stay byte-exact. Owners and actions stay in response prose. A title it cannot handle safely stays unchanged rather than truncated.
+The visible shape is `<mark> <exact subject>`. ThreadBear reserves those six exact leading icon prefixes. Every other safe leading emoji and subject byte stays exact, except an ambiguous old ThreadBear prefix is deliberately left unchanged rather than guessed. Owners and actions stay in response prose. A title it cannot handle safely stays unchanged rather than truncated.
 
 ## Install
 

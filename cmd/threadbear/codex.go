@@ -16,7 +16,7 @@ import (
 const minimumCodexVersion = "0.146.0"
 
 var (
-	locateCodex       = locateDesktopCodex
+	locateCodex       = locateCompatibleDesktopCodex
 	codexVersionLimit = 5 * time.Second
 	codexVersionRE    = regexp.MustCompile(`^codex-cli ([0-9]+)\.([0-9]+)\.([0-9]+)(?:[-+].*)?$`)
 )
@@ -26,17 +26,29 @@ type codexCompatibility struct {
 	Version string
 }
 
-func locateDesktopCodex() (string, error) {
+func locateCompatibleDesktopCodex(ctx context.Context) (codexCompatibility, error) {
+	var rejected []error
 	for _, path := range desktopCodexCandidates(homeDir()) {
 		info, err := os.Stat(path)
 		if err == nil && info.Mode().IsRegular() && info.Mode().Perm()&0o111 != 0 {
-			return path, nil
+			compatible, versionErr := inspectCodexVersion(ctx, path)
+			if versionErr == nil {
+				return compatible, nil
+			}
+			rejected = append(rejected, fmt.Errorf("%s: %w", path, versionErr))
+			if ctx.Err() != nil {
+				return codexCompatibility{}, ctx.Err()
+			}
+			continue
 		}
 		if err != nil && !errors.Is(err, os.ErrNotExist) {
-			return "", fmt.Errorf("inspect Codex Desktop executable %s: %w", path, err)
+			return codexCompatibility{}, fmt.Errorf("inspect Codex Desktop executable %s: %w", path, err)
 		}
 	}
-	return "", errors.New("Codex Desktop command is unavailable; update or restart Codex and try again")
+	if len(rejected) != 0 {
+		return codexCompatibility{}, fmt.Errorf("no compatible Codex Desktop command found: %w", errors.Join(rejected...))
+	}
+	return codexCompatibility{}, errors.New("Codex Desktop command is unavailable; update or restart Codex and try again")
 }
 
 func desktopCodexCandidates(home string) []string {
@@ -50,10 +62,10 @@ func desktopCodexCandidates(home string) []string {
 }
 
 func requireCompatibleCodex(ctx context.Context) (codexCompatibility, error) {
-	path, err := locateCodex()
-	if err != nil {
-		return codexCompatibility{}, err
-	}
+	return locateCodex(ctx)
+}
+
+func inspectCodexVersion(ctx context.Context, path string) (codexCompatibility, error) {
 	runCtx, cancel := context.WithTimeout(ctx, codexVersionLimit)
 	defer cancel()
 	output, err := exec.CommandContext(runCtx, path, "--version").Output()

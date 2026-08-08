@@ -56,12 +56,12 @@ type appServerClient struct {
 
 func startAppServer(ctx context.Context, timeout time.Duration) (_ *appServerClient, err error) {
 	runCtx, cancel := context.WithTimeout(ctx, timeout)
-	codex, err := locateCodex()
+	codex, err := locateCodex(runCtx)
 	if err != nil {
 		cancel()
 		return nil, err
 	}
-	cmd := exec.CommandContext(runCtx, codex, "app-server", "--stdio")
+	cmd := exec.CommandContext(runCtx, codex.Path, "app-server", "--stdio")
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
 		cancel()

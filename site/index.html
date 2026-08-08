@@ -47,7 +47,7 @@
   <h2>Small by design</h2>
   <div class="grid">
     <div class="card"><strong>One terminal update</strong>Each turn runs one stateless cell: Codex reads the title, then makes at most one native title write.</div>
-    <div class="card"><strong>Your subject stays yours</strong>ThreadBear reserves six exact icon prefixes, preserves every other safe emoji and subject byte, and changes only its icon.</div>
+    <div class="card"><strong>Your subject stays yours</strong>ThreadBear reserves six exact current icon prefixes, preserves every other safe emoji and subject byte, and leaves ambiguous old prefixes unchanged.</div>
     <div class="card"><strong>The mounted app owns titles</strong>Ordinary turns use Codex's mounted native reader and writer—no helper process reaches into Codex storage.</div>
     <div class="card"><strong>Every native page accounted for</strong>Onboarding finishes App Server pagination before serial app-native writes, with no arbitrary first-50 cap.</div>
     <div class="card"><strong>Uncertainty stays local</strong>Unsafe or ambiguous titles are left unchanged. A returned failure is not retried or promoted into global state.</div>

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -104,7 +105,9 @@ func installAppServerFixture(t testing.TB, scenario string) string {
 	t.Setenv("THREADBEAR_APP_SERVER_REQUESTS", requests)
 	t.Setenv("THREADBEAR_APP_SERVER_RACE_MARKER", raceMarker)
 	previous := locateCodex
-	locateCodex = func() (string, error) { return path, nil }
+	locateCodex = func(context.Context) (codexCompatibility, error) {
+		return codexCompatibility{Path: path, Version: "0.146.0"}, nil
+	}
 	t.Cleanup(func() { locateCodex = previous })
 	return starts
 }

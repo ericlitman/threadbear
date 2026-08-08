@@ -8,6 +8,7 @@
 
 - Made ordinary title updates work under Codex's default workspace permissions by moving the current-title read to the mounted app and removing ordinary App Server and filesystem access.
 - Stopped resolving Codex from repository-controlled `PATH`; onboarding now uses a fixed Desktop executable and install, self-test, and status require Codex Desktop 0.146.0 or newer.
+- Continued through the fixed Desktop locations when an older user-local Codex bundle appears before a compatible system installation.
 
 ### Changed
 

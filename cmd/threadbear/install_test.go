@@ -666,7 +666,9 @@ done
 		t.Fatal(err)
 	}
 	previous := locateCodex
-	locateCodex = func() (string, error) { return path, nil }
+	locateCodex = func(context.Context) (codexCompatibility, error) {
+		return codexCompatibility{Path: path, Version: "0.146.0"}, nil
+	}
 	t.Cleanup(func() { locateCodex = previous })
 	t.Setenv("TB_APP_SERVER_REQUESTS", requests)
 	return requests

@@ -42,6 +42,7 @@ func TestPublishedInstallGuideMatchesCurrentProduct(t *testing.T) {
 	}
 	requireText(t, guide,
 		"the stateless helper returns the calling task ID and fixed title policy",
+		"The check prints every fixed Codex Desktop command it finds",
 		"For every lifecycle action, write the lasting summary after all tool calls.",
 		"Nothing changes in this step.",
 		"Existing task titles will not change in this step.",
@@ -104,6 +105,7 @@ func TestPublishedInstallGuideMatchesCurrentProduct(t *testing.T) {
 		"uninstall --prepare",
 		"state_N.sqlite",
 		"rereads every candidate",
+		`"$codex_path" --version; break`,
 		"serially exactly once for every prepared item",
 		"do not poll, retry, reconcile, or delay the response",
 	)

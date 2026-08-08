@@ -24,12 +24,13 @@ var statusIcons = map[string]string{
 	"automation":  "🤖",
 }
 
-// These exact visible prefixes are reserved for ThreadBear. Every other
-// leading emoji remains part of the user's subject.
+// These exact visible prefixes are reserved for current ThreadBear titles.
+// Other leading emoji remain user text unless they match an ambiguous old
+// ThreadBear rendering below, which cannot be distinguished safely.
 var ownedTitlePrefixes = []string{"✅ ", "➡️ ", "🙋 ", "🚨 ", "🤖 ", "🐻 "}
 
-// Older operation-shaped titles are ambiguous. Leave them untouched instead
-// of adopting them as a subject or stacking another icon.
+// Older operation-shaped titles are ambiguous. Leave the complete title
+// untouched instead of guessing whether its leading emoji is user-authored.
 var blockedTitlePrefixes = []string{"➡ ", "⏳ ", "❔ ", "🧵🐻"}
 
 var internalEnvelopeMarkers = []string{

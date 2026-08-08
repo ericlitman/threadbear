@@ -20,7 +20,7 @@ func writeCodexVersionFixture(t *testing.T, path, response string) {
 	}
 }
 
-func TestLocateDesktopCodexUsesFixedDesktopPathNotPATH(t *testing.T) {
+func TestLocateCompatibleDesktopCodexUsesFixedDesktopPathNotPATH(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	malicious := filepath.Join(t.TempDir(), "codex")
@@ -38,22 +38,39 @@ func TestLocateDesktopCodexUsesFixedDesktopPathNotPATH(t *testing.T) {
 			t.Fatal("ambient PATH executable entered the fixed candidate list")
 		}
 	}
-	got, err := locateDesktopCodex()
+	got, err := locateCompatibleDesktopCodex(context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got == malicious {
-		t.Fatalf("located ambient PATH executable %q", got)
+	if got.Path == malicious {
+		t.Fatalf("located ambient PATH executable %q", got.Path)
 	}
-	if got != path {
-		t.Fatalf("located %q; want per-user Desktop executable %q", got, path)
+	if got.Path != path {
+		t.Fatalf("located %q; want per-user Desktop executable %q", got.Path, path)
 	}
 	found := false
 	for _, candidate := range candidates {
-		found = found || got == candidate
+		found = found || got.Path == candidate
 	}
 	if !found {
-		t.Fatalf("located %q outside fixed Desktop candidates", got)
+		t.Fatalf("located %q outside fixed Desktop candidates", got.Path)
+	}
+}
+
+func TestLocateCompatibleDesktopCodexSkipsStaleEarlierBundle(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	stale := filepath.Join(home, "Applications", "ChatGPT.app", "Contents", "Resources", "codex")
+	supported := filepath.Join(home, "Applications", "Codex.app", "Contents", "Resources", "codex")
+	writeCodexVersionFixture(t, stale, "codex-cli 0.145.9")
+	writeCodexVersionFixture(t, supported, "codex-cli 0.147.0")
+
+	got, err := locateCompatibleDesktopCodex(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Path != supported || got.Version != "0.147.0" {
+		t.Fatalf("compatibility = %#v; want later supported bundle", got)
 	}
 }
 
@@ -71,7 +88,9 @@ func TestRequireCompatibleCodexVersions(t *testing.T) {
 			path := filepath.Join(t.TempDir(), "codex")
 			writeCodexVersionFixture(t, path, test.response)
 			previous := locateCodex
-			locateCodex = func() (string, error) { return path, nil }
+			locateCodex = func(ctx context.Context) (codexCompatibility, error) {
+				return inspectCodexVersion(ctx, path)
+			}
 			t.Cleanup(func() { locateCodex = previous })
 
 			got, err := requireCompatibleCodex(context.Background())
@@ -97,7 +116,9 @@ func TestRequireCompatibleCodexTimesOut(t *testing.T) {
 		t.Fatal(err)
 	}
 	previousLocate, previousLimit := locateCodex, codexVersionLimit
-	locateCodex = func() (string, error) { return path, nil }
+	locateCodex = func(ctx context.Context) (codexCompatibility, error) {
+		return inspectCodexVersion(ctx, path)
+	}
 	codexVersionLimit = 20 * time.Millisecond
 	t.Cleanup(func() { locateCodex, codexVersionLimit = previousLocate, previousLimit })
 	_, err := requireCompatibleCodex(context.Background())

@@ -11,7 +11,7 @@ ThreadBear is one Go executable, one managed instruction block, one installed sk
 5. The cell strips at most one of ThreadBear's six reserved leading icon prefixes, preserves every other subject byte, and renders the selected icon. If the title already matches, it stops. Otherwise it calls mounted `set_thread_title` once with no explicit task ID.
 6. Success requires the exact returned task ID and title. A throw, malformed response, or mismatch stays local. The task never starts another cell, polls the title, retries, or reconciles.
 
-The enum controls only the icon. ThreadBear reserves `✅ `, `➡️ `, `🙋 `, `🚨 `, `🤖 `, and neutral onboarding `🐻 ` as its visible ownership boundary. A user title beginning with one of those exact prefixes is the deliberately bounded ambiguity; every other leading emoji remains user text.
+The enum controls only the icon. ThreadBear reserves `✅ `, `➡️ `, `🙋 `, `🚨 `, `🤖 `, and neutral onboarding `🐻 ` as its visible ownership boundary. A title beginning with one of those current prefixes is deliberately ambiguous. The obsolete `➡ `, `⏳ `, `❔ `, and `🧵🐻` forms are also ambiguous after a clean v2 reset, so ThreadBear leaves the complete title unchanged rather than guessing whether its leading emoji is user-authored. Every other leading emoji remains user text.
 
 Codex has no compare-and-swap title primitive. The mounted read and possible write remain in one terminal cell, and onboarding rereads each historical target immediately before its one possible write. If live canaries show practical corruption or response blocking, rewriting is disabled instead of wrapped in reconciliation machinery.
 

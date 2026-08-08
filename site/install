@@ -33,14 +33,19 @@ Run:
 ```sh
 sw_vers -productVersion
 uname -m
+codex_found=
 for codex_path in \
   "$HOME/Applications/ChatGPT.app/Contents/Resources/codex" \
   "$HOME/Applications/Codex.app/Contents/Resources/codex" \
   /Applications/ChatGPT.app/Contents/Resources/codex \
   /Applications/Codex.app/Contents/Resources/codex \
   "$HOME/.local/bin/codex"; do
-  if [ -x "$codex_path" ]; then "$codex_path" --version; break; fi
+  if [ -x "$codex_path" ]; then
+    printf '%s: ' "$codex_path"
+    if "$codex_path" --version; then codex_found=1; fi
+  fi
 done
+test -n "$codex_found"
 curl --version
 curl -fsSLI https://threadbear.sh/install.sh >/dev/null
 curl -fsSLI https://github.com/ericlitman/threadbear/releases/latest >/dev/null
@@ -49,7 +54,7 @@ if [ -x "$HOME/.local/bin/threadbear" ]; then
 fi
 ```
 
-ThreadBear requires macOS 12 or newer, Apple silicon or Intel, Codex Desktop 0.146.0 or newer, and HTTPS access to the official guide and GitHub Releases. It needs no `sudo` or Full Disk Access. Ordinary title updates work with Codex's default workspace permissions. Historical onboarding asks once for permission to read the complete local task catalog. ThreadBear never opens Codex SQLite.
+ThreadBear requires macOS 12 or newer, Apple silicon or Intel, Codex Desktop 0.146.0 or newer, and HTTPS access to the official guide and GitHub Releases. The check prints every fixed Codex Desktop command it finds; ThreadBear uses the first one that actually reports a compatible version. It needs no `sudo` or Full Disk Access. Ordinary title updates work with Codex's default workspace permissions. Historical onboarding asks once for permission to read the complete local task catalog. ThreadBear never opens Codex SQLite.
 
 For an official release, run the verified bootstrap preview:
 

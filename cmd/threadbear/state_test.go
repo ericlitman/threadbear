@@ -20,8 +20,9 @@ func TestSubjectFromTitleUsesFiniteVisiblePrefixes(t *testing.T) {
 			t.Errorf("subjectFromTitle(%q) = %q, %t, %v", test.title, subject, decorated, err)
 		}
 	}
-	// A leading ThreadBear icon is the one intentionally reserved ambiguity.
-	// Every other user-authored emoji remains byte-exact subject text.
+	// A current ThreadBear icon is one intentionally reserved ambiguity. The
+	// finite old prefixes below are also left untouched because they cannot be
+	// distinguished safely; every other user emoji remains byte-exact.
 	if subject, decorated, err := subjectFromTitle("✅ User-authored prefix"); err != nil ||
 		subject != "User-authored prefix" || !decorated {
 		t.Fatalf("reserved prefix = %q, %t, %v", subject, decorated, err)
