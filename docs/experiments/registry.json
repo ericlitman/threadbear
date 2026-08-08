@@ -69,11 +69,13 @@
     {
       "id": "TB-CAP-MOUNTED-NATIVE-REPAINT",
       "premise": "The final ThreadBear planner plus mounted Codex native setter repaints current and historical task titles immediately and preserves those rendered titles across a clean Codex restart.",
-      "status": "unresolved",
-      "supported_by": [],
+      "status": "established",
+      "supported_by": [
+        "TB-EXP-0116-003"
+      ],
       "contradicted_by": [],
-      "decision": "TB-EXP-0116-002 is strong exploratory evidence, but it was collected without the registry's required preflight. Run the declared exact-final-candidate reproduction before using this premise for release.",
-      "next_preflight": "TB-PRE-0116-001"
+      "decision": "TB-EXP-0116-003 executed the declared preflight against exact reviewed candidate f1ba8307. One current-task mounted write and one controlled historical mounted write returned exact IDs and titles, repainted the mounted UI, survived a full Codex process restart, and left the installed core and update-only LaunchAgent healthy. This establishes the release premise for that exact candidate and Desktop build; future Desktop builds still require the release canary.",
+      "next_preflight": null
     }
   ],
   "experiments": [
@@ -290,6 +292,50 @@
       "confidence": "high",
       "applicability": "Establishes the corrected planner-plus-mounted-writer product path, raw JSON-text decoding boundary, immediate current and historical repaint, and clean-restart persistence for exact artifact f20bf5c7 on Desktop 26.803.41515. It does not override TB-EXP-0116-001: detached App Server title mutation remains rejected, and future Desktop builds still require the recorded release canary.",
       "supersedes": [],
+      "conflicts": []
+    },
+    {
+      "id": "TB-EXP-0116-003",
+      "date": "2026-08-07",
+      "issue": "BEAR-116",
+      "preflight_id": "TB-PRE-0116-001",
+      "question": "Does the exact post-review v3.0.0 candidate repaint one current task and one controlled historical task through the mounted native writer, then preserve both exact rendered titles across a full Codex process restart?",
+      "invariant": "The local binary prepares safe subjects and desired titles, the mounted Codex app performs the sole title mutation, and release success requires exact native responses plus rendered current and historical title persistence after a genuinely new Desktop process starts.",
+      "environment": {
+        "threadbear_version": "3.0.0 exact local candidate; arm64 CGO=0 binary SHA-256 f1ba83079d8bfbd0d2013e89aa76cf03fd320857e40bbb8c551792950d213e7a",
+        "git_sha": "4cc3670911de9ac8f9c82a2b36a91b472ed84293",
+        "codex_version": "Desktop 26.803.41515 build 6321; detached CLI 0.146.0",
+        "codex_source": "vscode",
+        "host": "local macOS arm64",
+        "task_state": "one active mounted task plus one visible historical target selected from a complete 360-task native catalog; both controlled canaries began from exact undecorated subjects",
+        "restart_state": "both mounted titles were captured before restart; the replacement ChatGPT process PID 16852 started at 2026-08-07 22:17:01 EDT and both exact titles were recaptured in the mounted UI at 22:18:31 EDT",
+        "hook_fingerprint": "no ThreadBear title hook; current-format title mutation used only the mounted native setter",
+        "guidance_fingerprint": "installed skill SHA-256 d6936e3b44dce04507b4fc3919e927c96bc3c4f065ccabd0d58c545100454763; complete AGENTS.md SHA-256 b6828aa9f9e13e4305dcc2b268fcc3e5c7a2a4123325c2f0062d554079bf8dd7"
+      },
+      "invocation": {
+        "outer_tool": "the exact installed ordinary-turn and onboarding JavaScript cells through functions.exec, followed by read-only Computer Use mounted inspection before and after a full app quit and relaunch",
+        "code": "ordinary path: one local title plan and one current-task mounted setter with task ID omitted; onboarding path: complete 360-task preparation, exact mounted target ID/title reread, and one explicit-target mounted setter; both decoded raw JSON text and required exact returned ID/title",
+        "native_tool_identity": "codex_app__set_thread_title as sole writer; codex_app__read_thread only for immediate onboarding drift validation; paginated thread/list reads only inside the local planner",
+        "target_identity_mode": "current task by omitted task ID; historical target by authoritative explicit ID after exact mounted ID/title reread"
+      },
+      "evidence": [
+        "linear:BEAR-116",
+        "github-pr:124",
+        "git:4cc3670911de9ac8f9c82a2b36a91b472ed84293",
+        "codex-rollout:019fdcce-d0dc-7522-ad8e-a0c3c1c02110"
+      ],
+      "result": {
+        "status": "observed",
+        "summary": "The exact current-task cell confirmed one mounted write and repainted the active task to `➡️ Diagnose ThreadBear failures`. The exact onboarding cell enumerated 360 tasks, prepared one controlled target, confirmed one mounted write with zero skipped or unconfirmed outcomes, and repainted it to `🐻 Update website copy boxes`. After a full Codex quit and relaunch created a new process, both exact titles remained rendered. The exact candidate binary, guidance, subject store, and update-only LaunchAgent then remained ready and byte-identical.",
+        "timing_ms": "unknown: each immediate repaint was present in the next mounted capture; restart persistence was captured 90 seconds after the replacement app process started",
+        "hook_participation": "none; no current-format ThreadBear title hook participated and every title mutation used the mounted native setter directly",
+        "rendered_proof": "Privacy-safe evidence retained outside the repository: historical immediate repaint SHA-256 bf09d1a9590360345e694bd2c83a5dc7c41f6dd50b6c4c88163f886ffd865051; current immediate repaint SHA-256 6258278fcd0d5a944b7c426a43254d6c7148551f09f428a0dc84d36c3c5b05d8; full-process-restart persistence SHA-256 7e333370cad7054e69bd620ff03fc7d3b173d1c67c74872eb6ea25b1b7715621"
+      },
+      "confidence": "high",
+      "applicability": "Closes TB-PRE-0116-001 and establishes the mounted-writer repaint and restart-persistence premise for exact candidate f1ba8307 on Desktop 26.803.41515. It supersedes the unpreflighted exploratory reproduction but does not override detached-writer rejection or remove the need for future Desktop-build release canaries.",
+      "supersedes": [
+        "TB-EXP-0116-002"
+      ],
       "conflicts": []
     },
     {
@@ -1155,7 +1201,7 @@
       "id": "TB-PRE-0116-001",
       "issue": "BEAR-116",
       "capability_id": "TB-CAP-MOUNTED-NATIVE-REPAINT",
-      "status": "pending",
+      "status": "closed",
       "consulted": [
         "TB-EXP-0059-001",
         "TB-EXP-0059-002",
@@ -1170,7 +1216,7 @@
         "If either mounted response is non-exact, either row fails to repaint immediately, either title changes or disappears after restart, or the candidate reports unhealthy state, the release capability remains unproved and v3.0.0 must not ship."
       ],
       "stop_condition": "Stop after one exact current-task mounted write, one exact controlled historical onboarding write, immediate mounted inspection, one clean Codex restart, post-restart mounted inspection, and read-only status/artifact checks. Do not retry a failed title write, add another target, change architecture, or claim release readiness until the result is recorded and this preflight is closed.",
-      "result_experiment_id": ""
+      "result_experiment_id": "TB-EXP-0116-003"
     }
   ]
 }
