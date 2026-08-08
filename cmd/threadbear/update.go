@@ -25,6 +25,7 @@ const updateManifestLimit = int64(1 << 20)
 var updateReleaseBase, updateManifestURL = "https://github.com/ericlitman/threadbear/releases", "https://github.com/ericlitman/threadbear/releases/latest/download/latest.json"
 var updateClient, updateBinaryLimit = &http.Client{Timeout: 30 * time.Second}, int64(64 << 20)
 var updateGOOS, updateGOARCH, updateVersionTimeout, updateCandidateTimeout, updateInstallTimeout = runtime.GOOS, runtime.GOARCH, 30 * time.Second, 30 * time.Second, 2 * time.Minute
+var updateExecutableDigest, updateExecutableDigestErr = runningExecutableDigest()
 
 type updateError struct {
 	Stage string
@@ -56,6 +57,9 @@ type updateReceipt struct {
 
 func update(ctx context.Context, automatic bool) (result any, returnErr error) {
 	p := installPaths()
+	if err := requireRunningUpdateBinary(p.binary); err != nil {
+		return nil, updateFailure("installation", err)
+	}
 	if err := requireCurrentFormatInstall(p); err != nil {
 		return nil, updateFailure("installation", err)
 	}
@@ -64,6 +68,9 @@ func update(ctx context.Context, automatic bool) (result any, returnErr error) {
 		return nil, updateFailure("busy", err)
 	}
 	defer unlock(updateLock)
+	if err := requireRunningUpdateBinary(p.binary); err != nil {
+		return nil, updateFailure("installation", err)
+	}
 	if err := requireCurrentFormatInstall(p); err != nil {
 		return nil, updateFailure("installation", err)
 	}
@@ -168,6 +175,32 @@ func update(ctx context.Context, automatic bool) (result any, returnErr error) {
 		return result, updateFailure("receipt", err)
 	}
 	return result, nil
+}
+
+func runningExecutableDigest() ([sha256.Size]byte, error) {
+	path, err := os.Executable()
+	if err != nil {
+		return [sha256.Size]byte{}, err
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return [sha256.Size]byte{}, err
+	}
+	return sha256.Sum256(data), nil
+}
+
+func requireRunningUpdateBinary(path string) error {
+	if updateExecutableDigestErr != nil {
+		return updateExecutableDigestErr
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return err
+	}
+	if sha256.Sum256(data) != updateExecutableDigest {
+		return errors.New("installed binary changed after this updater process started")
+	}
+	return nil
 }
 
 func writeUpdateReceiptForCurrentInstall(p lifecyclePaths, receipt updateReceipt) error {

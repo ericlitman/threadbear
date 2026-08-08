@@ -163,6 +163,33 @@ func TestUpdateSerializesConcurrentChecks(t *testing.T) {
 	}
 }
 
+func TestUpdateRefusesBinaryReplacementWhileWaitingForLock(t *testing.T) {
+	p := prepareUpdate(t, "2.1.2", true)
+	fixture := startUpdateFixture(t, updateFixtureOptions{ReleaseVersion: "2.1.3"})
+	lock, err := lifecycleLock("update.lock")
+	if err != nil {
+		t.Fatal(err)
+	}
+	done := make(chan error, 1)
+	go func() { _, updateErr := update(context.Background(), false); done <- updateErr }()
+	select {
+	case err := <-done:
+		unlock(lock)
+		t.Fatalf("update bypassed update lock: %v", err)
+	case <-time.After(50 * time.Millisecond):
+	}
+	if err := writeAtomic(p.binary, []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
+		unlock(lock)
+		t.Fatal(err)
+	}
+	unlock(lock)
+	err = <-done
+	requireUpdateStage(t, err, "installation")
+	if !strings.Contains(err.Error(), "installed binary changed") || fixture.count("manifest") != 0 {
+		t.Fatalf("stale updater admission = %v, manifest requests = %d", err, fixture.count("manifest"))
+	}
+}
+
 func TestUpdateCheckWaitsForLifecycleOnlyAtReceipt(t *testing.T) {
 	prepareUpdate(t, "2.1.2", true)
 	fixture := startUpdateFixture(t, updateFixtureOptions{ReleaseVersion: "2.1.2"})

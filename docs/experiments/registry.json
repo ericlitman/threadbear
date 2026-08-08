@@ -81,13 +81,13 @@
     {
       "id": "TB-CAP-UPDATER-TEARDOWN-SERIALIZATION",
       "premise": "Confirmed uninstall waits for an in-flight verified updater before removing its lock or any managed surface, so that updater cannot later replace a fresh installation with its stale candidate.",
-      "status": "established",
+      "status": "unresolved",
       "supported_by": [
         "TB-EXP-0116-004"
       ],
       "contradicted_by": [],
-      "decision": "TB-EXP-0116-004 held the live current update.lock while confirmed uninstall ran. Teardown remained pending with every managed surface and the updater job intact, then completed immediately after the lock was released and left every owned artifact absent. The same exact candidate passed the isolated release smoke, reinstalled cleanly, preserved both mounted titles across a new Desktop process, and remained healthy after restart.",
-      "next_preflight": null
+      "decision": "TB-EXP-0116-004 proves that uninstall drains a process already holding the original update.lock inode. The final review identified a narrower admission gap: an old updater can start before teardown, open the replacement lock after its pathname is unlinked, wait behind a fresh installer, and then act on that replacement installation. The corrected updater now fingerprints its running executable and rechecks the installed binary after locking; TB-PRE-0116-003 must prove that exact guard before release.",
+      "next_preflight": "TB-PRE-0116-003"
     }
   ],
   "experiments": [
@@ -1290,6 +1290,25 @@
       ],
       "stop_condition": "Stop after one timed hold of the live current update.lock around confirmed uninstall, one exact-candidate isolated release smoke, one live reinstall, one controlled current and historical mounted-write check, one full Codex process restart, and read-only runtime/artifact verification. Do not add another concurrency protocol, retry a title write, or claim release readiness until one linked result closes this preflight.",
       "result_experiment_id": "TB-EXP-0116-004"
+    },
+    {
+      "id": "TB-PRE-0116-003",
+      "issue": "BEAR-116",
+      "capability_id": "TB-CAP-UPDATER-TEARDOWN-SERIALIZATION",
+      "status": "pending",
+      "consulted": [
+        "TB-EXP-0116-003",
+        "TB-EXP-0116-004"
+      ],
+      "remaining_unknown": "Whether an updater process from the pre-teardown executable rejects a different binary installed while it waits on a replacement update.lock, before it reads the release manifest or launches an automatic candidate install, and whether the exact corrected candidate retains the already-proved release, mounted-title, and restart behavior.",
+      "single_changed_variable": "Updater admission and executable fingerprint: the process records the SHA-256 of its own executable during package initialization and requires the installed binary to remain byte-identical both before and after acquiring update.lock. No lock order, state format, title path, onboarding path, LaunchAgent command, retry, or reconciliation changes.",
+      "held_constant": "Desktop 26.803.41515 build 6321; local macOS arm64 host; update -> stable boundary -> lifecycle lock order; exact uninstall sequence; task-blind update-only LaunchAgent; mounted native title writer; complete native onboarding catalog; same controlled current and historical subjects; exact release build flags; no hooks, SQLite, detached title writer, controller task, retry, or reconciliation.",
+      "predicted_outcomes": [
+        "If the executable guard closes the admission gap, replacing the installed binary while an updater waits on update.lock will make that updater fail locally at installation admission with zero manifest requests, while the exact corrected candidate still passes the release smoke, live updater teardown, mounted title checks, clean restart, and post-restart health checks.",
+        "If the queued updater reaches the manifest, launches candidate installation, accepts the replacement binary, leaves a receipt in the replacement installation, or the correction disturbs any previously proved lifecycle or title behavior, the capability remains unresolved and v3.0.0 must not ship."
+      ],
+      "stop_condition": "Stop after one deterministic real-binary replacement-while-waiting probe with zero network admission, one exact-candidate release smoke, one live updater-lock uninstall check, one live reinstall, one controlled current and historical mounted-write check, one full Codex process restart, and read-only post-restart runtime/artifact verification. Do not add a generation file, another lock, retry a title write, or claim release readiness until one linked result closes this preflight.",
+      "result_experiment_id": ""
     }
   ]
 }
