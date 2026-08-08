@@ -9,10 +9,9 @@
       "status": "rejected",
       "supported_by": [],
       "contradicted_by": [
-        "TB-EXP-0059-001",
-        "TB-EXP-0116-001"
+        "TB-EXP-0059-001"
       ],
-      "decision": "Detached thread/name/set can persist and read back an exact representable title without repainting the mounted Desktop catalog. TB-EXP-0059-003 did not isolate this boundary: its only accessibility proof followed Codex-hosted native setters, while its later standalone probes used list_threads rather than rendered inspection. ThreadBear must use the mounted Codex native setter for visible title mutation.",
+      "decision": "TB-EXP-0059-001 shows that detached thread/name/set can persist and read back an exact representable title without repainting the mounted Desktop catalog. TB-EXP-0116-001 reproduced that boundary without a declared preflight and remains exploratory corroboration rather than capability evidence. TB-EXP-0059-003 did not isolate this boundary: its only accessibility proof followed Codex-hosted native setters, while its later standalone probes used list_threads rather than rendered inspection. ThreadBear must use the mounted Codex native setter for visible title mutation.",
       "next_preflight": null
     },
     {
@@ -66,6 +65,15 @@
       "contradicted_by": [],
       "decision": "Exact corrected candidate 40285dd completed the two declared clean-restart 98-task migrations in 5:26.311 and 4:15.414, followed by serial clean uninstalls in 1:35.540 and 1:32.440. Both cycles captured authoritative running and terminal current-home results plus immediate readback exactly equal to ThreadBear, reached migration_complete with 98 applied and zero remaining, archived every classifier and controller, preserved the neighboring user file byte-exactly, and left every ThreadBear-owned artifact absent. TB-EXP-0120-006 closes TB-PRE-0120-003 and establishes the bounded migration premise for this exact candidate, Desktop build, inventory, and protocol.",
       "next_preflight": null
+    },
+    {
+      "id": "TB-CAP-MOUNTED-NATIVE-REPAINT",
+      "premise": "The final ThreadBear planner plus mounted Codex native setter repaints current and historical task titles immediately and preserves those rendered titles across a clean Codex restart.",
+      "status": "unresolved",
+      "supported_by": [],
+      "contradicted_by": [],
+      "decision": "TB-EXP-0116-002 is strong exploratory evidence, but it was collected without the registry's required preflight. Run the declared exact-final-candidate reproduction before using this premise for release.",
+      "next_preflight": "TB-PRE-0116-001"
     }
   ],
   "experiments": [
@@ -1142,6 +1150,27 @@
       ],
       "stop_condition": "Stop after exactly two complete install/migration/uninstall cycles against the same corrected built candidate and binary hash. In each cycle capture authoritative running and terminal current-home results plus immediate readback exactly equal to ThreadBear, 98-applied/zero-remaining status and inventory, migration and uninstall timers, terminal privacy-safe screenshots, neighboring-user-content preservation, and final owned-artifact absence. Do not run a supplemental probe or claim capability until one linked result is recorded and this preflight is closed.",
       "result_experiment_id": "TB-EXP-0120-006"
+    },
+    {
+      "id": "TB-PRE-0116-001",
+      "issue": "BEAR-116",
+      "capability_id": "TB-CAP-MOUNTED-NATIVE-REPAINT",
+      "status": "pending",
+      "consulted": [
+        "TB-EXP-0059-001",
+        "TB-EXP-0059-002",
+        "TB-EXP-0116-001",
+        "TB-EXP-0116-002"
+      ],
+      "remaining_unknown": "Whether the exact post-review v3.0.0 candidate still produces immediate mounted current-task and historical-task repaint through the sole app-native writer and preserves both rendered titles after a clean Codex restart.",
+      "single_changed_variable": "Executable candidate and binary fingerprint: replace the earlier f20bf5c7 exploratory candidate with the final reviewed candidate containing only the lifecycle-lock and structured-update-receipt corrections required by PR #124 review.",
+      "held_constant": "Desktop 26.803.41515 build 6321; local macOS arm64 host; no ThreadBear title hooks or SQLite access; one exact current-task planner followed by one mounted setter with omitted task ID; one complete onboarding snapshot followed by one immediate exact-ID/title historical reread and one explicit-target mounted setter; raw JSON-text decoding; no retry or reconciliation; the same controlled current and historical subjects; one clean Codex restart; mounted header/sidebar capture before and after restart.",
+      "predicted_outcomes": [
+        "If the final candidate preserves the corrected product path, both one-attempt mounted writes will return exact IDs and titles, repaint the mounted header/sidebar immediately, and remain rendered after the clean restart while status and updater health remain ready.",
+        "If either mounted response is non-exact, either row fails to repaint immediately, either title changes or disappears after restart, or the candidate reports unhealthy state, the release capability remains unproved and v3.0.0 must not ship."
+      ],
+      "stop_condition": "Stop after one exact current-task mounted write, one exact controlled historical onboarding write, immediate mounted inspection, one clean Codex restart, post-restart mounted inspection, and read-only status/artifact checks. Do not retry a failed title write, add another target, change architecture, or claim release readiness until the result is recorded and this preflight is closed.",
+      "result_experiment_id": ""
     }
   ]
 }

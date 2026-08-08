@@ -151,7 +151,12 @@ func update(ctx context.Context, automatic bool) (result any, returnErr error) {
 		return nil, updateFailure("candidate_self_test", err)
 	}
 	receipt.RestartRequired = true
-	if err := requireCandidate(ctx, candidate, updateInstallTimeout, "install", "", "install", "--automatic", "--no-onboard", "--noninteractive", "--confirm", "--json"); err != nil {
+	candidateInstall, err := candidateResult(ctx, candidate, updateInstallTimeout, "install", "", "install", "--automatic", "--no-onboard", "--noninteractive", "--confirm", "--json")
+	if err != nil {
+		if candidateInstall != nil {
+			candidateInstall["install_stage"] = candidateInstall["stage"]
+			return candidateInstall, updateFailure("candidate_install", err)
+		}
 		return nil, updateFailure("candidate_install", err)
 	}
 	if err := requireCandidate(ctx, candidate, updateCandidateTimeout, "status", manifest.Version, "status", "--json"); err != nil {
@@ -270,30 +275,40 @@ func parseChecksum(data []byte) ([]byte, error) {
 	return value, nil
 }
 func requireCandidate(parent context.Context, candidate string, timeout time.Duration, operation, expectedVersion string, args ...string) error {
+	_, err := candidateResult(parent, candidate, timeout, operation, expectedVersion, args...)
+	return err
+}
+
+func candidateResult(parent context.Context, candidate string, timeout time.Duration, operation, expectedVersion string, args ...string) (map[string]any, error) {
 	ctx, cancel := context.WithTimeout(parent, timeout)
 	defer cancel()
-	var output bytes.Buffer
+	var stdout, stderr bytes.Buffer
 	command := exec.CommandContext(ctx, candidate, args...)
-	command.Stdout, command.Stderr = &output, &output
+	command.Stdout, command.Stderr = &stdout, &stderr
 	err := command.Run()
 	if ctx.Err() != nil {
-		return errors.New("candidate timed out")
-	}
-	if err != nil {
-		return fmt.Errorf("candidate failed: %w: %s", err, strings.TrimSpace(output.String()))
+		return nil, errors.New("candidate timed out")
 	}
 	var result map[string]any
-	if json.Unmarshal(output.Bytes(), &result) != nil {
-		return errors.New("candidate returned an invalid result")
+	decodeErr := json.Unmarshal(stdout.Bytes(), &result)
+	if err != nil {
+		detail := strings.TrimSpace(stderr.String())
+		if detail == "" {
+			detail = strings.TrimSpace(stdout.String())
+		}
+		return result, fmt.Errorf("candidate failed: %w: %s", err, detail)
+	}
+	if decodeErr != nil {
+		return nil, errors.New("candidate returned an invalid result")
 	}
 	if expectedVersion != "" && result["version"] != expectedVersion {
-		return errors.New("candidate version mismatch")
+		return result, errors.New("candidate version mismatch")
 	}
 	if operation != "version" && result["ready"] != true {
-		return errors.New("candidate returned an unhealthy result")
+		return result, errors.New("candidate returned an unhealthy result")
 	}
 	if operation == "install" && result["installed"] != true {
-		return errors.New("candidate did not confirm installation")
+		return result, errors.New("candidate did not confirm installation")
 	}
-	return nil
+	return result, nil
 }

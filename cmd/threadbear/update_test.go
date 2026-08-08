@@ -26,6 +26,7 @@ type updateFixtureOptions struct {
 	AssetData, ChecksumBody          []byte
 	SelfTestMode                     string
 	InstallFailure                   bool
+	StructuredInstallFailure         bool
 	AssetDelay                       time.Duration
 }
 
@@ -245,6 +246,19 @@ func TestUpdateCommandReturnsTypedFailureStage(t *testing.T) {
 	}
 }
 
+func TestUpdateCommandPreservesStructuredCandidateInstallFailure(t *testing.T) {
+	prepareUpdate(t, "2.0.0", true)
+	startUpdateFixture(t, updateFixtureOptions{ReleaseVersion: "2.0.1", StructuredInstallFailure: true})
+	var output bytes.Buffer
+	if code := run(context.Background(), []string{"update", "--json"}, strings.NewReader(""), &output, &bytes.Buffer{}); code != 1 {
+		t.Fatalf("update exit = %d", code)
+	}
+	var result map[string]any
+	if json.Unmarshal(output.Bytes(), &result) != nil || result["stage"] != "candidate_install" || result["install_stage"] != "managed_guidance" || result["partial"] != true || result["restart_required"] != true || result["safe_rerun"] != "threadbear update --json" {
+		t.Fatalf("structured candidate failure = %s", output.String())
+	}
+}
+
 func prepareUpdate(t *testing.T, current string, healthy bool) lifecyclePaths {
 	t.Helper()
 	p := isolatedLifecycle(t)
@@ -276,7 +290,7 @@ func startUpdateFixture(t *testing.T, options updateFixtureOptions) *updateFixtu
 		options.AssetKey = "darwin_arm64"
 	}
 	if options.AssetData == nil {
-		options.AssetData = candidateScript(options.CandidateVersion, options.SelfTestMode, options.InstallFailure)
+		options.AssetData = candidateScript(options.CandidateVersion, options.SelfTestMode, options.InstallFailure, options.StructuredInstallFailure)
 	}
 	if options.ChecksumBody == nil {
 		digest := sha256.Sum256(options.AssetData)
@@ -337,7 +351,7 @@ func (fixture *updateFixture) count(kind string) int {
 	return fixture.requests[kind]
 }
 
-func candidateScript(candidateVersion, selfTestMode string, installFailure bool) []byte {
+func candidateScript(candidateVersion, selfTestMode string, installFailure, structuredInstallFailure bool) []byte {
 	selfTest := fmt.Sprintf(`printf '{"ready":true,"version":"%s"}\n'`, candidateVersion)
 	if selfTestMode == "fail" {
 		selfTest = "echo self-test-failed >&2; exit 9"
@@ -355,6 +369,8 @@ cp "$TB_UPDATE_TEST_SKILL_SOURCE" "$TB_UPDATE_TEST_SKILL_TARGET"
 printf '{"ready":true,"installed":true}\n'`
 	if installFailure {
 		install = "echo install-failed >&2; exit 8"
+	} else if structuredInstallFailure {
+		install = `printf '{"ready":false,"partial":true,"stage":"managed_guidance","restart_required":true,"safe_rerun":"threadbear update --json"}\n'; exit 8`
 	}
 	return []byte(`#!/bin/sh
 case "$1" in

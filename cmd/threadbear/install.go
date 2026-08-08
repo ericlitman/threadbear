@@ -106,12 +106,24 @@ func install(ctx context.Context, options installOptions) (any, error) {
 	}
 
 	var updateLock *os.File
+	// Manual install orders update -> stable boundary -> lifecycle. The updater
+	// already owns update.lock before its automatic child reaches this path.
 	if !options.Automatic {
 		updateLock, err = lifecycleLock("update.lock")
 		if err != nil {
 			return preview, err
 		}
 		defer unlock(updateLock)
+	}
+	boundaryLock, err := lifecycleBoundaryLock()
+	if err != nil {
+		return preview, err
+	}
+	defer unlock(boundaryLock)
+	if updateLock != nil {
+		if err := currentLockPath(updateLock); err != nil {
+			return preview, err
+		}
 	}
 	var lock *os.File
 	if options.Automatic {
@@ -314,12 +326,17 @@ func uninstall(ctx context.Context, options uninstallOptions) (any, error) {
 	if !options.Confirmed {
 		return preview, errors.New("uninstall requires --noninteractive --confirm after its preview")
 	}
-	var lock *os.File
-	if !partialAdmission {
-		lock, err = existingLifecycleLock("lifecycle.lock")
-		if err != nil {
+	boundaryLock, err := lifecycleBoundaryLock()
+	if err != nil {
+		return preview, err
+	}
+	defer unlock(boundaryLock)
+	lock, err := existingLifecycleLock("lifecycle.lock")
+	if err != nil {
+		if !partialAdmission || !errors.Is(err, os.ErrNotExist) {
 			return preview, err
 		}
+		lock = nil
 	}
 	defer func() {
 		if lock != nil {
@@ -467,6 +484,38 @@ func existingLifecycleLock(name string) (*os.File, error) {
 	return openLifecycleLock(name, false, false)
 }
 func updateCheckLock() (*os.File, error) { return openLifecycleLock("update.lock", false, true) }
+
+func lifecycleBoundaryLock() (*os.File, error) {
+	path := filepath.Dir(stateDir())
+	if err := os.MkdirAll(path, 0o700); err != nil {
+		return nil, err
+	}
+	fd, err := unix.Open(path, unix.O_RDONLY|unix.O_DIRECTORY|unix.O_NOFOLLOW, 0)
+	if err != nil {
+		return nil, err
+	}
+	file := os.NewFile(uintptr(fd), path)
+	if err := unix.Flock(fd, unix.LOCK_EX); err != nil {
+		return nil, errors.Join(err, file.Close())
+	}
+	info, statErr := file.Stat()
+	current, pathErr := os.Lstat(path)
+	if statErr != nil || pathErr != nil || !current.IsDir() || !os.SameFile(info, current) {
+		unlock(file)
+		return nil, errors.Join(errors.New("ThreadBear lifecycle boundary changed while the operation was waiting"), statErr, pathErr)
+	}
+	return file, nil
+}
+
+func currentLockPath(file *os.File) error {
+	info, statErr := file.Stat()
+	current, pathErr := os.Lstat(file.Name())
+	if statErr != nil || pathErr != nil || !current.Mode().IsRegular() || current.Mode().Perm() != 0o600 || !os.SameFile(info, current) {
+		return errors.Join(errors.New("ThreadBear lifecycle changed while the operation was waiting"), statErr, pathErr)
+	}
+	return nil
+}
+
 func openLifecycleLock(name string, createDir, createFile bool) (*os.File, error) {
 	if createDir {
 		if err := os.MkdirAll(stateDir(), 0o700); err != nil {
@@ -497,10 +546,9 @@ func openLifecycleLock(name string, createDir, createFile bool) (*os.File, error
 	if err := unix.Flock(fd, unix.LOCK_EX); err != nil {
 		return nil, errors.Join(err, file.Close())
 	}
-	current, pathErr := os.Lstat(file.Name())
-	if pathErr != nil || !current.Mode().IsRegular() || current.Mode().Perm() != 0o600 || !os.SameFile(info, current) {
+	if err := currentLockPath(file); err != nil {
 		unlock(file)
-		return nil, errors.Join(errors.New("ThreadBear lifecycle changed while the operation was waiting"), pathErr)
+		return nil, err
 	}
 	return file, nil
 }

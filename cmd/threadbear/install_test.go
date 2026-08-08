@@ -817,9 +817,22 @@ func TestUninstallInvalidatesPreopenedLifecycleWaiter(t *testing.T) {
 		t.Fatalf("lifecycle waiter bypassed uninstall: %v", err)
 	case <-time.After(50 * time.Millisecond):
 	}
+	installer := make(chan error, 1)
+	go func() {
+		_, err := install(context.Background(), installOptions{Confirmed: true})
+		installer <- err
+	}()
+	select {
+	case err := <-installer:
+		t.Fatalf("installer bypassed uninstall boundary: %v", err)
+	case <-time.After(50 * time.Millisecond):
+	}
 	close(proceed)
 	if err := <-uninstalled; err != nil {
 		t.Fatal(err)
+	}
+	if err := <-installer; err == nil || !strings.Contains(err.Error(), "changed while the operation was waiting") {
+		t.Fatalf("installer with stale update lock = %v", err)
 	}
 	if err := <-waiter; err == nil || !strings.Contains(err.Error(), "changed while the operation was waiting") {
 		t.Fatalf("preopened waiter = %v", err)
@@ -1020,7 +1033,23 @@ func TestUninstallPartialNamesStageAndSafeRerun(t *testing.T) {
 	if err := os.Rename(backup, codexHome()); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := uninstall(context.Background(), uninstallOptions{Confirmed: true}); err != nil {
+	fence, err := newStore(stateDir()).lifecycleFence()
+	if err != nil {
+		t.Fatal(err)
+	}
+	rerun := make(chan error, 1)
+	go func() {
+		_, err := uninstall(context.Background(), uninstallOptions{Confirmed: true})
+		rerun <- err
+	}()
+	select {
+	case err := <-rerun:
+		unlock(fence)
+		t.Fatalf("partial rerun bypassed active title fence: %v", err)
+	case <-time.After(50 * time.Millisecond):
+	}
+	unlock(fence)
+	if err := <-rerun; err != nil {
 		t.Fatalf("safe rerun failed: %v", err)
 	}
 }
