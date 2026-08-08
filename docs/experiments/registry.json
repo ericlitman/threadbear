@@ -243,6 +243,48 @@
       ]
     },
     {
+      "id": "TB-EXP-0116-002",
+      "date": "2026-08-07",
+      "issue": "BEAR-116",
+      "preflight_id": null,
+      "question": "Does the exact corrected ThreadBear planner plus mounted Codex native setter repaint current and historical task titles immediately and preserve both rendered titles across a clean Codex restart?",
+      "invariant": "The binary may plan and persist only a safe subject; the mounted Codex app is the sole title writer, and release success requires exact native response validation plus rendered sidebar and header proof before and after restart.",
+      "environment": {
+        "threadbear_version": "3.0.0 exact local candidate; arm64 CGO=0 binary SHA-256 f20bf5c778ce37ac2910680fea432179ffe7125f75b5a71ec149aee5ae6a2836",
+        "git_sha": "d9accd55418b37520e9a61a76f9bd0cdf73a19b8",
+        "codex_version": "Desktop 26.803.41515 build 6321; detached CLI 0.146.0",
+        "codex_source": "vscode",
+        "host": "local macOS arm64",
+        "task_state": "one active mounted task plus one visible historical target selected from a complete 360-task native catalog; controlled canaries began from exact undecorated subjects",
+        "restart_state": "both mounted titles were captured before restart; the replacement ChatGPT process started at 2026-08-07 21:07:48 EDT and both were recaptured in the mounted UI at 21:14:31 EDT",
+        "hook_fingerprint": "no ThreadBear title hook; hooks.json SHA-256 43d2619e3510054cc165f9b1f7915e16c20a162fa4427d2ed0b20294141ddf04 remained byte-identical",
+        "guidance_fingerprint": "installed skill SHA-256 d6936e3b44dce04507b4fc3919e927c96bc3c4f065ccabd0d58c545100454763; complete AGENTS.md SHA-256 b6828aa9f9e13e4305dcc2b268fcc3e5c7a2a4123325c2f0062d554079bf8dd7"
+      },
+      "invocation": {
+        "outer_tool": "the exact installed ordinary-turn and onboarding JavaScript cells through functions.exec, followed by read-only Computer Use mounted inspection",
+        "code": "ordinary path: one local title plan, one current-task mounted setter with threadId omitted, exact raw-JSON response decoding and ID/title validation; onboarding path: complete preview, one safe prepared target, immediate mounted read requiring exact task ID and snapshot title, one explicit-target mounted setter, and exact result validation; then one clean Codex restart",
+        "native_tool_identity": "codex_app__set_thread_title as sole writer; codex_app__read_thread only for immediate onboarding drift validation; thread/list App Server reads only inside the local planner",
+        "target_identity_mode": "current task by omitted threadId; historical target by authoritative explicit ID after exact mounted ID/title reread"
+      },
+      "evidence": [
+        "linear:BEAR-116",
+        "github-pr:124",
+        "git:d9accd55418b37520e9a61a76f9bd0cdf73a19b8",
+        "codex-rollout:019fdcce-d0dc-7522-ad8e-a0c3c1c02110"
+      ],
+      "result": {
+        "status": "observed",
+        "summary": "The exact ordinary cell decoded the mounted raw JSON response, confirmed one write, and immediately repainted the active header and sidebar to `➡️ Diagnose ThreadBear failures`. The exact onboarding cell enumerated 360 tasks, prepared one controlled target, reread its exact ID/title, confirmed one write with zero unconfirmed outcomes, and immediately repainted its sidebar row to `🐻 Update website copy boxes`. After a clean Codex restart, both exact titles remained rendered and the installed binary, updater, guidance, and state remained healthy.",
+        "timing_ms": "unknown: both repaints were present in the next mounted accessibility capture; persistence was recaptured 6 minutes 43 seconds after the replacement process started",
+        "hook_participation": "none; current-format install left hooks.json byte-identical and all title mutation used the mounted native setter directly",
+        "rendered_proof": "Privacy-safe evidence retained outside the repository: corrected onboarding immediate repaint SHA-256 459700e6bfbb96a0d3a693024213ae6b2c496454fc490572487d939a92d6aada; corrected current-task immediate repaint SHA-256 f8f8596e8a348e168476ee01d4a886bf3ddbb5e517e6b3e4686114419f5d08c5; clean-restart persistence SHA-256 23887c1a498f1064db14f13431dc169395a448ba9e02cf43472e3d582c28e600"
+      },
+      "confidence": "high",
+      "applicability": "Establishes the corrected planner-plus-mounted-writer product path, raw JSON-text decoding boundary, immediate current and historical repaint, and clean-restart persistence for exact artifact f20bf5c7 on Desktop 26.803.41515. It does not override TB-EXP-0116-001: detached App Server title mutation remains rejected, and future Desktop builds still require the recorded release canary.",
+      "supersedes": [],
+      "conflicts": []
+    },
+    {
       "id": "TB-EXP-0102-001",
       "date": "2026-07-31",
       "issue": "BEAR-102",
