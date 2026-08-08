@@ -69,14 +69,14 @@
     {
       "id": "TB-CAP-MOUNTED-NATIVE-REPAINT",
       "premise": "The final ThreadBear planner plus mounted Codex native setter repaints current and historical task titles immediately and preserves those rendered titles across a clean Codex restart.",
-      "status": "established",
+      "status": "unresolved",
       "supported_by": [
         "TB-EXP-0116-003",
         "TB-EXP-0116-004"
       ],
       "contradicted_by": [],
-      "decision": "TB-EXP-0116-003 established the mounted-writer path, and TB-EXP-0116-004 repeated it against final corrected candidate b5cc0cbe. One current-task mounted write and one controlled historical mounted write returned exact IDs and titles, repainted the mounted UI, survived a full Codex process restart, and left the installed core and update-only LaunchAgent healthy. This establishes the release premise for the final candidate and Desktop build; future Desktop builds still require the release canary.",
-      "next_preflight": null
+      "decision": "TB-EXP-0116-003 established the mounted-writer path, and TB-EXP-0116-004 repeated it against corrected candidate b5cc0cbe. The title implementation is unchanged, but the final BEAR-117 skill changes the embedded executable fingerprint, so TB-PRE-0116-004 must repeat the exact release canary before v3.0.0 ships.",
+      "next_preflight": "TB-PRE-0116-004"
     },
     {
       "id": "TB-CAP-UPDATER-TEARDOWN-SERIALIZATION",
@@ -1353,6 +1353,26 @@
       ],
       "stop_condition": "Stop after one deterministic real-binary replacement-while-waiting probe with zero network admission, one exact-candidate release smoke, one live updater-lock uninstall check, one live reinstall, one controlled current and historical mounted-write check, one full Codex process restart, and read-only post-restart runtime/artifact verification. Do not add a generation file, another lock, retry a title write, or claim release readiness until one linked result closes this preflight.",
       "result_experiment_id": "TB-EXP-0116-005"
+    },
+    {
+      "id": "TB-PRE-0116-004",
+      "issue": "BEAR-116",
+      "capability_id": "TB-CAP-MOUNTED-NATIVE-REPAINT",
+      "status": "pending",
+      "consulted": [
+        "TB-EXP-0116-003",
+        "TB-EXP-0116-004",
+        "TB-EXP-0116-005"
+      ],
+      "remaining_unknown": "Whether the exact v3.0.0 artifact containing the final BEAR-117 consent, uncertainty, and uninstall protocol still repaints one current and one controlled historical task immediately, preserves both titles across a clean Codex restart, and leaves the lifecycle recap visible after reopen and restart.",
+      "single_changed_variable": "Embedded skill and executable fingerprint: replace candidate 489ca988 with the final reviewed skill that discloses automatic verified installs, runs previewed confirmed uninstall before claiming removal, and reports unconfirmed title writes as unknown. The planner, mounted writer, onboarding read-before-write guard, one-attempt rule, and lifecycle implementation are unchanged.",
+      "held_constant": "Desktop 26.803.41515 build 6321; local macOS arm64 host; same controlled current and historical subjects; one exact current-task mounted write with task ID omitted; one complete onboarding plan, exact immediate historical ID/title reread, and one explicit-target mounted write; raw JSON-text decoding; no hooks, SQLite, detached writer, retry, reconciliation, or cache edit; one clean Codex restart; exact install/status/self-test and updater checks.",
+      "predicted_outcomes": [
+        "If the final embedded skill preserves the proved release path, both one-attempt writes return exact IDs and titles, repaint the mounted current and controlled historical rows immediately, remain rendered after restart, and the installed artifact stays healthy while the final lifecycle recap remains visible and accurate.",
+        "If either native result is non-exact, either controlled row stays stale, either title changes or disappears after restart, the artifact is unhealthy, or the lifecycle task claims removal before committed uninstall or loses its recap after reopen/restart, v3.0.0 must not ship."
+      ],
+      "stop_condition": "Stop after one exact current-task mounted write, one exact controlled historical onboarding write, immediate mounted inspection, one previewed and confirmed lifecycle canary with its final recap, one clean Codex restart, post-restart mounted inspection, and read-only runtime/artifact checks. Do not retry a title write, add another target, add refresh machinery, or claim release readiness until one linked result closes this preflight.",
+      "result_experiment_id": ""
     }
   ]
 }

@@ -8,13 +8,13 @@ description: Install, onboard, update, check, or uninstall ThreadBear for Codex 
 Be upbeat/plain. For each lifecycle change:
 
 - Before consent, end with **Here's what will happen**: changes, untouched items, restart, one question.
-- After tools, end with **ThreadBear recap 🐻**: result/counts, uncertainty, next action.
+- After tools, end with **ThreadBear recap 🐻**: result, uncertainty, next action.
 
-Never leave it in commentary/tool output. Recap visible facts—no JSON/self-test/state/files/planners/records/booleans. Safe skips are “left unchanged”; title failure is “this title stayed as-is.” Give partial work one safe next action.
+Never leave it in commentary/tool output. Recap visible facts, not raw results or internal names. Safe skips are “left unchanged.” For an unconfirmed title say “I couldn't confirm whether this title changed.” Give partials one safe next action.
 
 ## Install or reset
 
-Follow `https://threadbear.sh/install`. Preview helper, title memory, instructions, daily check; leave tasks/settings/titles. Restart, then onboard.
+Follow `https://threadbear.sh/install`. Preview helper, title memory, instructions, automatic installation of verified official updates; leave tasks/settings/titles. Restart; then onboard.
 
 For 2.2.1, verify old task/automation; delete/unpin only those, without renaming. Stop on mismatch; import nothing.
 
@@ -30,7 +30,7 @@ Install with consent; verify `version`, `self-test`, `status`. Recap:
 
 ```js
 // @exec: {"yield_time_ms": 30000, "max_output_tokens": 4000}
-notify("ThreadBear onboarding: preparing complete catalog");
+notify("ThreadBear onboarding: preparing");
 let local = await tools.exec_command({
   cmd:"\"$HOME/.local/bin/threadbear\" onboard --noninteractive --confirm --json",
   yield_time_ms:30000,
@@ -57,7 +57,7 @@ if (!plan || plan.ready !== true || plan.plan_complete !== true ||
 const prepared = plan.items.filter(item => item.outcome === "prepared");
 if (prepared.some(item => !item || typeof item.task_id !== "string" ||
     typeof item.title !== "string" || typeof item.desired_title !== "string")) {
-  text(JSON.stringify({ready:false,reason:"Invalid prepared item"})); exit();
+  text(JSON.stringify({ready:false,reason:"Invalid item"})); exit();
 }
 let updated = 0, skipped = 0, unconfirmed = 0;
 const parseNative = value => {
@@ -97,12 +97,12 @@ text(JSON.stringify({
 }));
 ```
 
-Wait if yielded; progress every 25. Recap: `Updated X of N existing tasks; Y were left unchanged; Z could not be confirmed.` Ready needs no `unconfirmed`. Skip drift; no retry. Rows may refresh after reopen/restart. Reruns replan. No cap, controller, worker, queue, or persistent task.
+If yielded, wait; progress every 25. Recap: `Updated X of N existing tasks; Y were left unchanged; Z could not be confirmed.` Skip drift; no retry. Rows may refresh after reopen/restart. No cap or persistent task.
 
 ## Update
 
-Daily checks never read tasks. Preview download, verification, replacement, restart. After consent run `update --json`; recap version, restart, safe rerun.
+Automatic updates never read tasks. Preview official download, verification, replacement, restart. With consent run `update --json`; recap version, restart, safe rerun.
 
 ## Uninstall
 
-Preview removing helper, title memory, instructions, skill, daily check; keep tasks/settings/files; icons may remain. Then no title cell. Recap exactly: “ThreadBear was removed. Its helper, title memory, instructions, skill, and daily check are gone. Tasks/settings/files stayed; icons may remain. Restart Codex.”
+Run `uninstall --dry-run --json`. Preview removing helper, title memory, instructions, skill, automatic updates; keep tasks/settings/files; icons may remain. Ask consent. Run `uninstall --noninteractive --confirm --json`. Only `uninstalled:true` means removed; otherwise recap the partial and its one safe next action. After commit, no title cell. Recap exactly: “ThreadBear was removed. Its helper, title memory, instructions, skill, and automatic updates are gone. Tasks, settings, and files stayed; icons may remain. Restart Codex.”

@@ -22,7 +22,7 @@ Codex collapses commentary after a turn finishes, so the final answer that asks 
 
 For every lifecycle action, write the lasting summary after all tool calls. End the final response with **ThreadBear recap 🐻** and include the result, counts or uncertainty, what stayed untouched, and the next action. Never leave that recap only in commentary, progress notices, notifications, or raw tool output; those can disappear when Codex summarizes the turn.
 
-Keep that recap user-facing: do not copy raw fields or list internal files and components. Translate them into helper, title memory, instructions, and daily update check. Group safe skips as “left unchanged” unless the user needs to act.
+Keep that recap user-facing: do not copy raw fields or list internal files and components. Translate them into helper, title memory, instructions, and automatic updates. Group safe skips as “left unchanged” unless the user needs to act. An unconfirmed title write means “I couldn't confirm whether this title changed,” never “it stayed unchanged.”
 
 ## 1. Check without changing anything
 
@@ -69,8 +69,8 @@ Only after the checks and dry run succeed, present this complete card in the sam
 >
 > - ThreadBear adds one helpful status icon without rewriting your task's subject or emoji.
 > - Existing tasks stay unchanged until you preview onboarding and approve it separately.
-> - A small local helper, Codex instructions, private title memory, and a quiet daily update check are added.
-> - The daily check never reads tasks or changes titles.
+> - A small local helper, Codex instructions, and private title memory are added.
+> - Once a day, ThreadBear checks for and installs only verified official releases. Updates never read tasks or change titles.
 > - Unclear or unsafe titles are left alone, and there is no persistent ThreadBear task.
 > - Other Codex settings and files stay untouched.
 > - Codex restarts once so open tasks load the new instructions.
@@ -116,7 +116,7 @@ After the checks finish, end the final response with this plain-language receipt
 
 > ## ThreadBear recap 🐻
 >
-> - ThreadBear is installed and its daily update check is [ready / needs attention].
+> - ThreadBear is installed and automatic updates are [ready / need attention].
 > - Existing tasks have not been changed yet, and unrelated Codex settings stayed untouched.
 > - Next: restart Codex, then open any task and say **ThreadBear onboard**.
 
@@ -141,7 +141,8 @@ When that request arrives, read the installed skill and follow this protocol:
 > - I found N existing tasks. X have safe titles, and Y need a ThreadBear icon.
 > - The rest stay untouched.
 > - I'll check each task again immediately before its one possible title change.
-> - If a title changed or the result is uncertain, I'll leave it alone and tell you.
+> - If a title changed before its turn, I'll leave it alone.
+> - If a change cannot be confirmed, I won't retry it and I'll tell you.
 >
 > Update these existing tasks now?
 
@@ -195,7 +196,7 @@ Afterward, end with:
 
 > ## ThreadBear recap 🐻
 >
-> - ThreadBear is now version [version], and the daily update check is [ready / needs attention].
+> - ThreadBear is now version [version], and automatic updates are [ready / need attention].
 > - Codex [does / does not] need a restart.
 > - Next: [nothing—you're up to date / the one safe rerun for a partial update].
 
@@ -211,7 +212,7 @@ End the consent turn with:
 
 > ## Here's what will happen
 >
-> - I'll remove ThreadBear's local helper, private title memory, Codex instructions, skill, and daily update check.
+> - I'll remove ThreadBear's local helper, private title memory, Codex instructions, skill, and automatic updates.
 > - Your tasks, other Codex settings, and unrelated files stay untouched.
 > - Existing title icons may remain until those tasks are renamed.
 > - After removal, you'll restart Codex once.
@@ -230,7 +231,7 @@ The final response after committed removal is:
 
 > ## ThreadBear recap 🐻
 >
-> - ThreadBear and its daily update check were removed.
+> - ThreadBear and its automatic updates were removed.
 > - Your tasks and unrelated Codex content stayed untouched; old title icons may remain.
 > - Next: restart Codex so open tasks drop the old instructions.
 

@@ -49,13 +49,15 @@ func TestPublishedInstallGuideMatchesCurrentProduct(t *testing.T) {
 		"Never leave that recap only in commentary, progress notices, notifications, or raw tool output",
 		"do not copy raw fields or list internal files and components",
 		"Group safe skips as “left unchanged” unless the user needs to act.",
+		"I couldn't confirm whether this title changed",
 		"## Here's what will happen",
 		"## ThreadBear recap 🐻",
 		"Other Codex settings and files stay untouched.",
 		"Existing tasks have not been changed yet",
 		"Checked N existing tasks: updated X, left Y unchanged, and could not confirm Z.",
-		"The update check does not read tasks or change titles.",
-		"ThreadBear and its daily update check were removed.",
+		"installs only verified official releases",
+		"Updates never read tasks or change titles.",
+		"ThreadBear and its automatic updates were removed.",
 		"--dry-run --json",
 		"--noninteractive --confirm --json",
 		"--no-onboard",
@@ -82,6 +84,9 @@ func TestPublishedInstallGuideMatchesCurrentProduct(t *testing.T) {
 		"do not run the title command",
 	)
 	rejectText(t, guide,
+		"quiet daily update check",
+		"this title stayed as-is",
+		"the result is uncertain, I'll leave it alone",
 		"makes at most one App Server name update",
 		"acknowledgement without exact readback",
 		"only task read/write authority",
@@ -103,6 +108,20 @@ func TestPublishedInstallGuideMatchesCurrentProduct(t *testing.T) {
 		"serially exactly once for every prepared item",
 		"do not poll, retry, reconcile, or delay the response",
 	)
+}
+
+func TestReleaseDocsKeepTheEstablishedImmediateRepaintGate(t *testing.T) {
+	architecture := readRepoFile(t, "docs", "architecture.md")
+	checklist := readRepoFile(t, "docs", "release-checklist.md")
+	requireText(t, architecture,
+		"repaint one current task and one controlled historical task immediately",
+		"preserve both titles across a clean Codex restart",
+	)
+	requireText(t, checklist,
+		"Require immediate mounted repaint for the active header and one controlled historical row",
+		"A stale controlled row fails this canary",
+	)
+	rejectText(t, checklist, "if Codex keeps it cached, reopen the project once")
 }
 
 func TestInstalledGuidanceDefinesOneTerminalPlannerAndNativeWrite(t *testing.T) {
@@ -163,10 +182,11 @@ func TestInstalledSkillStaysCompactAndRunsOneSerialNativePass(t *testing.T) {
 		"After tools, end with **ThreadBear recap 🐻**",
 		"Never leave it in commentary/tool output.",
 		"Recap visible facts",
-		"no JSON/self-test/state/files/planners/records/booleans",
-		"Safe skips are “left unchanged”",
-		"title failure is “this title stayed as-is.”",
+		"not raw results or internal names",
+		"Safe skips are “left unchanged.”",
+		"I couldn't confirm whether this title changed",
 		"## Install or reset",
+		"automatic installation of verified official updates",
 		"leave tasks/settings/titles",
 		"## Onboard existing tasks",
 		"onboard --dry-run --json",
@@ -195,14 +215,18 @@ func TestInstalledSkillStaysCompactAndRunsOneSerialNativePass(t *testing.T) {
 		"onboarding_complete:accounted && unconfirmed === 0",
 		"unchanged:plan.total - updated - unconfirmed",
 		"Updated X of N existing tasks; Y were left unchanged; Z could not be confirmed.",
-		"No cap, controller, worker, queue, or persistent task.",
+		"No cap or persistent task.",
 		"## Update",
-		"Preview download, verification, replacement, restart.",
+		"Preview official download, verification, replacement, restart.",
 		"## Uninstall",
+		"uninstall --dry-run --json",
+		"uninstall --noninteractive --confirm --json",
+		"Only `uninstalled:true` means removed",
 		"keep tasks/settings/files; icons may remain.",
 		"no title cell.",
 		"Recap exactly: “ThreadBear was removed.",
 	)
+	rejectText(t, protocol, "this title stayed as-is")
 	if count := strings.Count(protocol, "tools.codex_app__set_thread_title("); count != 1 {
 		t.Fatalf("installed skill contains %d native title call sites; want one", count)
 	}
@@ -257,7 +281,7 @@ func TestLifecycleCopyLeavesADurableFriendlyRecap(t *testing.T) {
 	requireText(t, protocol,
 		"Before consent, end with",
 		"After tools, end with",
-		"result/counts, uncertainty, next action",
+		"result, uncertainty, next action",
 	)
 	requireText(t, help,
 		"Show what will change, then install ThreadBear",

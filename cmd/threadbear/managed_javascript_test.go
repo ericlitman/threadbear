@@ -141,7 +141,7 @@ process.stdout.write(JSON.stringify({trace,outputs,notices,writeCalls}));
 		receipt.Unchanged != 4 || receipt.Unconfirmed != 1 {
 		t.Fatalf("unexpected managed-loop receipt: %+v", receipt)
 	}
-	if len(run.Notices) < 3 || run.Notices[0] != "ThreadBear onboarding: preparing complete catalog" ||
+	if len(run.Notices) < 3 || run.Notices[0] != "ThreadBear onboarding: preparing" ||
 		run.Notices[len(run.Notices)-1] != "ThreadBear onboarding: 6/6" {
 		t.Fatalf("unexpected progress notifications: %v", run.Notices)
 	}
