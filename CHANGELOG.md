@@ -7,8 +7,8 @@
 ### Changed
 
 - Reset ThreadBear to one terminal local title command that preserves exact subjects, changes only the status icon, keeps actions in response prose, and leaves unsafe titles unchanged.
-- Made one short-lived official Codex App Server the read/planning authority and the mounted app-native setter the sole title writer: one prepared current-task title, at most one native call, and exact returned ID/title validation, with no SQLite access, detached write, fallback, or retry.
-- Replaced controller migration with explicit, uncapped onboarding that prepares a fresh complete snapshot, immediately checks each current app-native title before its one possible write, and reports honest updated, skipped, unchanged, and unconfirmed counts.
+- Made one short-lived official Codex App Server the read/planning authority and the mounted app-native setter the sole title writer: one prepared current-task title, one-time decoding of native JSON-text results, at most one native call, and exact returned ID/title validation, with no SQLite access, detached write, fallback, or retry.
+- Replaced controller migration with explicit, uncapped onboarding that prepares a fresh complete snapshot, immediately checks each app-native task ID and title before its one possible write, and reports honest updated, skipped, unchanged, and unconfirmed counts.
 - Removed title interception and configuration dependencies; installation now manages only the binary, subject records, guidance, skill, and daily update-only LaunchAgent.
 - Separated title-core readiness from updater health and made successful updates report restart requirements; pre-install failures preserve the old install while later local write failures report a rerunnable partial with the binary last.
 - Made 2.2.1 upgrades an explicit reset that previews the exact automation and former persistent task, verifies deletion and unpinning before filesystem mutation, imports no state, and performs no heuristic title cleanup.

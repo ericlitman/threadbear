@@ -170,9 +170,25 @@ func TestLifecycleNeverTouchesCodexHooks(t *testing.T) {
 		t.Fatalf("installed guidance lacks planner/prepared contract: AGENTS=%q skill=%q", agents, skill)
 	}
 	for _, required := range []string{
+		"const decodeNative = value => {",
+		`if (typeof value !== "string") return value;`,
+		"return JSON.parse(value)",
+		"decodeNative(await tools.codex_app__set_thread_title",
+	} {
+		if !strings.Contains(string(agents), required) {
+			t.Fatalf("installed AGENTS lacks JSON-string native result decoding %q: %q", required, agents)
+		}
+	}
+	for _, required := range []string{
 		"tools.write_stdin({",
 		"tools.codex_app__read_thread({",
-		"current?.thread?.title !== item.title",
+		"const parseNative = value => {",
+		`if (typeof value !== "string") return value;`,
+		"try { return JSON.parse(value); } catch { return null; }",
+		"current = parseNative(await tools.codex_app__read_thread",
+		"renamed = parseNative(await tools.codex_app__set_thread_title",
+		"current?.thread?.id !== item.task_id",
+		"current.thread.title !== item.title",
 		"let updated = 0, skipped = 0, unconfirmed = 0",
 		"updated + skipped + unconfirmed === prepared.length",
 	} {

@@ -25,10 +25,14 @@ if (!plan || plan.ready !== true || typeof plan.write_required !== "boolean" ||
   text(JSON.stringify({ready:false, reason:"ThreadBear title planner returned an invalid plan"}));
   exit();
 }
+const decodeNative = value => {
+  if (typeof value !== "string") return value;
+  try { return JSON.parse(value); } catch { return null; }
+};
 if (!plan.write_required) { text(local); exit(); }
 let renamed;
 try {
-  renamed = await tools.codex_app__set_thread_title({title:plan.desired_title});
+  renamed = decodeNative(await tools.codex_app__set_thread_title({title:plan.desired_title}));
 } catch (error) {
   text(JSON.stringify({ready:false, reason:"Codex title write failed", error:String(error)}));
   exit();

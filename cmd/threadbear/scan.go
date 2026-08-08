@@ -57,11 +57,11 @@ type onboardingResult struct {
 
 func runCurrentTitle(ctx context.Context, taskID, status string) (currentTitleResult, error) {
 	result := currentTitleResult{TaskID: taskID, Status: status}
-	if !taskIDPattern.MatchString(taskID) {
-		return result, errors.New("CODEX_THREAD_ID is unavailable or invalid")
-	}
 	if _, ok := statusIcons[status]; !ok {
 		return result, fmt.Errorf("unsupported ThreadBear status %q", status)
+	}
+	if !taskIDPattern.MatchString(taskID) {
+		return result, errors.New("CODEX_THREAD_ID is unavailable or invalid")
 	}
 
 	disk := newStore(stateDir())

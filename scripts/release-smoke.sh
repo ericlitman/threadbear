@@ -38,6 +38,7 @@ delegated_id=00000000-0000-4000-8000-000000000003
 blank_id=00000000-0000-4000-8000-000000000004
 mounted_drift_id=10000000-0000-4000-8000-000000000002
 unconfirmed_id=10000000-0000-4000-8000-000000000003
+mounted_wrong_id=10000000-0000-4000-8000-000000000004
 
 cleanup() {
 	set +e
@@ -247,7 +248,7 @@ cat >"$simulate_mounted" <<'PY'
 import json
 import sys
 
-mode, plan_path, state_path, log_path, output_path, fail_id, drift_id = sys.argv[1:]
+mode, plan_path, state_path, log_path, output_path, fail_id, drift_id, wrong_id = sys.argv[1:]
 plan = json.load(open(plan_path, encoding="utf-8"))
 state = json.load(open(state_path, encoding="utf-8"))
 by_id = {thread["id"]: thread for thread in state["threads"]}
@@ -256,6 +257,14 @@ def save():
     with open(state_path, "w", encoding="utf-8") as target:
         json.dump(state, target, separators=(",", ":"))
         target.write("\n")
+
+def decode_tool_result(value):
+    if isinstance(value, str):
+        try:
+            value = json.loads(value)
+        except json.JSONDecodeError:
+            return None
+    return value if isinstance(value, dict) else None
 
 def set_title(task_id, title, explicit):
     params = {"title": title}
@@ -271,7 +280,7 @@ def set_title(task_id, title, explicit):
         raise SystemExit("invalid simulated native setter input")
     by_id[task_id]["name"] = title
     save()
-    response = {"threadId": task_id, "title": title}
+    response = json.dumps({"threadId": task_id, "title": title}, separators=(",", ":"))
     record["response"] = response
     with open(log_path, "a", encoding="utf-8") as target:
         target.write(json.dumps(record, sort_keys=True) + "\n")
@@ -283,7 +292,8 @@ def read_title(task_id):
     if task_id == drift_id:
         by_id[task_id]["name"] = "User rename at mounted revalidation"
         save()
-    response = {"thread": {"id": task_id, "title": by_id[task_id].get("name")}}
+    returned_id = "90000000-0000-4000-8000-000000000999" if task_id == wrong_id else task_id
+    response = json.dumps({"thread": {"id": returned_id, "title": by_id[task_id].get("name")}}, separators=(",", ":"))
     record = {
         "method": "codex_app__read_thread",
         "params": {
@@ -308,10 +318,11 @@ if mode == "current":
         desired = plan.get("desired_title")
         if not isinstance(task_id, str) or not isinstance(desired, str):
             raise SystemExit("invalid current write plan")
-        response = set_title(task_id, desired, False)
-        if response is None:
+        raw_response = set_title(task_id, desired, False)
+        response = decode_tool_result(raw_response)
+        if raw_response is None:
             result = {"ready": False, "reason": "Codex title write failed"}
-        elif response.get("threadId") != task_id or response.get("title") != desired:
+        elif response is None or response.get("threadId") != task_id or response.get("title") != desired:
             result = {"ready": False, "reason": "Codex title write was not confirmed exactly"}
         else:
             result = {"ready": True, "task_id": task_id, "title": response["title"], "updated": True}
@@ -325,11 +336,11 @@ elif mode == "onboard":
     skipped = 0
     unconfirmed = 0
     for item in prepared:
-        current = read_title(item["task_id"])
-        if current is None or current.get("thread", {}).get("title") != item["title"]:
+        current = decode_tool_result(read_title(item["task_id"]))
+        if current is None or current.get("thread", {}).get("id") != item["task_id"] or current.get("thread", {}).get("title") != item["title"]:
             skipped += 1
             continue
-        response = set_title(item["task_id"], item["desired_title"], True)
+        response = decode_tool_result(set_title(item["task_id"], item["desired_title"], True))
         if response is not None and response.get("threadId") == item["task_id"] and response.get("title") == item["desired_title"]:
             updated += 1
         else:
@@ -614,6 +625,8 @@ import sys
 text = open(sys.argv[1], encoding="utf-8").read()
 assert text.count("title --status STATUS --json") == 1, text
 assert text.count("tools.codex_app__set_thread_title") == 1, text
+assert "const decodeNative = value =>" in text, text
+assert "decodeNative(await tools.codex_app__set_thread_title" in text, text
 assert "plan.write_required" in text, text
 assert "thread/name/set" not in text, text
 assert "PreToolUse" not in text and "PostToolUse" not in text, text
@@ -626,7 +639,13 @@ assert text.count("tools.codex_app__set_thread_title") == 1, text
 assert text.count("tools.codex_app__read_thread") == 1, text
 assert text.count("tools.write_stdin") == 1, text
 assert 'item.outcome === "prepared"' in text, text
-assert "current?.thread?.title !== item.title" in text, text
+assert "const parseNative = value =>" in text, text
+assert 'if (typeof value !== "string") return value;' in text, text
+assert "try { return JSON.parse(value); } catch { return null; }" in text, text
+assert "current = parseNative(await tools.codex_app__read_thread" in text, text
+assert "renamed = parseNative(await tools.codex_app__set_thread_title" in text, text
+assert "current?.thread?.id !== item.task_id" in text, text
+assert "current.thread.title !== item.title" in text, text
 assert "updated + skipped + unconfirmed === prepared.length" in text, text
 assert "thread/name/set" not in text, text
 PY
@@ -718,7 +737,7 @@ assert [message["params"] for message in pages] == [
 ], pages
 assert not any(message.get("method") == "thread/name/set" for message in messages), messages
 PY
-"$simulate_mounted" current "$root/title-complete-plan.json" "$app_server_state" "$native_tool_log" "$root/title-complete.json" "" ""
+"$simulate_mounted" current "$root/title-complete-plan.json" "$app_server_state" "$native_tool_log" "$root/title-complete.json" "" "" ""
 python3 - "$root/title-complete.json" "$native_tool_log" "$current_id" <<'PY'
 import json
 import sys
@@ -730,7 +749,7 @@ assert value == {"ready": True, "task_id": task_id, "title": "✅ Release smoke 
 assert calls == [{
     "method": "codex_app__set_thread_title",
     "params": {"title": "✅ Release smoke exact subject"},
-    "response": {"threadId": task_id, "title": "✅ Release smoke exact subject"},
+    "response": json.dumps({"threadId": task_id, "title": "✅ Release smoke exact subject"}, separators=(",", ":")),
 }], calls
 PY
 python3 - "$state_dir/subjects/$current_id.json" <<'PY'
@@ -763,7 +782,7 @@ test ! -s "$app_server_log" || fail "missing caller started the App Server"
 : >"$app_server_log"
 : >"$native_tool_log"
 run_threadbear title --status next_steps --json >"$root/title-next-plan.json"
-"$simulate_mounted" current "$root/title-next-plan.json" "$app_server_state" "$native_tool_log" "$root/title-next-failed.json" "$current_id" ""
+"$simulate_mounted" current "$root/title-next-plan.json" "$app_server_state" "$native_tool_log" "$root/title-next-failed.json" "$current_id" "" ""
 python3 - "$root/title-next-plan.json" "$root/title-next-failed.json" "$native_tool_log" <<'PY'
 import json
 import sys
@@ -790,7 +809,7 @@ PY
 : >"$app_server_log"
 : >"$native_tool_log"
 run_threadbear title --status automation --json >"$root/title-automation-plan.json"
-"$simulate_mounted" current "$root/title-automation-plan.json" "$app_server_state" "$native_tool_log" "$root/title-automation.json" "" ""
+"$simulate_mounted" current "$root/title-automation-plan.json" "$app_server_state" "$native_tool_log" "$root/title-automation.json" "" "" ""
 python3 - "$root/title-automation-plan.json" "$root/title-automation.json" "$native_tool_log" <<'PY'
 import json
 import sys
@@ -802,7 +821,7 @@ assert plan["previous_title"] == "✅ Release smoke exact subject", plan
 assert plan["desired_title"] == "🤖 Release smoke exact subject", plan
 assert value["ready"] is True and value["updated"] is True, value
 assert value["title"] == "🤖 Release smoke exact subject", value
-assert len(calls) == 1, calls
+assert len(calls) == 1 and isinstance(calls[0].get("response"), str), calls
 PY
 python3 - "$app_server_log" <<'PY'
 import json
@@ -882,8 +901,9 @@ PY
 
 # One confirmed production pass prepares subjects from the complete snapshot
 # without per-target RPCs. The mounted-native simulation then rereads every
-# prepared title immediately before one possible setter; drift skips the write,
-# and one injected setter failure proves exact accounting and no retry.
+# prepared title immediately before one possible setter; drift and a same-title
+# response for the wrong task both skip the write, while one injected setter
+# failure proves exact accounting and no retry.
 : >"$app_server_log"
 : >"$native_tool_log"
 app_state_before_preparation=$(shasum -a 256 "$app_server_state" | awk '{print $1}')
@@ -925,28 +945,28 @@ import sys
 
 assert json.load(open(sys.argv[1], encoding="utf-8")) == {"subject": "Existing task 003"}
 PY
-"$simulate_mounted" onboard "$root/onboard-prepared-edge.json" "$app_server_state" "$native_tool_log" "$root/onboard-edge.json" "$unconfirmed_id" "$mounted_drift_id"
-python3 - "$root/onboard-edge.json" "$native_tool_log" "$root/onboard-prepared-edge.json" "$unconfirmed_id" "$mounted_drift_id" <<'PY'
+"$simulate_mounted" onboard "$root/onboard-prepared-edge.json" "$app_server_state" "$native_tool_log" "$root/onboard-edge.json" "$unconfirmed_id" "$mounted_drift_id" "$mounted_wrong_id"
+python3 - "$root/onboard-edge.json" "$native_tool_log" "$root/onboard-prepared-edge.json" "$unconfirmed_id" "$mounted_drift_id" "$mounted_wrong_id" <<'PY'
 import json
 import sys
 
 value = json.load(open(sys.argv[1], encoding="utf-8"))
 calls = [json.loads(line) for line in open(sys.argv[2], encoding="utf-8")]
 plan = json.load(open(sys.argv[3], encoding="utf-8"))
-failed_id, drift_id = sys.argv[4:]
+failed_id, drift_id, wrong_id = sys.argv[4:]
 assert value == {
     "ready": False,
     "plan_complete": True,
     "onboarding_complete": False,
     "total": 109,
-    "updated": 103,
-    "skipped": 1,
-    "unchanged": 5,
+    "updated": 102,
+    "skipped": 2,
+    "unchanged": 6,
     "unconfirmed": 1,
 }, value
 reads = [call for call in calls if call["method"] == "codex_app__read_thread"]
 sets = [call for call in calls if call["method"] == "codex_app__set_thread_title"]
-assert len(reads) == 105 and len(sets) == 104 and len(calls) == 209, len(calls)
+assert len(reads) == 105 and len(sets) == 103 and len(calls) == 208, len(calls)
 read_ids = [call["params"]["threadId"] for call in reads]
 set_ids = [call["params"]["threadId"] for call in sets]
 prepared = {item["task_id"]: item for item in plan["items"] if item["outcome"] == "prepared"}
@@ -955,7 +975,13 @@ assert len(set_ids) == len(set(set_ids)), set_ids
 assert set(read_ids) == set(prepared), (read_ids, prepared)
 assert all(call["params"]["title"] == prepared[call["params"]["threadId"]]["desired_title"] for call in sets), sets
 assert read_ids.count(drift_id) == 1 and drift_id not in set_ids, (read_ids, set_ids)
-assert next(call for call in reads if call["params"]["threadId"] == drift_id)["response"]["thread"]["title"] == "User rename at mounted revalidation", reads
+drift_response = next(call for call in reads if call["params"]["threadId"] == drift_id)["response"]
+assert isinstance(drift_response, str), drift_response
+assert json.loads(drift_response)["thread"]["title"] == "User rename at mounted revalidation", reads
+assert read_ids.count(wrong_id) == 1 and wrong_id not in set_ids, (read_ids, set_ids)
+wrong_response = json.loads(next(call for call in reads if call["params"]["threadId"] == wrong_id)["response"])
+assert wrong_response["thread"]["id"] != wrong_id, wrong_response
+assert wrong_response["thread"]["title"] == prepared[wrong_id]["title"], wrong_response
 assert set_ids.count(failed_id) == 1, set_ids
 assert all(call["params"] == {
     "threadId": call["params"]["threadId"],
@@ -966,6 +992,8 @@ assert all(call["params"] == {
 assert all(calls[index - 1]["method"] == "codex_app__read_thread" and
            calls[index - 1]["params"]["threadId"] == call["params"]["threadId"]
            for index, call in enumerate(calls) if call["method"] == "codex_app__set_thread_title"), calls
+assert all(isinstance(call.get("response"), str) for call in reads), reads
+assert all(isinstance(call.get("response"), str) for call in sets if "error" not in call), sets
 assert sum("error" in call for call in sets) == 1, sets
 PY
 cmp "$codex_home/hooks.json" "$hooks_before" >/dev/null ||
@@ -979,8 +1007,8 @@ import sys
 value = json.load(open(sys.argv[1], encoding="utf-8"))
 assert value["ready"] is True and value["plan_complete"] is True, value
 assert value["total"] == 109 and value["safe"] == 107, value
-assert value["needs_update"] == 3 and value["prepared"] == 0, value
-assert value["unchanged"] == 104 and value["skipped"] == 2, value
+assert value["needs_update"] == 4 and value["prepared"] == 0, value
+assert value["unchanged"] == 103 and value["skipped"] == 2, value
 PY
 
 : >"$app_server_log"
@@ -994,12 +1022,12 @@ value = json.load(open(sys.argv[1], encoding="utf-8"))
 assert value["ready"] is True and value["plan_complete"] is True, value
 assert value["read_only"] is False and value["onboarding_complete"] is False, value
 assert value["total"] == 109 and value["safe"] == 107, value
-assert value["needs_update"] == 3 and value["prepared"] == 3, value
-assert value["unchanged"] == 104 and value["skipped"] == 2, value
+assert value["needs_update"] == 4 and value["prepared"] == 4, value
+assert value["unchanged"] == 103 and value["skipped"] == 2, value
 messages = [json.loads(line) for line in open(sys.argv[2], encoding="utf-8")]
 assert not any(message.get("method") in {"thread/read", "thread/name/set"} for message in messages), messages
 PY
-"$simulate_mounted" onboard "$root/onboard-final-plan.json" "$app_server_state" "$native_tool_log" "$root/onboard-converged.json" "" ""
+"$simulate_mounted" onboard "$root/onboard-final-plan.json" "$app_server_state" "$native_tool_log" "$root/onboard-converged.json" "" "" ""
 python3 - "$root/onboard-converged.json" "$native_tool_log" "$root/onboard-final-plan.json" <<'PY'
 import json
 import sys
@@ -1012,20 +1040,20 @@ assert value == {
     "plan_complete": True,
     "onboarding_complete": True,
     "total": 109,
-    "updated": 3,
+    "updated": 4,
     "skipped": 0,
-    "unchanged": 106,
+    "unchanged": 105,
     "unconfirmed": 0,
 }, value
 reads = [call for call in calls if call["method"] == "codex_app__read_thread"]
 sets = [call for call in calls if call["method"] == "codex_app__set_thread_title"]
 prepared = {item["task_id"]: item for item in plan["items"] if item["outcome"] == "prepared"}
-assert len(reads) == 3 and len(sets) == 3 and len(calls) == 6, calls
-assert len({call["params"]["threadId"] for call in reads}) == 3, reads
-assert len({call["params"]["threadId"] for call in sets}) == 3, sets
+assert len(reads) == 4 and len(sets) == 4 and len(calls) == 8, calls
+assert len({call["params"]["threadId"] for call in reads}) == 4, reads
+assert len({call["params"]["threadId"] for call in sets}) == 4, sets
 assert {call["params"]["threadId"] for call in reads} == set(prepared), (reads, prepared)
 assert all(call["params"]["title"] == prepared[call["params"]["threadId"]]["desired_title"] for call in sets), sets
-assert all("response" in call and "error" not in call for call in calls), calls
+assert all(isinstance(call.get("response"), str) and "error" not in call for call in calls), calls
 PY
 
 : >"$app_server_log"
