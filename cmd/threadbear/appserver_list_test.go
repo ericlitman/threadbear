@@ -39,15 +39,54 @@ func TestAppServerInventoryExhaustsPagesBeforeDedupe(t *testing.T) {
 	}
 }
 
-func TestAppServerInventoryFailsBeforeStateWrites(t *testing.T) {
-	_, _ = testIndex(t)
-	installAppServerFixture(t, "page-failure")
-	if result, err := runOnboarding(t.Context(), false, ""); err == nil || result.PlanComplete || !strings.Contains(err.Error(), "page 2") {
-		t.Fatalf("failed inventory = %#v, %v", result, err)
+func TestAppServerCurrentLookupPaginatesPastFirstPage(t *testing.T) {
+	_, index := testIndex(t)
+	index.setTitle(t, testTaskID, "Stable subject")
+	installAppServerFixture(t, "current-multipage")
+
+	result, err := runCurrentTitle(t.Context(), testTaskID, "complete")
+	if err != nil || !result.Ready || result.PreviousTitle != "Stable subject" ||
+		result.DesiredTitle != "✅ Stable subject" || !result.WriteRequired {
+		t.Fatalf("multipage current plan = %#v, %v", result, err)
 	}
-	entries, err := os.ReadDir(newStore(stateDir()).subjectDir())
-	if err != nil || len(entries) != 0 {
-		t.Fatalf("failed inventory wrote state: %#v, %v", entries, err)
+	requests := fixtureRequests(t)
+	if countFixtureMethod(requests, "thread/list") != 2 || countFixtureMethod(requests, "thread/read") != 0 ||
+		countFixtureMethod(requests, "thread/name/set") != 0 {
+		t.Fatalf("multipage current RPCs = %#v", requests)
+	}
+	second := fixtureMethod(requests, "thread/list", 1)
+	if fixtureStringParam(t, second, "cursor") != "current-page-2" ||
+		fixtureStringParam(t, second, "sortKey") != "recency_at" ||
+		fixtureStringParam(t, second, "sortDirection") != "desc" {
+		t.Fatalf("second current page = %#v", second)
+	}
+	if got := index.title(t, testTaskID); got != "Stable subject" {
+		t.Fatalf("multipage planner mutated title = %q", got)
+	}
+}
+
+func TestAppServerInventoryFailsBeforeStateWrites(t *testing.T) {
+	for _, apply := range []bool{false, true} {
+		t.Run(fmt.Sprintf("confirmed=%t", apply), func(t *testing.T) {
+			_, _ = testIndex(t)
+			installAppServerFixture(t, "page-failure")
+			activeTaskID := ""
+			if apply {
+				activeTaskID = testActiveID
+			}
+			if result, err := runOnboarding(t.Context(), apply, activeTaskID); err == nil || result.PlanComplete ||
+				!strings.Contains(err.Error(), "page 2") {
+				t.Fatalf("failed inventory = %#v, %v", result, err)
+			}
+			entries, err := os.ReadDir(newStore(stateDir()).subjectDir())
+			if err != nil || len(entries) != 0 {
+				t.Fatalf("failed inventory wrote state: %#v, %v", entries, err)
+			}
+			if requests := fixtureRequests(t); countFixtureMethod(requests, "thread/name/set") != 0 ||
+				countFixtureMethod(requests, "thread/read") != 0 {
+				t.Fatalf("failed inventory performed target RPCs: %#v", requests)
+			}
+		})
 	}
 }
 
@@ -55,12 +94,14 @@ func TestAppServerNonzeroExitCannotOverturnCompleteProof(t *testing.T) {
 	_, index := testIndex(t)
 	index.setTitle(t, testTaskID, "Stable subject")
 	installAppServerFixture(t, "close-nonzero")
-	if result, err := runCurrentTitle(t.Context(), testTaskID, "complete"); err != nil || !result.Ready || result.Title != "✅ Stable subject" {
+	if result, err := runCurrentTitle(t.Context(), testTaskID, "complete"); err != nil || !result.Ready ||
+		!result.WriteRequired || result.DesiredTitle != "✅ Stable subject" {
 		t.Fatalf("current proof = %#v, %v", result, err)
 	}
 	clearFixtureRequests(t)
 	index.setTitle(t, testAlphaID, "Alpha")
-	if result, err := runOnboarding(t.Context(), true, testActiveID); err != nil || !result.Ready || !result.OnboardingComplete || result.Updated != 2 {
+	if result, err := runOnboarding(t.Context(), true, testActiveID); err != nil || !result.Ready ||
+		result.OnboardingComplete || result.Prepared != 2 || result.NeedsUpdate != 2 {
 		t.Fatalf("onboarding proof = %#v, %v", result, err)
 	}
 }
@@ -72,14 +113,11 @@ func TestAppServerCurrentFailuresStartOnlyOnce(t *testing.T) {
 		{"missing", "current-missing", "current task is absent"},
 		{"protocol", "current-protocol", "current thread/list page"},
 		{"response ID", "current-response-id", "unexpected Codex App Server response ID"},
+		{"repeated cursor", "current-repeated-cursor", "repeated next cursor"},
 		{"timeout", "current-timeout", "context deadline exceeded"},
-		{"unclean", "current-unclean", "set Codex App Server task name"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			_, index := testIndex(t)
-			if test.scenario == "current-unclean" {
-				index.setTitle(t, testTaskID, "Stable subject")
-			}
+			_, _ = testIndex(t)
 			if test.scenario == "current-timeout" {
 				setAppServerCurrentBudget(t, 150*time.Millisecond)
 			}
@@ -95,6 +133,27 @@ func TestAppServerCurrentFailuresStartOnlyOnce(t *testing.T) {
 				t.Fatalf("App Server starts = %q, %v", data, err)
 			}
 		})
+	}
+}
+
+func TestProductionHasNoDetachedTitleSetterOrSyntheticThreadRead(t *testing.T) {
+	paths, err := filepath.Glob("*.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range paths {
+		if strings.HasSuffix(name, "_test.go") {
+			continue
+		}
+		data, err := os.ReadFile(name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, method := range []string{"thread/name/set", "thread/read"} {
+			if strings.Contains(string(data), method) {
+				t.Fatalf("%s contains forbidden App Server method %q", name, method)
+			}
+		}
 	}
 }
 
@@ -142,7 +201,6 @@ func TestAppServerFixtureProcess(t *testing.T) {
 	if initialized.ID != 0 || initialized.Method != "initialized" {
 		t.Fatalf("initialized = %#v", initialized)
 	}
-	setCalls := make(map[string]int)
 	listCalls := 0
 	for {
 		request, err := decodeFixtureMessage(decoder)
@@ -161,9 +219,9 @@ func TestAppServerFixtureProcess(t *testing.T) {
 			listCalls++
 			serveFixtureList(t, scenario, listCalls, request, encoder)
 		case "thread/read":
-			serveFixtureRead(t, scenario, setCalls, request, encoder)
+			t.Fatal("production attempted an unsafe thread/read")
 		case "thread/name/set":
-			serveFixtureSet(t, scenario, setCalls, request, encoder)
+			t.Fatal("production attempted a detached title write")
 		default:
 			t.Fatalf("unexpected fixture method %q", request.Method)
 		}
@@ -187,6 +245,25 @@ func serveFixtureList(t testing.TB, scenario string, call int, request fixtureMe
 			"data": []map[string]any{{"id": testOtherID, "name": "Other", "preview": "private"}}, "nextCursor": nil,
 		}})
 		return
+	case "current-repeated-cursor":
+		_ = encoder.Encode(map[string]any{"id": request.ID, "result": map[string]any{
+			"data":       []map[string]any{{"id": testOtherID, "name": "Other", "preview": "private"}},
+			"nextCursor": "same-cursor",
+		}})
+		return
+	case "current-multipage":
+		if call == 1 {
+			_ = encoder.Encode(map[string]any{"id": request.ID, "result": map[string]any{
+				"data":       []map[string]any{{"id": testOtherID, "name": "Other", "preview": "private"}},
+				"nextCursor": "current-page-2",
+			}})
+			return
+		}
+		_ = encoder.Encode(map[string]any{"id": request.ID, "result": map[string]any{
+			"data":       []map[string]any{{"id": testTaskID, "name": "Stable subject", "preview": "private"}},
+			"nextCursor": nil,
+		}})
+		return
 	case "multipage", "page-failure":
 		serveFixturePages(t, scenario, request, encoder)
 		return
@@ -205,8 +282,8 @@ func serveFixtureList(t testing.TB, scenario string, call int, request fixtureMe
 		t.Fatal(err)
 	}
 	if scenario == "current-concurrent-rename" && call == 1 {
-		// The initial title is already on the wire. Apply the user's rename before
-		// reading ThreadBear's next (and only) set request.
+		// The initial title is already on the wire. Apply the user's rename after
+		// ThreadBear's one observation; the planner must not overwrite it.
 		rename := "User rename during delayed write"
 		task := tasks[testTaskID]
 		task.Name = &rename
@@ -243,55 +320,6 @@ func serveFixturePages(t testing.TB, scenario string, request fixtureMessage, en
 		},
 		"nextCursor": nil,
 	}})
-}
-
-func serveFixtureRead(t testing.TB, scenario string, setCalls map[string]int, request fixtureMessage, encoder *json.Encoder) {
-	t.Helper()
-	id := fixtureStringParam(t, request, "threadId")
-	tasks := fixtureReadTasks(t)
-	task, ok := tasks[id]
-	if !ok {
-		_ = encoder.Encode(map[string]any{"id": request.ID, "error": map[string]any{"code": -32004}})
-		return
-	}
-	name := task.Name
-	if scenario == "onboarding-slow-readback" && setCalls[id] > 0 {
-		time.Sleep(300 * time.Millisecond)
-	}
-	if scenario == "onboarding-races" {
-		switch id {
-		case testDriftID:
-			value := "Renamed after snapshot"
-			name = &value
-		case testBlankAfterID:
-			name = nil
-		case testUnconfirmedID:
-			// The setter acknowledges this target but its exact readback never changes.
-			_ = setCalls[id]
-		}
-	}
-	_ = encoder.Encode(map[string]any{"id": request.ID, "result": map[string]any{
-		"thread": map[string]any{"id": id, "name": name, "preview": task.Preview},
-	}})
-}
-
-func serveFixtureSet(t testing.TB, scenario string, setCalls map[string]int, request fixtureMessage, encoder *json.Encoder) {
-	t.Helper()
-	id, name := fixtureStringParam(t, request, "threadId"), fixtureStringParam(t, request, "name")
-	setCalls[id]++
-	tasks := fixtureReadTasks(t)
-	if scenario != "current-readback-mismatch" && !(scenario == "onboarding-races" && id == testUnconfirmedID) {
-		task := tasks[id]
-		task.Name = &name
-		tasks[id] = task
-		fixtureWriteTasks(t, tasks)
-	}
-	if scenario == "current-set-error" {
-		_ = encoder.Encode(map[string]any{"id": request.ID, "error": map[string]any{"code": -32001}})
-		return
-	}
-	// The real response is an empty object. Its contents are never title proof.
-	_ = encoder.Encode(map[string]any{"id": request.ID, "result": map[string]any{}})
 }
 
 type fixtureMessage struct {

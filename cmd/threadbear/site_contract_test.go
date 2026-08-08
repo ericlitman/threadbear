@@ -41,20 +41,26 @@ func TestPublishedInstallGuideMatchesCurrentProduct(t *testing.T) {
 		t.Fatal("INSTALL.md and site/install must be byte-identical")
 	}
 	requireText(t, guide,
-		"small local command reads and updates the title through Codex's official App Server",
+		"mounted Codex app applies it once through the native title setter",
 		"--dry-run --json",
 		"--noninteractive --confirm --json",
 		"--no-onboard",
 		"ThreadBear onboard",
-		"onboard --dry-run --json",
-		"onboard --noninteractive --confirm --json",
-		"entire unarchived App Server catalog before any write",
-		"handles every safe target serially with no item cap",
-		"attempts each write once",
-		"acknowledgement without exact readback is `unconfirmed`",
-		"`updated`, `unchanged`, `skipped`, and `unconfirmed`",
-		"`legacy_main_task_id` plus `legacy_automation_id`, `legacy_automation_name`, `legacy_automation_kind`, and `legacy_automation_target_thread_id`",
-		"unpin the preview's exact legacy main-task ID",
+		"entire unarchived App Server catalog before any preparation or title write",
+		"fresh complete catalog snapshot",
+		"returns one `prepared` action containing the snapshot title and desired title",
+		"tools.write_stdin",
+		"tools.codex_app__read_thread({threadId:item.task_id,includeOutputs:false,turnLimit:1,maxOutputCharsPerItem:1})",
+		"A missing, unreadable, or changed title is skipped.",
+		"tools.codex_app__set_thread_title({threadId:item.task_id,title:item.desired_title})",
+		"Every prepared item must reach exactly one outcome.",
+		"Updated X of N existing tasks; Y were left unchanged; Z could not be confirmed.",
+		"tools.codex_app__set_thread_title({title:plan.desired_title})",
+		"one injection-safe terminal JavaScript cell",
+		"never re-embedded by the model",
+		"wait only for that same cell",
+		"yield does not cancel a slow native call",
+		"exact returned planned task ID and title",
 		"never opens Codex SQLite",
 		"binary is written last",
 		"Every successful update reports `restart_required`",
@@ -62,11 +68,10 @@ func TestPublishedInstallGuideMatchesCurrentProduct(t *testing.T) {
 		"do not run the title command",
 	)
 	rejectText(t, guide,
-		"codex_app__set_thread_title",
-		"PreToolUse",
-		"PostToolUse",
-		"hooks.json",
-		"native title setter",
+		"makes at most one App Server name update",
+		"acknowledgement without exact readback",
+		"only task read/write authority",
+		"thread/name/set",
 		"ThreadBear footer",
 		"--control-task-id",
 		"threadbear inventory",
@@ -80,25 +85,48 @@ func TestPublishedInstallGuideMatchesCurrentProduct(t *testing.T) {
 		"Luna helper",
 		"uninstall --prepare",
 		"state_N.sqlite",
+		"rereads every candidate",
+		"serially exactly once for every prepared item",
+		"do not poll, retry, reconcile, or delay the response",
 	)
 }
 
-func TestInstalledGuidanceDefinesOneTerminalCommand(t *testing.T) {
+func TestInstalledGuidanceDefinesOneTerminalPlannerAndNativeWrite(t *testing.T) {
 	guidance := readRepoFile(t, "assets", "AGENTS.threadbear.md")
 	requireText(t, guidance,
 		"Write the substantive response first.",
 		`\"$HOME/.local/bin/threadbear\" title --status STATUS --json`,
-		"yield_time_ms:4000",
-		"max_output_tokens:1000",
-		"Make exactly one attempt at that terminal moment.",
-		"do not poll, retry, reconcile, or delay the response",
+		`// @exec: {"yield_time_ms": 30000, "max_output_tokens": 1000}`,
+		"Replace only `STATUS` with the exact enum",
+		"if (local.exit_code !== 0) { text(local); exit(); }",
+		"plan = JSON.parse(local.output)",
+		`typeof plan.write_required !== "boolean"`,
+		"if (!plan.write_required) { text(local); exit(); }",
+		"tools.codex_app__set_thread_title({title:plan.desired_title})",
+		"renamed.threadId !== plan.task_id",
+		"renamed.title !== plan.desired_title",
+		"mounted Codex app is the sole writer",
+		"If the outer cell yields, wait only for that same cell",
+		"yield does not cancel a slow native call",
+		"Never start another cell, poll the title, retry, or reconcile.",
+		"A returned failure is local to this turn.",
 		"The status controls only the visible icon.",
 	)
+	if count := strings.Count(guidance, "```js"); count != 1 {
+		t.Fatalf("managed guidance contains %d JavaScript cells; want one", count)
+	}
 	if count := strings.Count(guidance, "title --status STATUS --json"); count != 1 {
-		t.Fatalf("managed guidance contains %d terminal title commands; want one", count)
+		t.Fatalf("managed guidance contains %d terminal planners; want one", count)
+	}
+	if count := strings.Count(guidance, "tools.codex_app__set_thread_title("); count != 1 {
+		t.Fatalf("managed guidance contains %d native title calls; want one", count)
 	}
 	rejectText(t, guidance,
-		"codex_app__set_thread_title",
+		"threadId:plan.task_id",
+		"thread/name/set",
+		"Promise.race",
+		"setTimeout",
+		"delay the response",
 		"PreToolUse",
 		"PostToolUse",
 		"ThreadBear footer",
@@ -107,28 +135,60 @@ func TestInstalledGuidanceDefinesOneTerminalCommand(t *testing.T) {
 	)
 }
 
-func TestInstalledSkillStaysACompactOperatingGuide(t *testing.T) {
+func TestInstalledSkillStaysCompactAndRunsOneSerialNativePass(t *testing.T) {
 	protocol := readRepoFile(t, "assets", "skill", "SKILL.md")
 	if size := len([]byte(protocol)); size > 5*1024 {
 		t.Fatalf("installed skill is %d bytes; compact-guide ceiling is 5 KiB", size)
 	}
 	requireText(t, protocol,
+		"Get explicit consent before install/reset, historical onboarding, manual update, or uninstall.",
 		"## Install or reset",
 		"## Onboard existing tasks",
 		"onboard --dry-run --json",
-		"onboard --noninteractive --confirm --json",
-		"enumerate and deduplicate the full unarchived App Server catalog before any write",
-		"processes the complete plan serially with no item cap",
-		"counted only after exact readback",
-		"Never retry an unconfirmed result.",
+		`\"$HOME/.local/bin/threadbear\" onboard --noninteractive --confirm --json`,
+		"enumerate and deduplicate the complete unarchived App Server catalog",
+		`item.outcome === "prepared"`,
+		`typeof item.title !== "string"`,
+		"for (const item of prepared)",
+		"tools.write_stdin({",
+		"session_id:local.session_id",
+		"tools.codex_app__read_thread({threadId:item.task_id",
+		"includeOutputs:false,turnLimit:1,maxOutputCharsPerItem:1",
+		"current?.thread?.title !== item.title",
+		"tools.codex_app__set_thread_title({",
+		"threadId:item.task_id",
+		"title:item.desired_title",
+		"renamed.threadId === item.task_id",
+		"renamed.title === item.desired_title",
+		"notify(`ThreadBear onboarding: ${done}/${prepared.length}`)",
+		"const accounted = updated + skipped + unconfirmed === prepared.length",
+		"ready:accounted && unconfirmed === 0",
+		"onboarding_complete:accounted && unconfirmed === 0",
+		"unchanged:plan.total - updated - unconfirmed",
+		"Updated X of N existing tasks; Y were left unchanged; Z could not be confirmed.",
+		"Never create a cap, wave, controller, worker task, queue, or persistent ThreadBear task.",
 		"## Update",
-		"truthful rerunnable partial",
 		"`restart_required`",
 		"## Uninstall",
-		"do not run the title command",
+		"Do not run the title cell again.",
 	)
+	if count := strings.Count(protocol, "tools.codex_app__set_thread_title("); count != 1 {
+		t.Fatalf("installed skill contains %d native title call sites; want one", count)
+	}
+	if count := strings.Count(protocol, "tools.codex_app__read_thread("); count != 1 {
+		t.Fatalf("installed skill contains %d mounted title read call sites; want one", count)
+	}
+	if count := strings.Count(protocol, "tools.exec_command("); count != 1 {
+		t.Fatalf("installed skill contains %d preparation process call sites; want one", count)
+	}
 	rejectText(t, protocol,
-		"codex_app__set_thread_title",
+		"thread/name/set",
+		"exact readback",
+		"Promise.all",
+		"Promise.race",
+		"setTimeout",
+		"ready:unconfirmed === 0",
+		"rereads every candidate",
 		"PreToolUse",
 		"PostToolUse",
 		"Migration controller",
@@ -138,14 +198,36 @@ func TestInstalledSkillStaysACompactOperatingGuide(t *testing.T) {
 	)
 }
 
+func TestCurrentDocsNameThePlannerAndSoleMountedWriter(t *testing.T) {
+	for _, path := range [][]string{
+		{"README.md"},
+		{"docs", "architecture.md"},
+		{"docs", "compatibility.md"},
+		{"docs", "status-convention.md"},
+	} {
+		text := readRepoFile(t, path...)
+		requireText(t, text, "mounted Codex app")
+		rejectText(t, text,
+			"only task read/write authority",
+			"makes at most one `thread/name/set`",
+			"immediate read/write/readback",
+			"exact readback",
+		)
+	}
+}
+
 func TestHomepageDescribesOnlyShippedCapabilities(t *testing.T) {
 	page := readRepoFile(t, "site", "index.html")
 	requireText(t, page,
 		"One terminal update",
-		"One direct writer",
-		"reads the exact title, writes at most once, and verifies exact readback",
-		"App Server pagination before serial writes",
+		"The mounted app writes",
+		"App Server client prepares the safe title; Codex's native setter applies it",
+		"App Server pagination before serial app-native writes",
 		"no arbitrary first-50 cap",
+		"read/planning authority only",
+		"native setter is the sole title writer",
+		"immediately rereads each prepared task through the mounted app",
+		"skips drift",
 		"null or blank <code>name</code>",
 		"<code>preview</code> is never adopted",
 		"daily update-only LaunchAgent",
@@ -154,10 +236,12 @@ func TestHomepageDescribesOnlyShippedCapabilities(t *testing.T) {
 		"title-core readiness",
 	)
 	rejectText(t, page,
-		"codex_app__set_thread_title",
+		"One direct writer",
+		"writes at most once, and verifies exact readback",
+		"only task read/write authority",
+		"thread/name/set",
 		"PreToolUse",
 		"PostToolUse",
-		"native setter",
 		"deterministic hook",
 		"automatic archive",
 		"read-only SQLite lookup",

@@ -49,16 +49,13 @@ func run(ctx context.Context, args []string, _ io.Reader, stdout, stderr io.Writ
 	case "onboard":
 		dry := flags.Bool("dry-run", false, "return the complete read-only onboarding plan")
 		noninteractive := flags.Bool("noninteractive", false, "run without prompts")
-		confirm := flags.Bool("confirm", false, "confirm all safe onboarding title changes")
+		confirm := flags.Bool("confirm", false, "prepare all safe onboarding title changes")
 		action = func() (any, error) {
 			return onboard(ctx, *dry, *noninteractive && *confirm)
 		}
 	case "title":
-		selectedStatus := flags.String("status", "", "set complete, next_steps, needs_input, blocked, or automation")
+		selectedStatus := flags.String("status", "", "plan a title for complete, next_steps, needs_input, blocked, or automation")
 		action = func() (any, error) {
-			if _, ok := statusIcons[*selectedStatus]; !ok {
-				return nil, fmt.Errorf("unsupported ThreadBear status %q", *selectedStatus)
-			}
 			return runCurrentTitle(ctx, os.Getenv("CODEX_THREAD_ID"), *selectedStatus)
 		}
 	case "status":

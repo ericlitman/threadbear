@@ -14,7 +14,7 @@ Open with this orientation:
 
 > ## Hi. Let's install ThreadBear.
 >
-> ThreadBear keeps each Codex task's exact subject and adds one useful status icon at the end of a turn. Its small local command reads and updates the title through Codex's official App Server.
+> ThreadBear keeps each Codex task's exact subject and adds one useful status icon at the end of a turn. Its small local command safely prepares the title, then the mounted Codex app applies it once through the native title setter.
 >
 > I'll check this Mac, show you exactly what will change, and ask before installing anything. Afterward, Codex needs one restart. Then you can say **ThreadBear onboard** in any task to update every safe existing local task—there is no 50-task cap or persistent ThreadBear task.
 
@@ -61,7 +61,7 @@ Only after the checks and dry run succeed, present this complete card in the sam
 
 > ## Recommended setup
 >
-> - One status icon in each task title, updated once immediately before the final response.
+> - One status icon in each task title, prepared locally and updated once by the mounted Codex app immediately before the final response.
 > - Your exact subject stays intact; owners and actions remain in response prose.
 > - Unsafe, ambiguous, active, drifted, or overlong titles are left alone.
 > - Existing tasks can be previewed completely and onboarded serially, with no item cap.
@@ -116,18 +116,18 @@ After a successful install say:
 When that request arrives, read the installed skill and follow this protocol:
 
 1. Run `~/.local/bin/threadbear status --json`, then `~/.local/bin/threadbear onboard --dry-run --json`.
-2. Require `ready:true`, `plan_complete:true`, and `read_only:true`. The preview enumerates and deduplicates the entire unarchived App Server catalog before any write. If enumeration fails, make zero writes.
+2. Require `ready:true`, `plan_complete:true`, and `read_only:true`. The preview enumerates and deduplicates the entire unarchived App Server catalog before any preparation or title write. If enumeration fails, make zero changes.
 3. Explain `total`, `safe`, and `needs_update`. The active caller, null or blank names, unsafe or overlong subjects, and ambiguous legacy titles stay unchanged. Preview text is never a title source.
 4. Ask for explicit consent unless unchanged install consent covered this first pass.
-5. After consent, run exactly:
+5. After consent, follow the installed skill's single onboarding JavaScript cell. Its first action runs exactly:
 
 ```sh
 ~/.local/bin/threadbear onboard --noninteractive --confirm --json
 ```
 
-The confirmed command starts from a fresh complete catalog and handles every safe target serially with no item cap, waves, worker tasks, or resume machinery. It rereads each target before a possible write; drift, absence, ambiguity, or unreadability is skipped. It attempts each write once and counts `updated` only after exact readback. An acknowledgement without exact readback is `unconfirmed` and is never retried.
+The confirmed command takes a fresh complete catalog snapshot, stores each safe subject, and returns one `prepared` action containing the snapshot title and desired title. It makes no Codex title writes. If preparation yields, the same JavaScript cell resumes that exact process through `tools.write_stdin`; it never starts another command. For every prepared item, call `tools.codex_app__read_thread({threadId:item.task_id,includeOutputs:false,turnLimit:1,maxOutputCharsPerItem:1})` immediately before a possible write. A missing, unreadable, or changed title is skipped. Only an exact snapshot match may receive one serial `tools.codex_app__set_thread_title({threadId:item.task_id,title:item.desired_title})` call. Lightweight progress appears during preparation and every 25 outcomes. There is no item cap, wave, worker task, or resume state. Count only an exact returned task ID/title as `updated`; a throw, malformed response, or mismatch is `unconfirmed` and is never retried.
 
-Report `updated`, `unchanged`, `skipped`, and `unconfirmed` honestly and account for the returned target set. Call onboarding complete only when `plan_complete:true` and `onboarding_complete:true`. An interruption may leave valid partial decoration; a later **ThreadBear onboard** starts a fresh plan and safely continues.
+Report `updated`, `skipped`, `unchanged`, and `unconfirmed`: `Updated X of N existing tasks; Y were left unchanged; Z could not be confirmed.` Every prepared item must reach exactly one outcome. ThreadBear is ready only when all are accounted for and `unconfirmed` is zero. An interruption may leave valid partial decoration; a later **ThreadBear onboard** starts a fresh plan.
 
 ## Commands and updater
 
@@ -139,7 +139,7 @@ Report `updated`, `unchanged`, `skipped`, and `unconfirmed` honestly and account
 ~/.local/bin/threadbear update --json
 ```
 
-The managed guidance runs `title --status <complete|next_steps|needs_input|blocked|automation> --json` exactly once immediately before an ordinary final response. The enum changes only the icon. The binary reads the exact current title, preserves the safe subject, makes at most one App Server name update, and performs exact readback. If the command fails or does not finish in its bounded terminal moment, deliver the response without polling, retrying, or reconciling.
+The managed guidance runs one injection-safe terminal JavaScript cell immediately before an ordinary final response. Replace only the status enum; the parsed `plan.desired_title` variable passes directly to the native tool and is never re-embedded by the model. The cell runs `title --status <complete|next_steps|needs_input|blocked|automation> --json` exactly once. The binary reads the exact current title through the App Server, preserves the safe subject, and returns a plan without writing a title. When `write_required` is true, the cell calls `tools.codex_app__set_thread_title({title:plan.desired_title})` exactly once with `threadId` omitted, and accepts only the exact returned planned task ID and title. If the outer cell yields after 30 seconds, wait only for that same cell; the yield does not cancel a slow native call, which may delay the final response. Never retry, start another cell, poll the title, or reconcile.
 
 `update` verifies the official manifest, release URLs, architecture, checksum, embedded version, and candidate self-test before replacement. Network or verification failure leaves the old installation untouched. A later managed-surface write can truthfully leave a rerunnable partial; the binary is written last. Every successful update reports `restart_required`. The daily LaunchAgent runs only this command and never reads tasks or changes titles.
 
@@ -169,11 +169,11 @@ Before release, run unit and integration tests, race tests, both Darwin builds, 
 
 Release acceptance additionally requires one reviewed candidate live-tested end to end in Codex Desktop:
 
-- the terminal `title` command changes only the status icon and preserves the exact subject;
-- App Server acknowledgement and exact readback agree;
+- the terminal planner changes no Codex title, preserves the exact subject, and prepares only the status icon change;
+- the mounted app-native setter receives no explicit current-task ID and returns the exact planned task ID and title;
 - the rendered sidebar shows the expected title before and after a clean restart;
-- a full onboarding preview enumerates every local task, and a consented serial pass updates every safe target with honest counts;
-- failure and unconfirmed cases never block the substantive response or trigger retries;
+- a full onboarding preview enumerates every local task, confirmed preparation writes no title, and the consented serial app-native pass accounts for every prepared target while skipping title drift before any write;
+- failures and unconfirmed results are reported locally without retries or global failure state;
 - automatic update and uninstall preserve neighboring user content.
 
-If the direct writer causes practical title corruption or response blocking, disable rewriting instead of adding reconciliation machinery.
+If the mounted app-native writer causes practical title corruption or response blocking, disable rewriting instead of adding reconciliation machinery.

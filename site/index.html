@@ -46,11 +46,11 @@
   </header>
   <h2>Small by design</h2>
   <div class="grid">
-    <div class="card"><strong>One terminal update</strong>Each turn runs one bounded local title command immediately before the final response.</div>
+    <div class="card"><strong>One terminal update</strong>Each turn runs one bounded cell: local planning, then at most one mounted Codex title write.</div>
     <div class="card"><strong>Your subject stays yours</strong>ThreadBear preserves safe user renames byte-for-byte and changes only its one leading icon.</div>
-    <div class="card"><strong>One direct writer</strong>A short-lived official App Server client reads the exact title, writes at most once, and verifies exact readback.</div>
-    <div class="card"><strong>Every native page accounted for</strong>Onboarding finishes App Server pagination before serial writes, with no arbitrary first-50 cap.</div>
-    <div class="card"><strong>Uncertainty stays local</strong>Unsafe or ambiguous titles are left unchanged. One failure never blocks the response or the rest of ThreadBear.</div>
+    <div class="card"><strong>The mounted app writes</strong>A short-lived App Server client prepares the safe title; Codex's native setter applies it and returns the exact result.</div>
+    <div class="card"><strong>Every native page accounted for</strong>Onboarding finishes App Server pagination before serial app-native writes, with no arbitrary first-50 cap.</div>
+    <div class="card"><strong>Uncertainty stays local</strong>Unsafe or ambiguous titles are left unchanged. A returned failure is not retried or promoted into global state.</div>
     <div class="card"><strong>A verified new coat</strong>One daily update-only LaunchAgent installs checksummed, self-tested official releases and never reads tasks.</div>
   </div>
   <h2>Five outcomes, plus a welcome bear</h2>
@@ -60,7 +60,7 @@
   <p>ThreadBear installs at <code>~/.local/bin/threadbear</code>, keeps tiny private per-task subject records under <code>~/.local/share/threadbear</code>, and adds one managed instruction block, one skill, and one daily update-only LaunchAgent.</p>
   <p>Release binaries are not Developer ID signed or notarized. The installer verifies the published SHA-256 checksum and candidate self-test before installation.</p>
   <h2>Honest boundaries</h2>
-  <p>One short-lived official App Server is the only task read/write authority. The terminal command reads the exact current title, makes at most one name update, and verifies exact readback. Onboarding fully paginates <code>thread/list</code> before any write and handles every safe target serially with no item cap. A null or blank <code>name</code> is raw and unowned; <code>preview</code> is never adopted. There is no SQLite access, daemon, proxy, cache, model, retry, fallback, queue, or repair pass.</p>
+  <p>One short-lived official App Server is the read/planning authority only; the mounted Codex app's native setter is the sole title writer. The terminal cell prepares the exact current task title, makes at most one native call, and accepts only the exact returned task ID and title. Onboarding fully paginates <code>thread/list</code>, immediately rereads each prepared task through the mounted app, skips drift, and applies at most once with no item cap. A null or blank <code>name</code> is raw and unowned; <code>preview</code> is never adopted. There is no SQLite access, daemon, proxy, cache, model, retry, fallback, queue, or repair pass.</p>
   <p>The updater never reads tasks. Network and candidate-verification failures leave the old install untouched; a later local surface failure is reported as a rerunnable partial with the binary written last. Updater health is reported separately from title-core readiness.</p>
   <footer>MIT licensed. Built for tidy threads and small bears. 🧵🐻</footer>
 </main>

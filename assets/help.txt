@@ -5,8 +5,8 @@ Usage:
 
 Commands:
   install      Preview or install ThreadBear
-  title        Set this task's status icon while preserving its exact subject
-  onboard      Preview or apply existing-task onboarding
+  title        Prepare this task's safe status title for Codex to apply
+  onboard      Preview or prepare existing-task onboarding
   status       Check title-core readiness and updater health separately
   self-test    Validate a release candidate
   update       Install the latest verified release and report restart need
@@ -19,14 +19,14 @@ Title:
   threadbear title --status <complete|next_steps|needs_input|blocked|automation> --json
 
 The managed guidance runs title exactly once immediately before a final response.
-ThreadBear reads the exact current title, writes one icon plus the safe subject, and verifies the result through Codex App Server.
-A local failure never blocks the response and is never retried.
+ThreadBear reads the exact current title and prepares one icon plus the safe subject.
+The mounted Codex app applies and confirms the title once. A returned failure stays local and is never retried; a yielded terminal cell is awaited as the same call.
 
 Onboard:
   threadbear onboard --dry-run --json
   threadbear onboard --noninteractive --confirm --json
 
-The preview enumerates the complete local catalog before any write. The confirmed pass handles every safe target serially with no item cap, skips drift or uncertainty, and reports honest updated, unchanged, skipped, and unconfirmed counts.
+The preview enumerates the complete local catalog before any write. The confirmed command takes a fresh complete snapshot and prepares every safe target with no item cap. Managed guidance immediately rereads each prepared task, skips drift, applies at most once, and reports updated, skipped, unchanged, and unconfirmed counts.
 
 Install flags:
   --dry-run         Preview without changing the machine

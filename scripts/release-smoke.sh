@@ -30,12 +30,13 @@ agent_path=$home/Library/LaunchAgents/$agent_label.plist
 fake_codex=$home/.local/bin/codex
 app_server_log=$root/app-server.jsonl
 app_server_state=$root/app-server-state.json
+native_tool_log=$root/native-tool.jsonl
+simulate_mounted=$root/simulate-mounted.py
 current_id=00000000-0000-4000-8000-000000000001
 raw_id=00000000-0000-4000-8000-000000000002
 delegated_id=00000000-0000-4000-8000-000000000003
 blank_id=00000000-0000-4000-8000-000000000004
-drift_id=10000000-0000-4000-8000-000000000001
-failed_id=10000000-0000-4000-8000-000000000002
+mounted_drift_id=10000000-0000-4000-8000-000000000002
 unconfirmed_id=10000000-0000-4000-8000-000000000003
 
 cleanup() {
@@ -134,9 +135,6 @@ current_id = "00000000-0000-4000-8000-000000000001"
 raw_id = "00000000-0000-4000-8000-000000000002"
 delegated_id = "00000000-0000-4000-8000-000000000003"
 blank_id = "00000000-0000-4000-8000-000000000004"
-drift_id = "10000000-0000-4000-8000-000000000001"
-failed_id = "10000000-0000-4000-8000-000000000002"
-unconfirmed_id = "10000000-0000-4000-8000-000000000003"
 
 def initial_threads():
     value = [
@@ -186,13 +184,6 @@ else:
         target.write("\n")
 
 by_id = {thread["id"]: thread for thread in threads}
-current_page_count = 0
-
-def save():
-    with open(state_path, "w", encoding="utf-8") as target:
-        json.dump({"threads": threads}, target, separators=(",", ":"))
-        target.write("\n")
-
 def send(value):
     print(json.dumps(value, separators=(",", ":")), flush=True)
 
@@ -216,7 +207,6 @@ for encoded in sys.stdin:
             "sortKey": "recency_at",
             "sortDirection": "desc",
         }:
-            current_page_count += 1
             current_page = [
                 dict(by_id[blank_id]),
                 dict(by_id[delegated_id]),
@@ -225,11 +215,6 @@ for encoded in sys.stdin:
             ]
             send({"method": "fixture/notification", "params": {"stage": "current-page"}})
             send({"id": request_id, "result": {"data": current_page, "nextCursor": "must-not-follow"}})
-            if mode == "current-rename-race" and current_page_count == 1:
-                by_id[current_id]["name"] = "User rename during the no-CAS window"
-                save()
-                with open(log_path, "a", encoding="utf-8") as target:
-                    target.write(json.dumps({"fixture": "external-rename", "name": by_id[current_id]["name"]}) + "\n")
         elif params == {"archived": False, "limit": 100}:
             send({"method": "fixture/notification", "params": {"stage": "page-1"}})
             send({"id": request_id, "result": {"data": threads[:100], "nextCursor": "page-2"}})
@@ -246,30 +231,126 @@ for encoded in sys.stdin:
             send({"id": request_id, "error": {"code": -32602, "message": "unexpected read request"}})
         else:
             thread = dict(by_id[thread_id])
-            if mode == "onboarding-edge" and thread_id == drift_id:
-                thread["name"] = "Renamed while onboarding"
             send({"id": request_id, "result": {"thread": thread}})
     elif method == "thread/name/set":
-        thread_id = params.get("threadId")
-        name = params.get("name")
-        if thread_id not in by_id or not isinstance(name, str):
-            send({"id": request_id, "error": {"code": -32602, "message": "unexpected set request"}})
-        elif mode == "onboarding-edge" and thread_id == failed_id:
-            send({"id": request_id, "error": {"code": -32001, "message": "injected set failure"}})
-        elif (
-            mode == "current-unconfirmed" and thread_id == current_id
-        ) or (
-            mode == "onboarding-edge" and thread_id == unconfirmed_id
-        ):
-            send({"id": request_id, "result": {}})
-        else:
-            by_id[thread_id]["name"] = name
-            save()
-            send({"id": request_id, "result": {}})
+        send({"id": request_id, "error": {"code": -32099, "message": "production binary must not call thread/name/set"}})
     else:
         send({"id": request_id, "error": {"code": -32601, "message": "unexpected method"}})
 PY
 chmod 700 "$fake_codex"
+
+cat >"$simulate_mounted" <<'PY'
+#!/usr/bin/env python3
+import json
+import sys
+
+mode, plan_path, state_path, log_path, output_path, fail_id, drift_id = sys.argv[1:]
+plan = json.load(open(plan_path, encoding="utf-8"))
+state = json.load(open(state_path, encoding="utf-8"))
+by_id = {thread["id"]: thread for thread in state["threads"]}
+
+def save():
+    with open(state_path, "w", encoding="utf-8") as target:
+        json.dump(state, target, separators=(",", ":"))
+        target.write("\n")
+
+def set_title(task_id, title, explicit):
+    params = {"title": title}
+    if explicit:
+        params["threadId"] = task_id
+    record = {"method": "codex_app__set_thread_title", "params": params}
+    if task_id == fail_id:
+        record["error"] = "injected mounted setter failure"
+        with open(log_path, "a", encoding="utf-8") as target:
+            target.write(json.dumps(record, sort_keys=True) + "\n")
+        return None
+    if task_id not in by_id or not isinstance(title, str):
+        raise SystemExit("invalid simulated native setter input")
+    by_id[task_id]["name"] = title
+    save()
+    response = {"threadId": task_id, "title": title}
+    record["response"] = response
+    with open(log_path, "a", encoding="utf-8") as target:
+        target.write(json.dumps(record, sort_keys=True) + "\n")
+    return response
+
+def read_title(task_id):
+    if task_id not in by_id:
+        return None
+    if task_id == drift_id:
+        by_id[task_id]["name"] = "User rename at mounted revalidation"
+        save()
+    response = {"thread": {"id": task_id, "title": by_id[task_id].get("name")}}
+    record = {
+        "method": "codex_app__read_thread",
+        "params": {
+            "threadId": task_id,
+            "includeOutputs": False,
+            "turnLimit": 1,
+            "maxOutputCharsPerItem": 1,
+        },
+        "response": response,
+    }
+    with open(log_path, "a", encoding="utf-8") as target:
+        target.write(json.dumps(record, sort_keys=True) + "\n")
+    return response
+
+if mode == "current":
+    if plan.get("ready") is not True or not isinstance(plan.get("write_required"), bool):
+        raise SystemExit("invalid current title plan")
+    if not plan["write_required"]:
+        result = plan
+    else:
+        task_id = plan.get("task_id")
+        desired = plan.get("desired_title")
+        if not isinstance(task_id, str) or not isinstance(desired, str):
+            raise SystemExit("invalid current write plan")
+        response = set_title(task_id, desired, False)
+        if response is None:
+            result = {"ready": False, "reason": "Codex title write failed"}
+        elif response.get("threadId") != task_id or response.get("title") != desired:
+            result = {"ready": False, "reason": "Codex title write was not confirmed exactly"}
+        else:
+            result = {"ready": True, "task_id": task_id, "title": response["title"], "updated": True}
+elif mode == "onboard":
+    if plan.get("ready") is not True or plan.get("plan_complete") is not True or plan.get("read_only") is not False or not isinstance(plan.get("items"), list):
+        raise SystemExit("invalid onboarding plan")
+    prepared = [item for item in plan["items"] if item.get("outcome") == "prepared"]
+    if any(not isinstance(item.get("task_id"), str) or not isinstance(item.get("title"), str) or not isinstance(item.get("desired_title"), str) for item in prepared):
+        raise SystemExit("invalid prepared onboarding item")
+    updated = 0
+    skipped = 0
+    unconfirmed = 0
+    for item in prepared:
+        current = read_title(item["task_id"])
+        if current is None or current.get("thread", {}).get("title") != item["title"]:
+            skipped += 1
+            continue
+        response = set_title(item["task_id"], item["desired_title"], True)
+        if response is not None and response.get("threadId") == item["task_id"] and response.get("title") == item["desired_title"]:
+            updated += 1
+        else:
+            unconfirmed += 1
+    total = plan["total"] if isinstance(plan.get("total"), int) else len(plan["items"])
+    accounted = updated + skipped + unconfirmed == len(prepared)
+    result = {
+        "ready": accounted and unconfirmed == 0,
+        "plan_complete": True,
+        "onboarding_complete": accounted and unconfirmed == 0,
+        "total": total,
+        "updated": updated,
+        "skipped": skipped,
+        "unchanged": total - updated - unconfirmed,
+        "unconfirmed": unconfirmed,
+    }
+else:
+    raise SystemExit("unknown mounted simulation mode")
+
+with open(output_path, "w", encoding="utf-8") as target:
+    json.dump(result, target, separators=(",", ":"))
+    target.write("\n")
+PY
+chmod 700 "$simulate_mounted"
 
 run_threadbear_with_caller() {
 	caller=$1
@@ -529,8 +610,22 @@ import sys
 
 text = open(sys.argv[1], encoding="utf-8").read()
 assert text.count("title --status STATUS --json") == 1, text
-assert "codex_app__set_thread_title" not in text, text
+assert text.count("tools.codex_app__set_thread_title") == 1, text
+assert "plan.write_required" in text, text
+assert "thread/name/set" not in text, text
 assert "PreToolUse" not in text and "PostToolUse" not in text, text
+PY
+python3 - "$codex_home/skills/threadbear/SKILL.md" <<'PY'
+import sys
+
+text = open(sys.argv[1], encoding="utf-8").read()
+assert text.count("tools.codex_app__set_thread_title") == 1, text
+assert text.count("tools.codex_app__read_thread") == 1, text
+assert text.count("tools.write_stdin") == 1, text
+assert 'item.outcome === "prepared"' in text, text
+assert "current?.thread?.title !== item.title" in text, text
+assert "updated + skipped + unconfirmed === prepared.length" in text, text
+assert "thread/name/set" not in text, text
 PY
 cmp "$codex_home/hooks.json" "$hooks_before" >/dev/null ||
 	fail "status or verification changed hooks.json"
@@ -583,11 +678,13 @@ PY
 cmp "$codex_home/hooks.json" "$hooks_before" >/dev/null ||
 	fail "current reinstall changed hooks.json"
 
-# The terminal writer performs one exact current read, one name set, and exact
-# readback. It persists only the safe subject.
+# The production binary plans from one current-list read and performs no title
+# write. The second fixture boundary simulates the exact mounted native setter
+# cell installed into Codex guidance.
 : >"$app_server_log"
-run_threadbear title --status complete --json >"$root/title-complete.json"
-python3 - "$root/title-complete.json" "$current_id" <<'PY'
+: >"$native_tool_log"
+run_threadbear title --status complete --json >"$root/title-complete-plan.json"
+python3 - "$root/title-complete-plan.json" "$current_id" <<'PY'
 import json
 import sys
 
@@ -599,28 +696,36 @@ assert value == {
     "status": "complete",
     "previous_title": "Release smoke exact subject",
     "desired_title": "✅ Release smoke exact subject",
-    "title": "✅ Release smoke exact subject",
-    "updated": True,
+    "write_required": True,
     "unchanged": False,
-    "unconfirmed": False,
+    "reason": "app-native title write required",
 }, value
 PY
-python3 - "$app_server_log" "$current_id" <<'PY'
+python3 - "$app_server_log" <<'PY'
 import json
 import sys
 
 messages = [json.loads(line) for line in open(sys.argv[1], encoding="utf-8")]
-current_id = sys.argv[2]
-methods = [message["method"] for message in messages]
-assert methods == ["initialize", "initialized", "thread/list", "thread/name/set", "thread/list"], messages
-lists = [message for message in messages if message["method"] == "thread/list"]
-expected = {"archived": False, "limit": 25, "sortKey": "recency_at", "sortDirection": "desc"}
-assert [message["params"] for message in lists] == [expected, expected], lists
-assert [message["id"] for message in lists] == [2, 4], lists
-setter = next(message for message in messages if message["method"] == "thread/name/set")
-assert setter["id"] == 3, setter
-assert setter["params"] == {"threadId": current_id, "name": "✅ Release smoke exact subject"}, setter
-assert all("cursor" not in message["params"] and "searchTerm" not in message["params"] for message in lists)
+assert [message["method"] for message in messages] == ["initialize", "initialized", "thread/list"], messages
+request = messages[2]
+assert request["id"] == 2, request
+assert request["params"] == {"archived": False, "limit": 25, "sortKey": "recency_at", "sortDirection": "desc"}, request
+assert not any(message.get("method") == "thread/name/set" for message in messages), messages
+PY
+"$simulate_mounted" current "$root/title-complete-plan.json" "$app_server_state" "$native_tool_log" "$root/title-complete.json" "" ""
+python3 - "$root/title-complete.json" "$native_tool_log" "$current_id" <<'PY'
+import json
+import sys
+
+value = json.load(open(sys.argv[1], encoding="utf-8"))
+calls = [json.loads(line) for line in open(sys.argv[2], encoding="utf-8")]
+task_id = sys.argv[3]
+assert value == {"ready": True, "task_id": task_id, "title": "✅ Release smoke exact subject", "updated": True}, value
+assert calls == [{
+    "method": "codex_app__set_thread_title",
+    "params": {"title": "✅ Release smoke exact subject"},
+    "response": {"threadId": task_id, "title": "✅ Release smoke exact subject"},
+}], calls
 PY
 python3 - "$state_dir/subjects/$current_id.json" <<'PY'
 import json
@@ -643,77 +748,66 @@ import sys
 
 value = json.load(open(sys.argv[1], encoding="utf-8"))
 assert value["ready"] is False and "CODEX_THREAD_ID" in value["error"], value
-assert value["updated"] is False and value["unconfirmed"] is False, value
+assert value["write_required"] is False and value["desired_title"] == "", value
 PY
 test ! -s "$app_server_log" || fail "missing caller started the App Server"
 
+# A mounted setter failure is local to the managed cell. It gets one native
+# attempt, no detached fallback, and no reconciliation or retry.
 : >"$app_server_log"
-if THREADBEAR_SMOKE_APP_SERVER_MODE=current-unconfirmed \
-	run_threadbear title --status next_steps --json >"$root/title-unconfirmed.json"; then
-	fail "title command accepted acknowledgement without exact readback"
-fi
-unset THREADBEAR_SMOKE_APP_SERVER_MODE
-python3 - "$root/title-unconfirmed.json" <<'PY'
+: >"$native_tool_log"
+run_threadbear title --status next_steps --json >"$root/title-next-plan.json"
+"$simulate_mounted" current "$root/title-next-plan.json" "$app_server_state" "$native_tool_log" "$root/title-next-failed.json" "$current_id" ""
+python3 - "$root/title-next-plan.json" "$root/title-next-failed.json" "$native_tool_log" <<'PY'
 import json
 import sys
 
-value = json.load(open(sys.argv[1], encoding="utf-8"))
-assert value["ready"] is False and value["unconfirmed"] is True, value
-assert value["previous_title"] == "✅ Release smoke exact subject", value
-assert value["desired_title"] == "➡️ Release smoke exact subject", value
-assert "not confirmed by exact readback" in value["reason"], value
-assert value["updated"] is False and value["unchanged"] is False, value
+plan = json.load(open(sys.argv[1], encoding="utf-8"))
+result = json.load(open(sys.argv[2], encoding="utf-8"))
+calls = [json.loads(line) for line in open(sys.argv[3], encoding="utf-8")]
+assert plan["ready"] is True and plan["write_required"] is True, plan
+assert plan["previous_title"] == "✅ Release smoke exact subject", plan
+assert plan["desired_title"] == "➡️ Release smoke exact subject", plan
+assert result == {"ready": False, "reason": "Codex title write failed"}, result
+assert len(calls) == 1 and calls[0]["params"] == {"title": "➡️ Release smoke exact subject"}, calls
+assert calls[0]["error"] == "injected mounted setter failure", calls
 PY
 python3 - "$app_server_log" <<'PY'
 import json
 import sys
 
 messages = [json.loads(line) for line in open(sys.argv[1], encoding="utf-8")]
-assert [message["method"] for message in messages].count("thread/name/set") == 1, messages
+assert [message.get("method") for message in messages].count("thread/list") == 1, messages
+assert not any(message.get("method") == "thread/name/set" for message in messages), messages
 PY
 
-run_threadbear title --status automation --json >"$root/title-automation.json"
-python3 - "$root/title-automation.json" <<'PY'
+: >"$app_server_log"
+: >"$native_tool_log"
+run_threadbear title --status automation --json >"$root/title-automation-plan.json"
+"$simulate_mounted" current "$root/title-automation-plan.json" "$app_server_state" "$native_tool_log" "$root/title-automation.json" "" ""
+python3 - "$root/title-automation-plan.json" "$root/title-automation.json" "$native_tool_log" <<'PY'
 import json
 import sys
 
-value = json.load(open(sys.argv[1], encoding="utf-8"))
+plan = json.load(open(sys.argv[1], encoding="utf-8"))
+value = json.load(open(sys.argv[2], encoding="utf-8"))
+calls = [json.loads(line) for line in open(sys.argv[3], encoding="utf-8")]
+assert plan["previous_title"] == "✅ Release smoke exact subject", plan
+assert plan["desired_title"] == "🤖 Release smoke exact subject", plan
 assert value["ready"] is True and value["updated"] is True, value
 assert value["title"] == "🤖 Release smoke exact subject", value
-PY
-
-# Codex has no compare-and-set between the immediate read and the one write.
-# Force that accepted ordering and prove it remains one bounded write with no
-# retry or reconciliation. The ordinary real-Desktop canary is the practical
-# kill-switch gate; this fixture records the unavoidable protocol semantics.
-: >"$app_server_log"
-THREADBEAR_SMOKE_APP_SERVER_MODE=current-rename-race \
-	run_threadbear title --status blocked --json >"$root/title-rename-race.json"
-unset THREADBEAR_SMOKE_APP_SERVER_MODE
-python3 - "$root/title-rename-race.json" <<'PY'
-import json
-import sys
-
-value = json.load(open(sys.argv[1], encoding="utf-8"))
-assert value["ready"] is True and value["updated"] is True, value
-assert value["previous_title"] == "🤖 Release smoke exact subject", value
-assert value["desired_title"] == "🚨 Release smoke exact subject", value
-assert value["title"] == "🚨 Release smoke exact subject", value
-assert value["unconfirmed"] is False, value
+assert len(calls) == 1, calls
 PY
 python3 - "$app_server_log" <<'PY'
 import json
 import sys
 
 messages = [json.loads(line) for line in open(sys.argv[1], encoding="utf-8")]
-assert [message for message in messages if message.get("fixture") == "external-rename"] == [
-    {"fixture": "external-rename", "name": "User rename during the no-CAS window"}
-], messages
-assert [message.get("method") for message in messages].count("thread/name/set") == 1, messages
-assert [message.get("method") for message in messages].count("thread/list") == 2, messages
+assert [message.get("method") for message in messages].count("thread/list") == 1, messages
+assert not any(message.get("method") == "thread/name/set" for message in messages), messages
 PY
 cmp "$codex_home/hooks.json" "$hooks_before" >/dev/null ||
-	fail "direct title writer changed hooks.json"
+	fail "title planning or mounted setter simulation changed hooks.json"
 
 # Full enumeration must finish before any historical write.
 find "$state_dir/subjects" -type f -exec shasum -a 256 {} \; | LC_ALL=C sort >"$root/subjects.before-failed-page"
@@ -731,7 +825,7 @@ import sys
 value = json.load(open(sys.argv[1], encoding="utf-8"))
 assert value["ready"] is False and "thread/list page 2" in value["error"], value
 assert value["plan_complete"] is False and value["total"] == 0, value
-assert value["items"] is None and value["updated"] == 0 and value["unconfirmed"] == 0, value
+assert value["items"] is None and value["prepared"] == 0 and value["needs_update"] == 0, value
 PY
 find "$state_dir/subjects" -type f -exec shasum -a 256 {} \; | LC_ALL=C sort >"$root/subjects.after-failed-page"
 cmp "$root/subjects.before-failed-page" "$root/subjects.after-failed-page" >/dev/null ||
@@ -763,8 +857,7 @@ assert value["ready"] is True and value["plan_complete"] is True and value["read
 assert value["onboarding_complete"] is False, value
 assert value["total"] == len(value["items"]) == 109, value
 assert value["safe"] == 107 and value["needs_update"] == 106, value
-assert value["updated"] == 0 and value["unchanged"] == 1, value
-assert value["skipped"] == 2 and value["unconfirmed"] == 0, value
+assert value["prepared"] == 0 and value["unchanged"] == 1 and value["skipped"] == 2, value
 assert [item["task_id"] for item in value["items"]] == sorted(item["task_id"] for item in value["items"])
 by_id = {item["task_id"]: item for item in value["items"]}
 assert by_id[current_id]["outcome"] == "unchanged", by_id[current_id]
@@ -781,48 +874,93 @@ messages = [json.loads(line) for line in open(sys.argv[1], encoding="utf-8")]
 assert not any(message.get("method") in {"thread/read", "thread/name/set"} for message in messages), messages
 PY
 
-# One confirmed pass handles the entire safe set serially. Synthetic drift,
-# setter failure, and acknowledgement-without-readback stay local and appear in
-# the aggregate receipt. The active caller is never neutralized.
+# One confirmed production pass prepares subjects from the complete snapshot
+# without per-target RPCs. The mounted-native simulation then rereads every
+# prepared title immediately before one possible setter; drift skips the write,
+# and one injected setter failure proves exact accounting and no retry.
 : >"$app_server_log"
-if THREADBEAR_SMOKE_APP_SERVER_MODE=onboarding-edge \
-	run_threadbear_with_caller "$delegated_id" onboard --noninteractive --confirm --json >"$root/onboard-edge.json"; then
-	fail "edge onboarding reported complete despite unconfirmed targets"
-fi
-unset THREADBEAR_SMOKE_APP_SERVER_MODE
-python3 - "$root/onboard-edge.json" "$delegated_id" "$drift_id" "$failed_id" "$unconfirmed_id" <<'PY'
+: >"$native_tool_log"
+app_state_before_preparation=$(shasum -a 256 "$app_server_state" | awk '{print $1}')
+run_threadbear_with_caller "$delegated_id" onboard --noninteractive --confirm --json >"$root/onboard-prepared-edge.json"
+python3 - "$root/onboard-prepared-edge.json" "$delegated_id" <<'PY'
 import json
 import sys
 
 value = json.load(open(sys.argv[1], encoding="utf-8"))
-delegated_id, drift_id, failed_id, unconfirmed_id = sys.argv[2:]
-assert value["ready"] is False and value["plan_complete"] is True, value
+delegated_id = sys.argv[2]
+assert value["ready"] is True and value["plan_complete"] is True, value
 assert value["read_only"] is False and value["onboarding_complete"] is False, value
 assert value["total"] == len(value["items"]) == 109 and value["safe"] == 107, value
-assert value["needs_update"] == 0, value
-assert value["updated"] == 102 and value["unchanged"] == 2, value
-assert value["skipped"] == 3 and value["unconfirmed"] == 2, value
-assert value["updated"] + value["unchanged"] + value["skipped"] + value["unconfirmed"] == value["total"], value
+assert value["needs_update"] == 105 and value["prepared"] == 105, value
+assert value["unchanged"] == 2 and value["skipped"] == 2, value
+assert value["prepared"] + value["unchanged"] + value["skipped"] == value["total"], value
 by_id = {item["task_id"]: item for item in value["items"]}
 assert by_id[delegated_id]["outcome"] == "unchanged", by_id[delegated_id]
 assert by_id[delegated_id]["reason"] == "active task is handled by the terminal title writer", by_id[delegated_id]
-assert by_id[drift_id]["outcome"] == "skipped", by_id[drift_id]
-assert by_id[failed_id]["outcome"] == "unconfirmed", by_id[failed_id]
-assert by_id[unconfirmed_id]["outcome"] == "unconfirmed", by_id[unconfirmed_id]
+assert all(item["outcome"] != "updated" and item["outcome"] != "unconfirmed" for item in value["items"]), value
 PY
-python3 - "$app_server_log" "$delegated_id" "$drift_id" <<'PY'
+python3 - "$app_server_log" <<'PY'
 import json
 import sys
 
 messages = [json.loads(line) for line in open(sys.argv[1], encoding="utf-8")]
-delegated_id, drift_id = sys.argv[2:]
-sets = [message for message in messages if message.get("method") == "thread/name/set"]
-assert len(sets) == 104, len(sets)
-ids = [message["params"]["threadId"] for message in sets]
-assert len(ids) == len(set(ids)), ids
-assert delegated_id not in ids and drift_id not in ids, ids
-reads = [message for message in messages if message.get("method") == "thread/read"]
-assert all(message["params"]["includeTurns"] is False for message in reads), reads
+lists = [message for message in messages if message.get("method") == "thread/list"]
+assert [message["params"] for message in lists] == [
+    {"archived": False, "limit": 100},
+    {"archived": False, "limit": 100, "cursor": "page-2"},
+], lists
+assert not any(message.get("method") in {"thread/read", "thread/name/set"} for message in messages), messages
+PY
+test "$(shasum -a 256 "$app_server_state" | awk '{print $1}')" = "$app_state_before_preparation" ||
+	fail "onboarding preparation mutated native task state"
+python3 - "$state_dir/subjects/$unconfirmed_id.json" <<'PY'
+import json
+import sys
+
+assert json.load(open(sys.argv[1], encoding="utf-8")) == {"subject": "Existing task 003"}
+PY
+"$simulate_mounted" onboard "$root/onboard-prepared-edge.json" "$app_server_state" "$native_tool_log" "$root/onboard-edge.json" "$unconfirmed_id" "$mounted_drift_id"
+python3 - "$root/onboard-edge.json" "$native_tool_log" "$root/onboard-prepared-edge.json" "$unconfirmed_id" "$mounted_drift_id" <<'PY'
+import json
+import sys
+
+value = json.load(open(sys.argv[1], encoding="utf-8"))
+calls = [json.loads(line) for line in open(sys.argv[2], encoding="utf-8")]
+plan = json.load(open(sys.argv[3], encoding="utf-8"))
+failed_id, drift_id = sys.argv[4:]
+assert value == {
+    "ready": False,
+    "plan_complete": True,
+    "onboarding_complete": False,
+    "total": 109,
+    "updated": 103,
+    "skipped": 1,
+    "unchanged": 5,
+    "unconfirmed": 1,
+}, value
+reads = [call for call in calls if call["method"] == "codex_app__read_thread"]
+sets = [call for call in calls if call["method"] == "codex_app__set_thread_title"]
+assert len(reads) == 105 and len(sets) == 104 and len(calls) == 209, len(calls)
+read_ids = [call["params"]["threadId"] for call in reads]
+set_ids = [call["params"]["threadId"] for call in sets]
+prepared = {item["task_id"]: item for item in plan["items"] if item["outcome"] == "prepared"}
+assert len(read_ids) == len(set(read_ids)), read_ids
+assert len(set_ids) == len(set(set_ids)), set_ids
+assert set(read_ids) == set(prepared), (read_ids, prepared)
+assert all(call["params"]["title"] == prepared[call["params"]["threadId"]]["desired_title"] for call in sets), sets
+assert read_ids.count(drift_id) == 1 and drift_id not in set_ids, (read_ids, set_ids)
+assert next(call for call in reads if call["params"]["threadId"] == drift_id)["response"]["thread"]["title"] == "User rename at mounted revalidation", reads
+assert set_ids.count(failed_id) == 1, set_ids
+assert all(call["params"] == {
+    "threadId": call["params"]["threadId"],
+    "includeOutputs": False,
+    "turnLimit": 1,
+    "maxOutputCharsPerItem": 1,
+} for call in reads), reads
+assert all(calls[index - 1]["method"] == "codex_app__read_thread" and
+           calls[index - 1]["params"]["threadId"] == call["params"]["threadId"]
+           for index, call in enumerate(calls) if call["method"] == "codex_app__set_thread_title"), calls
+assert sum("error" in call for call in sets) == 1, sets
 PY
 cmp "$codex_home/hooks.json" "$hooks_before" >/dev/null ||
 	fail "confirmed onboarding changed hooks.json"
@@ -835,22 +973,67 @@ import sys
 value = json.load(open(sys.argv[1], encoding="utf-8"))
 assert value["ready"] is True and value["plan_complete"] is True, value
 assert value["total"] == 109 and value["safe"] == 107, value
-assert value["needs_update"] == 4 and value["unchanged"] == 103, value
-assert value["skipped"] == 2 and value["updated"] == 0 and value["unconfirmed"] == 0, value
+assert value["needs_update"] == 3 and value["prepared"] == 0, value
+assert value["unchanged"] == 104 and value["skipped"] == 2, value
 PY
 
-run_threadbear onboard --noninteractive --confirm --json >"$root/onboard-converged.json"
-python3 - "$root/onboard-converged.json" <<'PY'
+: >"$app_server_log"
+: >"$native_tool_log"
+run_threadbear onboard --noninteractive --confirm --json >"$root/onboard-final-plan.json"
+python3 - "$root/onboard-final-plan.json" "$app_server_log" <<'PY'
 import json
 import sys
 
 value = json.load(open(sys.argv[1], encoding="utf-8"))
 assert value["ready"] is True and value["plan_complete"] is True, value
-assert value["read_only"] is False and value["onboarding_complete"] is True, value
+assert value["read_only"] is False and value["onboarding_complete"] is False, value
 assert value["total"] == 109 and value["safe"] == 107, value
-assert value["needs_update"] == 0 and value["updated"] == 4, value
-assert value["unchanged"] == 103 and value["skipped"] == 2 and value["unconfirmed"] == 0, value
-assert value["updated"] + value["unchanged"] + value["skipped"] == value["total"], value
+assert value["needs_update"] == 3 and value["prepared"] == 3, value
+assert value["unchanged"] == 104 and value["skipped"] == 2, value
+messages = [json.loads(line) for line in open(sys.argv[2], encoding="utf-8")]
+assert not any(message.get("method") in {"thread/read", "thread/name/set"} for message in messages), messages
+PY
+"$simulate_mounted" onboard "$root/onboard-final-plan.json" "$app_server_state" "$native_tool_log" "$root/onboard-converged.json" "" ""
+python3 - "$root/onboard-converged.json" "$native_tool_log" "$root/onboard-final-plan.json" <<'PY'
+import json
+import sys
+
+value = json.load(open(sys.argv[1], encoding="utf-8"))
+calls = [json.loads(line) for line in open(sys.argv[2], encoding="utf-8")]
+plan = json.load(open(sys.argv[3], encoding="utf-8"))
+assert value == {
+    "ready": True,
+    "plan_complete": True,
+    "onboarding_complete": True,
+    "total": 109,
+    "updated": 3,
+    "skipped": 0,
+    "unchanged": 106,
+    "unconfirmed": 0,
+}, value
+reads = [call for call in calls if call["method"] == "codex_app__read_thread"]
+sets = [call for call in calls if call["method"] == "codex_app__set_thread_title"]
+prepared = {item["task_id"]: item for item in plan["items"] if item["outcome"] == "prepared"}
+assert len(reads) == 3 and len(sets) == 3 and len(calls) == 6, calls
+assert len({call["params"]["threadId"] for call in reads}) == 3, reads
+assert len({call["params"]["threadId"] for call in sets}) == 3, sets
+assert {call["params"]["threadId"] for call in reads} == set(prepared), (reads, prepared)
+assert all(call["params"]["title"] == prepared[call["params"]["threadId"]]["desired_title"] for call in sets), sets
+assert all("response" in call and "error" not in call for call in calls), calls
+PY
+
+: >"$app_server_log"
+run_threadbear onboard --dry-run --json >"$root/onboard-final-preview.json"
+python3 - "$root/onboard-final-preview.json" "$app_server_log" <<'PY'
+import json
+import sys
+
+value = json.load(open(sys.argv[1], encoding="utf-8"))
+assert value["ready"] is True and value["onboarding_complete"] is True, value
+assert value["needs_update"] == 0 and value["prepared"] == 0, value
+assert value["unchanged"] == 107 and value["skipped"] == 2, value
+messages = [json.loads(line) for line in open(sys.argv[2], encoding="utf-8")]
+assert not any(message.get("method") in {"thread/read", "thread/name/set"} for message in messages), messages
 PY
 
 # Exercise the real daily updater once, then the direct current-version command.

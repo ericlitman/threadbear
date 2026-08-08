@@ -9,10 +9,9 @@ import (
 
 const (
 	onboardingNeedsUpdate = "needs_update"
-	onboardingUpdated     = "updated"
+	onboardingPrepared    = "prepared"
 	onboardingUnchanged   = "unchanged"
 	onboardingSkipped     = "skipped"
-	onboardingUnconfirmed = "unconfirmed"
 )
 
 type indexedTask struct {
@@ -23,15 +22,13 @@ type indexedTask struct {
 
 type currentTitleResult struct {
 	Ready         bool   `json:"ready"`
-	TaskID        string `json:"task_id,omitempty"`
-	Status        string `json:"status,omitempty"`
-	PreviousTitle string `json:"previous_title,omitempty"`
-	DesiredTitle  string `json:"desired_title,omitempty"`
-	Title         string `json:"title,omitempty"`
-	Updated       bool   `json:"updated"`
+	TaskID        string `json:"task_id"`
+	Status        string `json:"status"`
+	PreviousTitle string `json:"previous_title"`
+	DesiredTitle  string `json:"desired_title"`
+	WriteRequired bool   `json:"write_required"`
 	Unchanged     bool   `json:"unchanged"`
-	Unconfirmed   bool   `json:"unconfirmed"`
-	Reason        string `json:"reason,omitempty"`
+	Reason        string `json:"reason"`
 }
 
 type onboardingItem struct {
@@ -40,7 +37,6 @@ type onboardingItem struct {
 	Subject      string `json:"subject,omitempty"`
 	DesiredTitle string `json:"desired_title,omitempty"`
 	Safe         bool   `json:"safe"`
-	Applied      bool   `json:"applied"`
 	Outcome      string `json:"outcome"`
 	Reason       string `json:"reason,omitempty"`
 }
@@ -53,10 +49,9 @@ type onboardingResult struct {
 	Total              int              `json:"total"`
 	Safe               int              `json:"safe"`
 	NeedsUpdate        int              `json:"needs_update"`
-	Updated            int              `json:"updated"`
+	Prepared           int              `json:"prepared"`
 	Unchanged          int              `json:"unchanged"`
 	Skipped            int              `json:"skipped"`
-	Unconfirmed        int              `json:"unconfirmed"`
 	Items              []onboardingItem `json:"items"`
 }
 
@@ -86,54 +81,38 @@ func runCurrentTitle(ctx context.Context, taskID, status string) (currentTitleRe
 			return err
 		}
 		if task.RawFallback {
-			return errors.New("native task name is blank; task is raw or unowned")
+			result.Reason = "native task name is blank; task is raw or unowned"
+			return errors.New(result.Reason)
 		}
 
 		subject, err := persistSubjectUnderFence(disk, task.ID, task.Title)
 		if err != nil {
+			result.Reason = "subject could not be resolved or saved"
 			return err
 		}
 		desired, err := renderTitle(status, subject)
 		if err != nil {
+			result.Reason = "desired title could not be rendered"
 			return err
 		}
 		result.PreviousTitle, result.DesiredTitle = task.Title, desired
-
-		attempted := desired != task.Title
-		nextRequestID := 3
-		if attempted {
-			if err := client.setName(nextRequestID, taskID, desired); err != nil {
-				result.Unconfirmed = true
-				result.Reason = "the single native title write did not return a usable result"
-				return err
-			}
-			nextRequestID++
+		result.WriteRequired = desired != task.Title
+		result.Unchanged = !result.WriteRequired
+		if result.WriteRequired {
+			result.Reason = "app-native title write required"
+		} else {
+			result.Reason = "native title already matches desired title"
 		}
-		readback, err := client.currentTask(nextRequestID, taskID)
-		if err != nil {
-			result.Unconfirmed = attempted
-			result.Reason = "the native title could not be read back"
-			return err
-		}
-		if readback.RawFallback || readback.Title != desired {
-			result.Unconfirmed = attempted
-			if attempted {
-				result.Reason = "the single native title write was not confirmed by exact readback"
-			} else {
-				result.Reason = "the native title changed during verification"
-			}
-			return errors.New(result.Reason)
-		}
-		result.Ready, result.Title = true, readback.Title
-		result.Updated, result.Unchanged = attempted, !attempted
+		result.Ready = true
 		return nil
 	}()
 	if err != nil {
 		return result, err
 	}
 
-	// Exact native readback is the success gate. A process exit error after that
-	// point cannot make an already-observed title uncertain.
+	// The exact native name was already read and the plan is complete. Process
+	// exit cannot change that proof, so close and reap without promoting it into
+	// another title observation.
 	client.close()
 	return result, nil
 }
@@ -191,77 +170,38 @@ func runOnboarding(ctx context.Context, apply bool, activeTaskID string) (onboar
 	}
 
 	var operationErr error
-	// thread/read is only a drift check and exact readback for rows admitted by
-	// the complete thread/list snapshot above. It never supplies a subject.
+	// The completed thread/list snapshot is the preparation authority. Subject
+	// state is safe to pre-persist: the later app-native writer owns the immediate
+	// title observation and a future planner adopts any safe intervening rename.
 	for index := range items {
 		item := &items[index]
-		if !item.Safe {
-			continue
-		}
-		if item.TaskID == activeTaskID {
+		if !item.Safe || item.TaskID == activeTaskID || item.Outcome != onboardingNeedsUpdate {
 			continue
 		}
 		targetErr := func() error {
-			current, readErr := client.readTask(nextRequestID, item.TaskID)
-			nextRequestID++
-			if readErr != nil {
-				item.Applied, item.Outcome = false, onboardingSkipped
-				item.Reason = "native task name could not be revalidated"
-				return nil
-			}
-			if current.RawFallback {
-				item.Applied, item.Outcome = false, onboardingSkipped
-				item.Reason = "native task name became blank during revalidation"
-				return nil
-			}
-			if current.Title != item.Title {
-				item.Applied, item.Outcome = false, onboardingSkipped
-				item.Reason = "native task name changed after the onboarding snapshot"
-				return nil
-			}
-			if item.DesiredTitle == current.Title {
-				item.Applied, item.Outcome = true, onboardingUnchanged
-				item.Reason = "already decorated"
-				return nil
-			}
-			if _, err := persistSubjectUnderFence(disk, item.TaskID, current.Title); err != nil {
-				item.Applied, item.Outcome = false, onboardingSkipped
+			if _, err := persistSubjectUnderFence(disk, item.TaskID, item.Title); err != nil {
+				item.Outcome = onboardingSkipped
 				item.Reason = "subject state could not be saved"
 				return fmt.Errorf("save subject state for %s: %w", item.TaskID, err)
 			}
-			if err := client.setName(nextRequestID, item.TaskID, item.DesiredTitle); err != nil {
-				nextRequestID++
-				item.Applied, item.Outcome = false, onboardingUnconfirmed
-				item.Reason = "the single native title write did not return a usable result"
-				return fmt.Errorf("set title for %s: %w", item.TaskID, err)
-			}
-			nextRequestID++
-			readback, err := client.readTask(nextRequestID, item.TaskID)
-			nextRequestID++
-			if err != nil || readback.RawFallback || readback.Title != item.DesiredTitle {
-				item.Applied, item.Outcome = false, onboardingUnconfirmed
-				item.Reason = "the single native title write was not confirmed by exact readback"
-				if err == nil {
-					err = errors.New(item.Reason)
-				}
-				return fmt.Errorf("confirm title for %s: %w", item.TaskID, err)
-			}
-			item.Applied, item.Outcome, item.Reason = true, onboardingUpdated, ""
+			item.Outcome = onboardingPrepared
+			item.Reason = "app-native title write required"
 			return nil
 		}()
 		if targetErr != nil {
-			if item.Outcome != onboardingUnconfirmed && item.Outcome != onboardingSkipped {
-				item.Applied, item.Outcome = false, onboardingSkipped
-				item.Reason = "the ThreadBear lifecycle changed before this task could be written"
+			if item.Outcome != onboardingSkipped {
+				item.Outcome = onboardingSkipped
+				item.Reason = "the ThreadBear lifecycle changed before this task could be prepared"
 			}
 			operationErr = errors.Join(operationErr, targetErr)
 		}
 	}
-	// As with the current-task path, per-task exact readback is authoritative.
-	// Still reap the one long-lived process before returning the aggregate.
+	// Reap the one long-lived process after every admitted task has been
+	// prepared. Exit is proof-neutral once the plan is complete.
 	client.close()
 	result = summarizeOnboarding(items, false)
 	result.Ready, result.PlanComplete = operationErr == nil, true
+	result.OnboardingComplete = result.OnboardingComplete && operationErr == nil
 	return result, operationErr
 }
 
@@ -271,7 +211,6 @@ func excludeActiveOnboardingTask(items []onboardingItem, activeTaskID string) {
 	}
 	for index := range items {
 		if items[index].TaskID == activeTaskID {
-			items[index].Applied = false
 			items[index].Outcome = onboardingUnchanged
 			items[index].Reason = "active task is handled by the terminal title writer"
 			return
@@ -299,7 +238,7 @@ func prepareOnboardingItems(tasks []indexedTask) []onboardingItem {
 		}
 		if record.Subject != "" && isOwnedRendering(task.Title, record.Subject) {
 			item.Title, item.Subject, item.DesiredTitle = task.Title, record.Subject, task.Title
-			item.Safe, item.Applied, item.Outcome, item.Reason = true, true, onboardingUnchanged, "already decorated"
+			item.Safe, item.Outcome, item.Reason = true, onboardingUnchanged, "already decorated"
 			items = append(items, item)
 			continue
 		}
@@ -318,32 +257,26 @@ func prepareOnboardingItems(tasks []indexedTask) []onboardingItem {
 
 func summarizeOnboarding(items []onboardingItem, readOnly bool) onboardingResult {
 	result := onboardingResult{ReadOnly: readOnly, Total: len(items), Items: items}
-	allSafeConfirmed := true
 	for _, item := range items {
 		if item.Safe {
 			result.Safe++
-			if item.Outcome == onboardingNeedsUpdate {
+			if item.Outcome == onboardingNeedsUpdate || item.Outcome == onboardingPrepared {
 				result.NeedsUpdate++
-			}
-			if item.Outcome != onboardingUpdated && item.Outcome != onboardingUnchanged {
-				allSafeConfirmed = false
 			}
 		}
 		switch item.Outcome {
-		case onboardingUpdated:
-			result.Updated++
+		case onboardingPrepared:
+			result.Prepared++
 		case onboardingUnchanged:
 			result.Unchanged++
 		case onboardingSkipped:
 			result.Skipped++
-		case onboardingUnconfirmed:
-			result.Unconfirmed++
 		}
 	}
 	if readOnly {
 		result.OnboardingComplete = result.NeedsUpdate == 0
 	} else {
-		result.OnboardingComplete = allSafeConfirmed && result.Unconfirmed == 0
+		result.OnboardingComplete = result.Prepared == 0
 	}
 	return result
 }

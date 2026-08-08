@@ -109,50 +109,78 @@ func addTask(t testing.TB, index *testTaskIndex, root, id, title string, name an
 	return rollout
 }
 
-func TestCurrentTitleUsesOneWriterAndExactReadback(t *testing.T) {
+func TestCurrentTitlePlansOneAppNativeWriteFromExactListName(t *testing.T) {
 	root, index := testIndex(t)
 	addTask(t, index, root, testTaskID, "stale SQLite title", "Stable subject", "vscode", 0)
 	result, err := runCurrentTitle(t.Context(), testTaskID, "complete")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !result.Ready || !result.Updated || result.Unchanged || result.Unconfirmed ||
-		result.PreviousTitle != "Stable subject" || result.DesiredTitle != "✅ Stable subject" || result.Title != result.DesiredTitle {
+	if !result.Ready || !result.WriteRequired || result.Unchanged ||
+		result.PreviousTitle != "Stable subject" || result.DesiredTitle != "✅ Stable subject" ||
+		result.Reason != "app-native title write required" {
 		t.Fatalf("title result = %#v", result)
 	}
-	if got := index.title(t, testTaskID); got != "✅ Stable subject" {
-		t.Fatalf("native name = %q", got)
+	if got := index.title(t, testTaskID); got != "Stable subject" {
+		t.Fatalf("planner mutated native name = %q", got)
 	}
 	if record, err := newStore(stateDir()).readTask(testTaskID); err != nil || record.Subject != "Stable subject" {
 		t.Fatalf("subject record = %#v, %v", record, err)
 	}
 	requests := fixtureRequests(t)
-	if countFixtureMethod(requests, "thread/name/set") != 1 || countFixtureMethod(requests, "thread/list") != 2 ||
+	if countFixtureMethod(requests, "thread/name/set") != 0 || countFixtureMethod(requests, "thread/list") != 1 ||
 		countFixtureMethod(requests, "thread/read") != 0 {
 		t.Fatalf("RPC sequence = %#v", requests)
 	}
-	set := fixtureMethod(requests, "thread/name/set", 0)
-	if fixtureStringParam(t, set, "threadId") != testTaskID || fixtureStringParam(t, set, "name") != result.DesiredTitle {
-		t.Fatalf("setter = %#v", set)
+	list := fixtureMethod(requests, "thread/list", 0)
+	var limit int
+	var archived bool
+	if json.Unmarshal(list.Params["limit"], &limit) != nil || limit != appServerListLimit ||
+		json.Unmarshal(list.Params["archived"], &archived) != nil || archived ||
+		fixtureStringParam(t, list, "sortKey") != "recency_at" ||
+		fixtureStringParam(t, list, "sortDirection") != "desc" {
+		t.Fatalf("current lookup params = %#v", list.Params)
+	}
+	encoded, err := json.Marshal(result)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var fields map[string]any
+	if err := json.Unmarshal(encoded, &fields); err != nil {
+		t.Fatal(err)
+	}
+	for _, expected := range []string{"ready", "task_id", "status", "previous_title", "desired_title", "write_required", "unchanged", "reason"} {
+		if _, exists := fields[expected]; !exists {
+			t.Fatalf("planner omitted field %q: %s", expected, encoded)
+		}
+	}
+	for _, obsolete := range []string{"title", "updated", "unconfirmed"} {
+		if _, exists := fields[obsolete]; exists {
+			t.Fatalf("planner emitted obsolete field %q: %s", obsolete, encoded)
+		}
 	}
 }
 
 func TestCurrentTitlePreservesFiniteOwnershipAndUserRename(t *testing.T) {
 	_, index := testIndex(t)
 	index.setTitle(t, testTaskID, "Initial subject")
-	if _, err := runCurrentTitle(t.Context(), testTaskID, "complete"); err != nil {
+	first, err := runCurrentTitle(t.Context(), testTaskID, "complete")
+	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := runCurrentTitle(t.Context(), testTaskID, "automation"); err != nil {
-		t.Fatal(err)
+	index.setTitle(t, testTaskID, first.DesiredTitle) // Simulate the separate app-native setter.
+	second, err := runCurrentTitle(t.Context(), testTaskID, "automation")
+	if err != nil || second.DesiredTitle != "🤖 Initial subject" {
+		t.Fatalf("second plan = %#v, %v", second, err)
 	}
-	if got := index.title(t, testTaskID); got != "🤖 Initial subject" {
-		t.Fatalf("owned rendering stacked: %q", got)
-	}
+	index.setTitle(t, testTaskID, second.DesiredTitle) // Simulate the separate app-native setter.
 	index.setTitle(t, testTaskID, "✅ Quarterly  close ")
 	result, err := runCurrentTitle(t.Context(), testTaskID, "complete")
-	if err != nil || result.Title != "✅ ✅ Quarterly  close " {
+	if err != nil || result.DesiredTitle != "✅ ✅ Quarterly  close " || !result.WriteRequired {
 		t.Fatalf("verbatim rename = %#v, %v", result, err)
+	}
+	if got := index.title(t, testTaskID); got != "✅ Quarterly  close " {
+		t.Fatalf("planner mutated user rename = %q", got)
 	}
 	if record, err := newStore(stateDir()).readTask(testTaskID); err != nil || record.Subject != "✅ Quarterly  close " {
 		t.Fatalf("renamed record = %#v, %v", record, err)
@@ -169,11 +197,14 @@ func TestCurrentTitleAlreadyExactDoesNotCallSetter(t *testing.T) {
 		t.Fatal(err)
 	}
 	result, err := runCurrentTitle(t.Context(), testTaskID, "complete")
-	if err != nil || !result.Ready || result.Updated || !result.Unchanged || result.Title != "✅ Stable subject" {
+	if err != nil || !result.Ready || result.WriteRequired || !result.Unchanged ||
+		result.PreviousTitle != "✅ Stable subject" || result.DesiredTitle != "✅ Stable subject" ||
+		result.Reason != "native title already matches desired title" {
 		t.Fatalf("unchanged result = %#v, %v", result, err)
 	}
 	requests := fixtureRequests(t)
-	if countFixtureMethod(requests, "thread/name/set") != 0 || countFixtureMethod(requests, "thread/list") != 2 {
+	if countFixtureMethod(requests, "thread/name/set") != 0 || countFixtureMethod(requests, "thread/list") != 1 ||
+		countFixtureMethod(requests, "thread/read") != 0 {
 		t.Fatalf("unchanged RPCs = %#v", requests)
 	}
 }
@@ -192,8 +223,10 @@ func TestCurrentTitleDoesNotWriteUnsafeOrBlankNativeNames(t *testing.T) {
 			if err == nil || result.PreviousTitle != "" || result.DesiredTitle != "" {
 				t.Fatalf("unsafe result = %#v, %v", result, err)
 			}
-			if countFixtureMethod(fixtureRequests(t), "thread/name/set") != 0 {
-				t.Fatal("unsafe task reached native setter")
+			requests := fixtureRequests(t)
+			if countFixtureMethod(requests, "thread/name/set") != 0 || countFixtureMethod(requests, "thread/list") != 1 ||
+				countFixtureMethod(requests, "thread/read") != 0 {
+				t.Fatalf("unsafe planner RPCs = %#v", requests)
 			}
 			if _, err := newStore(stateDir()).readTask(testTaskID); !errors.Is(err, os.ErrNotExist) {
 				t.Fatalf("unsafe task wrote subject state: %v", err)
@@ -202,47 +235,26 @@ func TestCurrentTitleDoesNotWriteUnsafeOrBlankNativeNames(t *testing.T) {
 	}
 }
 
-func TestCurrentTitleNeverRetriesUnknownNativeResult(t *testing.T) {
-	for _, scenario := range []string{"current-readback-mismatch", "current-set-error"} {
-		t.Run(scenario, func(t *testing.T) {
-			_, index := testIndex(t)
-			index.setTitle(t, testTaskID, "Stable subject")
-			starts := installAppServerFixture(t, scenario)
-			result, err := runCurrentTitle(t.Context(), testTaskID, "complete")
-			if err == nil || !result.Unconfirmed || result.Ready || result.Title != "" {
-				t.Fatalf("unknown result = %#v, %v", result, err)
-			}
-			requests := fixtureRequests(t)
-			if countFixtureMethod(requests, "thread/name/set") != 1 {
-				t.Fatalf("setter attempts = %#v", requests)
-			}
-			if data, err := os.ReadFile(starts); err != nil || string(data) != "x" {
-				t.Fatalf("App Server starts = %q, %v", data, err)
-			}
-		})
-	}
-}
-
-func TestCurrentTitleAcceptsBoundedNoCASConcurrentRename(t *testing.T) {
+func TestCurrentTitleAcceptsBoundedNoCASConcurrentRenameWithoutWriting(t *testing.T) {
 	_, index := testIndex(t)
 	index.setTitle(t, testTaskID, "Stable subject")
 	starts := installAppServerFixture(t, "current-concurrent-rename")
 
 	result, err := runCurrentTitle(t.Context(), testTaskID, "complete")
-	if err != nil || !result.Ready || !result.Updated || result.Unconfirmed ||
-		result.PreviousTitle != "Stable subject" || result.Title != "✅ Stable subject" {
+	if err != nil || !result.Ready || !result.WriteRequired || result.Unchanged ||
+		result.PreviousTitle != "Stable subject" || result.DesiredTitle != "✅ Stable subject" {
 		t.Fatalf("concurrent rename result = %#v, %v", result, err)
 	}
 	marker, err := os.ReadFile(os.Getenv("THREADBEAR_APP_SERVER_RACE_MARKER"))
 	if err != nil || string(marker) != "User rename during delayed write\n" {
 		t.Fatalf("concurrent rename marker = %q, %v", marker, err)
 	}
-	if got := index.title(t, testTaskID); got != result.DesiredTitle {
-		t.Fatalf("exact native readback = %q, want %q", got, result.DesiredTitle)
+	if got := index.title(t, testTaskID); got != "User rename during delayed write" {
+		t.Fatalf("planner overwrote concurrent rename = %q", got)
 	}
 	requests := fixtureRequests(t)
-	if countFixtureMethod(requests, "thread/name/set") != 1 ||
-		countFixtureMethod(requests, "thread/list") != 2 ||
+	if countFixtureMethod(requests, "thread/name/set") != 0 ||
+		countFixtureMethod(requests, "thread/list") != 1 ||
 		countFixtureMethod(requests, "thread/read") != 0 {
 		t.Fatalf("no-CAS RPC sequence = %#v", requests)
 	}
@@ -270,33 +282,58 @@ func TestOnboardingPlanMatchesConfirmedCorpusAndSkipsActiveTask(t *testing.T) {
 		t.Fatalf("onboarding plan = %#v, %v", plan, err)
 	}
 	active := onboardingItemByID(t, plan.Items, testActiveID)
-	if active.Outcome != onboardingUnchanged || active.Applied || active.Reason != "active task is handled by the terminal title writer" {
+	if active.Outcome != onboardingUnchanged || active.Reason != "active task is handled by the terminal title writer" {
 		t.Fatalf("active plan item = %#v", active)
 	}
 	if countFixtureMethod(fixtureRequests(t), "thread/read") != 0 || countFixtureMethod(fixtureRequests(t), "thread/name/set") != 0 {
 		t.Fatal("read-only plan performed target RPCs")
 	}
+	if _, err := newStore(stateDir()).readTask(testAlphaID); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("read-only plan wrote subject state: %v", err)
+	}
 	clearFixtureRequests(t)
 
-	applied, err := runOnboarding(t.Context(), true, testActiveID)
-	if err != nil || !applied.Ready || applied.ReadOnly || !applied.OnboardingComplete ||
-		applied.Updated != 1 || applied.Unchanged != 2 || applied.Skipped != 1 || applied.Unconfirmed != 0 {
-		t.Fatalf("onboarding apply = %#v, %v", applied, err)
+	prepared, err := runOnboarding(t.Context(), true, testActiveID)
+	if err != nil || !prepared.Ready || !prepared.PlanComplete || prepared.ReadOnly || prepared.OnboardingComplete ||
+		prepared.Prepared != 1 || prepared.NeedsUpdate != 1 || prepared.Unchanged != 2 || prepared.Skipped != 1 {
+		t.Fatalf("onboarding preparation = %#v, %v", prepared, err)
 	}
-	if index.title(t, testActiveID) != "Active task" || index.title(t, testAlphaID) != "🐻 Alpha" {
-		t.Fatalf("native titles: active=%q alpha=%q", index.title(t, testActiveID), index.title(t, testAlphaID))
+	if index.title(t, testActiveID) != "Active task" || index.title(t, testAlphaID) != "Alpha" {
+		t.Fatalf("planner mutated native titles: active=%q alpha=%q", index.title(t, testActiveID), index.title(t, testAlphaID))
 	}
 	requests := fixtureRequests(t)
-	if countFixtureTarget(requests, "thread/name/set", testActiveID) != 0 || countFixtureTarget(requests, "thread/read", testActiveID) != 0 ||
-		countFixtureTarget(requests, "thread/name/set", testAlphaID) != 1 {
+	if countFixtureMethod(requests, "thread/name/set") != 0 || countFixtureMethod(requests, "thread/read") != 0 {
 		t.Fatalf("onboarding RPCs = %#v", requests)
+	}
+	alpha := onboardingItemByID(t, prepared.Items, testAlphaID)
+	if alpha.Outcome != onboardingPrepared || alpha.Reason != "app-native title write required" {
+		t.Fatalf("prepared item = %#v", alpha)
+	}
+	encoded, err := json.Marshal(prepared)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var fields map[string]any
+	if err := json.Unmarshal(encoded, &fields); err != nil {
+		t.Fatal(err)
+	}
+	for _, obsolete := range []string{"updated", "unconfirmed"} {
+		if _, exists := fields[obsolete]; exists {
+			t.Fatalf("preparation emitted obsolete field %q: %s", obsolete, encoded)
+		}
+	}
+	if strings.Contains(string(encoded), `"applied"`) {
+		t.Fatalf("preparation emitted obsolete item field: %s", encoded)
+	}
+	if record, err := newStore(stateDir()).readTask(testAlphaID); err != nil || record.Subject != "Alpha" {
+		t.Fatalf("prepared subject = %#v, %v", record, err)
 	}
 	if _, err := newStore(stateDir()).readTask(testActiveID); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("active task wrote state: %v", err)
 	}
 }
 
-func TestOnboardingSeriallySkipsDriftAndReportsUnconfirmed(t *testing.T) {
+func TestOnboardingPreparesEverySafeSnapshotCandidateWithoutTargetRPCs(t *testing.T) {
 	_, index := testIndex(t)
 	for id, title := range map[string]string{
 		testActiveID: "Active", testAlphaID: "Alpha", testAlreadyID: "🐻 Beta", testBlankAfterID: "Blank later",
@@ -311,27 +348,57 @@ func TestOnboardingSeriallySkipsDriftAndReportsUnconfirmed(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	installAppServerFixture(t, "onboarding-races")
 	result, err := runOnboarding(t.Context(), true, testActiveID)
-	if err == nil || result.Ready || result.OnboardingComplete || result.Total != 7 || result.Safe != 6 ||
-		result.Updated != 1 || result.Unchanged != 2 || result.Skipped != 3 || result.Unconfirmed != 1 {
-		t.Fatalf("raced onboarding = %#v, %v", result, err)
+	if err != nil || !result.Ready || !result.PlanComplete || result.ReadOnly || result.OnboardingComplete ||
+		result.Total != 7 || result.Safe != 6 || result.NeedsUpdate != 4 || result.Prepared != 4 ||
+		result.Unchanged != 2 || result.Skipped != 1 {
+		t.Fatalf("snapshot onboarding = %#v, %v", result, err)
 	}
 	requests := fixtureRequests(t)
-	if countFixtureTarget(requests, "thread/name/set", testAlphaID) != 1 ||
-		countFixtureTarget(requests, "thread/name/set", testUnconfirmedID) != 1 ||
-		countFixtureTarget(requests, "thread/name/set", testDriftID) != 0 ||
-		countFixtureTarget(requests, "thread/name/set", testBlankAfterID) != 0 ||
-		countFixtureTarget(requests, "thread/read", testRawID) != 0 {
-		t.Fatalf("raced setter calls = %#v", requests)
+	if countFixtureMethod(requests, "thread/name/set") != 0 ||
+		countFixtureMethod(requests, "thread/read") != 0 || countFixtureMethod(requests, "thread/list") != 1 {
+		t.Fatalf("snapshot preparation calls = %#v", requests)
 	}
-	for _, id := range []string{testActiveID, testDriftID, testBlankAfterID} {
+	for _, id := range []string{testActiveID, testRawID} {
 		if _, err := newStore(stateDir()).readTask(id); !errors.Is(err, os.ErrNotExist) {
 			t.Fatalf("%s wrote subject state: %v", id, err)
 		}
 	}
-	if item := onboardingItemByID(t, result.Items, testUnconfirmedID); item.Outcome != onboardingUnconfirmed {
-		t.Fatalf("unconfirmed item = %#v", item)
+	for _, id := range []string{testAlphaID, testBlankAfterID, testDriftID, testUnconfirmedID} {
+		item := onboardingItemByID(t, result.Items, id)
+		if item.Outcome != onboardingPrepared {
+			t.Fatalf("prepared item = %#v", item)
+		}
+		if record, err := newStore(stateDir()).readTask(id); err != nil || record.Subject != item.Subject {
+			t.Fatalf("prepared state for %s = %#v, %v", id, record, err)
+		}
+	}
+}
+
+func TestPreparedSubjectYieldsToLaterSafeUserRename(t *testing.T) {
+	_, index := testIndex(t)
+	index.setTitle(t, testAlphaID, "Alpha")
+	prepared, err := runOnboarding(t.Context(), true, testActiveID)
+	if err != nil || prepared.Prepared != 1 {
+		t.Fatalf("initial preparation = %#v, %v", prepared, err)
+	}
+	index.setTitle(t, testAlphaID, "Renamed after snapshot")
+	clearFixtureRequests(t)
+
+	plan, err := runCurrentTitle(t.Context(), testAlphaID, "complete")
+	if err != nil || !plan.Ready || plan.PreviousTitle != "Renamed after snapshot" ||
+		plan.DesiredTitle != "✅ Renamed after snapshot" || !plan.WriteRequired {
+		t.Fatalf("later rename plan = %#v, %v", plan, err)
+	}
+	if record, err := newStore(stateDir()).readTask(testAlphaID); err != nil || record.Subject != "Renamed after snapshot" {
+		t.Fatalf("later rename subject = %#v, %v", record, err)
+	}
+	if got := index.title(t, testAlphaID); got != "Renamed after snapshot" {
+		t.Fatalf("planner mutated later rename = %q", got)
+	}
+	if requests := fixtureRequests(t); countFixtureMethod(requests, "thread/read") != 0 ||
+		countFixtureMethod(requests, "thread/name/set") != 0 {
+		t.Fatalf("later rename RPCs = %#v", requests)
 	}
 }
 
@@ -348,7 +415,7 @@ func TestUnsafeActiveOnboardingTaskDoesNotInflateSafeCount(t *testing.T) {
 	}
 }
 
-func TestCurrentWriterCannotOutliveLifecycleFence(t *testing.T) {
+func TestCurrentPlannerCannotOutliveLifecycleFence(t *testing.T) {
 	_, index := testIndex(t)
 	index.setTitle(t, testTaskID, "Stable subject")
 	path := filepath.Join(stateDir(), "lifecycle.lock")
@@ -368,28 +435,31 @@ func TestCurrentWriterCannotOutliveLifecycleFence(t *testing.T) {
 	case err := <-done:
 		if err == nil || !strings.Contains(err.Error(), "lifecycle is busy") {
 			unlock(lifecycle)
-			t.Fatalf("writer with exclusive lifecycle fence = %v", err)
+			t.Fatalf("planner with exclusive lifecycle fence = %v", err)
 		}
 	case <-time.After(250 * time.Millisecond):
 		unlock(lifecycle)
-		t.Fatal("writer waited behind lifecycle teardown")
+		t.Fatal("planner waited behind lifecycle teardown")
 	}
 	unlock(lifecycle)
 	if _, err := os.Stat(os.Getenv("THREADBEAR_APP_SERVER_REQUESTS")); err == nil {
 		requests := fixtureRequests(t)
 		if len(requests) != 0 {
-			t.Fatalf("busy writer started App Server: %#v", requests)
+			t.Fatalf("busy planner started App Server: %#v", requests)
 		}
 	} else if !errors.Is(err, os.ErrNotExist) {
 		t.Fatal(err)
 	}
 }
 
-func TestConfirmedOnboardingHoldsOneFenceAcrossSerialPass(t *testing.T) {
+func TestConfirmedOnboardingHoldsOneFenceAcrossSerialPreparation(t *testing.T) {
 	_, index := testIndex(t)
 	index.setTitle(t, testAlphaID, "Alpha")
 	index.setTitle(t, testOtherID, "Other")
-	installAppServerFixture(t, "onboarding-slow-readback")
+	stateLock, err := newStore(stateDir()).lock(testAlphaID)
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	done := make(chan error, 1)
 	go func() {
@@ -400,11 +470,12 @@ func TestConfirmedOnboardingHoldsOneFenceAcrossSerialPass(t *testing.T) {
 	for _, err := os.Stat(os.Getenv("THREADBEAR_APP_SERVER_REQUESTS")); errors.Is(err, os.ErrNotExist) && time.Now().Before(deadline); _, err = os.Stat(os.Getenv("THREADBEAR_APP_SERVER_REQUESTS")) {
 		time.Sleep(10 * time.Millisecond)
 	}
-	for countFixtureMethod(fixtureRequests(t), "thread/name/set") == 0 && time.Now().Before(deadline) {
+	for countFixtureMethod(fixtureRequests(t), "thread/list") == 0 && time.Now().Before(deadline) {
 		time.Sleep(10 * time.Millisecond)
 	}
-	if countFixtureMethod(fixtureRequests(t), "thread/name/set") == 0 {
-		t.Fatal("onboarding did not reach its first write")
+	if countFixtureMethod(fixtureRequests(t), "thread/list") == 0 {
+		unlock(stateLock)
+		t.Fatal("onboarding did not complete its snapshot")
 	}
 
 	locked := make(chan *os.File, 1)
@@ -420,11 +491,14 @@ func TestConfirmedOnboardingHoldsOneFenceAcrossSerialPass(t *testing.T) {
 	select {
 	case lock := <-locked:
 		unlock(lock)
+		unlock(stateLock)
 		t.Fatal("replacement lifecycle entered during onboarding")
 	case err := <-lockErr:
+		unlock(stateLock)
 		t.Fatalf("replacement lifecycle failed while waiting: %v", err)
 	case <-time.After(50 * time.Millisecond):
 	}
+	unlock(stateLock)
 	if err := <-done; err != nil {
 		t.Fatal(err)
 	}
@@ -435,6 +509,10 @@ func TestConfirmedOnboardingHoldsOneFenceAcrossSerialPass(t *testing.T) {
 		t.Fatal(err)
 	case <-time.After(time.Second):
 		t.Fatal("replacement lifecycle did not resume after onboarding")
+	}
+	if requests := fixtureRequests(t); countFixtureMethod(requests, "thread/name/set") != 0 ||
+		countFixtureMethod(requests, "thread/read") != 0 {
+		t.Fatalf("preparation attempted target RPC: %#v", requests)
 	}
 }
 
@@ -456,7 +534,7 @@ func TestOnboardingDryRunDoesNotTakeLifecycleFence(t *testing.T) {
 	}
 }
 
-func TestConfirmedOnboardingRefusesBusyLifecycleBeforeWrites(t *testing.T) {
+func TestConfirmedOnboardingRefusesBusyLifecycleBeforePreparation(t *testing.T) {
 	_, index := testIndex(t)
 	index.setTitle(t, testAlphaID, "Alpha")
 	path := filepath.Join(stateDir(), "lifecycle.lock")
@@ -543,21 +621,6 @@ func fixtureMethod(requests []fixtureMessage, method string, at int) fixtureMess
 		}
 	}
 	return fixtureMessage{}
-}
-
-func countFixtureTarget(requests []fixtureMessage, method, taskID string) int {
-	count := 0
-	for _, request := range requests {
-		if request.Method != method {
-			continue
-		}
-		var id string
-		_ = json.Unmarshal(request.Params["threadId"], &id)
-		if id == taskID {
-			count++
-		}
-	}
-	return count
 }
 
 func TestNoSQLiteDependency(t *testing.T) {

@@ -13,7 +13,6 @@ import (
 )
 
 const (
-	appServerCurrentLimit      = 25
 	appServerCurrentTimeout    = 3 * time.Second
 	appServerListLimit         = 100
 	appServerListTimeout       = 30 * time.Second
@@ -140,23 +139,44 @@ func (client *appServerClient) ioError(operation string, err error) error {
 }
 
 func (client *appServerClient) currentTask(requestID int, id string) (indexedTask, error) {
-	result, err := client.request(requestID, "thread/list", map[string]any{
-		"archived": false, "limit": appServerCurrentLimit,
-		"sortKey": "recency_at", "sortDirection": "desc",
-	}, "read Codex App Server current thread/list page")
-	if err != nil {
-		return indexedTask{}, err
-	}
-	page, _, err := decodeAppServerThreadPage(result)
-	if err != nil {
-		return indexedTask{}, fmt.Errorf("read Codex App Server current thread/list page: %w", err)
-	}
-	for index := range page {
-		if page[index].ID != nil && *page[index].ID == id {
-			return indexedTaskFromAppServer(page[index])
+	seenCursors := make(map[string]struct{})
+	var cursor *string
+	for pageNumber := 1; ; pageNumber++ {
+		params := map[string]any{
+			"archived": false, "limit": appServerListLimit,
+			"sortKey": "recency_at", "sortDirection": "desc",
 		}
+		if cursor != nil {
+			params["cursor"] = *cursor
+		}
+		operation := fmt.Sprintf("read Codex App Server current thread/list page %d", pageNumber)
+		result, err := client.request(requestID, "thread/list", params, operation)
+		if err != nil {
+			return indexedTask{}, err
+		}
+		requestID++
+		page, next, err := decodeAppServerThreadPage(result)
+		if err != nil {
+			return indexedTask{}, fmt.Errorf("%s: %w", operation, err)
+		}
+		for index := range page {
+			if page[index].ID != nil && *page[index].ID == id {
+				return indexedTaskFromAppServer(page[index])
+			}
+		}
+		if next == nil {
+			break
+		}
+		if *next == "" {
+			return indexedTask{}, fmt.Errorf("%s: empty next cursor", operation)
+		}
+		if _, repeated := seenCursors[*next]; repeated {
+			return indexedTask{}, fmt.Errorf("%s: repeated next cursor", operation)
+		}
+		seenCursors[*next] = struct{}{}
+		cursor = next
 	}
-	return indexedTask{}, errors.New("read Codex App Server current thread/list page: current task is absent")
+	return indexedTask{}, errors.New("read Codex App Server current thread/list: current task is absent")
 }
 
 func (client *appServerClient) inventory(nextRequestID *int) ([]indexedTask, error) {
@@ -193,29 +213,6 @@ func (client *appServerClient) inventory(nextRequestID *int) ([]indexedTask, err
 		cursor = next
 	}
 	return finishAppServerInventory(all)
-}
-
-func (client *appServerClient) readTask(requestID int, id string) (indexedTask, error) {
-	result, err := client.request(requestID, "thread/read", map[string]any{
-		"threadId": id, "includeTurns": false,
-	}, "read Codex App Server task")
-	if err != nil {
-		return indexedTask{}, err
-	}
-	var response struct {
-		Thread appServerThread `json:"thread"`
-	}
-	if json.Unmarshal(result, &response) != nil || response.Thread.ID == nil || *response.Thread.ID != id {
-		return indexedTask{}, errors.New("read Codex App Server task: invalid thread/read result")
-	}
-	return indexedTaskFromAppServer(response.Thread)
-}
-
-func (client *appServerClient) setName(requestID int, id, name string) error {
-	_, err := client.request(requestID, "thread/name/set", map[string]any{
-		"threadId": id, "name": name,
-	}, "set Codex App Server task name")
-	return err
 }
 
 func indexedTaskFromAppServer(thread appServerThread) (indexedTask, error) {

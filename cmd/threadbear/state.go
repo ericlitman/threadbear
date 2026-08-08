@@ -179,8 +179,8 @@ func (s store) updateTask(id string, change func(*taskState) (bool, error)) erro
 }
 
 // updateTaskUnderFence is only for callers already holding lifecycleFence.
-// Keeping the native read, state write, title write, and readback under that
-// one shared fence prevents uninstall from completing between those steps.
+// Keeping native reads and subject preparation under that shared fence
+// prevents uninstall from completing between those steps.
 func (s store) updateTaskUnderFence(id string, change func(*taskState) (bool, error)) (err error) {
 	lock, err := s.lock(id)
 	if err != nil {

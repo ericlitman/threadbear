@@ -155,6 +155,34 @@ func TestLifecycleNeverTouchesCodexHooks(t *testing.T) {
 	if !strings.HasPrefix(string(agents), foreignAgents) || !managedBlockExact(p.agents) {
 		t.Fatalf("managed AGENTS content = %q", agents)
 	}
+	skill, _ := os.ReadFile(p.skill)
+	for label, text := range map[string]string{"AGENTS": string(agents), "skill": string(skill)} {
+		if strings.Count(text, "tools.codex_app__set_thread_title") != 1 {
+			t.Fatalf("%s must contain exactly one mounted app-native setter: %q", label, text)
+		}
+		for _, obsolete := range []string{"plan.updated", "plan.unconfirmed", "thread/name/set"} {
+			if strings.Contains(text, obsolete) {
+				t.Fatalf("%s contains obsolete detached-writer contract %q", label, obsolete)
+			}
+		}
+	}
+	if !strings.Contains(string(agents), "plan.write_required") || !strings.Contains(string(skill), `item.outcome === "prepared"`) {
+		t.Fatalf("installed guidance lacks planner/prepared contract: AGENTS=%q skill=%q", agents, skill)
+	}
+	for _, required := range []string{
+		"tools.write_stdin({",
+		"tools.codex_app__read_thread({",
+		"current?.thread?.title !== item.title",
+		"let updated = 0, skipped = 0, unconfirmed = 0",
+		"updated + skipped + unconfirmed === prepared.length",
+	} {
+		if !strings.Contains(string(skill), required) {
+			t.Fatalf("installed skill lacks mounted revalidation contract %q: %q", required, skill)
+		}
+	}
+	if strings.Count(string(skill), "tools.write_stdin({") != 1 || strings.Count(string(skill), "tools.codex_app__read_thread({") != 1 {
+		t.Fatalf("installed skill must contain one preparation resume and one mounted reread: %q", skill)
+	}
 	if !exactFile(p.skill, []byte(assets.SkillManagedContent)) {
 		t.Fatal("managed skill is not exact")
 	}
@@ -571,11 +599,11 @@ func TestOnboardReturnsCompleteReadOnlyPlan(t *testing.T) {
 		t.Fatal(err)
 	}
 	value := result.(onboardingResult)
-	if !value.Ready || !value.ReadOnly || !value.PlanComplete || value.OnboardingComplete || value.Total != 3 || value.Safe != 1 || value.NeedsUpdate != 1 || value.Updated != 0 || value.Unchanged != 0 || value.Skipped != 2 || value.Unconfirmed != 0 {
+	if !value.Ready || !value.ReadOnly || !value.PlanComplete || value.OnboardingComplete || value.Total != 3 || value.Safe != 1 || value.NeedsUpdate != 1 || value.Prepared != 0 || value.Unchanged != 0 || value.Skipped != 2 {
 		t.Fatalf("onboard plan = %#v", value)
 	}
 	items := value.Items
-	if items[2].TaskID != testSafeID || items[2].DesiredTitle != "🐻 Exact subject" {
+	if items[2].TaskID != testSafeID || items[2].Title != "Exact subject" || items[2].DesiredTitle != "🐻 Exact subject" {
 		t.Fatalf("onboard items = %#v", items)
 	}
 	t.Setenv("CODEX_THREAD_ID", testSafeID)
@@ -584,7 +612,7 @@ func TestOnboardReturnsCompleteReadOnlyPlan(t *testing.T) {
 		t.Fatal(err)
 	}
 	active := activeResult.(onboardingResult)
-	if !active.OnboardingComplete || active.NeedsUpdate != 0 || active.Unchanged != 1 || active.Items[2].Outcome != onboardingUnchanged || active.Items[2].Applied || active.Items[2].Reason != "active task is handled by the terminal title writer" {
+	if !active.OnboardingComplete || active.NeedsUpdate != 0 || active.Prepared != 0 || active.Unchanged != 1 || active.Items[2].Outcome != onboardingUnchanged || active.Items[2].Reason != "active task is handled by the terminal title writer" {
 		t.Fatalf("active-task onboarding plan = %#v", active)
 	}
 	data, err := os.ReadFile(requests)
