@@ -1,6 +1,6 @@
 ---
 name: threadbear
-description: Install, onboard, update, check, or uninstall ThreadBear for Codex Desktop on macOS.
+description: Install, update, check, or uninstall ThreadBear for Codex Desktop on macOS.
 ---
 
 # ThreadBear
@@ -14,55 +14,56 @@ Put the recap in the final answer. Call safe skips “left unchanged.” Give pa
 
 ## Install or reset
 
-Follow `https://threadbear.sh/install`. Preview the helper, instructions, skill, and daily updates; leave tasks, settings, and titles alone. Restart, then onboard.
+Follow `https://threadbear.sh/install`. Preview the helper, instructions, skill, and daily updates; leave tasks, settings, and titles alone. Restart after installation.
 
 For 2.2.1, touch only the verified old task and automation; stop on mismatch.
 
 After consent, install; verify `version`, `self-test`, `status`. Recap:
 
-> Open any task after restart and say: **ThreadBear onboard**
+> Restart Codex so open tasks load the new ThreadBear instructions.
 
-## Onboard existing tasks
+## Uninstall
 
-1. Run `status --json`. Say: “Codex will ask once so ThreadBear can read your complete task list. This preview changes nothing.” Run `onboard --dry-run --json` with `sandbox_permissions:"require_escalated"`. Require `ready:true`, `plan_complete:true`, `read_only:true`.
-   If Codex says approval requests are disabled, stop. Never change settings or bypass permission. Recap: “No tasks changed. This task cannot ask. Next: use a task that can, then say **ThreadBear onboard**.”
-2. Say: “N tasks found. X are safe; Y need an icon. The rest stay untouched. I'll recheck each before one change.” Ask consent.
+1. Say: “Codex will ask once so ThreadBear can read the complete task list. This preview changes nothing.” Run `uninstall --dry-run --json` with `sandbox_permissions:"require_escalated"`. Require `ready:true`, `plan_complete:true`, `read_only:true`. Preview removing one ThreadBear prefix from each safe unarchived task, then the helper, instructions, skill, and updates. Tasks, settings, files, user-authored titles, ambiguous prefixes, unsafe titles, and archived tasks stay unchanged. Ask consent.
+2. If Codex says approval requests are disabled, stop. Never change settings or bypass permission.
 3. After consent, run this exact cell once:
 
 ```js
 // @exec: {"yield_time_ms": 30000, "max_output_tokens": 4000}
-notify("ThreadBear onboarding: preparing");
-let local = await tools.exec_command({
-  cmd:"\"$HOME/.local/bin/threadbear\" onboard --noninteractive --confirm --json",
-  yield_time_ms:30000,
-  max_output_tokens:200000,
-  sandbox_permissions:"require_escalated",
-  justification:"Allow ThreadBear to read the full Codex task list for the onboarding you approved?"
-});
-let output = local.output || "";
-while (local.session_id !== undefined) {
-  notify("ThreadBear onboarding: preparing");
-  local = await tools.write_stdin({
-    session_id:local.session_id,
-    yield_time_ms:30000,
-    max_output_tokens:200000
-  });
-  output += local.output || "";
-}
-if (local.exit_code !== 0) { text(local); exit(); }
+const runCLI = async (cmd, justification) => {
+  let call = await tools.exec_command({cmd,yield_time_ms:30000,max_output_tokens:200000,
+    sandbox_permissions:"require_escalated",justification});
+  let output = call.output || "";
+  while (call.session_id !== undefined) {
+    call = await tools.write_stdin({session_id:call.session_id,yield_time_ms:30000,
+      max_output_tokens:200000});
+    output += call.output || "";
+  }
+  return {call,output};
+};
+notify("ThreadBear uninstall: preparing title cleanup");
+const preparedCall = await runCLI(
+  "\"$HOME/.local/bin/threadbear\" uninstall --prepare --noninteractive --confirm --json",
+  "Allow ThreadBear to read the complete Codex task list for the uninstall you approved?"
+);
+if (preparedCall.call.exit_code !== 0) { text(preparedCall.call); exit(); }
 let plan;
-try { plan = JSON.parse(output); }
+try { plan = JSON.parse(preparedCall.output); }
 catch { text(JSON.stringify({ready:false,reason:"Malformed plan"})); exit(); }
 if (!plan || plan.ready !== true || plan.plan_complete !== true ||
-    plan.read_only !== false || !Number.isInteger(plan.total) || !Array.isArray(plan.items)) {
+    plan.read_only !== false || !Number.isInteger(plan.total) ||
+    !Number.isInteger(plan.needs_cleanup) || !Number.isInteger(plan.prepared) ||
+    !Number.isInteger(plan.unchanged) || !Number.isInteger(plan.skipped) ||
+    plan.needs_cleanup !== plan.prepared ||
+    !Array.isArray(plan.items)) {
   text(JSON.stringify({ready:false,reason:"Incomplete plan"})); exit();
 }
 const prepared = plan.items.filter(item => item.outcome === "prepared");
-if (prepared.some(item => !item || typeof item.task_id !== "string" ||
+if (prepared.length !== plan.prepared || prepared.some(item => !item || typeof item.task_id !== "string" ||
     typeof item.title !== "string" || typeof item.desired_title !== "string")) {
   text(JSON.stringify({ready:false,reason:"Invalid item"})); exit();
 }
-let updated = 0, skipped = 0, unconfirmed = 0;
+let updated = 0, drifted = 0, unconfirmed = 0;
 const parseNative = value => {
   if (typeof value !== "string") return value;
   try { return JSON.parse(value); } catch { return null; }
@@ -73,7 +74,7 @@ for (const item of prepared) {
     current = parseNative(await tools.codex_app__read_thread({threadId:item.task_id,
       includeOutputs:false,turnLimit:1,maxOutputCharsPerItem:1}));
   } catch { current = null; }
-  if (current?.thread?.id !== item.task_id || current.thread.title !== item.title) skipped++;
+  if (current?.thread?.id !== item.task_id || current.thread.title !== item.title) drifted++;
   else {
     let renamed;
     try {
@@ -84,28 +85,32 @@ for (const item of prepared) {
         renamed.title === item.desired_title) updated++;
     else unconfirmed++;
   }
-  const done = updated + skipped + unconfirmed;
-  if (done % 25 === 0 || done === prepared.length) notify(`ThreadBear onboarding: ${done}/${prepared.length}`);
+  const done = updated + drifted + unconfirmed;
+  if (done % 25 === 0 || done === prepared.length) notify(`ThreadBear uninstall: titles ${done}/${prepared.length}`);
 }
-const accounted = updated + skipped + unconfirmed === prepared.length;
-text(JSON.stringify({
-  ready:accounted && unconfirmed === 0,
-  plan_complete:true,
-  onboarding_complete:accounted && unconfirmed === 0,
-  total:plan.total,
-  updated,
-  skipped,
-  unchanged:plan.total - updated - unconfirmed,
-  unconfirmed
-}));
+const accounted = updated + drifted + unconfirmed === prepared.length;
+if (!accounted || drifted !== 0 || unconfirmed !== 0) {
+  text(JSON.stringify({ready:false,uninstalled:false,plan_complete:true,
+    cleanup_complete:false,total:plan.total,prepared:plan.prepared,updated,drifted,
+    unchanged:plan.unchanged,skipped:plan.skipped,unconfirmed,
+    safe_rerun:"threadbear uninstall --dry-run --json"}));
+  exit();
+}
+notify("ThreadBear uninstall: removing managed artifacts");
+const removedCall = await runCLI(
+  "\"$HOME/.local/bin/threadbear\" uninstall --commit --noninteractive --confirm --json",
+  "Allow ThreadBear to remove the managed artifacts from the uninstall you approved?"
+);
+let removed;
+try { removed = JSON.parse(removedCall.output); }
+catch { text(JSON.stringify({ready:false,uninstalled:false,reason:"Malformed uninstall result",
+  title_cleanup:{total:plan.total,updated,unchanged:plan.unchanged,skipped:plan.skipped}})); exit(); }
+removed.title_cleanup = {total:plan.total,updated,unchanged:plan.unchanged,skipped:plan.skipped};
+text(JSON.stringify(removed));
 ```
 
-Recap: `Updated X of N existing tasks; Y were left unchanged; Z could not be confirmed.` No retry, cap, or persistent task.
+Only `uninstalled:true` means removed. Otherwise recap the partial and its one next action. Never retry a drifted or unconfirmed title in the same pass. After artifact commit, make no title call. Successful recap: “ThreadBear was removed. X task titles were cleaned; Y were left unchanged. Its helper, instructions, skill, and automatic updates are gone. Tasks, settings, and files stayed. Restart Codex.”
 
 ## Update
 
 Preview download, checks, replacement, and restart. With consent run `update --json`; recap version and next action.
-
-## Uninstall
-
-Run `uninstall --dry-run --json`. Preview removing the helper, instructions, skill, and updates; keep tasks, settings, and files; icons may remain. Ask consent. Run `uninstall --noninteractive --confirm --json`. Only `uninstalled:true` means removed; otherwise recap the partial and next action. After commit, no title cell. Recap exactly: “ThreadBear was removed. Its helper, instructions, skill, and automatic updates are gone. Tasks, settings, and files stayed; icons may remain. Restart Codex.”

@@ -30,12 +30,12 @@ type lifecyclePaths struct {
 }
 
 type installOptions struct {
-	DryRun, Confirmed, Reset, NoOnboard, Automatic bool
-	SelectedVersion                                string
+	DryRun, Confirmed, Reset, Automatic bool
+	SelectedVersion                     string
 }
 
 type uninstallOptions struct {
-	DryRun, Confirmed bool
+	DryRun, Prepare, Commit, Confirmed bool
 }
 
 type legacyInstall struct{ MainTaskID string }
@@ -79,9 +79,6 @@ func install(ctx context.Context, options installOptions) (any, error) {
 	}
 	if options.SelectedVersion != "" && options.SelectedVersion != version {
 		return nil, fmt.Errorf("installer selected version %q but candidate is %q", options.SelectedVersion, version)
-	}
-	if options.Automatic {
-		options.NoOnboard = true
 	}
 	source, err := os.Executable()
 	if err != nil {
@@ -221,7 +218,7 @@ func install(ctx context.Context, options installOptions) (any, error) {
 		}
 		partial := installPartial(result, stage, true, options)
 		if legacyCleanupCommitted {
-			partial["safe_rerun"] = confirmedInstallRerun(p, options.NoOnboard)
+			partial["safe_rerun"] = confirmedInstallRerun(p)
 		}
 		return partial, checkErr
 	}
@@ -229,7 +226,6 @@ func install(ctx context.Context, options installOptions) (any, error) {
 }
 
 func installResult(options installOptions, legacy legacyInstall, legacyFound, dry bool) map[string]any {
-	onboarding := !options.NoOnboard && !options.Automatic
 	result := map[string]any{
 		"ready":                     dry,
 		"installed":                 false,
@@ -237,7 +233,6 @@ func installResult(options installOptions, legacy legacyInstall, legacyFound, dr
 		"dry_run":                   dry,
 		"legacy_reset_required":     legacyFound,
 		"reset":                     options.Reset,
-		"onboarding_requested":      onboarding,
 		"automatic_updates_enabled": false,
 		"restart_required":          false,
 		"partial":                   false,
@@ -250,9 +245,6 @@ func installResult(options installOptions, legacy legacyInstall, legacyFound, dr
 		result["legacy_automation_kind"] = legacyAutomationKind
 		result["legacy_automation_target_thread_id"] = legacy.MainTaskID
 	}
-	if onboarding {
-		result["next_request"] = "threadbear onboard --dry-run --json"
-	}
 	return result
 }
 
@@ -264,12 +256,8 @@ func installPartial(result map[string]any, stage string, restart bool, options i
 	return partialResult(result, stage, restart, rerun)
 }
 
-func confirmedInstallRerun(p lifecyclePaths, noOnboard bool) string {
-	command := quoteArgument(p.binary) + " install"
-	if noOnboard {
-		command += " --no-onboard"
-	}
-	return command + " --noninteractive --confirm --json"
+func confirmedInstallRerun(p lifecyclePaths) string {
+	return quoteArgument(p.binary) + " install --noninteractive --confirm --json"
 }
 
 func installChanges(p lifecyclePaths, legacy bool) []string {
@@ -289,39 +277,40 @@ func installChanges(p lifecyclePaths, legacy bool) []string {
 	return changes
 }
 
-func onboard(ctx context.Context, dryRun, confirmed bool) (any, error) {
-	if dryRun && confirmed {
-		return nil, errors.New("onboarding preview cannot also be confirmed")
-	}
-	if !dryRun && !confirmed {
-		return nil, errors.New("onboarding requires --dry-run or --noninteractive --confirm")
-	}
-	p := installPaths()
-	if err := requireCurrentFormatInstall(p); err != nil {
-		return nil, fmt.Errorf("onboarding requires the current ThreadBear installation: %w", err)
-	}
-	return runOnboarding(ctx, confirmed, os.Getenv("CODEX_THREAD_ID"))
-}
-
 func uninstall(ctx context.Context, options uninstallOptions) (any, error) {
-	if options.DryRun && options.Confirmed {
+	if options.DryRun && (options.Prepare || options.Commit || options.Confirmed) {
 		return nil, errors.New("uninstall preview cannot also be confirmed")
 	}
-	preview := map[string]any{
-		"ready": true, "dry_run": options.DryRun, "uninstalled": false,
-		"icons_may_remain": true, "restart_required": false, "partial": false,
-		"warning":         "Existing ThreadBear title icons may remain until renamed.",
-		"planned_changes": uninstallChanges(installPaths()),
+	if options.Prepare && options.Commit {
+		return nil, errors.New("uninstall cannot prepare title cleanup and commit artifact removal together")
+	}
+	if options.Prepare && !options.Confirmed {
+		return nil, errors.New("uninstall preparation requires --noninteractive --confirm")
+	}
+	if options.Commit && !options.Confirmed {
+		return nil, errors.New("uninstall artifact commit requires --noninteractive --confirm")
+	}
+	if options.Confirmed && !options.Prepare && !options.Commit {
+		return nil, errors.New("confirmed uninstall must use --prepare or --commit")
 	}
 	p := installPaths()
+	preview := uninstallResult(p, options.DryRun)
+	if options.Commit {
+		preview["planned_changes"] = uninstallArtifactChanges(p)
+	}
 	partialAdmission, err := preflightUninstall(ctx, p)
 	if err != nil {
 		return preview, err
 	}
-	if options.DryRun {
+	if options.DryRun || options.Prepare {
+		plan, planErr := runTitleCleanup(ctx, options.Prepare, os.Getenv("CODEX_THREAD_ID"))
+		preview = uninstallCleanupResult(p, options.DryRun, plan)
+		if planErr != nil {
+			return preview, planErr
+		}
 		return preview, nil
 	}
-	if !options.Confirmed {
+	if !options.Commit {
 		return preview, errors.New("uninstall requires --noninteractive --confirm after its preview")
 	}
 	// Use the same update -> stable boundary -> lifecycle order as install.
@@ -415,14 +404,35 @@ func uninstall(ctx context.Context, options uninstallOptions) (any, error) {
 	}
 	return map[string]any{
 		"ready": true, "dry_run": false, "uninstalled": true,
-		"icons_may_remain": true, "restart_required": true, "partial": false,
-		"warning":         "Existing ThreadBear title icons may remain until renamed.",
-		"planned_changes": uninstallChanges(p),
+		"restart_required": true, "partial": false,
+		"planned_changes": uninstallArtifactChanges(p),
 	}, nil
 }
 
+func uninstallResult(p lifecyclePaths, dryRun bool) map[string]any {
+	return map[string]any{
+		"ready": true, "dry_run": dryRun, "uninstalled": false,
+		"restart_required": false, "partial": false,
+		"planned_changes": uninstallChanges(p),
+	}
+}
+
+func uninstallCleanupResult(p lifecyclePaths, dryRun bool, plan cleanupResult) map[string]any {
+	result := uninstallResult(p, dryRun)
+	result["plan_complete"] = plan.PlanComplete
+	result["read_only"] = plan.ReadOnly
+	result["total"] = plan.Total
+	result["needs_cleanup"] = plan.NeedsCleanup
+	result["prepared"] = plan.Prepared
+	result["unchanged"] = plan.Unchanged
+	result["skipped"] = plan.Skipped
+	result["items"] = plan.Items
+	result["ready"] = plan.Ready
+	return result
+}
+
 func uninstallRerun(p lifecyclePaths) string {
-	return quoteArgument(p.binary) + " uninstall --noninteractive --confirm --json"
+	return quoteArgument(p.binary) + " uninstall --commit --noninteractive --confirm --json"
 }
 
 func partialResult(result map[string]any, stage string, restart bool, rerun string) map[string]any {
@@ -432,6 +442,12 @@ func partialResult(result map[string]any, stage string, restart bool, rerun stri
 }
 
 func uninstallChanges(p lifecyclePaths) []string {
+	return append([]string{
+		"remove one ThreadBear prefix from each safe unarchived task title",
+	}, uninstallArtifactChanges(p)...)
+}
+
+func uninstallArtifactChanges(p lifecyclePaths) []string {
 	return []string{
 		"boot out and remove " + updateAgentLabel + " LaunchAgent " + p.launchAgent,
 		"remove managed AGENTS block from " + p.agents,

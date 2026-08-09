@@ -31,7 +31,7 @@ func TestSubjectFromTitleUsesFiniteVisiblePrefixes(t *testing.T) {
 
 func TestSubjectFromTitleRejectsAmbiguousAndInternalText(t *testing.T) {
 	for _, title := range []string{
-		"🧵🐻 needs input (you): approve onboarding",
+		"🧵🐻 needs input (you): approve cleanup",
 		"⏳ ThreadBear is working",
 		"❔ old prompt",
 		"<codex_delegation>private</codex_delegation>",
@@ -64,7 +64,7 @@ func TestRenderTitlePreservesSubjectAndNeverTruncates(t *testing.T) {
 	}
 }
 
-func TestTitlePolicyCoversEveryStatusAndNeutralOnboarding(t *testing.T) {
+func TestTitlePolicyCoversEveryStatusAndLegacyBearCleanup(t *testing.T) {
 	for status, icon := range statusIcons {
 		if got, err := renderTitle(status, "subject"); err != nil || got != icon+" subject" {
 			t.Errorf("render %s = %q, %v", status, got, err)
@@ -74,7 +74,12 @@ func TestTitlePolicyCoversEveryStatusAndNeutralOnboarding(t *testing.T) {
 		}
 	}
 	if !containsString(ownedTitlePrefixes, "🐻 ") {
-		t.Fatal("owned prefixes omit onboarding bear")
+		t.Fatal("owned prefixes omit legacy bear cleanup")
+	}
+	for _, icon := range statusIcons {
+		if icon == "🐻" {
+			t.Fatal("neutral bear remains a writable status")
+		}
 	}
 }
 

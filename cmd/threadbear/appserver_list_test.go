@@ -16,7 +16,7 @@ import (
 func TestAppServerInventoryExhaustsPagesBeforeDedupe(t *testing.T) {
 	_, _ = testIndex(t)
 	installAppServerFixture(t, "multipage")
-	result, err := runOnboarding(t.Context(), false, "")
+	result, err := runTitleCleanup(t.Context(), false, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -29,7 +29,7 @@ func TestAppServerInventoryExhaustsPagesBeforeDedupe(t *testing.T) {
 			t.Fatalf("inventory order = %#v", tasks)
 		}
 	}
-	if tasks[3].Title != "First duplicate title" || tasks[1].Safe {
+	if tasks[3].Title != "First duplicate title" || tasks[1].Outcome != cleanupSkipped {
 		t.Fatalf("inventory authority = %#v", tasks)
 	}
 }
@@ -43,7 +43,7 @@ func TestAppServerInventoryFailsBeforeStateWrites(t *testing.T) {
 			if apply {
 				activeTaskID = testActiveID
 			}
-			if result, err := runOnboarding(t.Context(), apply, activeTaskID); err == nil || result.PlanComplete ||
+			if result, err := runTitleCleanup(t.Context(), apply, activeTaskID); err == nil || result.PlanComplete ||
 				!strings.Contains(err.Error(), "page 2") {
 				t.Fatalf("failed inventory = %#v, %v", result, err)
 			}
@@ -61,10 +61,10 @@ func TestAppServerInventoryFailsBeforeStateWrites(t *testing.T) {
 func TestAppServerNonzeroExitCannotOverturnCompleteProof(t *testing.T) {
 	_, index := testIndex(t)
 	installAppServerFixture(t, "close-nonzero")
-	index.setTitle(t, testAlphaID, "Alpha")
-	if result, err := runOnboarding(t.Context(), true, testActiveID); err != nil || !result.Ready ||
-		result.OnboardingComplete || result.Prepared != 1 || result.NeedsUpdate != 1 {
-		t.Fatalf("onboarding proof = %#v, %v", result, err)
+	index.setTitle(t, testAlphaID, "✅ Alpha")
+	if result, err := runTitleCleanup(t.Context(), true, testActiveID); err != nil || !result.Ready ||
+		result.Prepared != 1 || result.NeedsCleanup != 1 {
+		t.Fatalf("cleanup proof = %#v, %v", result, err)
 	}
 }
 

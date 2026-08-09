@@ -386,12 +386,10 @@ func candidateScript(candidateVersion, selfTestMode string, installFailure, stru
 		selfTest = "sleep 1"
 	}
 	install := `automatic=false
-no_onboard=false
 for argument in "$@"; do
   [ "$argument" = "--automatic" ] && automatic=true
-  [ "$argument" = "--no-onboard" ] && no_onboard=true
 done
-[ "$automatic" = true ] && [ "$no_onboard" = true ] || { echo missing-automatic-core-only-flags >&2; exit 10; }
+[ "$automatic" = true ] || { echo missing-automatic-flag >&2; exit 10; }
 cp "$TB_UPDATE_TEST_SKILL_SOURCE" "$TB_UPDATE_TEST_SKILL_TARGET"
 printf '{"ready":true,"installed":true}\n'`
 	if installFailure {

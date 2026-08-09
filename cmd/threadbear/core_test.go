@@ -133,64 +133,67 @@ func TestCurrentTitleRejectsInvalidContextWithoutSideEffects(t *testing.T) {
 	}
 }
 
-func TestOnboardingPlanAndPreparationAreCompleteAndStateless(t *testing.T) {
+func TestTitleCleanupPlanAndPreparationAreCompleteAndStateless(t *testing.T) {
 	_, index := testIndex(t)
-	index.setTitle(t, testActiveID, "Active task")
+	index.setTitle(t, testActiveID, "✅ Active task")
 	index.setTitle(t, testAlphaID, "Alpha")
 	index.setTitle(t, testAlreadyID, "🐻 Beta")
 	index.setRaw(t, testRawID)
 
-	plan, err := runOnboarding(t.Context(), false, testActiveID)
-	if err != nil || !plan.Ready || !plan.PlanComplete || !plan.ReadOnly || plan.OnboardingComplete ||
-		plan.Total != 4 || plan.Safe != 3 || plan.NeedsUpdate != 1 || plan.Unchanged != 2 || plan.Skipped != 1 {
-		t.Fatalf("onboarding preview = %#v, %v", plan, err)
+	plan, err := runTitleCleanup(t.Context(), false, "")
+	if err != nil || !plan.Ready || !plan.PlanComplete || !plan.ReadOnly ||
+		plan.Total != 4 || plan.NeedsCleanup != 2 || plan.Unchanged != 1 || plan.Skipped != 1 {
+		t.Fatalf("cleanup preview = %#v, %v", plan, err)
 	}
-	if active := onboardingItemByID(t, plan.Items, testActiveID); active.Outcome != onboardingUnchanged {
-		t.Fatalf("active preview item = %#v", active)
+	if bear := cleanupItemByID(t, plan.Items, testAlreadyID); bear.Outcome != cleanupNeedsUpdate || bear.DesiredTitle != "Beta" {
+		t.Fatalf("bear preview item = %#v", bear)
 	}
 	clearFixtureRequests(t)
 
-	prepared, err := runOnboarding(t.Context(), true, testActiveID)
-	if err != nil || !prepared.Ready || !prepared.PlanComplete || prepared.ReadOnly || prepared.OnboardingComplete ||
-		prepared.Prepared != 1 || prepared.NeedsUpdate != 1 || prepared.Unchanged != 2 || prepared.Skipped != 1 {
-		t.Fatalf("onboarding preparation = %#v, %v", prepared, err)
+	prepared, err := runTitleCleanup(t.Context(), true, testActiveID)
+	if err != nil || !prepared.Ready || !prepared.PlanComplete || prepared.ReadOnly ||
+		prepared.Prepared != 2 || prepared.NeedsCleanup != 2 || prepared.Unchanged != 1 || prepared.Skipped != 1 {
+		t.Fatalf("cleanup preparation = %#v, %v", prepared, err)
 	}
-	alpha := onboardingItemByID(t, prepared.Items, testAlphaID)
-	if alpha.Outcome != onboardingPrepared || alpha.Title != "Alpha" || alpha.DesiredTitle != "🐻 Alpha" {
-		t.Fatalf("prepared item = %#v", alpha)
+	bear := cleanupItemByID(t, prepared.Items, testAlreadyID)
+	if bear.Outcome != cleanupPrepared || bear.Title != "🐻 Beta" || bear.DesiredTitle != "Beta" {
+		t.Fatalf("prepared item = %#v", bear)
+	}
+	if last := prepared.Items[len(prepared.Items)-1]; last.TaskID != testActiveID || last.DesiredTitle != "Active task" {
+		t.Fatalf("active task was not prepared last: %#v", prepared.Items)
 	}
 	if requests := fixtureRequests(t); countFixtureMethod(requests, "thread/list") != 1 ||
 		countFixtureMethod(requests, "thread/read") != 0 || countFixtureMethod(requests, "thread/name/set") != 0 {
-		t.Fatalf("onboarding RPCs = %#v", requests)
+		t.Fatalf("cleanup RPCs = %#v", requests)
 	}
 	if _, err := os.Stat(stateDir()); !errors.Is(err, os.ErrNotExist) {
-		t.Fatalf("onboarding preparation created ThreadBear state: %v", err)
+		t.Fatalf("cleanup preparation created ThreadBear state: %v", err)
 	}
 }
 
-func TestUnsafeActiveOnboardingTaskDoesNotInflateSafeCount(t *testing.T) {
+func TestUnsafeActiveCleanupTaskStaysSkipped(t *testing.T) {
 	_, index := testIndex(t)
 	index.setRaw(t, testActiveID)
-	result, err := runOnboarding(t.Context(), false, testActiveID)
-	if err != nil || !result.Ready || result.Safe != 0 || result.NeedsUpdate != 0 ||
-		result.Unchanged != 1 || !result.OnboardingComplete {
+	result, err := runTitleCleanup(t.Context(), true, testActiveID)
+	if err != nil || !result.Ready || result.NeedsCleanup != 0 || result.Prepared != 0 ||
+		result.Unchanged != 0 || result.Skipped != 1 {
 		t.Fatalf("unsafe active plan = %#v, %v", result, err)
 	}
-	item := onboardingItemByID(t, result.Items, testActiveID)
-	if item.Safe || item.Title != "" || item.Subject != "" || item.DesiredTitle != "" || item.Outcome != onboardingUnchanged {
+	item := cleanupItemByID(t, result.Items, testActiveID)
+	if item.Title != "" || item.DesiredTitle != "" || item.Outcome != cleanupSkipped {
 		t.Fatalf("unsafe active item = %#v", item)
 	}
 }
 
-func onboardingItemByID(t testing.TB, items []onboardingItem, id string) onboardingItem {
+func cleanupItemByID(t testing.TB, items []cleanupItem, id string) cleanupItem {
 	t.Helper()
 	for _, item := range items {
 		if item.TaskID == id {
 			return item
 		}
 	}
-	t.Fatalf("missing onboarding item %q", id)
-	return onboardingItem{}
+	t.Fatalf("missing cleanup item %q", id)
+	return cleanupItem{}
 }
 
 func fixtureRequests(t testing.TB) []fixtureMessage {

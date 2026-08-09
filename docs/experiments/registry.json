@@ -76,7 +76,7 @@
         "TB-EXP-0116-006"
       ],
       "contradicted_by": [],
-      "decision": "TB-EXP-0116-003 established the mounted-writer path, TB-EXP-0116-004 repeated it against corrected candidate b5cc0cbe, and TB-EXP-0116-006 closes the final BEAR-117 artifact gate. Exact candidate a1ecec67 repainted the current and controlled historical rows immediately through the mounted writer, preserved both exact titles across a clean Desktop restart, and kept the friendly preview and committed-removal recap visible after reopen and restart.",
+      "decision": "TB-EXP-0116-003 established the mounted-writer path, TB-EXP-0116-004 repeated it against corrected candidate b5cc0cbe, and TB-EXP-0116-006 closes the final BEAR-117 artifact gate. Exact candidate a1ecec67 repainted the current and controlled historical rows immediately through the mounted writer, preserved both exact titles across a clean Desktop restart, and kept the friendly preview and committed-removal recap visible after reopen and restart. TB-EXP-0119-001 and TB-EXP-0119-002 validate the cleanup and corrected commit-admission seams only; neither adds rendered repaint or restart-persistence evidence.",
       "next_preflight": null
     },
     {
@@ -1254,6 +1254,89 @@
         "TB-EXP-0120-004"
       ],
       "conflicts": []
+    },
+    {
+      "id": "TB-EXP-0119-001",
+      "date": "2026-08-08",
+      "issue": "BEAR-119",
+      "preflight_id": "TB-PRE-0119-001",
+      "question": "Does exact BEAR-119 candidate a051dccc remove one obsolete bear or current status prefix from every prepared live task through the mounted native writer, process the initiating task last, and only then remove ThreadBear-owned artifacts?",
+      "invariant": "One fresh complete plan must account for the entire unarchived catalog; each prepared row may receive one immediate exact read and at most one setter; any drift or non-exact response must block teardown; an all-exact pass must use the existing artifact commit without a final task scan or post-commit title call.",
+      "environment": {
+        "threadbear_version": "3.0.2 exact BEAR-119 local candidate; arm64 CGO=0 binary SHA-256 a051dccc01a682b114cc93e84093af28b76f80031d2e8d665e37c779863ddcea",
+        "git_sha": "42b8ac3a5c5fb874f809931d15e9cf4acb4861c9",
+        "codex_version": "Desktop 26.803.41515 build 6321; embedded CLI 0.147.0-alpha.6.5",
+        "codex_source": "vscode",
+        "host": "local macOS arm64",
+        "task_state": "362 unarchived native rows: 307 exact owned-prefix cleanup targets, 30 plain unchanged rows, and 25 skipped unsafe or raw rows; one established historical control and the initiating task were exact ordering controls",
+        "restart_state": "no restart or refresh; the declared probe stopped after committed teardown and artifact-only verification",
+        "hook_fingerprint": "hooks.json SHA-256 43d2619e3510054cc165f9b1f7915e16c20a162fa4427d2ed0b20294141ddf04 before cleanup and byte-identical after teardown; no ThreadBear title hook participated",
+        "guidance_fingerprint": "managed guidance SHA-256 9b79ed5149d430ae57c617221d82297e94bedc47249924a62ada876cb775c940; installed skill SHA-256 f967e5762b4b0c2081d38b404dd584cbd881e44f03404de77c85a636e85d8aa5"
+      },
+      "invocation": {
+        "outer_tool": "exact candidate install and complete App Server preview/preparation, followed by one functions.exec serial mounted-native cleanup cell, the existing confirmed artifact commit, and artifact-only shell verification",
+        "code": "preview the complete catalog without mutation; require exact 362/307/30/25 counts; take one fresh prepared plan; require the initiating task as the last prepared row; for every prepared row immediately reread exact ID/title and make at most one explicit-target setter call to the undecorated title; stop on any drift or unconfirmed result; after 307 exact acknowledgements run confirmed uninstall once; verify owned artifact absence and unrelated hashes without another task read",
+        "native_tool_identity": "codex_app__read_thread immediately before codex_app__set_thread_title as the sole title writer; App Server thread/list only inside the exact candidate planner",
+        "target_identity_mode": "authoritative explicit task IDs from one complete prepared plan; exact snapshot ID/title guard before every write; initiating task placed last by the candidate planner"
+      },
+      "evidence": [
+        "linear:BEAR-119",
+        "git:42b8ac3a5c5fb874f809931d15e9cf4acb4861c9",
+        "codex-rollout:019fe38c-0689-7892-8b56-b6ee3251e141"
+      ],
+      "result": {
+        "status": "observed",
+        "summary": "The read-only preview accounted for all 362 unarchived rows with 307 exact owned-prefix targets, 30 plain unchanged rows, and 25 skipped rows. One fresh plan prepared all 307 targets and placed the initiating task last. The serial mounted pass returned 307 exact setter acknowledgements with zero drift and zero unconfirmed results, including the historical bear control before the initiating status-icon control. Confirmed teardown then returned uninstalled true. The binary, skill, managed guidance, private state, plist, and loaded updater were absent; hooks.json and config.toml remained byte-identical to their recorded pre-teardown hashes.",
+        "timing_ms": "unknown: the serial mounted pass reported every 25 outcomes and completed in one uninterrupted cell, but the outer wall timer was not recorded separately",
+        "hook_participation": "none; every title mutation used the mounted native setter directly and hooks.json remained byte-identical",
+        "rendered_proof": "No visual inspection or refresh was used. Every one of the 307 mounted setter results returned the exact target ID and undecorated title; the exact historical control was processed before the exact initiating control, which was the final title call before teardown."
+      },
+      "confidence": "high",
+      "applicability": "Closes TB-PRE-0119-001 and validates the focused BEAR-119 uninstall-cleanup seam for exact candidate a051dccc on Desktop 26.803.41515: complete preview, one fresh prepared plan, serial exact removal, initiating task last, zero retry or final scan, and existing artifact teardown only after every write was confirmed. It does not add rendered repaint or restart-persistence evidence to TB-CAP-MOUNTED-NATIVE-REPAINT.",
+      "supersedes": [],
+      "conflicts": []
+    },
+    {
+      "id": "TB-EXP-0119-002",
+      "date": "2026-08-08",
+      "issue": "BEAR-119",
+      "preflight_id": "TB-PRE-0119-002",
+      "question": "Does corrected exact candidate 5f05b9f refuse the old bare confirmed uninstall before mutation, then retain the one-plan serial cleanup path and admit artifact removal only through explicit commit?",
+      "invariant": "Bare confirmed uninstall must not remove any artifact; one fresh plan and exact mounted acknowledgements must precede the explicit artifact commit; no final title scan or post-commit title call is allowed.",
+      "environment": {
+        "threadbear_version": "3.0.2 exact BEAR-119 corrected local candidate; arm64 CGO=0 binary SHA-256 5f05b9f872ca101f545feaca8df399d8752342fe0c7f7365e3b25da16ad0f864",
+        "git_sha": "9720af45539b41e060fddc47db36f726055c15a8",
+        "codex_version": "Desktop 26.803.41515 build 6321; embedded CLI 0.147.0-alpha.6.5",
+        "codex_source": "vscode",
+        "host": "local macOS arm64",
+        "task_state": "362 unarchived native rows: two controlled exact owned-prefix targets, 332 plain unchanged rows, and 28 skipped unsafe or raw rows; the historical control preceded the initiating control",
+        "restart_state": "no restart or refresh; the declared probe stopped after committed teardown and artifact-only verification",
+        "hook_fingerprint": "hooks.json SHA-256 43d2619e3510054cc165f9b1f7915e16c20a162fa4427d2ed0b20294141ddf04 before cleanup and byte-identical after teardown; no ThreadBear title hook participated",
+        "guidance_fingerprint": "managed guidance SHA-256 9b79ed5149d430ae57c617221d82297e94bedc47249924a62ada876cb775c940; installed skill SHA-256 1f53625729efe34267c10bf043fe8047f6101f69d3b4945c84f510d09c545bfd"
+      },
+      "invocation": {
+        "outer_tool": "exact candidate install, bare-confirm refusal, complete App Server preview/preparation, one functions.exec serial mounted-native cleanup cell, explicit artifact commit, and artifact-only shell verification",
+        "code": "install candidate 5f05b9f; require bare uninstall --noninteractive --confirm --json to fail while status remains ready; seed one historical bear and one initiating status control; preview 362/2/332/28; take one fresh prepared plan; require historical then initiating order; immediately reread and exactly clean both; run uninstall --commit --noninteractive --confirm --json; verify owned artifact absence and unchanged hooks/config hashes without another task read",
+        "native_tool_identity": "codex_app__read_thread immediately before codex_app__set_thread_title as the sole title writer; App Server thread/list only inside the exact candidate planner",
+        "target_identity_mode": "authoritative explicit task IDs from one complete prepared plan; exact snapshot ID/title guard before both writes; initiating task last"
+      },
+      "evidence": [
+        "linear:BEAR-119",
+        "github-pr:126",
+        "git:9720af45539b41e060fddc47db36f726055c15a8",
+        "codex-rollout:019fe38c-0689-7892-8b56-b6ee3251e141"
+      ],
+      "result": {
+        "status": "observed",
+        "summary": "Bare confirmed uninstall failed with the explicit phase error and the installed candidate remained ready with its updater loaded. The complete preview accounted for 362 rows as two exact cleanup targets, 332 unchanged rows, and 28 skipped rows. One fresh plan placed the initiating task last. The serial cell returned two exact setter acknowledgements with zero drift and zero unconfirmed results, then explicit commit returned uninstalled true and listed artifact changes only. The binary, skill, managed guidance, private state, plist, and loaded updater were absent; hooks.json and config.toml remained byte-identical.",
+        "timing_ms": "approximately 7600 for the one preparation, two serial mounted read/write pairs, and explicit commit cell",
+        "hook_participation": "none; both title mutations used the mounted native setter directly and hooks.json remained byte-identical",
+        "rendered_proof": "No visual inspection or refresh was used. Both mounted setter results returned the exact target ID and undecorated title; the initiating control was the final title call before explicit artifact commit. This is commit-admission seam evidence, not repaint or restart-persistence evidence."
+      },
+      "confidence": "high",
+      "applicability": "Closes TB-PRE-0119-002 and validates the corrected BEAR-119 commit-admission seam for exact candidate 5f05b9f on Desktop 26.803.41515. It does not add rendered repaint or restart-persistence evidence to TB-CAP-MOUNTED-NATIVE-REPAINT.",
+      "supersedes": [],
+      "conflicts": []
     }
   ],
   "preflights": [
@@ -1461,6 +1544,44 @@
       ],
       "stop_condition": "Stop after one exact current-task mounted write, one exact controlled historical onboarding write, immediate mounted inspection, one previewed and confirmed lifecycle canary with its final recap, one clean Codex restart, post-restart mounted inspection, and read-only runtime/artifact checks. Do not retry a title write, add another target, add refresh machinery, or claim release readiness until one linked result closes this preflight.",
       "result_experiment_id": "TB-EXP-0116-006"
+    },
+    {
+      "id": "TB-PRE-0119-001",
+      "issue": "BEAR-119",
+      "capability_id": "TB-CAP-MOUNTED-NATIVE-REPAINT",
+      "status": "closed",
+      "consulted": [
+        "TB-EXP-0116-006",
+        "TB-EXP-0116-007"
+      ],
+      "remaining_unknown": "Whether the exact BEAR-119 candidate removes one obsolete bear or current status prefix from every prepared row in the complete live catalog through the mounted native writer, processes the initiating task last, then removes only ThreadBear-owned artifacts while preserving unrelated titles and files.",
+      "single_changed_variable": "Uninstall title direction and executable fingerprint: replace v3.0.1's no-cleanup teardown and neutral-bear onboarding surface with the BEAR-119 candidate's one fresh removal plan, serial exact mounted prefix removal, initiating-task-last order, and existing artifact commit.",
+      "held_constant": "Desktop 26.803.41515 build 6321 or the current installed successor on the same local macOS arm64 host; mounted codex_app__read_thread and codex_app__set_thread_title as the only title boundary; one exact current task and the existing controlled historical task as ordering controls inside the complete unarchived App Server inventory; exact ID and title acknowledgement; no hooks, SQLite, detached writer, retry, reconciliation, final scan, controller, queue, pacing, or resume state.",
+      "predicted_outcomes": [
+        "If the focused cleanup works, the candidate will preview all 362 unarchived rows without mutation, prepare all 307 exact owned-prefix rows with the initiating control last, remove exactly one prefix through one immediate read and at most one setter per prepared row, then report uninstalled true with owned artifacts absent and the 30 plain plus 25 skipped rows unchanged.",
+        "If any prepared row drifts or returns a non-exact result, teardown must not start; if cleanup succeeds but an unrelated title or file changes, an owned artifact remains, the initiating target is not last, or a bear prefix is emitted, the candidate must not merge."
+      ],
+      "stop_condition": "Stop after one exact-candidate full-catalog lifecycle pass, including the controlled historical and initiating rows plus read-only artifact and unrelated-content verification. On any drift or unconfirmed write, do not retry or commit teardown. Do not run a second pass, restart for refresh, add coordination machinery, or claim release readiness until one linked result closes this preflight.",
+      "result_experiment_id": "TB-EXP-0119-001"
+    },
+    {
+      "id": "TB-PRE-0119-002",
+      "issue": "BEAR-119",
+      "capability_id": "TB-CAP-MOUNTED-NATIVE-REPAINT",
+      "status": "closed",
+      "consulted": [
+        "TB-EXP-0116-006",
+        "TB-EXP-0119-001"
+      ],
+      "remaining_unknown": "Whether corrected exact candidate 5f05b9f refuses the old bare confirmed uninstall before mutation, then preserves the established one-plan mounted cleanup path and admits artifact removal only through the explicit commit phase.",
+      "single_changed_variable": "Artifact teardown admission and executable fingerprint: candidate 5f05b9f replaces the ordinary bare confirmed teardown with an explicit commit phase after exact mounted cleanup; the planner, serial writer, initiating-task-last order, and existing artifact remover remain unchanged.",
+      "held_constant": "Desktop 26.803.41515 build 6321 on the same local macOS arm64 host; the same controlled historical and initiating tasks; mounted codex_app__read_thread and codex_app__set_thread_title as the only title boundary; exact ID and title acknowledgement; no hooks, SQLite, retry, final scan, controller, queue, pacing, coordination fence, or persistent marker.",
+      "predicted_outcomes": [
+        "A bare uninstall --noninteractive --confirm --json will fail before artifact mutation; one fresh complete preparation will place the initiating task last; the two controlled prefixes will receive exact serial removals; uninstall --commit --noninteractive --confirm --json will then remove the owned artifacts.",
+        "If bare confirmation removes an artifact, either controlled title drifts or returns a non-exact result, the initiating task is not last, commit fails, unrelated content changes, or an owned artifact remains, the candidate must not merge."
+      ],
+      "stop_condition": "Stop after one bare-confirm refusal and one exact-candidate controlled cleanup plus commit. On any drift or unconfirmed write, do not retry or commit teardown. After commit, inspect artifacts and unrelated hashes only; do not read or write a task title, restart for refresh, or add coordination machinery.",
+      "result_experiment_id": "TB-EXP-0119-002"
     }
   ]
 }

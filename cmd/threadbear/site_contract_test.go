@@ -46,7 +46,7 @@ func TestPublishedInstallGuideMatchesCurrentProduct(t *testing.T) {
 		"For every lifecycle action, write the lasting summary after all tool calls.",
 		"Nothing changes in this step.",
 		"Existing task titles will not change in this step.",
-		"onboarding stays a separate previewed choice.",
+		"Existing task titles were not changed.",
 		"Never leave that recap only in commentary, progress notices, notifications, or raw tool output",
 		"do not copy raw fields or list internal files",
 		"Group safe skips as “left unchanged” unless the user needs to act.",
@@ -54,24 +54,19 @@ func TestPublishedInstallGuideMatchesCurrentProduct(t *testing.T) {
 		"## Here's what will happen",
 		"## ThreadBear recap 🐻",
 		"Other Codex settings and files stay untouched.",
-		"Existing tasks have not been changed yet",
-		"Checked N existing tasks: updated X, left Y unchanged, and could not confirm Z.",
+		"Existing task titles and unrelated Codex settings stayed untouched.",
 		"installs only verified official releases",
 		"Updates never read tasks or change titles.",
-		"ThreadBear and its automatic updates were removed.",
+		"ThreadBear and its automatic updates were removed after cleaning X task titles.",
 		"--dry-run --json",
 		"--noninteractive --confirm --json",
-		"--no-onboard",
-		"ThreadBear onboard",
-		"entire unarchived App Server catalog before any preparation or title write",
-		"fresh complete catalog snapshot",
-		"returns one `prepared` action containing the snapshot title and desired title",
-		"tools.write_stdin",
-		"tools.codex_app__read_thread({threadId:item.task_id,includeOutputs:false,turnLimit:1,maxOutputCharsPerItem:1})",
-		"A missing, unreadable, wrong-ID, or changed-title response is skipped.",
-		"tools.codex_app__set_thread_title({threadId:item.task_id,title:item.desired_title})",
-		"Every prepared item must reach exactly one outcome.",
-		"Checked N existing tasks: updated X, left Y unchanged, and could not confirm Z.",
+		"uninstall --prepare --noninteractive --confirm --json",
+		"uninstall --commit --noninteractive --confirm --json",
+		"A bare confirmed uninstall is refused.",
+		"one fresh complete plan",
+		"with the initiating task last",
+		"Any missing, drifted, malformed, wrong-target, wrong-title, or thrown result blocks teardown",
+		"There is no final catalog scan, marker, queue, controller, or resume state.",
 		"tools.codex_app__set_thread_title({title:desired})",
 		"one injection-safe terminal JavaScript cell",
 		"wait only for that same cell",
@@ -102,7 +97,9 @@ func TestPublishedInstallGuideMatchesCurrentProduct(t *testing.T) {
 		"migration_failed",
 		"background migration-controller",
 		"Luna helper",
-		"uninstall --prepare",
+		"ThreadBear onboard",
+		"--no-onboard",
+		"Existing title icons may remain",
 		"state_N.sqlite",
 		"rereads every candidate",
 		`"$codex_path" --version; break`,
@@ -148,6 +145,7 @@ func TestInstalledGuidanceDefinesOneTerminalPlannerAndNativeWrite(t *testing.T) 
 		"Never start another cell, poll the title, retry, or reconcile.",
 		"A returned failure is local to this turn.",
 		"The status controls only the visible icon.",
+		"ThreadBear emits five exact status prefixes and recognizes the obsolete neutral bear prefix only so it can remove it.",
 	)
 	if count := strings.Count(guidance, "```js"); count != 1 {
 		t.Fatalf("managed guidance contains %d JavaScript cells; want one", count)
@@ -168,6 +166,7 @@ func TestInstalledGuidanceDefinesOneTerminalPlannerAndNativeWrite(t *testing.T) 
 		"ThreadBear footer",
 		"maintenance --cancel",
 		"prepared uninstall",
+		"six exact current icon prefixes",
 	)
 }
 
@@ -185,9 +184,9 @@ func TestInstalledSkillStaysCompactAndRunsOneSerialNativePass(t *testing.T) {
 		"## Install or reset",
 		"helper, instructions, skill, and daily updates",
 		"leave tasks, settings, and titles alone",
-		"## Onboard existing tasks",
-		"onboard --dry-run --json",
-		`\"$HOME/.local/bin/threadbear\" onboard --noninteractive --confirm --json`,
+		"## Uninstall",
+		"uninstall --dry-run --json",
+		`\"$HOME/.local/bin/threadbear\" uninstall --prepare --noninteractive --confirm --json`,
 		`sandbox_permissions:"require_escalated"`,
 		"This preview changes nothing.",
 		"If Codex says approval requests are disabled, stop.",
@@ -196,7 +195,7 @@ func TestInstalledSkillStaysCompactAndRunsOneSerialNativePass(t *testing.T) {
 		`typeof item.title !== "string"`,
 		"for (const item of prepared)",
 		"tools.write_stdin({",
-		"session_id:local.session_id",
+		"session_id:call.session_id",
 		"tools.codex_app__read_thread({threadId:item.task_id",
 		"includeOutputs:false,turnLimit:1,maxOutputCharsPerItem:1",
 		"const parseNative = value =>",
@@ -209,22 +208,18 @@ func TestInstalledSkillStaysCompactAndRunsOneSerialNativePass(t *testing.T) {
 		"title:item.desired_title",
 		"renamed.threadId === item.task_id",
 		"renamed.title === item.desired_title",
-		"notify(`ThreadBear onboarding: ${done}/${prepared.length}`)",
-		"const accounted = updated + skipped + unconfirmed === prepared.length",
-		"ready:accounted && unconfirmed === 0",
-		"onboarding_complete:accounted && unconfirmed === 0",
-		"unchanged:plan.total - updated - unconfirmed",
-		"Updated X of N existing tasks; Y were left unchanged; Z could not be confirmed.",
-		"No retry, cap, or persistent task.",
+		"notify(`ThreadBear uninstall: titles ${done}/${prepared.length}`)",
+		"const accounted = updated + drifted + unconfirmed === prepared.length",
+		"if (!accounted || drifted !== 0 || unconfirmed !== 0)",
+		"cleanup_complete:false",
+		"safe_rerun:\"threadbear uninstall --dry-run --json\"",
 		"## Update",
 		"Preview download, checks, replacement, and restart.",
-		"## Uninstall",
-		"uninstall --dry-run --json",
-		"uninstall --noninteractive --confirm --json",
+		"uninstall --commit --noninteractive --confirm --json",
 		"Only `uninstalled:true` means removed",
-		"keep tasks, settings, and files; icons may remain.",
-		"no title cell.",
-		"Recap exactly: “ThreadBear was removed.",
+		"Never retry a drifted or unconfirmed title in the same pass.",
+		"After artifact commit, make no title call.",
+		"ThreadBear was removed. X task titles were cleaned",
 	)
 	rejectText(t, protocol, "this title stayed as-is")
 	if count := strings.Count(protocol, "tools.codex_app__set_thread_title("); count != 1 {
@@ -249,7 +244,8 @@ func TestInstalledSkillStaysCompactAndRunsOneSerialNativePass(t *testing.T) {
 		"Migration controller",
 		"migration --phase",
 		"maintenance --cancel",
-		"uninstall --prepare",
+		"onboard --dry-run",
+		"icons may remain",
 	)
 }
 
@@ -265,11 +261,11 @@ func TestLifecycleCopyLeavesADurableFriendlyRecap(t *testing.T) {
 		}
 	}
 
-	if count := strings.Count(guide, "## Here's what will happen"); count < 4 {
-		t.Fatalf("install guide has %d lifecycle previews; want install, onboarding, update, and uninstall guidance", count)
+	if count := strings.Count(guide, "## Here's what will happen"); count < 3 {
+		t.Fatalf("install guide has %d lifecycle previews; want install, update, and uninstall guidance", count)
 	}
-	if count := strings.Count(guide, "## ThreadBear recap 🐻"); count < 4 {
-		t.Fatalf("install guide has %d durable recaps; want universal plus lifecycle results", count)
+	if count := strings.Count(guide, "## ThreadBear recap 🐻"); count < 3 {
+		t.Fatalf("install guide has %d durable recaps; want install, update, and uninstall results", count)
 	}
 	requireText(t, guide,
 		"end the final response",
@@ -324,10 +320,10 @@ func TestHomepageDescribesOnlyShippedCapabilities(t *testing.T) {
 		"One terminal update",
 		"Codex reads the title, then makes at most one native title write",
 		"The mounted app owns titles",
-		"Onboarding finishes App Server pagination before serial app-native writes",
-		"no arbitrary first-50 cap",
-		"immediately rereads each prepared task through the mounted app",
-		"skips drift",
+		"A clean goodbye",
+		"Uninstall fully plans owned-prefix cleanup before serial app-native writes",
+		"immediately rereads each prepared task through the mounted app before one possible prefix removal",
+		"Drift or an unconfirmed result stops before artifact removal.",
 		"null or blank <code>name</code>",
 		"<code>preview</code> is never adopted",
 		"daily update-only LaunchAgent",
@@ -336,6 +332,8 @@ func TestHomepageDescribesOnlyShippedCapabilities(t *testing.T) {
 		"title-core readiness",
 	)
 	rejectText(t, page,
+		"Five outcomes, plus a welcome bear",
+		"aria-label=\"blocked, needs input, automation, next steps, complete, onboarded\"",
 		"One direct writer",
 		"writes at most once, and verifies exact readback",
 		"only task read/write authority",
