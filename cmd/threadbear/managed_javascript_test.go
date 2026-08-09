@@ -9,7 +9,7 @@ import (
 	"testing"
 )
 
-func TestEmbeddedOnboardingJavaScriptResumesAndSerializesNativeWrites(t *testing.T) {
+func TestEmbeddedUninstallJavaScriptBlocksTeardownOnDriftAndCommitsAfterExactCleanup(t *testing.T) {
 	protocol := readRepoFile(t, "assets", "skill", "SKILL.md")
 	source := extractJavaScriptCell(t, protocol)
 	sourceJSON, err := json.Marshal(source)
@@ -19,131 +19,150 @@ func TestEmbeddedOnboardingJavaScriptResumesAndSerializesNativeWrites(t *testing
 
 	harness := fmt.Sprintf(`
 const source = %s;
-const plan = {
-  ready:true, plan_complete:true, read_only:false, total:7,
-  items:[
-    {outcome:"prepared",task_id:"drift",title:"old drift",desired_title:"🐻 old drift"},
-    {outcome:"prepared",task_id:"unreadable",title:"old unreadable",desired_title:"🐻 old unreadable"},
-    {outcome:"prepared",task_id:"wrongid",title:"old wrongid",desired_title:"🐻 old wrongid"},
-    {outcome:"prepared",task_id:"exact",title:"old exact",desired_title:"🐻 old exact"},
-    {outcome:"prepared",task_id:"object",title:"old object",desired_title:"🐻 old object"},
-    {outcome:"prepared",task_id:"bad",title:"old bad",desired_title:"🐻 old bad"},
-    {outcome:"unchanged",task_id:"same",title:"same",desired_title:"same"}
-  ]
-};
-const encoded = JSON.stringify(plan);
-const cut1 = Math.floor(encoded.length / 3);
-const cut2 = Math.floor(encoded.length * 2 / 3);
-const trace = [], outputs = [], notices = [];
-let writeCalls = 0;
-const tools = {
-  exec_command: async args => {
-    trace.push("exec");
-    if (args.cmd !== "\"$HOME/.local/bin/threadbear\" onboard --noninteractive --confirm --json" ||
-        args.yield_time_ms !== 30000 || args.max_output_tokens !== 200000) throw new Error("bad exec args");
-    return {session_id:77,output:encoded.slice(0,cut1)};
-  },
-  write_stdin: async args => {
-    trace.push("write:" + args.session_id);
-    if (args.session_id !== 77 || args.yield_time_ms !== 30000 ||
-        args.max_output_tokens !== 200000) throw new Error("bad resume args");
-    writeCalls++;
-    if (writeCalls === 1) return {session_id:77,output:encoded.slice(cut1,cut2)};
-    if (writeCalls === 2) return {exit_code:0,output:encoded.slice(cut2)};
-    throw new Error("preparation process resumed more than needed");
-  },
-  codex_app__read_thread: async args => {
-    trace.push("read:" + args.threadId);
-    if (Object.keys(args).sort().join(",") !==
-        "includeOutputs,maxOutputCharsPerItem,threadId,turnLimit" ||
-        args.includeOutputs !== false || args.turnLimit !== 1 ||
-        args.maxOutputCharsPerItem !== 1) throw new Error("bad read args");
-    if (args.threadId === "drift") return JSON.stringify({thread:{id:"drift",title:"changed"}});
-    if (args.threadId === "unreadable") return "{malformed";
-    if (args.threadId === "wrongid") return JSON.stringify({thread:{id:"other",title:"old wrongid"}});
-    if (args.threadId === "exact") return JSON.stringify({thread:{id:"exact",title:"old exact"}});
-    if (args.threadId === "object") return {thread:{id:"object",title:"old object"}};
-    if (args.threadId === "bad") return JSON.stringify({thread:{id:"bad",title:"old bad"}});
-    throw new Error("unexpected read target");
-  },
-  codex_app__set_thread_title: async args => {
-    trace.push("set:" + args.threadId);
-    if (Object.keys(args).sort().join(",") !== "threadId,title") throw new Error("bad setter args");
-    if (args.threadId === "exact" && args.title === "🐻 old exact")
-      return JSON.stringify({threadId:"exact",title:"🐻 old exact"});
-    if (args.threadId === "object" && args.title === "🐻 old object")
-      return {threadId:"object",title:"🐻 old object"};
-    if (args.threadId === "bad" && args.title === "🐻 old bad") return "{malformed";
-    throw new Error("unexpected setter target");
-  }
-};
-const text = value => outputs.push(value);
-const notify = value => notices.push(value);
 class Exit extends Error {}
-const exit = () => { throw new Exit(); };
 const AsyncFunction = Object.getPrototypeOf(async function(){}).constructor;
-try {
-  await new AsyncFunction("tools","text","exit","notify",source)(tools,text,exit,notify);
-} catch (error) {
-  if (!(error instanceof Exit)) throw error;
+async function run(plan,yieldPreparation) {
+  const trace = [], outputs = [], notices = [];
+  const encoded = JSON.stringify(plan);
+  let commandCalls = 0, writeCalls = 0;
+  const tools = {
+    exec_command: async args => {
+      commandCalls++;
+      if (args.yield_time_ms !== 30000 || args.max_output_tokens !== 200000 ||
+          args.sandbox_permissions !== "require_escalated") throw new Error("bad exec args");
+      if (commandCalls === 1) {
+        trace.push("exec:prepare");
+        if (args.cmd !== "\"$HOME/.local/bin/threadbear\" uninstall --prepare --noninteractive --confirm --json")
+          throw new Error("bad preparation command");
+        if (yieldPreparation) return {session_id:77,output:encoded.slice(0,Math.floor(encoded.length/2))};
+        return {exit_code:0,output:encoded};
+      }
+      trace.push("exec:commit");
+      if (args.cmd !== "\"$HOME/.local/bin/threadbear\" uninstall --noninteractive --confirm --json")
+        throw new Error("bad commit command");
+      return {exit_code:0,output:JSON.stringify({ready:true,uninstalled:true,restart_required:true})};
+    },
+    write_stdin: async args => {
+      trace.push("write:" + args.session_id);
+      writeCalls++;
+      if (!yieldPreparation || writeCalls !== 1 || args.session_id !== 77 ||
+          args.yield_time_ms !== 30000 || args.max_output_tokens !== 200000)
+        throw new Error("bad resume args");
+      return {exit_code:0,output:encoded.slice(Math.floor(encoded.length/2))};
+    },
+    codex_app__read_thread: async args => {
+      trace.push("read:" + args.threadId);
+      if (args.includeOutputs !== false || args.turnLimit !== 1 || args.maxOutputCharsPerItem !== 1)
+        throw new Error("bad read args");
+      const item = plan.items.find(value => value.task_id === args.threadId);
+      if (args.threadId === "drift") return JSON.stringify({thread:{id:"drift",title:"changed"}});
+      return args.threadId === "active" ? {thread:{id:args.threadId,title:item.title}} :
+        JSON.stringify({thread:{id:args.threadId,title:item.title}});
+    },
+    codex_app__set_thread_title: async args => {
+      trace.push("set:" + args.threadId + ":" + args.title);
+      if (Object.keys(args).sort().join(",") !== "threadId,title" || args.title.startsWith("🐻 "))
+        throw new Error("bad setter args");
+      if (args.threadId === "failset") return "{malformed";
+      return args.threadId === "active" ? {threadId:args.threadId,title:args.title} :
+        JSON.stringify({threadId:args.threadId,title:args.title});
+    }
+  };
+  const text = value => outputs.push(typeof value === "string" ? value : JSON.stringify(value));
+  const notify = value => notices.push(value);
+  const exit = () => { throw new Exit(); };
+  try { await new AsyncFunction("tools","text","exit","notify",source)(tools,text,exit,notify); }
+  catch (error) { if (!(error instanceof Exit)) throw error; }
+  return {trace,outputs,notices,writeCalls};
 }
-process.stdout.write(JSON.stringify({trace,outputs,notices,writeCalls}));
+const failure = await run({ready:true,plan_complete:true,read_only:false,total:4,
+  needs_cleanup:3,prepared:3,unchanged:1,skipped:0,items:[
+    {outcome:"prepared",task_id:"exact",title:"✅ exact",desired_title:"exact"},
+    {outcome:"prepared",task_id:"drift",title:"🐻 drift",desired_title:"drift"},
+    {outcome:"prepared",task_id:"failset",title:"🚨 fail",desired_title:"fail"},
+    {outcome:"unchanged",task_id:"plain",title:"plain"}
+  ]},true);
+const success = await run({ready:true,plan_complete:true,read_only:false,total:4,
+  needs_cleanup:2,prepared:2,unchanged:1,skipped:1,items:[
+    {outcome:"prepared",task_id:"history",title:"🐻 history",desired_title:"history"},
+    {outcome:"unchanged",task_id:"plain",title:"plain"},
+    {outcome:"skipped",task_id:"unsafe"},
+    {outcome:"prepared",task_id:"active",title:"✅ active",desired_title:"active"}
+  ]},false);
+process.stdout.write(JSON.stringify({failure,success}));
 `, sourceJSON)
 
 	output, err := exec.Command("node", "--input-type=module", "--eval", harness).CombinedOutput()
 	if err != nil {
-		t.Fatalf("execute embedded onboarding JavaScript: %v\n%s", err, output)
+		t.Fatalf("execute embedded uninstall JavaScript: %v\n%s", err, output)
 	}
 
 	var run struct {
-		Trace      []string `json:"trace"`
-		Outputs    []string `json:"outputs"`
-		Notices    []string `json:"notices"`
-		WriteCalls int      `json:"writeCalls"`
+		Failure struct {
+			Trace      []string `json:"trace"`
+			Outputs    []string `json:"outputs"`
+			Notices    []string `json:"notices"`
+			WriteCalls int      `json:"writeCalls"`
+		} `json:"failure"`
+		Success struct {
+			Trace      []string `json:"trace"`
+			Outputs    []string `json:"outputs"`
+			Notices    []string `json:"notices"`
+			WriteCalls int      `json:"writeCalls"`
+		} `json:"success"`
 	}
 	if err := json.Unmarshal(output, &run); err != nil {
 		t.Fatalf("decode JavaScript harness output: %v\n%s", err, output)
 	}
-	wantTrace := []string{
-		"exec", "write:77", "write:77",
-		"read:drift",
-		"read:unreadable",
-		"read:wrongid",
-		"read:exact", "set:exact",
-		"read:object", "set:object",
-		"read:bad", "set:bad",
+	wantFailureTrace := []string{
+		"exec:prepare", "write:77", "read:exact", "set:exact:exact",
+		"read:drift", "read:failset", "set:failset:fail",
 	}
-	if !reflect.DeepEqual(run.Trace, wantTrace) {
-		t.Fatalf("unexpected managed-loop order\n got: %v\nwant: %v", run.Trace, wantTrace)
+	if !reflect.DeepEqual(run.Failure.Trace, wantFailureTrace) {
+		t.Fatalf("unexpected failed cleanup order\n got: %v\nwant: %v", run.Failure.Trace, wantFailureTrace)
 	}
-	if run.WriteCalls != 2 {
-		t.Fatalf("write_stdin calls = %d; want two resumptions of the same process", run.WriteCalls)
+	if run.Failure.WriteCalls != 1 || len(run.Failure.Outputs) != 1 {
+		t.Fatalf("failed cleanup resumptions/outputs = %d/%d", run.Failure.WriteCalls, len(run.Failure.Outputs))
 	}
-	if len(run.Outputs) != 1 {
-		t.Fatalf("terminal outputs = %d; want one receipt", len(run.Outputs))
+	var failedReceipt struct {
+		Ready           bool `json:"ready"`
+		Uninstalled     bool `json:"uninstalled"`
+		CleanupComplete bool `json:"cleanup_complete"`
+		Updated         int  `json:"updated"`
+		Drifted         int  `json:"drifted"`
+		Unconfirmed     int  `json:"unconfirmed"`
+	}
+	if err := json.Unmarshal([]byte(run.Failure.Outputs[0]), &failedReceipt); err != nil {
+		t.Fatalf("decode failed cleanup receipt: %v\n%s", err, run.Failure.Outputs[0])
+	}
+	if failedReceipt.Ready || failedReceipt.Uninstalled || failedReceipt.CleanupComplete ||
+		failedReceipt.Updated != 1 || failedReceipt.Drifted != 1 || failedReceipt.Unconfirmed != 1 {
+		t.Fatalf("unexpected failed cleanup receipt: %+v", failedReceipt)
+	}
+	if containsString(run.Failure.Trace, "exec:commit") ||
+		run.Failure.Notices[len(run.Failure.Notices)-1] != "ThreadBear uninstall: titles 3/3" {
+		t.Fatalf("failed cleanup crossed teardown boundary: trace=%v notices=%v", run.Failure.Trace, run.Failure.Notices)
 	}
 
-	var receipt struct {
-		Ready              bool `json:"ready"`
-		PlanComplete       bool `json:"plan_complete"`
-		OnboardingComplete bool `json:"onboarding_complete"`
-		Total              int  `json:"total"`
-		Updated            int  `json:"updated"`
-		Skipped            int  `json:"skipped"`
-		Unchanged          int  `json:"unchanged"`
-		Unconfirmed        int  `json:"unconfirmed"`
+	wantSuccessTrace := []string{"exec:prepare", "read:history", "set:history:history",
+		"read:active", "set:active:active", "exec:commit"}
+	if !reflect.DeepEqual(run.Success.Trace, wantSuccessTrace) {
+		t.Fatalf("unexpected successful cleanup order\n got: %v\nwant: %v", run.Success.Trace, wantSuccessTrace)
 	}
-	if err := json.Unmarshal([]byte(run.Outputs[0]), &receipt); err != nil {
-		t.Fatalf("decode managed-loop receipt: %v\n%s", err, run.Outputs[0])
+	var successReceipt struct {
+		Uninstalled  bool `json:"uninstalled"`
+		TitleCleanup struct {
+			Updated, Unchanged, Skipped int
+		} `json:"title_cleanup"`
 	}
-	if receipt.Ready || !receipt.PlanComplete || receipt.OnboardingComplete ||
-		receipt.Total != 7 || receipt.Updated != 2 || receipt.Skipped != 3 ||
-		receipt.Unchanged != 4 || receipt.Unconfirmed != 1 {
-		t.Fatalf("unexpected managed-loop receipt: %+v", receipt)
+	if len(run.Success.Outputs) != 1 || json.Unmarshal([]byte(run.Success.Outputs[0]), &successReceipt) != nil ||
+		!successReceipt.Uninstalled || successReceipt.TitleCleanup.Updated != 2 ||
+		successReceipt.TitleCleanup.Unchanged != 1 || successReceipt.TitleCleanup.Skipped != 1 {
+		t.Fatalf("unexpected successful uninstall receipt: outputs=%v receipt=%+v", run.Success.Outputs, successReceipt)
 	}
-	if len(run.Notices) < 3 || run.Notices[0] != "ThreadBear onboarding: preparing" ||
-		run.Notices[len(run.Notices)-1] != "ThreadBear onboarding: 6/6" {
-		t.Fatalf("unexpected progress notifications: %v", run.Notices)
+	if run.Success.Notices[len(run.Success.Notices)-1] != "ThreadBear uninstall: removing managed artifacts" ||
+		run.Success.Trace[len(run.Success.Trace)-1] != "exec:commit" {
+		t.Fatalf("successful uninstall made work after commit: trace=%v notices=%v", run.Success.Trace, run.Success.Notices)
 	}
 }
 

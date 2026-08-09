@@ -144,7 +144,7 @@ def initial_threads():
     value = [
         {
             "id": f"10000000-0000-4000-8000-{number:012d}",
-            "name": f"Existing task {number:03d}",
+            "name": f"🐻 Existing task {number:03d}",
             "preview": f"First message {number:03d}",
             "source": "cli",
         }
@@ -165,7 +165,7 @@ def initial_threads():
         },
         {
             "id": delegated_id,
-            "name": "Visible delegated task",
+            "name": "🐻 Visible delegated task",
             "preview": "Delegated task with a safe visible name",
             "source": "subagent",
         },
@@ -358,19 +358,19 @@ if mode == "current":
                         result = {"ready": False, "reason": "Codex title write was not confirmed exactly"}
                     else:
                         result = {"ready": True, "task_id": task_id, "title": response["title"], "updated": True}
-elif mode == "onboard":
+elif mode == "cleanup":
     if plan.get("ready") is not True or plan.get("plan_complete") is not True or plan.get("read_only") is not False or not isinstance(plan.get("items"), list):
-        raise SystemExit("invalid onboarding plan")
+        raise SystemExit("invalid cleanup plan")
     prepared = [item for item in plan["items"] if item.get("outcome") == "prepared"]
-    if any(not isinstance(item.get("task_id"), str) or not isinstance(item.get("title"), str) or not isinstance(item.get("desired_title"), str) for item in prepared):
-        raise SystemExit("invalid prepared onboarding item")
+    if len(prepared) != plan.get("prepared") or any(not isinstance(item.get("task_id"), str) or not isinstance(item.get("title"), str) or not isinstance(item.get("desired_title"), str) for item in prepared):
+        raise SystemExit("invalid prepared cleanup item")
     updated = 0
-    skipped = 0
+    drifted = 0
     unconfirmed = 0
     for item in prepared:
         current = decode_tool_result(read_title(item["task_id"]))
         if current is None or current.get("thread", {}).get("id") != item["task_id"] or current.get("thread", {}).get("title") != item["title"]:
-            skipped += 1
+            drifted += 1
             continue
         response = decode_tool_result(set_title(item["task_id"], item["desired_title"], True))
         if response is not None and response.get("threadId") == item["task_id"] and response.get("title") == item["desired_title"]:
@@ -378,15 +378,16 @@ elif mode == "onboard":
         else:
             unconfirmed += 1
     total = plan["total"] if isinstance(plan.get("total"), int) else len(plan["items"])
-    accounted = updated + skipped + unconfirmed == len(prepared)
+    accounted = updated + drifted + unconfirmed == len(prepared)
     result = {
-        "ready": accounted and unconfirmed == 0,
+        "ready": accounted and drifted == 0 and unconfirmed == 0,
         "plan_complete": True,
-        "onboarding_complete": accounted and unconfirmed == 0,
+        "cleanup_complete": accounted and drifted == 0 and unconfirmed == 0,
         "total": total,
         "updated": updated,
-        "skipped": skipped,
-        "unchanged": total - updated - unconfirmed,
+        "drifted": drifted,
+        "unchanged": plan.get("unchanged", 0),
+        "skipped": plan.get("skipped", 0),
         "unconfirmed": unconfirmed,
     }
 else:
@@ -512,7 +513,10 @@ run_reset_installer() {
 run_reset_threadbear() {
 	HOME="$reset_home" \
 		CODEX_HOME="$reset_codex_home" \
+		CODEX_THREAD_ID="$reset_main_id" \
 		PATH="$reset_home/.local/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin" \
+		THREADBEAR_SMOKE_APP_SERVER_LOG="$app_server_log" \
+		THREADBEAR_SMOKE_APP_SERVER_STATE="$app_server_state" \
 		"$reset_binary" "$@"
 }
 
@@ -566,7 +570,7 @@ import sys
 
 value = json.load(open(sys.argv[1], encoding="utf-8"))
 assert value["ready"] is True and value["uninstalled"] is True, value
-assert value["restart_required"] is True and value["icons_may_remain"] is True, value
+assert value["restart_required"] is True and "icons_may_remain" not in value, value
 PY
 
 # A foreign LaunchAgent collision must stop before every current-format surface.
@@ -597,8 +601,7 @@ value = json.load(open(sys.argv[1], encoding="utf-8"))
 assert value["ready"] is True and value["dry_run"] is True, value
 assert value["version"] == sys.argv[2] and value["installed"] is False, value
 assert value["legacy_reset_required"] is False and value["partial"] is False, value
-assert value["onboarding_requested"] is True, value
-assert value["next_request"] == "threadbear onboard --dry-run --json", value
+assert "onboarding_requested" not in value and "next_request" not in value, value
 assert not any("hook" in change.lower() for change in value["planned_changes"]), value
 PY
 cmp "$codex_home/hooks.json" "$hooks_before" >/dev/null ||
@@ -614,9 +617,8 @@ value = json.load(open(sys.argv[1], encoding="utf-8"))
 assert value["ready"] is True and value["installed"] is True, value
 assert value["version"] == sys.argv[2] and value["dry_run"] is False, value
 assert value["legacy_reset_required"] is False and value["partial"] is False, value
-assert value["onboarding_requested"] is True, value
 assert value["automatic_updates_enabled"] is True and value["restart_required"] is True, value
-assert value["next_request"] == "threadbear onboard --dry-run --json", value
+assert "onboarding_requested" not in value and "next_request" not in value, value
 PY
 cmp "$codex_home/hooks.json" "$hooks_before" >/dev/null ||
 	fail "current install changed hooks.json"
@@ -678,7 +680,7 @@ assert text.count("tools.codex_app__set_thread_title") == 1, text
 assert text.count("tools.codex_app__read_thread") == 1, text
 assert text.count("tools.write_stdin") == 1, text
 assert 'sandbox_permissions:"require_escalated"' in text, text
-assert "Allow ThreadBear to read the full Codex task list" in text, text
+assert "Allow ThreadBear to read the complete Codex task list" in text, text
 assert 'item.outcome === "prepared"' in text, text
 assert "const parseNative = value =>" in text, text
 assert 'if (typeof value !== "string") return value;' in text, text
@@ -687,7 +689,8 @@ assert "current = parseNative(await tools.codex_app__read_thread" in text, text
 assert "renamed = parseNative(await tools.codex_app__set_thread_title" in text, text
 assert "current?.thread?.id !== item.task_id" in text, text
 assert "current.thread.title !== item.title" in text, text
-assert "updated + skipped + unconfirmed === prepared.length" in text, text
+assert "updated + drifted + unconfirmed === prepared.length" in text, text
+assert "if (!accounted || drifted !== 0 || unconfirmed !== 0)" in text, text
 assert "thread/name/set" not in text, text
 PY
 cmp "$codex_home/hooks.json" "$hooks_before" >/dev/null ||
@@ -727,7 +730,7 @@ assert value["ready"] is True and value["installed"] is True, value
 assert value["automatic_updates_enabled"] is False, value
 assert value["updater"]["exact"] is False and value["updater"]["loaded"] is False, value
 PY
-run_threadbear install --no-onboard --noninteractive --confirm --json >"$root/reinstall-updater.json"
+run_threadbear install --noninteractive --confirm --json >"$root/reinstall-updater.json"
 python3 - "$root/reinstall-updater.json" <<'PY'
 import json
 import sys
@@ -735,7 +738,7 @@ import sys
 value = json.load(open(sys.argv[1], encoding="utf-8"))
 assert value["ready"] is True and value["installed"] is True, value
 assert value["automatic_updates_enabled"] is True and value["restart_required"] is True, value
-assert value["onboarding_requested"] is False and "next_request" not in value, value
+assert "onboarding_requested" not in value and "next_request" not in value, value
 PY
 /bin/launchctl print "$agent_target" >/dev/null 2>&1 || fail "reinstall did not restore the updater"
 cmp "$codex_home/hooks.json" "$hooks_before" >/dev/null ||
@@ -840,23 +843,23 @@ test ! -s "$app_server_log" || fail "ordinary automation title update started Ap
 cmp "$codex_home/hooks.json" "$hooks_before" >/dev/null ||
 	fail "title planning or mounted setter simulation changed hooks.json"
 
-# Full enumeration must finish before any historical write.
+# Full uninstall enumeration must finish before any title or filesystem write.
 test ! -e "$state_dir/subjects" || fail "title flow created subject state"
 app_state_before=$(shasum -a 256 "$app_server_state" | awk '{print $1}')
 : >"$app_server_log"
 if THREADBEAR_SMOKE_APP_SERVER_MODE=fail-page-2 \
-	run_threadbear onboard --dry-run --json >"$root/onboard-failed-page.json"; then
-	fail "onboard accepted an App Server page failure"
+	run_threadbear uninstall --dry-run --json >"$root/cleanup-failed-page.json"; then
+	fail "uninstall preview accepted an App Server page failure"
 fi
 unset THREADBEAR_SMOKE_APP_SERVER_MODE
-python3 - "$root/onboard-failed-page.json" <<'PY'
+python3 - "$root/cleanup-failed-page.json" <<'PY'
 import json
 import sys
 
 value = json.load(open(sys.argv[1], encoding="utf-8"))
 assert value["ready"] is False and "thread/list page 2" in value["error"], value
 assert value["plan_complete"] is False and value["total"] == 0, value
-assert value["items"] is None and value["prepared"] == 0 and value["needs_update"] == 0, value
+assert value["items"] is None and value["prepared"] == 0 and value["needs_cleanup"] == 0, value
 PY
 test ! -e "$state_dir/subjects" || fail "failed catalog enumeration created subject state"
 test "$(shasum -a 256 "$app_server_state" | awk '{print $1}')" = "$app_state_before" ||
@@ -875,25 +878,24 @@ assert not any(message.get("method") == "thread/name/set" for message in message
 PY
 
 : >"$app_server_log"
-run_threadbear onboard --dry-run --json >"$root/onboard-preview.json"
-python3 - "$root/onboard-preview.json" "$current_id" "$raw_id" "$blank_id" <<'PY'
+run_threadbear uninstall --dry-run --json >"$root/cleanup-preview.json"
+python3 - "$root/cleanup-preview.json" "$current_id" "$raw_id" "$blank_id" <<'PY'
 import json
 import sys
 
 value = json.load(open(sys.argv[1], encoding="utf-8"))
 current_id, raw_id, blank_id = sys.argv[2:]
 assert value["ready"] is True and value["plan_complete"] is True and value["read_only"] is True, value
-assert value["onboarding_complete"] is False, value
 assert value["total"] == len(value["items"]) == 109, value
-assert value["safe"] == 107 and value["needs_update"] == 106, value
-assert value["prepared"] == 0 and value["unchanged"] == 1 and value["skipped"] == 2, value
+assert value["needs_cleanup"] == 107, value
+assert value["prepared"] == 0 and value["unchanged"] == 0 and value["skipped"] == 2, value
 assert [item["task_id"] for item in value["items"]] == sorted(item["task_id"] for item in value["items"])
 by_id = {item["task_id"]: item for item in value["items"]}
-assert by_id[current_id]["outcome"] == "unchanged", by_id[current_id]
+assert by_id[current_id]["outcome"] == "needs_cleanup", by_id[current_id]
 for task_id in (raw_id, blank_id):
     item = by_id[task_id]
-    assert item["safe"] is False and item["outcome"] == "skipped", item
-    assert "title" not in item and "subject" not in item and "desired_title" not in item, item
+    assert item["outcome"] == "skipped", item
+    assert "title" not in item and "desired_title" not in item, item
 PY
 python3 - "$app_server_log" <<'PY'
 import json
@@ -903,7 +905,7 @@ messages = [json.loads(line) for line in open(sys.argv[1], encoding="utf-8")]
 assert not any(message.get("method") in {"thread/read", "thread/name/set"} for message in messages), messages
 PY
 
-# One confirmed production pass prepares actions from the complete snapshot
+# One confirmed uninstall pass prepares actions from the complete snapshot
 # without per-target RPCs. The mounted-native simulation then rereads every
 # prepared title immediately before one possible setter; drift and a same-title
 # response for the wrong task both skip the write, while one injected setter
@@ -911,22 +913,22 @@ PY
 : >"$app_server_log"
 : >"$native_tool_log"
 app_state_before_preparation=$(shasum -a 256 "$app_server_state" | awk '{print $1}')
-run_threadbear_with_caller "$delegated_id" onboard --noninteractive --confirm --json >"$root/onboard-prepared-edge.json"
-python3 - "$root/onboard-prepared-edge.json" "$delegated_id" <<'PY'
+run_threadbear_with_caller "$delegated_id" uninstall --prepare --noninteractive --confirm --json >"$root/cleanup-prepared-edge.json"
+python3 - "$root/cleanup-prepared-edge.json" "$delegated_id" <<'PY'
 import json
 import sys
 
 value = json.load(open(sys.argv[1], encoding="utf-8"))
 delegated_id = sys.argv[2]
 assert value["ready"] is True and value["plan_complete"] is True, value
-assert value["read_only"] is False and value["onboarding_complete"] is False, value
-assert value["total"] == len(value["items"]) == 109 and value["safe"] == 107, value
-assert value["needs_update"] == 105 and value["prepared"] == 105, value
-assert value["unchanged"] == 2 and value["skipped"] == 2, value
+assert value["read_only"] is False, value
+assert value["total"] == len(value["items"]) == 109, value
+assert value["needs_cleanup"] == 107 and value["prepared"] == 107, value
+assert value["unchanged"] == 0 and value["skipped"] == 2, value
 assert value["prepared"] + value["unchanged"] + value["skipped"] == value["total"], value
 by_id = {item["task_id"]: item for item in value["items"]}
-assert by_id[delegated_id]["outcome"] == "unchanged", by_id[delegated_id]
-assert by_id[delegated_id]["reason"] == "active task is handled by the terminal title writer", by_id[delegated_id]
+assert value["items"][-1]["task_id"] == delegated_id, value["items"][-1]
+assert by_id[delegated_id]["outcome"] == "prepared", by_id[delegated_id]
 assert all(item["outcome"] != "updated" and item["outcome"] != "unconfirmed" for item in value["items"]), value
 PY
 python3 - "$app_server_log" <<'PY'
@@ -942,10 +944,10 @@ assert [message["params"] for message in lists] == [
 assert not any(message.get("method") in {"thread/read", "thread/name/set"} for message in messages), messages
 PY
 test "$(shasum -a 256 "$app_server_state" | awk '{print $1}')" = "$app_state_before_preparation" ||
-	fail "onboarding preparation mutated native task state"
-test ! -e "$state_dir/subjects" || fail "onboarding preparation created subject state"
-"$simulate_mounted" onboard "$root/onboard-prepared-edge.json" "$app_server_state" "$native_tool_log" "$root/onboard-edge.json" "$unconfirmed_id" "$mounted_drift_id" "$mounted_wrong_id"
-python3 - "$root/onboard-edge.json" "$native_tool_log" "$root/onboard-prepared-edge.json" "$unconfirmed_id" "$mounted_drift_id" "$mounted_wrong_id" <<'PY'
+	fail "cleanup preparation mutated native task state"
+test ! -e "$state_dir/subjects" || fail "cleanup preparation created subject state"
+"$simulate_mounted" cleanup "$root/cleanup-prepared-edge.json" "$app_server_state" "$native_tool_log" "$root/cleanup-edge.json" "$unconfirmed_id" "$mounted_drift_id" "$mounted_wrong_id"
+python3 - "$root/cleanup-edge.json" "$native_tool_log" "$root/cleanup-prepared-edge.json" "$unconfirmed_id" "$mounted_drift_id" "$mounted_wrong_id" <<'PY'
 import json
 import sys
 
@@ -956,16 +958,17 @@ failed_id, drift_id, wrong_id = sys.argv[4:]
 assert value == {
     "ready": False,
     "plan_complete": True,
-    "onboarding_complete": False,
+    "cleanup_complete": False,
     "total": 109,
-    "updated": 102,
+    "updated": 104,
+    "drifted": 2,
     "skipped": 2,
-    "unchanged": 6,
+    "unchanged": 0,
     "unconfirmed": 1,
 }, value
 reads = [call for call in calls if call["method"] == "codex_app__read_thread"]
 sets = [call for call in calls if call["method"] == "codex_app__set_thread_title"]
-assert len(reads) == 105 and len(sets) == 103 and len(calls) == 208, len(calls)
+assert len(reads) == 107 and len(sets) == 105 and len(calls) == 212, len(calls)
 read_ids = [call["params"]["threadId"] for call in reads]
 set_ids = [call["params"]["threadId"] for call in sets]
 prepared = {item["task_id"]: item for item in plan["items"] if item["outcome"] == "prepared"}
@@ -996,38 +999,38 @@ assert all(isinstance(call.get("response"), str) for call in sets if "error" not
 assert sum("error" in call for call in sets) == 1, sets
 PY
 cmp "$codex_home/hooks.json" "$hooks_before" >/dev/null ||
-	fail "confirmed onboarding changed hooks.json"
+	fail "confirmed cleanup changed hooks.json"
 
-run_threadbear onboard --dry-run --json >"$root/onboard-after-edge.json"
-python3 - "$root/onboard-after-edge.json" <<'PY'
+run_threadbear uninstall --dry-run --json >"$root/cleanup-after-edge.json"
+python3 - "$root/cleanup-after-edge.json" <<'PY'
 import json
 import sys
 
 value = json.load(open(sys.argv[1], encoding="utf-8"))
 assert value["ready"] is True and value["plan_complete"] is True, value
-assert value["total"] == 109 and value["safe"] == 107, value
-assert value["needs_update"] == 4 and value["prepared"] == 0, value
-assert value["unchanged"] == 103 and value["skipped"] == 2, value
+assert value["total"] == 109, value
+assert value["needs_cleanup"] == 2 and value["prepared"] == 0, value
+assert value["unchanged"] == 105 and value["skipped"] == 2, value
 PY
 
 : >"$app_server_log"
 : >"$native_tool_log"
-run_threadbear onboard --noninteractive --confirm --json >"$root/onboard-final-plan.json"
-python3 - "$root/onboard-final-plan.json" "$app_server_log" <<'PY'
+run_threadbear uninstall --prepare --noninteractive --confirm --json >"$root/cleanup-final-plan.json"
+python3 - "$root/cleanup-final-plan.json" "$app_server_log" <<'PY'
 import json
 import sys
 
 value = json.load(open(sys.argv[1], encoding="utf-8"))
 assert value["ready"] is True and value["plan_complete"] is True, value
-assert value["read_only"] is False and value["onboarding_complete"] is False, value
-assert value["total"] == 109 and value["safe"] == 107, value
-assert value["needs_update"] == 4 and value["prepared"] == 4, value
-assert value["unchanged"] == 103 and value["skipped"] == 2, value
+assert value["read_only"] is False, value
+assert value["total"] == 109, value
+assert value["needs_cleanup"] == 2 and value["prepared"] == 2, value
+assert value["unchanged"] == 105 and value["skipped"] == 2, value
 messages = [json.loads(line) for line in open(sys.argv[2], encoding="utf-8")]
 assert not any(message.get("method") in {"thread/read", "thread/name/set"} for message in messages), messages
 PY
-"$simulate_mounted" onboard "$root/onboard-final-plan.json" "$app_server_state" "$native_tool_log" "$root/onboard-converged.json" "" "" ""
-python3 - "$root/onboard-converged.json" "$native_tool_log" "$root/onboard-final-plan.json" <<'PY'
+"$simulate_mounted" cleanup "$root/cleanup-final-plan.json" "$app_server_state" "$native_tool_log" "$root/cleanup-converged.json" "" "" ""
+python3 - "$root/cleanup-converged.json" "$native_tool_log" "$root/cleanup-final-plan.json" <<'PY'
 import json
 import sys
 
@@ -1037,33 +1040,34 @@ plan = json.load(open(sys.argv[3], encoding="utf-8"))
 assert value == {
     "ready": True,
     "plan_complete": True,
-    "onboarding_complete": True,
+    "cleanup_complete": True,
     "total": 109,
-    "updated": 4,
-    "skipped": 0,
+    "updated": 2,
+    "drifted": 0,
+    "skipped": 2,
     "unchanged": 105,
     "unconfirmed": 0,
 }, value
 reads = [call for call in calls if call["method"] == "codex_app__read_thread"]
 sets = [call for call in calls if call["method"] == "codex_app__set_thread_title"]
 prepared = {item["task_id"]: item for item in plan["items"] if item["outcome"] == "prepared"}
-assert len(reads) == 4 and len(sets) == 4 and len(calls) == 8, calls
-assert len({call["params"]["threadId"] for call in reads}) == 4, reads
-assert len({call["params"]["threadId"] for call in sets}) == 4, sets
+assert len(reads) == 2 and len(sets) == 2 and len(calls) == 4, calls
+assert len({call["params"]["threadId"] for call in reads}) == 2, reads
+assert len({call["params"]["threadId"] for call in sets}) == 2, sets
 assert {call["params"]["threadId"] for call in reads} == set(prepared), (reads, prepared)
 assert all(call["params"]["title"] == prepared[call["params"]["threadId"]]["desired_title"] for call in sets), sets
 assert all(isinstance(call.get("response"), str) and "error" not in call for call in calls), calls
 PY
 
 : >"$app_server_log"
-run_threadbear onboard --dry-run --json >"$root/onboard-final-preview.json"
-python3 - "$root/onboard-final-preview.json" "$app_server_log" <<'PY'
+run_threadbear uninstall --dry-run --json >"$root/cleanup-final-preview.json"
+python3 - "$root/cleanup-final-preview.json" "$app_server_log" <<'PY'
 import json
 import sys
 
 value = json.load(open(sys.argv[1], encoding="utf-8"))
-assert value["ready"] is True and value["onboarding_complete"] is True, value
-assert value["needs_update"] == 0 and value["prepared"] == 0, value
+assert value["ready"] is True and value["plan_complete"] is True, value
+assert value["needs_cleanup"] == 0 and value["prepared"] == 0, value
 assert value["unchanged"] == 107 and value["skipped"] == 2, value
 messages = [json.loads(line) for line in open(sys.argv[2], encoding="utf-8")]
 assert not any(message.get("method") in {"thread/read", "thread/name/set"} for message in messages), messages
@@ -1133,6 +1137,7 @@ import sys
 
 path, binary, state_dir, codex_home, agent_path = sys.argv[1:]
 changes = [
+    "remove one ThreadBear prefix from each safe unarchived task title",
     f"boot out and remove sh.threadbear.update LaunchAgent {agent_path}",
     f"remove managed AGENTS block from {codex_home}/AGENTS.md",
     f"remove skill {codex_home}/skills/threadbear/SKILL.md",
@@ -1141,16 +1146,14 @@ changes = [
     f"remove binary last {binary}",
 ]
 value = json.load(open(path, encoding="utf-8"))
-assert value == {
-    "ready": True,
-    "dry_run": True,
-    "uninstalled": False,
-    "icons_may_remain": True,
-    "restart_required": False,
-    "partial": False,
-    "warning": "Existing ThreadBear title icons may remain until renamed.",
-    "planned_changes": changes,
-}, value
+assert value["ready"] is True and value["dry_run"] is True and value["uninstalled"] is False, value
+assert value["restart_required"] is False and value["partial"] is False, value
+assert value["plan_complete"] is True and value["read_only"] is True, value
+assert value["total"] == len(value["items"]) == 109, value
+assert value["needs_cleanup"] == 0 and value["prepared"] == 0, value
+assert value["unchanged"] == 107 and value["skipped"] == 2, value
+assert value["planned_changes"] == changes, value
+assert "icons_may_remain" not in value and "warning" not in value, value
 assert not any("hook" in change.lower() for change in changes), changes
 PY
 cmp "$codex_home/hooks.json" "$hooks_before" >/dev/null ||
@@ -1159,6 +1162,7 @@ test -x "$binary" || fail "uninstall preview removed the binary"
 test -e "$agent_path" || fail "uninstall preview removed the LaunchAgent"
 
 /bin/launchctl kickstart -k "$agent_target"
+: >"$app_server_log"
 run_threadbear uninstall --noninteractive --confirm --json >"$root/uninstall.json"
 python3 - "$root/uninstall.json" "$root/uninstall-preview.json" <<'PY'
 import json
@@ -1170,13 +1174,12 @@ assert value == {
     "ready": True,
     "dry_run": False,
     "uninstalled": True,
-    "icons_may_remain": True,
     "restart_required": True,
     "partial": False,
-    "warning": preview["warning"],
     "planned_changes": preview["planned_changes"],
 }, value
 PY
+test ! -s "$app_server_log" || fail "uninstall commit performed a final catalog scan"
 
 test ! -e "$binary" || fail "uninstall left the binary"
 test -x "$fake_codex" || fail "uninstall removed the neighboring Codex fixture"

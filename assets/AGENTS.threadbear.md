@@ -81,7 +81,7 @@ text(JSON.stringify({ready:true, task_id:plan.task_id, title:renamed.title, upda
 
 The local command only returns the calling task ID and fixed title policy. The mounted Codex app reads the exact current title and is the sole writer. It receives no explicit task ID when writing, so it can target only the calling task. Make at most one native write attempt. Never run the cell as a progress update. If the outer cell yields, wait only for that same cell; the yield does not cancel a slow native call. Never start another cell, poll the title, retry, or reconcile. A returned failure is local to this turn.
 
-The status controls only the visible icon. ThreadBear reserves its six exact current icon prefixes, preserves every other safe subject and user-authored emoji, and leaves an ambiguous old ThreadBear prefix unchanged rather than guessing. It never puts an owner or action in the title. Use:
+The status controls only the visible icon. ThreadBear emits five exact status prefixes and recognizes the obsolete neutral bear prefix only so it can remove it. It preserves every other safe subject and user-authored emoji, and leaves an ambiguous old ThreadBear prefix unchanged rather than guessing. It never puts an owner or action in the title. Use:
 
 - `complete` when the work is finished with no warranted follow-up.
 - `next_steps` when the response establishes one concrete next action for the user, agent, or an external party.

@@ -83,14 +83,14 @@ func managedLaunchctlPrint(path, binary string) []byte {
 	return []byte(output.String())
 }
 
-func TestInstallPreviewConfirmationAndOnboardingReceipt(t *testing.T) {
+func TestInstallPreviewAndConfirmationHaveNoOnboardingSurface(t *testing.T) {
 	p := isolatedLifecycle(t)
 	preview, err := install(context.Background(), installOptions{DryRun: true})
 	if err != nil {
 		t.Fatal(err)
 	}
 	got := preview.(map[string]any)
-	if got["installed"] != false || got["onboarding_requested"] != true || got["next_request"] != "threadbear onboard --dry-run --json" || got["automatic_updates_enabled"] != false {
+	if got["installed"] != false || got["automatic_updates_enabled"] != false || got["onboarding_requested"] != nil || got["next_request"] != nil {
 		t.Fatalf("preview = %#v", got)
 	}
 	planned := got["planned_changes"].([]string)
@@ -117,15 +117,8 @@ func TestInstallPreviewConfirmationAndOnboardingReceipt(t *testing.T) {
 		t.Fatal(err)
 	}
 	got = result.(map[string]any)
-	if got["ready"] != true || got["installed"] != true || got["version"] != version || got["next_request"] != "threadbear onboard --dry-run --json" || got["restart_required"] != true || got["automatic_updates_enabled"] != true {
+	if got["ready"] != true || got["installed"] != true || got["version"] != version || got["next_request"] != nil || got["onboarding_requested"] != nil || got["restart_required"] != true || got["automatic_updates_enabled"] != true {
 		t.Fatalf("install = %#v", got)
-	}
-	without, err := install(context.Background(), installOptions{Confirmed: true, NoOnboard: true})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if value := without.(map[string]any); value["onboarding_requested"] != false || value["next_request"] != nil {
-		t.Fatalf("no-onboard install = %#v", value)
 	}
 }
 
@@ -189,8 +182,9 @@ func TestLifecycleNeverTouchesCodexHooks(t *testing.T) {
 		"renamed = parseNative(await tools.codex_app__set_thread_title",
 		"current?.thread?.id !== item.task_id",
 		"current.thread.title !== item.title",
-		"let updated = 0, skipped = 0, unconfirmed = 0",
-		"updated + skipped + unconfirmed === prepared.length",
+		"let updated = 0, drifted = 0, unconfirmed = 0",
+		"updated + drifted + unconfirmed === prepared.length",
+		"if (!accounted || drifted !== 0 || unconfirmed !== 0)",
 	} {
 		if !strings.Contains(string(skill), required) {
 			t.Fatalf("installed skill lacks mounted revalidation contract %q: %q", required, skill)
@@ -357,9 +351,9 @@ func TestResetPostCleanupFailureUsesOrdinaryConfirmedRerun(t *testing.T) {
 	}
 	t.Cleanup(func() { postResetStatus = oldPostResetStatus })
 
-	result, err := install(context.Background(), installOptions{Confirmed: true, Reset: true, NoOnboard: true})
+	result, err := install(context.Background(), installOptions{Confirmed: true, Reset: true})
 	partial := result.(map[string]any)
-	wantRerun := confirmedInstallRerun(p, true)
+	wantRerun := confirmedInstallRerun(p)
 	if err == nil || partial["partial"] != true || partial["stage"] != "status" || partial["legacy_reset_required"] != false || partial["safe_rerun"] != wantRerun {
 		t.Fatalf("post-cleanup reset partial = %#v, %v; rerun want %q", partial, err, wantRerun)
 	}
@@ -371,7 +365,7 @@ func TestResetPostCleanupFailureUsesOrdinaryConfirmedRerun(t *testing.T) {
 	}
 
 	postResetStatus = oldPostResetStatus
-	if _, err := install(context.Background(), installOptions{Confirmed: true, NoOnboard: true}); err != nil {
+	if _, err := install(context.Background(), installOptions{Confirmed: true}); err != nil {
 		t.Fatalf("ordinary confirmed rerun failed: %v", err)
 	}
 	if result, err := status(context.Background()); err != nil || result.(map[string]any)["ready"] != true {
@@ -604,39 +598,41 @@ func TestStatusSeparatesPhysicalBinaryPresenceFromReadiness(t *testing.T) {
 	}
 }
 
-func TestOnboardReturnsCompleteReadOnlyPlan(t *testing.T) {
+func TestUninstallReturnsCompleteCleanupPreviewAndPreparation(t *testing.T) {
 	isolatedLifecycle(t)
 	requests := stubPagedAppServer(t)
 	if _, err := install(context.Background(), installOptions{Confirmed: true}); err != nil {
 		t.Fatal(err)
 	}
-	result, err := onboard(context.Background(), true, false)
+	result, err := uninstall(context.Background(), uninstallOptions{DryRun: true})
 	if err != nil {
 		t.Fatal(err)
 	}
-	value := result.(onboardingResult)
-	if !value.Ready || !value.ReadOnly || !value.PlanComplete || value.OnboardingComplete || value.Total != 3 || value.Safe != 2 || value.NeedsUpdate != 1 || value.Prepared != 0 || value.Unchanged != 1 || value.Skipped != 1 {
-		t.Fatalf("onboard plan = %#v", value)
+	value := result.(map[string]any)
+	if value["ready"] != true || value["read_only"] != true || value["plan_complete"] != true || value["total"] != 3 || value["needs_cleanup"] != 1 || value["prepared"] != 0 || value["unchanged"] != 1 || value["skipped"] != 1 {
+		t.Fatalf("cleanup preview = %#v", value)
 	}
-	items := value.Items
-	if items[2].TaskID != testSafeID || items[2].Title != "Exact subject" || items[2].DesiredTitle != "🐻 Exact subject" {
-		t.Fatalf("onboard items = %#v", items)
+	items := value["items"].([]cleanupItem)
+	legacy := cleanupItemByID(t, items, testLegacyID)
+	if legacy.Outcome != cleanupNeedsUpdate || legacy.Title != "✅ Maybe owned" || legacy.DesiredTitle != "Maybe owned" {
+		t.Fatalf("cleanup items = %#v", items)
 	}
-	t.Setenv("CODEX_THREAD_ID", testSafeID)
-	activeResult, err := onboard(context.Background(), true, false)
+	t.Setenv("CODEX_THREAD_ID", testLegacyID)
+	preparedResult, err := uninstall(context.Background(), uninstallOptions{Prepare: true, Confirmed: true})
 	if err != nil {
 		t.Fatal(err)
 	}
-	active := activeResult.(onboardingResult)
-	if !active.OnboardingComplete || active.NeedsUpdate != 0 || active.Prepared != 0 || active.Unchanged != 2 || active.Items[2].Outcome != onboardingUnchanged || active.Items[2].Reason != "active task is handled by the terminal title writer" {
-		t.Fatalf("active-task onboarding plan = %#v", active)
+	prepared := preparedResult.(map[string]any)
+	preparedItems := prepared["items"].([]cleanupItem)
+	if prepared["ready"] != true || prepared["read_only"] != false || prepared["prepared"] != 1 || preparedItems[len(preparedItems)-1].TaskID != testLegacyID || !regularExecutable(installPaths().binary) {
+		t.Fatalf("cleanup preparation = %#v", prepared)
 	}
 	data, err := os.ReadFile(requests)
 	if err != nil || !strings.Contains(string(data), `"method":"initialize"`) || !strings.Contains(string(data), `"cursor":"next"`) {
 		t.Fatalf("App Server requests = %q, %v", data, err)
 	}
 	if _, err := os.Stat(legacySubjectDir()); !errors.Is(err, os.ErrNotExist) {
-		t.Fatalf("read-only onboard created obsolete subject state: %v", err)
+		t.Fatalf("cleanup planning created obsolete subject state: %v", err)
 	}
 }
 
@@ -919,7 +915,7 @@ func TestUninstallRemovesOwnedArtifactsAndPreservesNeighbors(t *testing.T) {
 	mustWrite(t, ownedRecord, `{"subject":"Owned subject"}`+"\n")
 	mustWrite(t, ownedLock, "")
 	preview, err := uninstall(context.Background(), uninstallOptions{DryRun: true})
-	if err != nil || preview.(map[string]any)["icons_may_remain"] != true {
+	if err != nil || preview.(map[string]any)["plan_complete"] != true || preview.(map[string]any)["icons_may_remain"] != nil {
 		t.Fatalf("uninstall preview = %#v, %v", preview, err)
 	}
 	if _, err := uninstall(context.Background(), uninstallOptions{Confirmed: true}); err != nil {

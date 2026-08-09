@@ -37,21 +37,13 @@ func run(ctx context.Context, args []string, _ io.Reader, stdout, stderr io.Writ
 		noninteractive := flags.Bool("noninteractive", false, "run without prompts")
 		confirm := flags.Bool("confirm", false, "confirm the previewed installation")
 		reset := flags.Bool("reset", false, "replace an exact legacy 2.2.1 installation")
-		noOnboard := flags.Bool("no-onboard", false, "skip guided historical onboarding")
 		automatic := flags.Bool("automatic", false, "internal verified-update installation")
 		selectedVersion := flags.String("version", "", "installer-selected release version")
 		action = func() (any, error) {
 			return install(ctx, installOptions{
 				DryRun: *dry, Confirmed: *noninteractive && *confirm, Reset: *reset,
-				NoOnboard: *noOnboard, Automatic: *automatic, SelectedVersion: *selectedVersion,
+				Automatic: *automatic, SelectedVersion: *selectedVersion,
 			})
-		}
-	case "onboard":
-		dry := flags.Bool("dry-run", false, "return the complete read-only onboarding plan")
-		noninteractive := flags.Bool("noninteractive", false, "run without prompts")
-		confirm := flags.Bool("confirm", false, "prepare all safe onboarding title changes")
-		action = func() (any, error) {
-			return onboard(ctx, *dry, *noninteractive && *confirm)
 		}
 	case "title":
 		selectedStatus := flags.String("status", "", "plan a title for complete, next_steps, needs_input, blocked, or automation")
@@ -68,10 +60,11 @@ func run(ctx context.Context, args []string, _ io.Reader, stdout, stderr io.Writ
 		action = func() (any, error) { return update(ctx, *automatic) }
 	case "uninstall":
 		dry := flags.Bool("dry-run", false, "preview without mutation")
+		prepare := flags.Bool("prepare", false, "prepare exact unarchived title cleanup")
 		noninteractive := flags.Bool("noninteractive", false, "run without prompts")
 		confirm := flags.Bool("confirm", false, "confirm removal")
 		action = func() (any, error) {
-			return uninstall(ctx, uninstallOptions{DryRun: *dry, Confirmed: *noninteractive && *confirm})
+			return uninstall(ctx, uninstallOptions{DryRun: *dry, Prepare: *prepare, Confirmed: *noninteractive && *confirm})
 		}
 	case "version":
 		action = func() (any, error) { return map[string]any{"version": version}, nil }

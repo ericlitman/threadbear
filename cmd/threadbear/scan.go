@@ -7,10 +7,10 @@ import (
 )
 
 const (
-	onboardingNeedsUpdate = "needs_update"
-	onboardingPrepared    = "prepared"
-	onboardingUnchanged   = "unchanged"
-	onboardingSkipped     = "skipped"
+	cleanupNeedsUpdate = "needs_cleanup"
+	cleanupPrepared    = "prepared"
+	cleanupUnchanged   = "unchanged"
+	cleanupSkipped     = "skipped"
 )
 
 type indexedTask struct {
@@ -30,28 +30,24 @@ type currentTitleResult struct {
 	MaxTitleUnits   int      `json:"max_title_units"`
 }
 
-type onboardingItem struct {
+type cleanupItem struct {
 	TaskID       string `json:"task_id"`
 	Title        string `json:"title,omitempty"`
-	Subject      string `json:"subject,omitempty"`
 	DesiredTitle string `json:"desired_title,omitempty"`
-	Safe         bool   `json:"safe"`
 	Outcome      string `json:"outcome"`
 	Reason       string `json:"reason,omitempty"`
 }
 
-type onboardingResult struct {
-	Ready              bool             `json:"ready"`
-	PlanComplete       bool             `json:"plan_complete"`
-	ReadOnly           bool             `json:"read_only"`
-	OnboardingComplete bool             `json:"onboarding_complete"`
-	Total              int              `json:"total"`
-	Safe               int              `json:"safe"`
-	NeedsUpdate        int              `json:"needs_update"`
-	Prepared           int              `json:"prepared"`
-	Unchanged          int              `json:"unchanged"`
-	Skipped            int              `json:"skipped"`
-	Items              []onboardingItem `json:"items"`
+type cleanupResult struct {
+	Ready        bool          `json:"ready"`
+	PlanComplete bool          `json:"plan_complete"`
+	ReadOnly     bool          `json:"read_only"`
+	Total        int           `json:"total"`
+	NeedsCleanup int           `json:"needs_cleanup"`
+	Prepared     int           `json:"prepared"`
+	Unchanged    int           `json:"unchanged"`
+	Skipped      int           `json:"skipped"`
+	Items        []cleanupItem `json:"items"`
 }
 
 func runCurrentTitle(_ context.Context, taskID, status string) (currentTitleResult, error) {
@@ -72,63 +68,66 @@ func runCurrentTitle(_ context.Context, taskID, status string) (currentTitleResu
 	return result, nil
 }
 
-func runOnboarding(ctx context.Context, apply bool, activeTaskID string) (onboardingResult, error) {
-	if apply && !taskIDPattern.MatchString(activeTaskID) {
-		return onboardingResult{}, errors.New("CODEX_THREAD_ID is unavailable or invalid")
+func runTitleCleanup(ctx context.Context, prepare bool, activeTaskID string) (cleanupResult, error) {
+	if prepare && !taskIDPattern.MatchString(activeTaskID) {
+		return cleanupResult{}, errors.New("CODEX_THREAD_ID is unavailable or invalid")
 	}
 	budget := appServerListBudget
-	if apply {
-		budget = appServerOnboardingBudget
+	if prepare {
+		budget = appServerCleanupBudget
 	}
 	client, err := startAppServer(ctx, budget)
 	if err != nil {
-		return onboardingResult{}, err
+		return cleanupResult{}, err
 	}
 	defer client.abort()
 	nextRequestID := 2
 	tasks, err := client.inventory(&nextRequestID)
 	if err != nil {
-		return onboardingResult{}, err
+		return cleanupResult{}, err
 	}
-	items := prepareOnboardingItems(tasks)
-	excludeActiveOnboardingTask(items, activeTaskID)
-	result := summarizeOnboarding(items, !apply)
+	items := prepareTitleCleanupItems(tasks)
+	if prepare {
+		moveActiveTaskLast(items, activeTaskID)
+	}
+	result := summarizeTitleCleanup(items, !prepare)
 	result.Ready, result.PlanComplete = true, true
-	if !apply {
+	if !prepare {
 		client.close()
 		return result, nil
 	}
 	for index := range items {
 		item := &items[index]
-		if !item.Safe || item.TaskID == activeTaskID || item.Outcome != onboardingNeedsUpdate {
+		if item.Outcome != cleanupNeedsUpdate {
 			continue
 		}
-		item.Outcome = onboardingPrepared
-		item.Reason = "app-native title write required"
+		item.Outcome = cleanupPrepared
+		item.Reason = "app-native title removal required"
 	}
 	client.close()
-	result = summarizeOnboarding(items, false)
+	result = summarizeTitleCleanup(items, false)
 	result.Ready, result.PlanComplete = true, true
 	return result, nil
 }
 
-func excludeActiveOnboardingTask(items []onboardingItem, activeTaskID string) {
+func moveActiveTaskLast(items []cleanupItem, activeTaskID string) {
 	if activeTaskID == "" {
 		return
 	}
 	for index := range items {
 		if items[index].TaskID == activeTaskID {
-			items[index].Outcome = onboardingUnchanged
-			items[index].Reason = "active task is handled by the terminal title writer"
+			active := items[index]
+			copy(items[index:], items[index+1:])
+			items[len(items)-1] = active
 			return
 		}
 	}
 }
 
-func prepareOnboardingItems(tasks []indexedTask) []onboardingItem {
-	items := make([]onboardingItem, 0, len(tasks))
+func prepareTitleCleanupItems(tasks []indexedTask) []cleanupItem {
+	items := make([]cleanupItem, 0, len(tasks))
 	for _, task := range tasks {
-		item := onboardingItem{TaskID: task.ID, Outcome: onboardingSkipped}
+		item := cleanupItem{TaskID: task.ID, Outcome: cleanupSkipped}
 		if task.RawFallback {
 			item.Reason = "native task name is blank; task is raw or unowned"
 			items = append(items, item)
@@ -141,40 +140,31 @@ func prepareOnboardingItems(tasks []indexedTask) []onboardingItem {
 			continue
 		}
 		if decorated {
-			item.Title, item.Subject, item.DesiredTitle = task.Title, subject, task.Title
-			item.Safe, item.Outcome, item.Reason = true, onboardingUnchanged, "already decorated"
+			item.Title, item.DesiredTitle = task.Title, subject
+			item.Outcome = cleanupNeedsUpdate
 			items = append(items, item)
 			continue
 		}
-		item.Title, item.Subject, item.DesiredTitle = task.Title, subject, "🐻 "+subject
-		item.Safe, item.Outcome = true, onboardingNeedsUpdate
+		item.Title, item.Outcome, item.Reason = task.Title, cleanupUnchanged, "no ThreadBear prefix"
 		items = append(items, item)
 	}
 	return items
 }
 
-func summarizeOnboarding(items []onboardingItem, readOnly bool) onboardingResult {
-	result := onboardingResult{ReadOnly: readOnly, Total: len(items), Items: items}
+func summarizeTitleCleanup(items []cleanupItem, readOnly bool) cleanupResult {
+	result := cleanupResult{ReadOnly: readOnly, Total: len(items), Items: items}
 	for _, item := range items {
-		if item.Safe {
-			result.Safe++
-			if item.Outcome == onboardingNeedsUpdate || item.Outcome == onboardingPrepared {
-				result.NeedsUpdate++
-			}
+		if item.Outcome == cleanupNeedsUpdate || item.Outcome == cleanupPrepared {
+			result.NeedsCleanup++
 		}
 		switch item.Outcome {
-		case onboardingPrepared:
+		case cleanupPrepared:
 			result.Prepared++
-		case onboardingUnchanged:
+		case cleanupUnchanged:
 			result.Unchanged++
-		case onboardingSkipped:
+		case cleanupSkipped:
 			result.Skipped++
 		}
-	}
-	if readOnly {
-		result.OnboardingComplete = result.NeedsUpdate == 0
-	} else {
-		result.OnboardingComplete = result.Prepared == 0
 	}
 	return result
 }

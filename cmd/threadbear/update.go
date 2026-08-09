@@ -158,7 +158,7 @@ func update(ctx context.Context, automatic bool) (result any, returnErr error) {
 		return nil, updateFailure("candidate_self_test", err)
 	}
 	receipt.RestartRequired = true
-	candidateInstall, err := candidateResult(ctx, candidate, updateInstallTimeout, "install", "", "install", "--automatic", "--no-onboard", "--noninteractive", "--confirm", "--json")
+	candidateInstall, err := candidateResult(ctx, candidate, updateInstallTimeout, "install", "", "install", "--automatic", "--noninteractive", "--confirm", "--json")
 	if err != nil {
 		if candidateInstall != nil {
 			candidateInstall["install_stage"] = candidateInstall["stage"]

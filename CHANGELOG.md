@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+### Fixed
+
+- Restored uninstall title cleanup by reusing the complete catalog planner and serial exact mounted title writer before managed artifacts are removed.
+
+### Removed
+
+- Removed the non-semantic neutral bear title state and its historical onboarding command, install flag, prompts, and guidance.
+
 ## v3.0.1 - 2026-08-08
 
 ### Fixed

@@ -13,14 +13,14 @@ import (
 )
 
 const (
-	appServerListLimit         = 100
-	appServerListTimeout       = 30 * time.Second
-	appServerOnboardingTimeout = 10 * time.Minute
+	appServerListLimit      = 100
+	appServerListTimeout    = 30 * time.Second
+	appServerCleanupTimeout = 10 * time.Minute
 )
 
 var (
-	appServerListBudget       = appServerListTimeout
-	appServerOnboardingBudget = appServerOnboardingTimeout
+	appServerListBudget    = appServerListTimeout
+	appServerCleanupBudget = appServerCleanupTimeout
 )
 
 type appServerRPCMessage struct {

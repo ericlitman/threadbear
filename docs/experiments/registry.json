@@ -69,15 +69,15 @@
     {
       "id": "TB-CAP-MOUNTED-NATIVE-REPAINT",
       "premise": "The final ThreadBear planner plus mounted Codex native setter repaints current and historical task titles immediately and preserves those rendered titles across a clean Codex restart.",
-      "status": "established",
+      "status": "unresolved",
       "supported_by": [
         "TB-EXP-0116-003",
         "TB-EXP-0116-004",
         "TB-EXP-0116-006"
       ],
       "contradicted_by": [],
-      "decision": "TB-EXP-0116-003 established the mounted-writer path, TB-EXP-0116-004 repeated it against corrected candidate b5cc0cbe, and TB-EXP-0116-006 closes the final BEAR-117 artifact gate. Exact candidate a1ecec67 repainted the current and controlled historical rows immediately through the mounted writer, preserved both exact titles across a clean Desktop restart, and kept the friendly preview and committed-removal recap visible after reopen and restart.",
-      "next_preflight": null
+      "decision": "TB-EXP-0116-003, TB-EXP-0116-004, and TB-EXP-0116-006 established mounted repaint for v3.0.0. BEAR-119 reverses the historical operation from neutral-bear addition to serial prefix removal inside uninstall, so the exact candidate must prove current and historical cleanup plus the teardown boundary before that changed product path is established.",
+      "next_preflight": "TB-PRE-0119-001"
     },
     {
       "id": "TB-CAP-UPDATER-TEARDOWN-SERIALIZATION",
@@ -1461,6 +1461,25 @@
       ],
       "stop_condition": "Stop after one exact current-task mounted write, one exact controlled historical onboarding write, immediate mounted inspection, one previewed and confirmed lifecycle canary with its final recap, one clean Codex restart, post-restart mounted inspection, and read-only runtime/artifact checks. Do not retry a title write, add another target, add refresh machinery, or claim release readiness until one linked result closes this preflight.",
       "result_experiment_id": "TB-EXP-0116-006"
+    },
+    {
+      "id": "TB-PRE-0119-001",
+      "issue": "BEAR-119",
+      "capability_id": "TB-CAP-MOUNTED-NATIVE-REPAINT",
+      "status": "pending",
+      "consulted": [
+        "TB-EXP-0116-006",
+        "TB-EXP-0116-007"
+      ],
+      "remaining_unknown": "Whether the exact BEAR-119 candidate removes one obsolete bear or current status prefix from every prepared row in the complete live catalog through the mounted native writer, processes the initiating task last, then removes only ThreadBear-owned artifacts while preserving unrelated titles and files.",
+      "single_changed_variable": "Uninstall title direction and executable fingerprint: replace v3.0.1's no-cleanup teardown and neutral-bear onboarding surface with the BEAR-119 candidate's one fresh removal plan, serial exact mounted prefix removal, initiating-task-last order, and existing artifact commit.",
+      "held_constant": "Desktop 26.803.41515 build 6321 or the current installed successor on the same local macOS arm64 host; mounted codex_app__read_thread and codex_app__set_thread_title as the only title boundary; one exact current task and the existing controlled historical task as ordering controls inside the complete unarchived App Server inventory; exact ID and title acknowledgement; no hooks, SQLite, detached writer, retry, reconciliation, final scan, controller, queue, pacing, or resume state.",
+      "predicted_outcomes": [
+        "If the focused cleanup works, the candidate will preview all 362 unarchived rows without mutation, prepare all 307 exact owned-prefix rows with the initiating control last, remove exactly one prefix through one immediate read and at most one setter per prepared row, then report uninstalled true with owned artifacts absent and the 30 plain plus 25 skipped rows unchanged.",
+        "If any prepared row drifts or returns a non-exact result, teardown must not start; if cleanup succeeds but an unrelated title or file changes, an owned artifact remains, the initiating target is not last, or a bear prefix is emitted, the candidate must not merge."
+      ],
+      "stop_condition": "Stop after one exact-candidate full-catalog lifecycle pass, including the controlled historical and initiating rows plus read-only artifact and unrelated-content verification. On any drift or unconfirmed write, do not retry or commit teardown. Do not run a second pass, restart for refresh, add coordination machinery, or claim release readiness until one linked result closes this preflight.",
+      "result_experiment_id": ""
     }
   ]
 }

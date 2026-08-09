@@ -24,7 +24,8 @@ var statusIcons = map[string]string{
 	"automation":  "🤖",
 }
 
-// These exact visible prefixes are reserved for current ThreadBear titles.
+// These exact visible prefixes are removable ThreadBear title decorations.
+// The bear is legacy-only: current titles can strip it, but never render it.
 // Other leading emoji remain user text unless they match an ambiguous old
 // ThreadBear rendering below, which cannot be distinguished safely.
 var ownedTitlePrefixes = []string{"✅ ", "➡️ ", "🙋 ", "🚨 ", "🤖 ", "🐻 "}
@@ -93,8 +94,10 @@ func validateSubject(subject string) error {
 			return errors.New("subject is a raw internal envelope")
 		}
 	}
-	if len(utf16.Encode([]rune("🐻 "+subject))) > maxTitleUnits {
-		return errors.New("subject does not fit without truncation")
+	for _, icon := range statusIcons {
+		if len(utf16.Encode([]rune(icon+" "+subject))) > maxTitleUnits {
+			return errors.New("subject does not fit without truncation")
+		}
 	}
 	return nil
 }

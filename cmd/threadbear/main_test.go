@@ -28,12 +28,18 @@ func TestRunRejectsInvalidTitleStatusBeforeMutation(t *testing.T) {
 	}
 }
 
-func TestRunRequiresExplicitOnboardingMode(t *testing.T) {
-	for _, args := range [][]string{{"onboard", "--json"}, {"onboard", "--confirm", "--json"}} {
-		var stdout, stderr bytes.Buffer
-		code := run(context.Background(), args, strings.NewReader(""), &stdout, &stderr)
-		if code != 1 || !strings.Contains(stdout.String(), "onboarding requires --dry-run or --noninteractive --confirm") {
-			t.Fatalf("onboard mode %v = code %d, stdout %q, stderr %q", args, code, stdout.String(), stderr.String())
-		}
+func TestRunHasNoOnboardCommand(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	code := run(context.Background(), []string{"onboard", "--json"}, strings.NewReader(""), &stdout, &stderr)
+	if code != 2 || !strings.Contains(stderr.String(), `unknown command "onboard"`) {
+		t.Fatalf("removed onboard command = code %d, stdout %q, stderr %q", code, stdout.String(), stderr.String())
+	}
+}
+
+func TestRunRequiresConfirmationForUninstallPreparation(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	code := run(context.Background(), []string{"uninstall", "--prepare", "--json"}, strings.NewReader(""), &stdout, &stderr)
+	if code != 1 || !strings.Contains(stdout.String(), "uninstall preparation requires --noninteractive --confirm") {
+		t.Fatalf("unconfirmed preparation = code %d, stdout %q, stderr %q", code, stdout.String(), stderr.String())
 	}
 }
