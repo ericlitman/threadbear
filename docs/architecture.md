@@ -31,6 +31,8 @@ After separate consent, `uninstall --prepare --noninteractive --confirm --json` 
 
 The installed skill resumes the same preparation process if it yields. It then serially reads each prepared target through the mounted app immediately before any write. A missing task, wrong ID, or drift blocks teardown. An exact match receives at most one setter call. Only exact returned target ID/title counts as `updated`; every other setter result is `unconfirmed` and also blocks teardown. If every prepared row succeeds, the same cell runs `uninstall --commit --noninteractive --confirm --json`. A bare confirmed uninstall is refused, so the ordinary CLI path cannot skip preparation. A failure gets one fresh-rerun action—there is no retry, final inventory scan, controller, queue, marker, or resume state.
 
+The installed skill is the trusted local lifecycle orchestrator; `--commit` is its explicit internal phase attestation, not a security boundary against deliberate local CLI misuse. Cleanup guarantees exact handling of the prepared snapshot, not a freeze against later user or concurrent Codex title writes. Process handshakes, persisted proof, and cross-task writer coordination are outside this lifecycle.
+
 ## Installation, reset, updates, and uninstall
 
 Fresh installation writes the executable, lifecycle/update state, managed guidance, skill, and daily updater. Candidate self-test requires macOS and Codex Desktop 0.146.0 or newer from a fixed supported path. Codex restarts once so open tasks load the guidance.
