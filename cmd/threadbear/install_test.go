@@ -196,8 +196,14 @@ func TestLifecycleNeverTouchesCodexHooks(t *testing.T) {
 	if !exactFile(p.skill, []byte(assets.SkillManagedContent)) {
 		t.Fatal("managed skill is not exact")
 	}
-	if _, err := uninstall(context.Background(), uninstallOptions{Confirmed: true}); err != nil {
+	committed, err := uninstall(context.Background(), uninstallOptions{Commit: true, Confirmed: true})
+	if err != nil {
 		t.Fatal(err)
+	}
+	for _, change := range committed.(map[string]any)["planned_changes"].([]string) {
+		if strings.Contains(change, "task title") {
+			t.Fatalf("artifact commit claimed title cleanup: %#v", committed)
+		}
 	}
 	after, _ := os.ReadFile(hooks)
 	if !bytes.Equal(after, wantHooks) {
@@ -219,7 +225,7 @@ func TestCurrentLifecycleIgnoresMalformedCodexHooks(t *testing.T) {
 	if _, err := install(context.Background(), installOptions{Confirmed: true}); err != nil {
 		t.Fatalf("reinstall depended on hooks.json: %v", err)
 	}
-	if _, err := uninstall(context.Background(), uninstallOptions{Confirmed: true}); err != nil {
+	if _, err := uninstall(context.Background(), uninstallOptions{Commit: true, Confirmed: true}); err != nil {
 		t.Fatalf("uninstall depended on hooks.json: %v", err)
 	}
 	if got, err := os.ReadFile(hooks); err != nil || !bytes.Equal(got, want) {
@@ -237,7 +243,7 @@ func TestManagedAgentsRoundTripPreservesMissingTrailingNewline(t *testing.T) {
 	if _, err := install(context.Background(), installOptions{Confirmed: true}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := uninstall(context.Background(), uninstallOptions{Confirmed: true}); err != nil {
+	if _, err := uninstall(context.Background(), uninstallOptions{Commit: true, Confirmed: true}); err != nil {
 		t.Fatal(err)
 	}
 	if got, err := os.ReadFile(p.agents); err != nil || !bytes.Equal(got, original) {
@@ -796,7 +802,7 @@ func TestUninstallInvalidatesPreopenedLifecycleWaiter(t *testing.T) {
 	fake.mu.Unlock()
 	uninstalled := make(chan error, 1)
 	go func() {
-		_, err := uninstall(context.Background(), uninstallOptions{Confirmed: true})
+		_, err := uninstall(context.Background(), uninstallOptions{Commit: true, Confirmed: true})
 		uninstalled <- err
 	}()
 	select {
@@ -868,7 +874,7 @@ func TestUninstallWaitsForInFlightUpdaterBeforeTeardown(t *testing.T) {
 	})
 	done := make(chan error, 1)
 	go func() {
-		_, uninstallErr := uninstall(context.Background(), uninstallOptions{Confirmed: true})
+		_, uninstallErr := uninstall(context.Background(), uninstallOptions{Commit: true, Confirmed: true})
 		done <- uninstallErr
 	}()
 	select {
@@ -918,7 +924,7 @@ func TestUninstallRemovesOwnedArtifactsAndPreservesNeighbors(t *testing.T) {
 	if err != nil || preview.(map[string]any)["plan_complete"] != true || preview.(map[string]any)["icons_may_remain"] != nil {
 		t.Fatalf("uninstall preview = %#v, %v", preview, err)
 	}
-	if _, err := uninstall(context.Background(), uninstallOptions{Confirmed: true}); err != nil {
+	if _, err := uninstall(context.Background(), uninstallOptions{Commit: true, Confirmed: true}); err != nil {
 		t.Fatal(err)
 	}
 	for _, path := range []string{p.binary, p.skill, p.launchAgent} {
@@ -992,7 +998,7 @@ func TestLifecycleIsolatesCorruptOwnedStateAndPreservesNeighbors(t *testing.T) {
 	if _, err := uninstall(context.Background(), uninstallOptions{DryRun: true}); err != nil {
 		t.Fatalf("isolated corruption blocked uninstall preview: %v", err)
 	}
-	if _, err := uninstall(context.Background(), uninstallOptions{Confirmed: true}); err != nil {
+	if _, err := uninstall(context.Background(), uninstallOptions{Commit: true, Confirmed: true}); err != nil {
 		t.Fatalf("isolated corruption blocked uninstall: %v", err)
 	}
 	for _, path := range []string{owned, p.updateReceipt, p.binary} {
@@ -1054,7 +1060,7 @@ func TestUninstallPartialNamesStageAndSafeRerun(t *testing.T) {
 	}
 	done := make(chan outcome, 1)
 	go func() {
-		result, err := uninstall(context.Background(), uninstallOptions{Confirmed: true})
+		result, err := uninstall(context.Background(), uninstallOptions{Commit: true, Confirmed: true})
 		done <- outcome{result: result, err: err}
 	}()
 	<-fake.bootoutStarted
@@ -1066,7 +1072,7 @@ func TestUninstallPartialNamesStageAndSafeRerun(t *testing.T) {
 	close(continueBootout)
 	got := <-done
 	partial := got.result.(map[string]any)
-	if got.err == nil || partial["partial"] != true || partial["stage"] != "managed_guidance" || partial["restart_required"] != true || partial["safe_rerun"] != "'"+p.binary+"' uninstall --noninteractive --confirm --json" {
+	if got.err == nil || partial["partial"] != true || partial["stage"] != "managed_guidance" || partial["restart_required"] != true || partial["safe_rerun"] != "'"+p.binary+"' uninstall --commit --noninteractive --confirm --json" {
 		t.Fatalf("uninstall partial = %#v, %v", partial, got.err)
 	}
 	if _, err := os.Stat(p.binary); err != nil {
@@ -1084,7 +1090,7 @@ func TestUninstallPartialNamesStageAndSafeRerun(t *testing.T) {
 	}
 	rerun := make(chan error, 1)
 	go func() {
-		_, err := uninstall(context.Background(), uninstallOptions{Confirmed: true})
+		_, err := uninstall(context.Background(), uninstallOptions{Commit: true, Confirmed: true})
 		rerun <- err
 	}()
 	select {
@@ -1120,7 +1126,7 @@ func TestUninstallLateBinaryFailureKeepsConfirmedRerunAdmissible(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = os.Chmod(binDir, 0o700) })
 
-	result, err := uninstall(context.Background(), uninstallOptions{Confirmed: true})
+	result, err := uninstall(context.Background(), uninstallOptions{Commit: true, Confirmed: true})
 	partial := result.(map[string]any)
 	if err == nil || partial["partial"] != true || partial["stage"] != "binary" || partial["safe_rerun"] != uninstallRerun(p) {
 		t.Fatalf("late uninstall partial = %#v, %v", partial, err)
@@ -1140,7 +1146,7 @@ func TestUninstallLateBinaryFailureKeepsConfirmedRerunAdmissible(t *testing.T) {
 		t.Fatal(err)
 	}
 	mustWrite(t, p.skill, "foreign replacement")
-	if result, err := uninstall(context.Background(), uninstallOptions{Confirmed: true}); err == nil || result.(map[string]any)["partial"] != false {
+	if result, err := uninstall(context.Background(), uninstallOptions{Commit: true, Confirmed: true}); err == nil || result.(map[string]any)["partial"] != false {
 		t.Fatalf("partial rerun removed a replacement skill: %#v, %v", result, err)
 	}
 	if got, err := os.ReadFile(p.skill); err != nil || string(got) != "foreign replacement" {
@@ -1154,7 +1160,7 @@ func TestUninstallLateBinaryFailureKeepsConfirmedRerunAdmissible(t *testing.T) {
 	if err := os.Chmod(binDir, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	result, err = uninstall(context.Background(), uninstallOptions{Confirmed: true})
+	result, err = uninstall(context.Background(), uninstallOptions{Commit: true, Confirmed: true})
 	if err != nil || result.(map[string]any)["uninstalled"] != true {
 		t.Fatalf("confirmed uninstall rerun = %#v, %v", result, err)
 	}
@@ -1183,7 +1189,7 @@ func TestUninstallRemovesDriftedOwnedSurfaceAndPreservesNeighbors(t *testing.T) 
 		t.Fatal("managed AGENTS fixture did not contain expected text")
 	}
 	mustWrite(t, p.agents, drifted)
-	if _, err := uninstall(context.Background(), uninstallOptions{Confirmed: true}); err != nil {
+	if _, err := uninstall(context.Background(), uninstallOptions{Commit: true, Confirmed: true}); err != nil {
 		t.Fatalf("drifted uninstall = %v", err)
 	}
 	for _, path := range []string{p.binary, p.skill, p.launchAgent} {
@@ -1226,7 +1232,7 @@ func TestUninstallRefusesMalformedMarkersAndUnsafeSkillLeaf(t *testing.T) {
 				t.Fatal(err)
 			}
 			mutate(t, p)
-			if _, err := uninstall(context.Background(), uninstallOptions{Confirmed: true}); err == nil {
+			if _, err := uninstall(context.Background(), uninstallOptions{Commit: true, Confirmed: true}); err == nil {
 				t.Fatal("unsafe uninstall preflight succeeded")
 			}
 			if _, err := os.Stat(p.binary); err != nil {

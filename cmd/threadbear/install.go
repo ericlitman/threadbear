@@ -35,7 +35,7 @@ type installOptions struct {
 }
 
 type uninstallOptions struct {
-	DryRun, Prepare, Confirmed bool
+	DryRun, Prepare, Commit, Confirmed bool
 }
 
 type legacyInstall struct{ MainTaskID string }
@@ -278,14 +278,26 @@ func installChanges(p lifecyclePaths, legacy bool) []string {
 }
 
 func uninstall(ctx context.Context, options uninstallOptions) (any, error) {
-	if options.DryRun && (options.Prepare || options.Confirmed) {
+	if options.DryRun && (options.Prepare || options.Commit || options.Confirmed) {
 		return nil, errors.New("uninstall preview cannot also be confirmed")
+	}
+	if options.Prepare && options.Commit {
+		return nil, errors.New("uninstall cannot prepare title cleanup and commit artifact removal together")
 	}
 	if options.Prepare && !options.Confirmed {
 		return nil, errors.New("uninstall preparation requires --noninteractive --confirm")
 	}
+	if options.Commit && !options.Confirmed {
+		return nil, errors.New("uninstall artifact commit requires --noninteractive --confirm")
+	}
+	if options.Confirmed && !options.Prepare && !options.Commit {
+		return nil, errors.New("confirmed uninstall must use --prepare or --commit")
+	}
 	p := installPaths()
 	preview := uninstallResult(p, options.DryRun)
+	if options.Commit {
+		preview["planned_changes"] = uninstallArtifactChanges(p)
+	}
 	partialAdmission, err := preflightUninstall(ctx, p)
 	if err != nil {
 		return preview, err
@@ -298,7 +310,7 @@ func uninstall(ctx context.Context, options uninstallOptions) (any, error) {
 		}
 		return preview, nil
 	}
-	if !options.Confirmed {
+	if !options.Commit {
 		return preview, errors.New("uninstall requires --noninteractive --confirm after its preview")
 	}
 	// Use the same update -> stable boundary -> lifecycle order as install.
@@ -393,7 +405,7 @@ func uninstall(ctx context.Context, options uninstallOptions) (any, error) {
 	return map[string]any{
 		"ready": true, "dry_run": false, "uninstalled": true,
 		"restart_required": true, "partial": false,
-		"planned_changes": uninstallChanges(p),
+		"planned_changes": uninstallArtifactChanges(p),
 	}, nil
 }
 
@@ -420,7 +432,7 @@ func uninstallCleanupResult(p lifecyclePaths, dryRun bool, plan cleanupResult) m
 }
 
 func uninstallRerun(p lifecyclePaths) string {
-	return quoteArgument(p.binary) + " uninstall --noninteractive --confirm --json"
+	return quoteArgument(p.binary) + " uninstall --commit --noninteractive --confirm --json"
 }
 
 func partialResult(result map[string]any, stage string, restart bool, rerun string) map[string]any {
@@ -430,8 +442,13 @@ func partialResult(result map[string]any, stage string, restart bool, rerun stri
 }
 
 func uninstallChanges(p lifecyclePaths) []string {
-	return []string{
+	return append([]string{
 		"remove one ThreadBear prefix from each safe unarchived task title",
+	}, uninstallArtifactChanges(p)...)
+}
+
+func uninstallArtifactChanges(p lifecyclePaths) []string {
+	return []string{
 		"boot out and remove " + updateAgentLabel + " LaunchAgent " + p.launchAgent,
 		"remove managed AGENTS block from " + p.agents,
 		"remove skill " + p.skill,

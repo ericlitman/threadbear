@@ -73,11 +73,10 @@
       "supported_by": [
         "TB-EXP-0116-003",
         "TB-EXP-0116-004",
-        "TB-EXP-0116-006",
-        "TB-EXP-0119-001"
+        "TB-EXP-0116-006"
       ],
       "contradicted_by": [],
-      "decision": "TB-EXP-0116-003, TB-EXP-0116-004, and TB-EXP-0116-006 established mounted repaint for v3.0.0. TB-EXP-0119-001 closes the reversed BEAR-119 path: exact candidate a051dccc serially removed one owned prefix from all 307 prepared rows in a complete 362-row catalog, processed the initiating row last, returned zero drift and zero unconfirmed results, then removed every owned artifact without changing the recorded unrelated hooks or configuration.",
+      "decision": "TB-EXP-0116-003 established the mounted-writer path, TB-EXP-0116-004 repeated it against corrected candidate b5cc0cbe, and TB-EXP-0116-006 closes the final BEAR-117 artifact gate. Exact candidate a1ecec67 repainted the current and controlled historical rows immediately through the mounted writer, preserved both exact titles across a clean Desktop restart, and kept the friendly preview and committed-removal recap visible after reopen and restart. TB-EXP-0119-001 is a cleanup-seam observation only; it adds no rendered repaint or restart-persistence evidence.",
       "next_preflight": null
     },
     {
@@ -1293,7 +1292,7 @@
         "rendered_proof": "No visual inspection or refresh was used. Every one of the 307 mounted setter results returned the exact target ID and undecorated title; the exact historical control was processed before the exact initiating control, which was the final title call before teardown."
       },
       "confidence": "high",
-      "applicability": "Closes TB-PRE-0119-001 and establishes the focused BEAR-119 uninstall-cleanup path for exact candidate a051dccc on Desktop 26.803.41515: complete preview, one fresh prepared plan, serial exact removal, initiating task last, zero retry or final scan, and existing artifact teardown only after every write was confirmed.",
+      "applicability": "Closes TB-PRE-0119-001 and validates the focused BEAR-119 uninstall-cleanup seam for exact candidate a051dccc on Desktop 26.803.41515: complete preview, one fresh prepared plan, serial exact removal, initiating task last, zero retry or final scan, and existing artifact teardown only after every write was confirmed. It does not add rendered repaint or restart-persistence evidence to TB-CAP-MOUNTED-NATIVE-REPAINT.",
       "supersedes": [],
       "conflicts": []
     }

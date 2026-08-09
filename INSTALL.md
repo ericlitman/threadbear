@@ -191,7 +191,7 @@ End the consent turn with:
 >
 > Uninstall ThreadBear now?
 
-After consent, follow the installed skill's single uninstall JavaScript cell. It first runs exact `uninstall --prepare --noninteractive --confirm --json`, taking one fresh complete plan. It then serially rereads and removes one owned prefix from every prepared target, with the initiating task last. Any missing, drifted, malformed, wrong-target, wrong-title, or thrown result blocks teardown and gets one fresh-rerun action; never retry in the same pass. Only after every prepared write returns the exact target and title does the cell run exact `uninstall --noninteractive --confirm --json`. There is no final catalog scan, marker, queue, controller, or resume state.
+After consent, follow the installed skill's single uninstall JavaScript cell. It first runs exact `uninstall --prepare --noninteractive --confirm --json`, taking one fresh complete plan. It then serially rereads and removes one owned prefix from every prepared target, with the initiating task last. Any missing, drifted, malformed, wrong-target, wrong-title, or thrown result blocks teardown and gets one fresh-rerun action; never retry in the same pass. Only after every prepared write returns the exact target and title does the cell run exact `uninstall --commit --noninteractive --confirm --json`. A bare confirmed uninstall is refused. There is no final catalog scan, marker, queue, controller, or resume state.
 
 Require committed removal and verify unrelated AGENTS content, skills, settings, files, titles, and LaunchAgents remain byte-for-byte intact. After commit, do not run the title command. Ask the user to restart Codex so open tasks stop using snapshotted guidance.
 

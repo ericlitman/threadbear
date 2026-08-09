@@ -43,3 +43,23 @@ func TestRunRequiresConfirmationForUninstallPreparation(t *testing.T) {
 		t.Fatalf("unconfirmed preparation = code %d, stdout %q, stderr %q", code, stdout.String(), stderr.String())
 	}
 }
+
+func TestRunRefusesConfirmedUninstallWithoutAnExplicitPhase(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	code := run(context.Background(), []string{"uninstall", "--noninteractive", "--confirm", "--json"}, strings.NewReader(""), &stdout, &stderr)
+	if code != 1 || !strings.Contains(stdout.String(), "confirmed uninstall must use --prepare or --commit") {
+		t.Fatalf("unphased uninstall = code %d, stdout %q, stderr %q", code, stdout.String(), stderr.String())
+	}
+}
+
+func TestRunAcceptsV301AutomaticUpdaterInstallInvocation(t *testing.T) {
+	isolatedLifecycle(t)
+	if _, err := install(context.Background(), installOptions{Confirmed: true}); err != nil {
+		t.Fatal(err)
+	}
+	var stdout, stderr bytes.Buffer
+	code := run(context.Background(), []string{"install", "--automatic", "--no-onboard", "--noninteractive", "--confirm", "--json"}, strings.NewReader(""), &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("v3.0.1 updater invocation = code %d, stdout %q, stderr %q", code, stdout.String(), stderr.String())
+	}
+}

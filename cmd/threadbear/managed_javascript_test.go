@@ -38,7 +38,7 @@ async function run(plan,yieldPreparation) {
         return {exit_code:0,output:encoded};
       }
       trace.push("exec:commit");
-      if (args.cmd !== "\"$HOME/.local/bin/threadbear\" uninstall --noninteractive --confirm --json")
+      if (args.cmd !== "\"$HOME/.local/bin/threadbear\" uninstall --commit --noninteractive --confirm --json")
         throw new Error("bad commit command");
       return {exit_code:0,output:JSON.stringify({ready:true,uninstalled:true,restart_required:true})};
     },

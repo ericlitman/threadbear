@@ -38,8 +38,12 @@ func run(ctx context.Context, args []string, _ io.Reader, stdout, stderr io.Writ
 		confirm := flags.Bool("confirm", false, "confirm the previewed installation")
 		reset := flags.Bool("reset", false, "replace an exact legacy 2.2.1 installation")
 		automatic := flags.Bool("automatic", false, "internal verified-update installation")
+		legacyNoOnboard := flags.Bool("no-onboard", false, "accepted only from the v3.0.1 automatic updater")
 		selectedVersion := flags.String("version", "", "installer-selected release version")
 		action = func() (any, error) {
+			if *legacyNoOnboard && !*automatic {
+				return nil, errors.New("--no-onboard is accepted only with --automatic")
+			}
 			return install(ctx, installOptions{
 				DryRun: *dry, Confirmed: *noninteractive && *confirm, Reset: *reset,
 				Automatic: *automatic, SelectedVersion: *selectedVersion,
@@ -61,10 +65,11 @@ func run(ctx context.Context, args []string, _ io.Reader, stdout, stderr io.Writ
 	case "uninstall":
 		dry := flags.Bool("dry-run", false, "preview without mutation")
 		prepare := flags.Bool("prepare", false, "prepare exact unarchived title cleanup")
+		commit := flags.Bool("commit", false, "commit artifact removal after exact title cleanup")
 		noninteractive := flags.Bool("noninteractive", false, "run without prompts")
 		confirm := flags.Bool("confirm", false, "confirm removal")
 		action = func() (any, error) {
-			return uninstall(ctx, uninstallOptions{DryRun: *dry, Prepare: *prepare, Confirmed: *noninteractive && *confirm})
+			return uninstall(ctx, uninstallOptions{DryRun: *dry, Prepare: *prepare, Commit: *commit, Confirmed: *noninteractive && *confirm})
 		}
 	case "version":
 		action = func() (any, error) { return map[string]any{"version": version}, nil }

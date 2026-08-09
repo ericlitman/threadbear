@@ -98,7 +98,7 @@ if (!accounted || drifted !== 0 || unconfirmed !== 0) {
 }
 notify("ThreadBear uninstall: removing managed artifacts");
 const removedCall = await runCLI(
-  "\"$HOME/.local/bin/threadbear\" uninstall --noninteractive --confirm --json",
+  "\"$HOME/.local/bin/threadbear\" uninstall --commit --noninteractive --confirm --json",
   "Allow ThreadBear to remove the managed artifacts from the uninstall you approved?"
 );
 let removed;

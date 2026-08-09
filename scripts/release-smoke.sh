@@ -563,7 +563,7 @@ assert [group["matcher"] for group in value["hooks"]["PostToolUse"]] == ["foreig
 PY
 test ! -e "$reset_state/native.json" || fail "completed reset retained legacy state"
 run_reset_threadbear uninstall --dry-run --json >"$root/reset-uninstall-preview.json"
-run_reset_threadbear uninstall --noninteractive --confirm --json >"$root/reset-uninstall.json"
+run_reset_threadbear uninstall --commit --noninteractive --confirm --json >"$root/reset-uninstall.json"
 python3 - "$root/reset-uninstall.json" <<'PY'
 import json
 import sys
@@ -1163,7 +1163,7 @@ test -e "$agent_path" || fail "uninstall preview removed the LaunchAgent"
 
 /bin/launchctl kickstart -k "$agent_target"
 : >"$app_server_log"
-run_threadbear uninstall --noninteractive --confirm --json >"$root/uninstall.json"
+run_threadbear uninstall --commit --noninteractive --confirm --json >"$root/uninstall.json"
 python3 - "$root/uninstall.json" "$root/uninstall-preview.json" <<'PY'
 import json
 import sys
@@ -1176,7 +1176,7 @@ assert value == {
     "uninstalled": True,
     "restart_required": True,
     "partial": False,
-    "planned_changes": preview["planned_changes"],
+    "planned_changes": preview["planned_changes"][1:],
 }, value
 PY
 test ! -s "$app_server_log" || fail "uninstall commit performed a final catalog scan"
