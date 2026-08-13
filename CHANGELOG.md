@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## v3.0.2 - 2026-08-13
+
 ### Fixed
 
 - Restored uninstall title cleanup by reusing the complete catalog planner and serial exact mounted title writer before managed artifacts are removed.
