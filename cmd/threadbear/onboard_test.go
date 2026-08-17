@@ -132,7 +132,7 @@ printf '%s\n' "$THREADBEAR_EVENTS"
 		"--disable\nimage_generation\n", "--disable\nin_app_browser\n",
 		"--disable\nmulti_agent\n", "--disable\ngoals\n",
 		"--disable\nworkspace_dependencies\n", "--disable\nskill_search\n",
-		"--disable\ntool_suggest\n",
+		"--disable\ntool_suggest\n", "--disable\nview_image\n",
 		"--model\n" + onboardModel + "\n", "--sandbox\nread-only\n",
 		"model_reasoning_effort=\"" + onboardEffort + "\"\n",
 		"tools.experimental_request_user_input.enabled=false\n",

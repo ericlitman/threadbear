@@ -306,7 +306,7 @@ func classifyOnboardBatch(ctx context.Context, tasks []onboardEvidence) ([]strin
 		"--disable", "apps", "--disable", "browser_use", "--disable", "browser_use_external",
 		"--disable", "computer_use", "--disable", "image_generation", "--disable", "in_app_browser",
 		"--disable", "multi_agent", "--disable", "goals", "--disable", "workspace_dependencies",
-		"--disable", "skill_search", "--disable", "tool_suggest",
+		"--disable", "skill_search", "--disable", "tool_suggest", "--disable", "view_image",
 		"--model", onboardModel, "--sandbox", "read-only", "--output-schema", schemaPath,
 		"--output-last-message", outputPath, "-c", `model_reasoning_effort="`+onboardEffort+`"`,
 		"-c", "tools.experimental_request_user_input.enabled=false", "-")
