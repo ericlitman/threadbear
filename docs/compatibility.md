@@ -1,6 +1,6 @@
 # Compatibility
 
-ThreadBear supports macOS 12 or newer on Apple silicon and Intel, Codex Desktop 0.146.0 or newer, mounted app-native `read_thread` and `set_thread_title`, and the current task ID supplied to terminal commands. Install, self-test, and status reject an older or missing Desktop command before title work begins.
+ThreadBear supports macOS 12 or newer on Apple silicon and Intel, Codex Desktop 0.147.0 or newer, mounted app-native `read_thread` and `set_thread_title`, and the current task ID supplied to terminal commands. Install, self-test, and status reject an older or missing Desktop command before title work begins.
 
 ThreadBear resolves Codex only from fixed Desktop locations: the system or user Applications bundle and the Desktop-managed `~/.local/bin/codex`. It never executes `codex` from ambient repository `PATH`.
 

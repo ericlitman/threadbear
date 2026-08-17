@@ -54,7 +54,7 @@ if [ -x "$HOME/.local/bin/threadbear" ]; then
 fi
 ```
 
-ThreadBear requires macOS 12 or newer, Apple silicon or Intel, Codex Desktop 0.146.0 or newer, and HTTPS access to the official guide and GitHub Releases. The check prints every fixed Codex Desktop command it finds; ThreadBear uses the first one that actually reports a compatible version. It needs no `sudo` or Full Disk Access. Ordinary title updates work with Codex's default workspace permissions. Uninstall cleanup asks once for permission to read the complete local task catalog. ThreadBear never opens Codex SQLite.
+ThreadBear requires macOS 12 or newer, Apple silicon or Intel, Codex Desktop 0.147.0 or newer, and HTTPS access to the official guide and GitHub Releases. The check prints every fixed Codex Desktop command it finds; ThreadBear uses the first one that actually reports a compatible version. It needs no `sudo` or Full Disk Access. Ordinary title updates work with Codex's default workspace permissions. Uninstall cleanup asks once for permission to read the complete local task catalog. ThreadBear never opens Codex SQLite.
 
 For an official release, run the verified bootstrap preview:
 

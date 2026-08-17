@@ -127,7 +127,7 @@ import os
 import sys
 
 if sys.argv[1:] == ["--version"]:
-    print("codex-cli 0.146.0")
+    print("codex-cli 0.147.0")
     raise SystemExit(0)
 if sys.argv[1:] != ["app-server", "--stdio"]:
     raise SystemExit("fixture accepts only --version or app-server --stdio")

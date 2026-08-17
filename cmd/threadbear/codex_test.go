@@ -28,7 +28,7 @@ func TestLocateCompatibleDesktopCodexUsesFixedDesktopPathNotPATH(t *testing.T) {
 	t.Setenv("PATH", filepath.Dir(malicious))
 
 	path := filepath.Join(home, "Applications", "ChatGPT.app", "Contents", "Resources", "codex")
-	writeCodexVersionFixture(t, path, "codex-cli 0.146.0")
+	writeCodexVersionFixture(t, path, "codex-cli 0.147.0")
 	candidates := desktopCodexCandidates(home)
 	if candidates[0] != path {
 		t.Fatalf("per-user Desktop candidate = %q; want %q", candidates[0], path)
@@ -78,10 +78,10 @@ func TestRequireCompatibleCodexVersions(t *testing.T) {
 	for _, test := range []struct {
 		name, response, wantVersion, wantError string
 	}{
-		{name: "minimum", response: "codex-cli 0.146.0", wantVersion: "0.146.0"},
+		{name: "minimum", response: "codex-cli 0.147.0", wantVersion: "0.147.0"},
 		{name: "desktop prerelease", response: "codex-cli 0.147.0-alpha.6.5", wantVersion: "0.147.0-alpha.6.5"},
 		{name: "new major", response: "codex-cli 1.0.0", wantVersion: "1.0.0"},
-		{name: "too old", response: "codex-cli 0.145.9", wantError: "too old"},
+		{name: "too old", response: "codex-cli 0.146.9", wantError: "too old"},
 		{name: "malformed", response: "Codex 0.147", wantError: "unsupported Codex Desktop version response"},
 	} {
 		t.Run(test.name, func(t *testing.T) {

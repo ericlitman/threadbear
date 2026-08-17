@@ -646,7 +646,7 @@ func stubPagedAppServer(t *testing.T) string {
 	t.Helper()
 	dir, requests := t.TempDir(), filepath.Join(t.TempDir(), "requests.jsonl")
 	script := `#!/bin/sh
-if [ "$1" = --version ]; then echo 'codex-cli 0.146.0'; exit 0; fi
+if [ "$1" = --version ]; then echo 'codex-cli 0.147.0'; exit 0; fi
 [ "$1" = app-server ] && [ "$2" = --stdio ] || exit 80
 count=0
 while IFS= read -r line; do
@@ -669,7 +669,7 @@ done
 	}
 	previous := locateCodex
 	locateCodex = func(context.Context) (codexCompatibility, error) {
-		return codexCompatibility{Path: path, Version: "0.146.0"}, nil
+		return codexCompatibility{Path: path, Version: "0.147.0"}, nil
 	}
 	t.Cleanup(func() { locateCodex = previous })
 	t.Setenv("TB_APP_SERVER_REQUESTS", requests)

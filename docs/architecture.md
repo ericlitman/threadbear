@@ -43,7 +43,7 @@ The installed skill is the trusted local lifecycle orchestrator; `--commit` is i
 
 ## Installation, reset, updates, and uninstall
 
-Fresh installation writes the executable, lifecycle/update state, managed guidance, skill, and daily updater. Candidate self-test requires macOS and Codex Desktop 0.146.0 or newer from a fixed supported path. After verification and the friendly handoff, the one existing-task first read runs in the background; it is not part of core readiness. Codex restarts once so open tasks load the guidance.
+Fresh installation writes the executable, lifecycle/update state, managed guidance, skill, and daily updater. Candidate self-test requires macOS and Codex Desktop 0.147.0 or newer from a fixed supported path. After verification and the friendly handoff, the one existing-task first read runs in the background; it is not part of core readiness. Codex restarts once so open tasks load the guidance.
 
 Version 2.2.1 uses an explicit clean reset. The guide verifies and removes only the exact old automation, unpins the exact former persistent task without renaming it, removes exact obsolete hook entries, imports no state, and performs no heuristic title cleanup.
 

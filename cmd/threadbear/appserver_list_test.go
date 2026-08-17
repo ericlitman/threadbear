@@ -95,7 +95,7 @@ func installAppServerFixture(t testing.TB, scenario string) string {
 	path, starts := filepath.Join(dir, "codex"), filepath.Join(dir, "starts")
 	requests := filepath.Join(dir, "requests.jsonl")
 	raceMarker := filepath.Join(dir, "concurrent-rename")
-	script := "#!/bin/sh\nif [ \"$1\" = \"--version\" ]; then echo 'codex-cli 0.146.0'; exit 0; fi\nprintf x >> \"$THREADBEAR_APP_SERVER_STARTS\"\nexec \"$THREADBEAR_TEST_BINARY\" -test.run=^TestAppServerFixtureProcess$ -- \"$@\"\n"
+	script := "#!/bin/sh\nif [ \"$1\" = \"--version\" ]; then echo 'codex-cli 0.147.0'; exit 0; fi\nprintf x >> \"$THREADBEAR_APP_SERVER_STARTS\"\nexec \"$THREADBEAR_TEST_BINARY\" -test.run=^TestAppServerFixtureProcess$ -- \"$@\"\n"
 	if err := os.WriteFile(path, []byte(script), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -106,7 +106,7 @@ func installAppServerFixture(t testing.TB, scenario string) string {
 	t.Setenv("THREADBEAR_APP_SERVER_RACE_MARKER", raceMarker)
 	previous := locateCodex
 	locateCodex = func(context.Context) (codexCompatibility, error) {
-		return codexCompatibility{Path: path, Version: "0.146.0"}, nil
+		return codexCompatibility{Path: path, Version: "0.147.0"}, nil
 	}
 	t.Cleanup(func() { locateCodex = previous })
 	return starts
