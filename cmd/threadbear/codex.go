@@ -13,7 +13,7 @@ import (
 	"time"
 )
 
-const minimumCodexVersion = "0.146.0"
+const minimumCodexVersion = "0.147.0"
 
 var (
 	locateCodex       = locateCompatibleDesktopCodex
@@ -84,7 +84,7 @@ func inspectCodexVersion(ctx context.Context, path string) (codexCompatibility, 
 	for index := range got {
 		got[index], _ = strconv.Atoi(match[index+1])
 	}
-	want := [3]int{0, 146, 0}
+	want := [3]int{0, 147, 0}
 	if got[0] < want[0] || got[0] == want[0] && got[1] < want[1] ||
 		got[0] == want[0] && got[1] == want[1] && got[2] < want[2] {
 		return codexCompatibility{}, fmt.Errorf("Codex Desktop %s is too old; ThreadBear requires %s or newer", strings.TrimPrefix(value, "codex-cli "), minimumCodexVersion)

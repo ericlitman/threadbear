@@ -9,6 +9,129 @@ import (
 	"testing"
 )
 
+func TestPublishedOnboardingJavaScriptYieldsThenAppliesStrictStreamSerially(t *testing.T) {
+	guide := readRepoFile(t, "INSTALL.md")
+	source := extractJavaScriptCell(t, guide)
+	sourceJSON, err := json.Marshal(source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	harness := fmt.Sprintf(`
+const source = %s;
+const AsyncFunction = Object.getPrototypeOf(async function(){}).constructor;
+async function run(records) {
+  const trace = [], outputs = [], notices = [];
+  const payload = records.map(value => JSON.stringify(value)).join("\n") + "\n";
+  const cuts = [17, Math.floor(payload.length/2)];
+  let resumed = 0;
+  const tools = {
+    exec_command: async args => {
+      trace.push("exec");
+      if (args.cmd !== "\"$HOME/.local/bin/threadbear\" onboard-stream" ||
+          args.yield_time_ms !== 1000 || args.max_output_tokens !== 200000 ||
+          args.sandbox_permissions !== "require_escalated" ||
+          args.justification !== "Allow ThreadBear to read bounded recent history from the complete Codex task list for the first-read icons you approved?")
+        throw new Error("bad exec");
+      return {session_id:41,output:payload.slice(0,cuts[0])};
+    },
+    write_stdin: async args => {
+      resumed++;
+      trace.push("resume:" + resumed);
+      if (args.session_id !== 41 || args.yield_time_ms !== 30000 || args.max_output_tokens !== 200000)
+        throw new Error("bad resume");
+      if (resumed === 1) return {session_id:41,output:payload.slice(cuts[0],cuts[1])};
+      return {exit_code:0,output:payload.slice(cuts[1])};
+    },
+    codex_app__read_thread: async args => {
+      trace.push("read:" + args.threadId);
+      if (args.includeOutputs !== false || args.turnLimit !== 1 || args.maxOutputCharsPerItem !== 1)
+        throw new Error("bad read");
+      const record = records.find(value => value.task_id === args.threadId);
+      const title = args.threadId.endsWith("04") ? "user changed it" : record.snapshot_title;
+      return JSON.stringify({thread:{id:args.threadId,title}});
+    },
+    codex_app__set_thread_title: async args => {
+      trace.push("set:" + args.threadId + ":" + args.title);
+      if (Object.keys(args).sort().join(",") !== "threadId,title") throw new Error("bad set");
+      if (args.threadId.endsWith("05")) return JSON.stringify({threadId:args.threadId,title:"wrong"});
+      return {threadId:args.threadId,title:args.title};
+    }
+  };
+  const text = value => { outputs.push(typeof value === "string" ? value : JSON.stringify(value)); trace.push("text"); };
+  const notify = value => notices.push(value);
+  const yield_control = () => trace.push("yield");
+  class Exit extends Error {}
+  const exit = () => { throw new Exit(); };
+  try { await new AsyncFunction("tools","text","notify","yield_control","exit",source)
+    (tools,text,notify,yield_control,exit); }
+  catch (error) { if (!(error instanceof Exit)) throw error; }
+  return {trace,outputs,notices};
+}
+const ids = n => "20000000-0000-0000-0000-" + String(n).padStart(12,"0");
+const valid = await run([
+  {kind:"candidate",task_id:ids(1),snapshot_title:"Exact",status:"complete",provenance:"exact"},
+  {kind:"candidate",task_id:ids(2),snapshot_title:"Inferred",status:"blocked",provenance:"inferred"},
+  {kind:"candidate",task_id:ids(3),snapshot_title:"Unknown",status:"unknown",provenance:"unknown"},
+  {kind:"candidate",task_id:ids(4),snapshot_title:"Drift",status:"next_steps",provenance:"exact"},
+  {kind:"candidate",task_id:ids(5),snapshot_title:"Unconfirmed",status:"needs_input",provenance:"inferred"},
+  {kind:"summary",total:5,eligible:5,exact:2,inferred:2,unknown:1,skipped:0}
+]);
+const malformed = await run([
+  {kind:"candidate",task_id:ids(1),snapshot_title:"First",status:"complete",provenance:"exact"},
+  {kind:"candidate",task_id:ids(1),snapshot_title:"Duplicate",status:"blocked",provenance:"inferred"},
+  {kind:"summary",total:2,eligible:2,exact:1,inferred:1,unknown:0,skipped:0}
+]);
+process.stdout.write(JSON.stringify({valid,malformed}));
+`, sourceJSON)
+	output, err := exec.Command("node", "--input-type=module", "--eval", harness).CombinedOutput()
+	if err != nil {
+		t.Fatalf("execute onboarding JavaScript: %v\n%s", err, output)
+	}
+	var got struct {
+		Valid, Malformed struct {
+			Trace, Outputs, Notices []string
+		}
+	}
+	if err := json.Unmarshal(output, &got); err != nil {
+		t.Fatalf("decode onboarding harness: %v\n%s", err, output)
+	}
+	want := []string{
+		"text", "yield", "exec", "resume:1", "read:20000000-0000-0000-0000-000000000001",
+		"set:20000000-0000-0000-0000-000000000001:✅ Exact",
+		"read:20000000-0000-0000-0000-000000000002",
+		"set:20000000-0000-0000-0000-000000000002:🚨✦ Inferred",
+		"resume:2", "read:20000000-0000-0000-0000-000000000003",
+		"read:20000000-0000-0000-0000-000000000004",
+		"read:20000000-0000-0000-0000-000000000005",
+		"set:20000000-0000-0000-0000-000000000005:🙋✦ Unconfirmed", "text",
+	}
+	if !reflect.DeepEqual(got.Valid.Trace, want) {
+		t.Fatalf("onboarding order\n got: %v\nwant: %v", got.Valid.Trace, want)
+	}
+	if len(got.Valid.Outputs) != 2 {
+		t.Fatalf("onboarding outputs = %v", got.Valid.Outputs)
+	}
+	var handoff struct {
+		Kind  string `json:"kind"`
+		Ready bool   `json:"ready"`
+	}
+	var receipt struct {
+		Ready                                            bool `json:"ready"`
+		Received, Updated, Unknown, Drifted, Unconfirmed int
+	}
+	if json.Unmarshal([]byte(got.Valid.Outputs[0]), &handoff) != nil || handoff.Kind != "handoff" || !handoff.Ready ||
+		json.Unmarshal([]byte(got.Valid.Outputs[1]), &receipt) != nil || !receipt.Ready ||
+		receipt.Received != 5 || receipt.Updated != 2 || receipt.Unknown != 1 ||
+		receipt.Drifted != 1 || receipt.Unconfirmed != 1 {
+		t.Fatalf("onboarding handoff/receipt = %+v / %+v", handoff, receipt)
+	}
+	if len(got.Malformed.Outputs) != 2 || !strings.Contains(got.Malformed.Outputs[1], `"ready":false`) ||
+		strings.Count(strings.Join(got.Malformed.Trace, "\n"), "read:") != 1 ||
+		strings.Count(strings.Join(got.Malformed.Trace, "\n"), "set:") != 1 {
+		t.Fatalf("malformed stream was not fail-closed: %+v", got.Malformed)
+	}
+}
+
 func TestEmbeddedUninstallJavaScriptBlocksTeardownOnDriftAndCommitsAfterExactCleanup(t *testing.T) {
 	protocol := readRepoFile(t, "assets", "skill", "SKILL.md")
 	source := extractJavaScriptCell(t, protocol)
@@ -177,7 +300,7 @@ func TestEmbeddedOrdinaryJavaScriptAcceptsStringAndObjectNativeResults(t *testin
 	harness := fmt.Sprintf(`
 const source = %s;
 const policy = {ready:true,task_id:"current",status:"complete",icon:"✅",
-  owned_prefixes:["✅ ","➡️ ","🙋 ","🚨 ","🤖 ","🐻 "],
+  owned_prefixes:["✅✦ ","➡️✦ ","🙋✦ ","🚨✦ ","🤖✦ ","✅ ","➡️ ","🙋 ","🚨 ","🤖 ","🐻 "],
   blocked_prefixes:["➡ ","⏳ ","❔ ","🧵🐻"],
   internal_markers:["<codex_delegation>"],max_title_units:60};
 const AsyncFunction = Object.getPrototypeOf(async function(){}).constructor;
@@ -213,6 +336,8 @@ const current = {thread:{id:"current",title:"🎉 exact subject"}};
 const expected = {threadId:"current",title:"✅ 🎉 exact subject"};
 const stringRun = await run(JSON.stringify(current),JSON.stringify(expected));
 const objectRun = await run(current,expected);
+const sparkleRun = await run(JSON.stringify({thread:{id:"current",title:"✅✦ exact subject"}}),
+  JSON.stringify({threadId:"current",title:"✅ exact subject"}));
 const malformedRun = await run(JSON.stringify(current),"{malformed");
 const wrongIDRun = await run(JSON.stringify(current),JSON.stringify({...expected,threadId:"wrong"}));
 const wrongTitleRun = await run(JSON.stringify(current),JSON.stringify({...expected,title:"wrong"}));
@@ -220,7 +345,7 @@ const noWriteRun = await run(JSON.stringify({thread:{id:"current",title:"✅ exa
 const badReadRun = await run("{malformed",null);
 const wrongReadIDRun = await run(JSON.stringify({thread:{id:"other",title:"exact subject"}}),null);
 const blockedRun = await run(JSON.stringify({thread:{id:"current",title:"🧵🐻 needs input (you): approve"}}),null);
-process.stdout.write(JSON.stringify({stringRun,objectRun,malformedRun,wrongIDRun,
+process.stdout.write(JSON.stringify({stringRun,objectRun,sparkleRun,malformedRun,wrongIDRun,
   wrongTitleRun,noWriteRun,badReadRun,wrongReadIDRun,blockedRun}));
 `, sourceJSON)
 
@@ -232,6 +357,7 @@ process.stdout.write(JSON.stringify({stringRun,objectRun,malformedRun,wrongIDRun
 	var got struct {
 		StringRun      javascriptRun `json:"stringRun"`
 		ObjectRun      javascriptRun `json:"objectRun"`
+		SparkleRun     javascriptRun `json:"sparkleRun"`
 		MalformedRun   javascriptRun `json:"malformedRun"`
 		WrongIDRun     javascriptRun `json:"wrongIDRun"`
 		WrongTitleRun  javascriptRun `json:"wrongTitleRun"`
@@ -263,6 +389,10 @@ process.stdout.write(JSON.stringify({stringRun,objectRun,malformedRun,wrongIDRun
 			receipt.Title != "✅ 🎉 exact subject" || !receipt.Updated {
 			t.Fatalf("unexpected %s native result receipt: %+v", name, receipt)
 		}
+	}
+	if !reflect.DeepEqual(got.SparkleRun.Trace, []string{"exec", "read", "set:✅ exact subject"}) ||
+		len(got.SparkleRun.Outputs) != 1 {
+		t.Fatalf("ordinary turn did not replace inferred prefix exactly: %+v", got.SparkleRun)
 	}
 	for name, run := range map[string]javascriptRun{
 		"malformed":   got.MalformedRun,

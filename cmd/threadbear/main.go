@@ -25,6 +25,17 @@ func run(ctx context.Context, args []string, _ io.Reader, stdout, stderr io.Writ
 		fmt.Fprint(stdout, assets.HelpText)
 		return 0
 	}
+	if args[0] == "onboard-stream" {
+		if len(args) != 1 {
+			fmt.Fprintln(stderr, "onboard-stream accepts no arguments")
+			return 2
+		}
+		if err := runOnboardStream(ctx, os.Getenv("CODEX_THREAD_ID"), stdout); err != nil {
+			fmt.Fprintln(stderr, err)
+			return 1
+		}
+		return 0
+	}
 	command := args[0]
 	flags := flag.NewFlagSet(command, flag.ContinueOnError)
 	flags.SetOutput(stderr)

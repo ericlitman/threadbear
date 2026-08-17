@@ -95,7 +95,7 @@ func installAppServerFixture(t testing.TB, scenario string) string {
 	path, starts := filepath.Join(dir, "codex"), filepath.Join(dir, "starts")
 	requests := filepath.Join(dir, "requests.jsonl")
 	raceMarker := filepath.Join(dir, "concurrent-rename")
-	script := "#!/bin/sh\nif [ \"$1\" = \"--version\" ]; then echo 'codex-cli 0.146.0'; exit 0; fi\nprintf x >> \"$THREADBEAR_APP_SERVER_STARTS\"\nexec \"$THREADBEAR_TEST_BINARY\" -test.run=^TestAppServerFixtureProcess$ -- \"$@\"\n"
+	script := "#!/bin/sh\nif [ \"$1\" = \"--version\" ]; then echo 'codex-cli 0.147.0'; exit 0; fi\nprintf x >> \"$THREADBEAR_APP_SERVER_STARTS\"\nexec \"$THREADBEAR_TEST_BINARY\" -test.run=^TestAppServerFixtureProcess$ -- \"$@\"\n"
 	if err := os.WriteFile(path, []byte(script), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -106,7 +106,7 @@ func installAppServerFixture(t testing.TB, scenario string) string {
 	t.Setenv("THREADBEAR_APP_SERVER_RACE_MARKER", raceMarker)
 	previous := locateCodex
 	locateCodex = func(context.Context) (codexCompatibility, error) {
-		return codexCompatibility{Path: path, Version: "0.146.0"}, nil
+		return codexCompatibility{Path: path, Version: "0.147.0"}, nil
 	}
 	t.Cleanup(func() { locateCodex = previous })
 	return starts
@@ -124,6 +124,16 @@ func TestAppServerFixtureProcess(t *testing.T) {
 	initialize := readFixtureMessage(t, decoder)
 	if initialize.ID != 1 || initialize.Method != "initialize" {
 		t.Fatalf("initialize = %#v", initialize)
+	}
+	var capabilities struct {
+		ExperimentalAPI bool `json:"experimentalApi"`
+	}
+	var initializeParams struct {
+		Capabilities json.RawMessage `json:"capabilities"`
+	}
+	if json.Unmarshal(mustMarshalFixtureParams(t, initialize.Params), &initializeParams) != nil ||
+		json.Unmarshal(initializeParams.Capabilities, &capabilities) != nil || !capabilities.ExperimentalAPI {
+		t.Fatalf("initialize omitted experimental API capability: %#v", initialize.Params)
 	}
 	fixtureLogRequest(t, initialize)
 	if err := encoder.Encode(map[string]any{"id": 1, "result": map[string]any{"serverInfo": map[string]any{"name": "fixture"}}}); err != nil {
@@ -154,6 +164,8 @@ func TestAppServerFixtureProcess(t *testing.T) {
 		case "thread/list":
 			listCalls++
 			serveFixtureList(t, scenario, listCalls, request, encoder)
+		case "thread/turns/list":
+			serveFixtureTurns(t, request, encoder)
 		case "thread/read":
 			t.Fatal("production attempted an unsafe thread/read")
 		case "thread/name/set":
@@ -161,6 +173,35 @@ func TestAppServerFixtureProcess(t *testing.T) {
 		default:
 			t.Fatalf("unexpected fixture method %q", request.Method)
 		}
+	}
+}
+
+func mustMarshalFixtureParams(t testing.TB, params map[string]json.RawMessage) []byte {
+	t.Helper()
+	data, err := json.Marshal(params)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return data
+}
+
+func serveFixtureTurns(t testing.TB, request fixtureMessage, encoder *json.Encoder) {
+	t.Helper()
+	if fixtureStringParam(t, request, "sortDirection") != "desc" || fixtureStringParam(t, request, "itemsView") != "full" {
+		t.Fatal("history request was not bounded to newest full turn")
+	}
+	var limit int
+	if json.Unmarshal(request.Params["limit"], &limit) != nil || limit != 1 {
+		t.Fatalf("history limit = %s", request.Params["limit"])
+	}
+	taskID := fixtureStringParam(t, request, "threadId")
+	tasks := fixtureReadTasks(t)
+	turns := tasks[taskID].Turns
+	if len(turns) > 1 {
+		turns = turns[:1]
+	}
+	if err := encoder.Encode(map[string]any{"id": request.ID, "result": map[string]any{"data": turns, "nextCursor": nil}}); err != nil {
+		t.Fatal(err)
 	}
 }
 
@@ -212,7 +253,8 @@ func serveFixtureList(t testing.TB, scenario string, call int, request fixtureMe
 	sort.Strings(ids)
 	rows := make([]map[string]any, 0, len(ids))
 	for _, id := range ids {
-		rows = append(rows, map[string]any{"id": id, "name": tasks[id].Name, "preview": tasks[id].Preview})
+		rows = append(rows, map[string]any{"id": id, "name": tasks[id].Name, "preview": tasks[id].Preview,
+			"ephemeral": tasks[id].Ephemeral, "parentThreadId": tasks[id].ParentThreadID})
 	}
 	if err := encoder.Encode(map[string]any{"id": request.ID, "result": map[string]any{"data": rows, "nextCursor": nil}}); err != nil {
 		t.Fatal(err)

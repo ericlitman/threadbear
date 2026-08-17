@@ -14,13 +14,13 @@ Put the recap in the final answer. Call safe skips “left unchanged.” Give pa
 
 ## Install or reset
 
-Follow `https://threadbear.sh/install`. Preview the helper, instructions, skill, and daily updates; leave tasks, settings, and titles alone. Restart after installation.
+Follow `https://threadbear.sh/install`. Preview the helper, instructions, skill, daily updates, and the one ephemeral existing-task first read. Titles do not change before installation succeeds. After the friendly installed recap, Codex asks once for the complete-catalog read; declining leaves existing titles untouched. If allowed, the first read uses the guide's single yielded cell: its local helper only classifies, while mounted Codex rereads and serially applies exact or `✦` best-guess icons. Unknown tasks stay untouched. Never replace that cell with a controller, task, queue, retry pass, or other writer.
 
 For 2.2.1, touch only the verified old task and automation; stop on mismatch.
 
 After consent, install; verify `version`, `self-test`, `status`. Recap:
 
-> Restart Codex so open tasks load the new ThreadBear instructions.
+> ThreadBear is installed. Codex will ask once for the complete-catalog read. If allowed, existing tasks with clear enough history will gain icons over the next several minutes; a small sparkle marks a first read and disappears on that task's next turn. Declining or unclear evidence leaves a task untouched. Keep working, and restart Codex when ready.
 
 ## Uninstall
 

@@ -45,8 +45,8 @@ func TestPublishedInstallGuideMatchesCurrentProduct(t *testing.T) {
 		"The check prints every fixed Codex Desktop command it finds",
 		"For every lifecycle action, write the lasting summary after all tool calls.",
 		"Nothing changes in this step.",
-		"Existing task titles will not change in this step.",
-		"Existing task titles were not changed.",
+		"Existing task titles will not change until those checks finish.",
+		"The background first read may still be adding icons to existing tasks.",
 		"Never leave that recap only in commentary, progress notices, notifications, or raw tool output",
 		"do not copy raw fields or list internal files",
 		"Group safe skips as “left unchanged” unless the user needs to act.",
@@ -54,7 +54,16 @@ func TestPublishedInstallGuideMatchesCurrentProduct(t *testing.T) {
 		"## Here's what will happen",
 		"## ThreadBear recap 🐻",
 		"Other Codex settings and files stay untouched.",
-		"Existing task titles and unrelated Codex settings stayed untouched.",
+		"existing tasks with enough evidence will gain best-guess status icons",
+		"Codex asks once before that complete-catalog read.",
+		`sandbox_permissions:"require_escalated"`,
+		"icons progress only if permission is granted",
+		"A small sparkle marks a first read and disappears after that task's next turn",
+		"yield_control();",
+		`"$HOME/.local/bin/threadbear\" onboard-stream`,
+		"gpt-5.6-luna",
+		"Unknown tasks are reread but not renamed.",
+		"Every semantic candidate gets one immediate mounted reread",
 		"installs only verified official releases",
 		"Updates never read tasks or change titles.",
 		"ThreadBear and its automatic updates were removed after cleaning X task titles.",
@@ -86,7 +95,6 @@ func TestPublishedInstallGuideMatchesCurrentProduct(t *testing.T) {
 		"acknowledgement without exact readback",
 		"only task read/write authority",
 		"thread/name/set",
-		"ThreadBear footer",
 		"--control-task-id",
 		"threadbear inventory",
 		"threadbear migration",
@@ -145,7 +153,7 @@ func TestInstalledGuidanceDefinesOneTerminalPlannerAndNativeWrite(t *testing.T) 
 		"Never start another cell, poll the title, retry, or reconcile.",
 		"A returned failure is local to this turn.",
 		"The status controls only the visible icon.",
-		"ThreadBear emits five exact status prefixes and recognizes the obsolete neutral bear prefix only so it can remove it.",
+		"It also recognizes the five `✦` first-read prefixes and the obsolete neutral bear prefix",
 	)
 	if count := strings.Count(guidance, "```js"); count != 1 {
 		t.Fatalf("managed guidance contains %d JavaScript cells; want one", count)
@@ -172,7 +180,7 @@ func TestInstalledGuidanceDefinesOneTerminalPlannerAndNativeWrite(t *testing.T) 
 
 func TestInstalledSkillStaysCompactAndRunsOneSerialNativePass(t *testing.T) {
 	protocol := readRepoFile(t, "assets", "skill", "SKILL.md")
-	if size := len([]byte(protocol)); size > 6*1024 {
+	if size := len([]byte(protocol)); size > 7*1024 {
 		t.Fatalf("installed skill is %d bytes; want a compact one-page guide", size)
 	}
 	requireText(t, protocol,
@@ -182,8 +190,11 @@ func TestInstalledSkillStaysCompactAndRunsOneSerialNativePass(t *testing.T) {
 		"Put the recap in the final answer",
 		"Call safe skips “left unchanged.”",
 		"## Install or reset",
-		"helper, instructions, skill, and daily updates",
-		"leave tasks, settings, and titles alone",
+		"helper, instructions, skill, daily updates, and the one ephemeral existing-task first read",
+		"Titles do not change before installation succeeds.",
+		"one ephemeral existing-task first read",
+		"Unknown tasks stay untouched.",
+		"Never replace that cell with a controller, task, queue, retry pass, or other writer.",
 		"## Uninstall",
 		"uninstall --dry-run --json",
 		`\"$HOME/.local/bin/threadbear\" uninstall --prepare --noninteractive --confirm --json`,
@@ -327,7 +338,11 @@ func TestHomepageDescribesOnlyShippedCapabilities(t *testing.T) {
 		"null or blank <code>name</code>",
 		"<code>preview</code> is never adopted",
 		"daily update-only LaunchAgent",
-		"There is no SQLite access, title database, daemon, proxy, cache, model, retry, fallback, queue, or repair pass.",
+		"A quiet ✦ marks a conservative first read",
+		"one ephemeral first read progressively adds exact or best-guess icons",
+		"Ordinary turns work with Codex's default workspace permissions and start no App Server or model.",
+		"sequential Luna-medium batches",
+		"There is no SQLite access, title database, daemon, proxy, cache, queue, or repair pass.",
 		"rerunnable partial",
 		"title-core readiness",
 	)

@@ -13,6 +13,7 @@ func TestSubjectFromTitleUsesFiniteVisiblePrefixes(t *testing.T) {
 		{"Quarterly  close ", "Quarterly  close ", false},
 		{"🎉 Quarterly  close ", "🎉 Quarterly  close ", false},
 		{"✅ Quarterly  close ", "Quarterly  close ", true},
+		{"✅✦ Quarterly  close ", "Quarterly  close ", true},
 		{"🐻 Existing task", "Existing task", true},
 	} {
 		subject, decorated, err := subjectFromTitle(test.title)
@@ -72,6 +73,12 @@ func TestTitlePolicyCoversEveryStatusAndLegacyBearCleanup(t *testing.T) {
 		if !containsString(ownedTitlePrefixes, icon+" ") {
 			t.Errorf("owned prefixes omit %q", icon)
 		}
+		if got, err := renderOnboardTitle(status, "inferred", "subject"); err != nil || got != icon+"✦ subject" {
+			t.Errorf("inferred render %s = %q, %v", status, got, err)
+		}
+		if !containsString(ownedTitlePrefixes, icon+"✦ ") {
+			t.Errorf("owned prefixes omit inferred %q", icon)
+		}
 	}
 	if !containsString(ownedTitlePrefixes, "🐻 ") {
 		t.Fatal("owned prefixes omit legacy bear cleanup")
@@ -80,6 +87,15 @@ func TestTitlePolicyCoversEveryStatusAndLegacyBearCleanup(t *testing.T) {
 		if icon == "🐻" {
 			t.Fatal("neutral bear remains a writable status")
 		}
+	}
+}
+
+func TestInferredTitleStillHonorsUTF16Limit(t *testing.T) {
+	if got, err := renderOnboardTitle("complete", "exact", strings.Repeat("x", 57)); err != nil || got == "" {
+		t.Fatalf("exact fitting title = %q, %v", got, err)
+	}
+	if got, err := renderOnboardTitle("complete", "inferred", strings.Repeat("x", 58)); err == nil || got != "" {
+		t.Fatalf("inferred oversized title = %q, %v", got, err)
 	}
 }
 
