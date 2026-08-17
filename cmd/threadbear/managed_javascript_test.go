@@ -28,7 +28,10 @@ async function run(records) {
     exec_command: async args => {
       trace.push("exec");
       if (args.cmd !== "\"$HOME/.local/bin/threadbear\" onboard-stream" ||
-          args.yield_time_ms !== 1000 || args.max_output_tokens !== 200000) throw new Error("bad exec");
+          args.yield_time_ms !== 1000 || args.max_output_tokens !== 200000 ||
+          args.sandbox_permissions !== "require_escalated" ||
+          args.justification !== "Allow ThreadBear to read bounded recent history from the complete Codex task list for the first-read icons you approved?")
+        throw new Error("bad exec");
       return {session_id:41,output:payload.slice(0,cuts[0])};
     },
     write_stdin: async args => {

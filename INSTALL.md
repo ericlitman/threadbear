@@ -16,7 +16,7 @@ Open with this orientation:
 >
 > ThreadBear adds one useful status icon while keeping the rest of each safe task title intact. Codex reads and applies the title itself.
 >
-> I'll check this Mac, show you exactly what will change, and ask before installing anything. After installation, existing tasks will progressively receive best-guess icons when their history is clear enough. Codex needs one restart for future turns.
+> I'll check this Mac, show you exactly what will change, and ask before installing anything. After installation, Codex asks once for permission to read bounded recent history; if allowed, existing tasks progressively receive best-guess icons when their history is clear enough. Codex needs one restart for future turns.
 
 Codex collapses commentary after a turn finishes, so the final answer that asks for consent must repeat the orientation, readiness result, complete recommendation, and question. If a check fails, report it plainly and do not ask for install consent.
 
@@ -80,6 +80,7 @@ Only after the checks and dry run succeed, present this complete card in the sam
 >
 > - ThreadBear adds one helpful status icon without rewriting your task's subject or emoji.
 > - After installation succeeds, ThreadBear reads bounded recent history and existing task icons appear progressively. A small sparkle marks a conservative first read; unclear tasks stay unchanged.
+> - Codex asks once before that complete-catalog read. Declining leaves every existing title unchanged and does not affect the installed helper.
 > - A small local helper, Codex instructions, and a ThreadBear skill are added.
 > - Once a day, ThreadBear checks for and installs only verified official releases. Updates never read tasks or change titles.
 > - Unclear or unsafe titles are left alone, and there is no persistent ThreadBear task.
@@ -123,7 +124,7 @@ Core `ready` is healthy when the installed binary, private lifecycle state, comp
 
 No controller, worker, migration phase, persistent task, durable onboarding state, queue, retry sweep, or additional automation should exist after installation. If installation fails after mutation starts, report `partial:true`, the failed stage, whether restart is required, and the one safe rerun action. `planned_changes` is a plan, not a claim that every item ran.
 
-After all three checks pass, start this exact cell once. Its first output is the handoff boundary: when that handoff arrives, immediately send the friendly install recap below without waiting for the cell to finish. The same yielded cell then performs one ephemeral read-only classification pass and applies each eligible title serially through mounted Codex tools. Do not start another cell, poll it from the conversation, or turn it into a task, automation, queue, or persisted job.
+After all three checks pass, start this exact cell once. Its first output is the handoff boundary: when that handoff arrives, immediately send the friendly install recap below without waiting for the cell to finish. The recap must say that Codex will ask once for the complete-catalog read and that icons progress only if permission is granted. The same yielded cell then requests that permission, performs one ephemeral read-only classification pass, and applies each eligible title serially through mounted Codex tools. Do not start another cell, poll it from the conversation, or turn it into a task, automation, queue, or persisted job.
 
 ```js
 // @exec: {"yield_time_ms": 30000, "max_output_tokens": 4000}
@@ -215,7 +216,9 @@ const consume = async chunk => {
 let call = await tools.exec_command({
   cmd:"\"$HOME/.local/bin/threadbear\" onboard-stream",
   yield_time_ms:1000,
-  max_output_tokens:200000
+  max_output_tokens:200000,
+  sandbox_permissions:"require_escalated",
+  justification:"Allow ThreadBear to read bounded recent history from the complete Codex task list for the first-read icons you approved?"
 });
 await consume(call.output);
 while (call.session_id !== undefined) {
@@ -233,7 +236,7 @@ After the checks finish, end the final response with this plain-language receipt
 > ## ThreadBear recap 🐻
 >
 > - ThreadBear is installed and automatic updates are [ready / need attention].
-> - Over the next several minutes, existing tasks with enough evidence will gain best-guess status icons. A small sparkle marks a first read and disappears after that task's next turn; unclear tasks stay untouched.
+> - Codex will ask once for permission to read the complete task list. If you allow it, existing tasks with enough evidence will gain best-guess status icons over the next several minutes. A small sparkle marks a first read and disappears after that task's next turn; declining or unclear evidence leaves a task untouched.
 > - You can keep working while this finishes. Restart Codex when ready so open tasks load the new instructions; restarting early simply leaves unfinished tasks untouched.
 
 ## 4. Restart
@@ -242,7 +245,7 @@ Say: “Installation is finished. One restart loads the new instructions. The ba
 
 After a successful install say:
 
-> ThreadBear is installed. Over the next several minutes, existing tasks with clear enough history will gain best-guess status icons. A small sparkle marks a first read and disappears after that task's next turn; unclear tasks stay untouched. You can keep working while it runs. Restart Codex when ready so open tasks load the new managed guidance; restarting early leaves unfinished tasks untouched.
+> ThreadBear is installed. Codex will ask once for permission to read the complete task list. If you allow it, existing tasks with clear enough history will gain best-guess status icons over the next several minutes. A small sparkle marks a first read and disappears after that task's next turn; declining or unclear evidence leaves a task untouched. You can keep working while it runs. Restart Codex when ready so open tasks load the new managed guidance; restarting early leaves unfinished tasks untouched.
 
 ## Commands and updater
 

@@ -71,6 +71,15 @@ type classifierResult struct {
 	Status string `json:"status"`
 }
 
+type classifierEvent struct {
+	Type string `json:"type"`
+	Item struct {
+		Type    string `json:"type"`
+		Text    string `json:"text"`
+		Message string `json:"message"`
+	} `json:"item"`
+}
+
 func runOnboardStream(ctx context.Context, activeTaskID string, output io.Writer) error {
 	if !taskIDPattern.MatchString(activeTaskID) {
 		return errors.New("CODEX_THREAD_ID is unavailable or invalid")
@@ -292,13 +301,19 @@ func classifyOnboardBatch(ctx context.Context, tasks []onboardEvidence) ([]strin
 	runCtx, cancel := context.WithTimeout(ctx, onboardClassifierLimit)
 	defer cancel()
 	command := exec.CommandContext(runCtx, codex.Path, "exec",
-		"--ephemeral", "--ignore-user-config", "--ignore-rules", "--skip-git-repo-check",
-		"--disable", "shell_tool", "--disable", "code_mode_host",
+		"--json", "--ephemeral", "--ignore-user-config", "--ignore-rules", "--skip-git-repo-check",
+		"--disable", "shell_tool", "--disable", "code_mode_host", "--disable", "plugins",
+		"--disable", "apps", "--disable", "browser_use", "--disable", "browser_use_external",
+		"--disable", "computer_use", "--disable", "image_generation", "--disable", "in_app_browser",
+		"--disable", "multi_agent", "--disable", "goals", "--disable", "workspace_dependencies",
+		"--disable", "skill_search", "--disable", "tool_suggest",
 		"--model", onboardModel, "--sandbox", "read-only", "--output-schema", schemaPath,
-		"--output-last-message", outputPath, "-c", `model_reasoning_effort="`+onboardEffort+`"`, "-")
+		"--output-last-message", outputPath, "-c", `model_reasoning_effort="`+onboardEffort+`"`,
+		"-c", "tools.experimental_request_user_input.enabled=false", "-")
 	command.Dir = temporary
 	command.Stdin = strings.NewReader(onboardClassifierPrompt + string(payload))
-	command.Stdout, command.Stderr = io.Discard, io.Discard
+	var events, diagnostics bytes.Buffer
+	command.Stdout, command.Stderr = &events, &diagnostics
 	if err := command.Run(); err != nil {
 		if runCtx.Err() != nil {
 			return nil, runCtx.Err()
@@ -309,7 +324,47 @@ func classifyOnboardBatch(ctx context.Context, tasks []onboardEvidence) ([]strin
 	if err != nil {
 		return nil, err
 	}
+	if err := validateClassifierRun(events.Bytes(), diagnostics.Bytes(), responseBytes); err != nil {
+		return nil, err
+	}
 	return decodeClassifierResults(responseBytes, tasks)
+}
+
+func validateClassifierRun(events, diagnostics, final []byte) error {
+	if bytes.Contains(diagnostics, []byte(" ERROR ")) {
+		return errors.New("classifier attempted an unavailable tool or reported a runtime error")
+	}
+	decoder := json.NewDecoder(bytes.NewReader(events))
+	var messages []string
+	for {
+		var event classifierEvent
+		if err := decoder.Decode(&event); err != nil {
+			if errors.Is(err, io.EOF) {
+				break
+			}
+			return errors.New("classifier returned malformed event output")
+		}
+		if strings.HasPrefix(event.Type, "item.") && event.Type != "item.completed" {
+			return errors.New("classifier attempted tool activity")
+		}
+		if event.Type != "item.completed" {
+			continue
+		}
+		switch event.Item.Type {
+		case "agent_message":
+			messages = append(messages, event.Item.Text)
+		case "error":
+			if !strings.HasPrefix(event.Item.Message, "Code Mode is unavailable because code-mode host is disabled.") {
+				return errors.New("classifier reported an unexpected runtime error")
+			}
+		default:
+			return errors.New("classifier attempted tool activity")
+		}
+	}
+	if len(messages) != 1 || strings.TrimSpace(messages[0]) != strings.TrimSpace(string(final)) {
+		return errors.New("classifier event output did not match its sole final message")
+	}
+	return nil
 }
 
 func decodeClassifierResults(data []byte, tasks []onboardEvidence) ([]string, error) {

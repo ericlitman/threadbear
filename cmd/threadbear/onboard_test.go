@@ -91,6 +91,7 @@ func TestOnboardClassifierUsesFixedEphemeralCodexContract(t *testing.T) {
 	argumentsPath := filepath.Join(directory, "arguments")
 	workingPath := filepath.Join(directory, "working")
 	response := fmt.Sprintf(`{"results":[{"task_id":%q,"status":"blocked"}]}`, testFirstID)
+	events := fmt.Sprintf("{\"type\":\"thread.started\"}\n{\"type\":\"item.completed\",\"item\":{\"type\":\"agent_message\",\"text\":%q}}\n{\"type\":\"turn.completed\"}", response)
 	script := `#!/bin/sh
 set -eu
 printf '%s\n' "$@" > "$THREADBEAR_ARGUMENTS"
@@ -101,6 +102,7 @@ while [ "$#" -gt 0 ]; do
 done
 test -n "$output"
 printf '%s' "$THREADBEAR_RESPONSE" > "$output"
+printf '%s\n' "$THREADBEAR_EVENTS"
 `
 	if err := os.WriteFile(commandPath, []byte(script), 0o755); err != nil {
 		t.Fatal(err)
@@ -108,6 +110,7 @@ printf '%s' "$THREADBEAR_RESPONSE" > "$output"
 	t.Setenv("THREADBEAR_ARGUMENTS", argumentsPath)
 	t.Setenv("THREADBEAR_WORKING", workingPath)
 	t.Setenv("THREADBEAR_RESPONSE", response)
+	t.Setenv("THREADBEAR_EVENTS", events)
 	previous := locateCodex
 	locateCodex = func(context.Context) (codexCompatibility, error) {
 		return codexCompatibility{Path: commandPath, Version: "0.148.0"}, nil
@@ -122,10 +125,17 @@ printf '%s' "$THREADBEAR_RESPONSE" > "$output"
 		t.Fatal(err)
 	}
 	for _, required := range []string{
-		"exec\n", "--ephemeral\n", "--ignore-user-config\n", "--ignore-rules\n",
+		"exec\n", "--json\n", "--ephemeral\n", "--ignore-user-config\n", "--ignore-rules\n",
 		"--skip-git-repo-check\n", "--disable\nshell_tool\n--disable\ncode_mode_host\n",
+		"--disable\nplugins\n", "--disable\napps\n", "--disable\nbrowser_use\n",
+		"--disable\nbrowser_use_external\n", "--disable\ncomputer_use\n",
+		"--disable\nimage_generation\n", "--disable\nin_app_browser\n",
+		"--disable\nmulti_agent\n", "--disable\ngoals\n",
+		"--disable\nworkspace_dependencies\n", "--disable\nskill_search\n",
+		"--disable\ntool_suggest\n",
 		"--model\n" + onboardModel + "\n", "--sandbox\nread-only\n",
 		"model_reasoning_effort=\"" + onboardEffort + "\"\n",
+		"tools.experimental_request_user_input.enabled=false\n",
 	} {
 		if !strings.Contains(string(arguments), required) {
 			t.Fatalf("classifier arguments omit %q: %q", required, arguments)
@@ -145,6 +155,29 @@ printf '%s' "$THREADBEAR_RESPONSE" > "$output"
 	}
 	if _, err := os.Stat(temporary); !os.IsNotExist(err) {
 		t.Fatalf("classifier temporary directory remains: %v", err)
+	}
+}
+
+func TestValidateClassifierRunRejectsAnyToolActivity(t *testing.T) {
+	final := []byte(`{"results":[]}`)
+	valid := []byte("{\"type\":\"thread.started\"}\n" +
+		"{\"type\":\"item.completed\",\"item\":{\"type\":\"error\",\"message\":\"Code Mode is unavailable because code-mode host is disabled. Code mode will fail closed.\"}}\n" +
+		"{\"type\":\"item.completed\",\"item\":{\"type\":\"agent_message\",\"text\":\"{\\\"results\\\":[]}\"}}\n" +
+		"{\"type\":\"turn.completed\"}\n")
+	if err := validateClassifierRun(valid, nil, final); err != nil {
+		t.Fatalf("valid tool-free classifier events: %v", err)
+	}
+	for name, test := range map[string]struct {
+		events, diagnostics []byte
+	}{
+		"started tool":            {events: []byte("{\"type\":\"item.started\",\"item\":{\"type\":\"command_execution\"}}\n")},
+		"completed tool":          {events: []byte("{\"type\":\"item.completed\",\"item\":{\"type\":\"mcp_tool_call\"}}\n")},
+		"tool router error":       {events: valid, diagnostics: []byte("timestamp ERROR codex_core::tools::router: denied")},
+		"extra assistant message": {events: append(append([]byte{}, valid...), []byte("{\"type\":\"item.completed\",\"item\":{\"type\":\"agent_message\",\"text\":\"extra\"}}\n")...)},
+	} {
+		if err := validateClassifierRun(test.events, test.diagnostics, final); err == nil {
+			t.Errorf("%s activity was accepted", name)
+		}
 	}
 }
 
