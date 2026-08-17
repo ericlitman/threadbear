@@ -28,7 +28,10 @@ var statusIcons = map[string]string{
 // The bear is legacy-only: current titles can strip it, but never render it.
 // Other leading emoji remain user text unless they match an ambiguous old
 // ThreadBear rendering below, which cannot be distinguished safely.
-var ownedTitlePrefixes = []string{"✅ ", "➡️ ", "🙋 ", "🚨 ", "🤖 ", "🐻 "}
+var ownedTitlePrefixes = []string{
+	"✅✦ ", "➡️✦ ", "🙋✦ ", "🚨✦ ", "🤖✦ ",
+	"✅ ", "➡️ ", "🙋 ", "🚨 ", "🤖 ", "🐻 ",
+}
 
 // Older operation-shaped titles are ambiguous. Leave the complete title
 // untouched instead of guessing whether its leading emoji is user-authored.
@@ -56,6 +59,28 @@ func renderTitle(status, subject string) (string, error) {
 		return "", err
 	}
 	return icon + " " + subject, nil
+}
+
+func renderOnboardTitle(status, provenance, subject string) (string, error) {
+	icon, ok := statusIcons[status]
+	if !ok {
+		return "", fmt.Errorf("unsupported ThreadBear status %q", status)
+	}
+	switch provenance {
+	case "exact":
+		return renderTitle(status, subject)
+	case "inferred":
+		if err := validateSubject(subject); err != nil {
+			return "", err
+		}
+		title := icon + "✦ " + subject
+		if len(utf16.Encode([]rune(title))) > maxTitleUnits {
+			return "", errors.New("subject does not fit without truncation")
+		}
+		return title, nil
+	default:
+		return "", fmt.Errorf("unsupported ThreadBear provenance %q", provenance)
+	}
 }
 
 func subjectFromTitle(title string) (subject string, decorated bool, err error) {

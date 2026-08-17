@@ -35,13 +35,28 @@ type appServerRPCError struct {
 }
 
 type appServerThread struct {
-	ID   *string `json:"id"`
-	Name *string `json:"name"`
+	ID             *string `json:"id"`
+	Name           *string `json:"name"`
+	Ephemeral      bool    `json:"ephemeral"`
+	ParentThreadID *string `json:"parentThreadId"`
 }
 
 type appServerThreadPage struct {
 	Data       json.RawMessage `json:"data"`
 	NextCursor json.RawMessage `json:"nextCursor"`
+}
+
+type appServerTurnItem struct {
+	Type    string          `json:"type"`
+	Phase   string          `json:"phase"`
+	Text    string          `json:"text"`
+	Content json.RawMessage `json:"content"`
+}
+
+type appServerTurn struct {
+	ID     string              `json:"id"`
+	Status string              `json:"status"`
+	Items  []appServerTurnItem `json:"items"`
 }
 
 type appServerClient struct {
@@ -88,7 +103,10 @@ func startAppServer(ctx context.Context, timeout time.Duration) (_ *appServerCli
 	}()
 	if err := client.encoder.Encode(map[string]any{
 		"id": 1, "method": "initialize",
-		"params": map[string]any{"clientInfo": map[string]string{"name": "threadbear", "version": version}},
+		"params": map[string]any{
+			"clientInfo":   map[string]string{"name": "threadbear", "version": version},
+			"capabilities": map[string]any{"experimentalApi": true},
+		},
 	}); err != nil {
 		return nil, client.ioError("initialize Codex App Server", err)
 	}
@@ -177,11 +195,35 @@ func (client *appServerClient) inventory(nextRequestID *int) ([]indexedTask, err
 	return finishAppServerInventory(all)
 }
 
+func (client *appServerClient) latestTurn(nextRequestID *int, taskID string) (*appServerTurn, error) {
+	requestID := *nextRequestID
+	*nextRequestID = requestID + 1
+	result, err := client.request(requestID, "thread/turns/list", map[string]any{
+		"threadId": taskID, "limit": 1, "sortDirection": "desc", "itemsView": "full",
+	}, "read latest Codex task turn")
+	if err != nil {
+		return nil, err
+	}
+	var page struct {
+		Data []appServerTurn `json:"data"`
+	}
+	if json.Unmarshal(result, &page) != nil || page.Data == nil || len(page.Data) > 1 {
+		return nil, errors.New("read latest Codex task turn: invalid thread/turns/list result")
+	}
+	if len(page.Data) == 0 {
+		return nil, nil
+	}
+	if strings.TrimSpace(page.Data[0].ID) == "" || strings.TrimSpace(page.Data[0].Status) == "" {
+		return nil, errors.New("read latest Codex task turn: invalid turn")
+	}
+	return &page.Data[0], nil
+}
+
 func indexedTaskFromAppServer(thread appServerThread) (indexedTask, error) {
 	if thread.ID == nil || *thread.ID == "" {
 		return indexedTask{}, errors.New("Codex App Server returned an invalid task")
 	}
-	task := indexedTask{ID: *thread.ID}
+	task := indexedTask{ID: *thread.ID, Internal: thread.Ephemeral || thread.ParentThreadID != nil}
 	if thread.Name == nil || strings.TrimSpace(*thread.Name) == "" {
 		task.RawFallback = true
 	} else {

@@ -17,6 +17,7 @@ type indexedTask struct {
 	ID          string `json:"task_id"`
 	Title       string `json:"title"`
 	RawFallback bool   `json:"-"`
+	Internal    bool   `json:"-"`
 }
 
 type currentTitleResult struct {

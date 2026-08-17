@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Added
+
+- Restored progressive existing-task onboarding after installation: exact historical statuses receive plain icons, conservative first reads receive a quiet `✦`, and unknown tasks stay untouched. Classification is one ephemeral sequential pass, while every title write remains a serial mounted Codex reread/set with exact acknowledgement and no retries or persisted onboarding state.
+
 ## v3.0.2 - 2026-08-13
 
 ### Fixed

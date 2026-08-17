@@ -758,7 +758,10 @@ value = json.load(open(sys.argv[1], encoding="utf-8"))
 task_id = sys.argv[2]
 assert value["ready"] is True and value["task_id"] == task_id, value
 assert value["status"] == "complete" and value["icon"] == "✅", value
-assert value["owned_prefixes"] == ["✅ ", "➡️ ", "🙋 ", "🚨 ", "🤖 ", "🐻 "], value
+assert value["owned_prefixes"] == [
+    "✅✦ ", "➡️✦ ", "🙋✦ ", "🚨✦ ", "🤖✦ ",
+    "✅ ", "➡️ ", "🙋 ", "🚨 ", "🤖 ", "🐻 ",
+], value
 assert value["blocked_prefixes"] == ["➡ ", "⏳ ", "❔ ", "🧵🐻"], value
 assert "<codex_delegation>" in value["internal_markers"], value
 assert value["max_title_units"] == 60, value

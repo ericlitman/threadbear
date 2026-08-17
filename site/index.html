@@ -47,7 +47,7 @@
   <h2>Small by design</h2>
   <div class="grid">
     <div class="card"><strong>One terminal update</strong>Each turn runs one stateless cell: Codex reads the title, then makes at most one native title write.</div>
-    <div class="card"><strong>Your subject stays yours</strong>ThreadBear writes five exact status prefixes, preserves every other safe emoji and subject byte, and recognizes the old neutral bear only to remove it.</div>
+    <div class="card"><strong>Your subject stays yours</strong>ThreadBear writes five exact status prefixes. A quiet ✦ marks a conservative first read, then disappears on that task's next turn.</div>
     <div class="card"><strong>The mounted app owns titles</strong>Ordinary turns use Codex's mounted native reader and writer—no helper process reaches into Codex storage.</div>
     <div class="card"><strong>A clean goodbye</strong>Uninstall fully plans owned-prefix cleanup before serial app-native writes and removes no files if a prepared title drifts.</div>
     <div class="card"><strong>Uncertainty stays local</strong>Unsafe or ambiguous titles are left unchanged. A returned failure is not retried or promoted into global state.</div>
@@ -57,10 +57,10 @@
   <p class="states" aria-label="blocked, needs input, automation, next steps, complete">🚨 🙋 🤖 ➡️ ✅</p>
   <p>Each mark is followed by the exact user-owned subject. Owners and actions stay in response prose, and overlong subjects are left unchanged instead of truncated.</p>
   <h2>Small, private footprint</h2>
-  <p>ThreadBear installs at <code>~/.local/bin/threadbear</code> and adds one managed instruction block, one skill, small lifecycle/update state, and one daily update-only LaunchAgent. It keeps no per-task title database.</p>
+  <p>ThreadBear installs at <code>~/.local/bin/threadbear</code> and adds one managed instruction block, one skill, small lifecycle/update state, and one daily update-only LaunchAgent. After success, one ephemeral first read progressively adds exact or best-guess icons to existing tasks; unclear tasks stay untouched. It keeps no per-task title database.</p>
   <p>Release binaries are not Developer ID signed or notarized. The installer verifies the published SHA-256 checksum and candidate self-test before installation.</p>
   <h2>Honest boundaries</h2>
-  <p>Ordinary turns work with Codex's default workspace permissions and start no App Server. Uninstall cleanup asks once for permission, then launches App Server from a fixed Codex Desktop path, fully paginates <code>thread/list</code>, and immediately rereads each prepared task through the mounted app before one possible prefix removal. Drift or an unconfirmed result stops before artifact removal. A null or blank <code>name</code> is raw; <code>preview</code> is never adopted. There is no SQLite access, title database, daemon, proxy, cache, model, retry, fallback, queue, or repair pass.</p>
+  <p>Ordinary turns work with Codex's default workspace permissions and start no App Server or model. The one post-install first read uses bounded latest-turn text and sequential Luna-medium batches only where historical evidence is ambiguous; it has no retry or fallback, and its local helper never writes titles. Uninstall cleanup asks once for permission, fully paginates <code>thread/list</code>, and immediately rereads each prepared task through the mounted app before one possible prefix removal. Drift or an unconfirmed result stops before artifact removal. A null or blank <code>name</code> is raw; <code>preview</code> is never adopted. There is no SQLite access, title database, daemon, proxy, cache, queue, or repair pass.</p>
   <p>The updater never reads tasks. Network and candidate-verification failures leave the old install untouched; a later local surface failure is reported as a rerunnable partial with the binary written last. Updater health is reported separately from title-core readiness.</p>
   <footer>MIT licensed. Built for tidy threads and small bears. 🧵🐻</footer>
 </main>

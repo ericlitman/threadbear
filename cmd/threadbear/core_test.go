@@ -16,8 +16,11 @@ type testTaskIndex struct {
 }
 
 type appServerFixtureTask struct {
-	Name    *string `json:"name"`
-	Preview string  `json:"preview"`
+	Name           *string         `json:"name"`
+	Preview        string          `json:"preview"`
+	Turns          []appServerTurn `json:"turns,omitempty"`
+	Ephemeral      bool            `json:"ephemeral,omitempty"`
+	ParentThreadID *string         `json:"parent_thread_id,omitempty"`
 }
 
 func testIndex(t testing.TB) (string, *testTaskIndex) {
@@ -59,6 +62,19 @@ func (index *testTaskIndex) setRaw(t testing.TB, id string) {
 	index.write(t)
 }
 
+func (index *testTaskIndex) setTask(t testing.TB, id, title string, turns []appServerTurn) {
+	t.Helper()
+	index.tasks[id] = appServerFixtureTask{Name: &title, Preview: "private raw preview", Turns: turns}
+	index.write(t)
+}
+
+func (index *testTaskIndex) setInternalTask(t testing.TB, id, title string, turns []appServerTurn) {
+	t.Helper()
+	parent := testActiveID
+	index.tasks[id] = appServerFixtureTask{Name: &title, Preview: "private raw preview", Turns: turns, ParentThreadID: &parent}
+	index.write(t)
+}
+
 func (index *testTaskIndex) title(t testing.TB, id string) string {
 	t.Helper()
 	data, err := os.ReadFile(index.path)
@@ -96,7 +112,8 @@ func TestCurrentTitleReturnsStatelessMountedPolicy(t *testing.T) {
 	result, err := runCurrentTitle(t.Context(), testTaskID, "complete")
 	if err != nil || !result.Ready || result.TaskID != testTaskID || result.Status != "complete" ||
 		result.Icon != "✅" || result.MaxTitleUnits != 60 ||
-		!containsString(result.OwnedPrefixes, "🐻 ") || !containsString(result.BlockedPrefixes, "🧵🐻") {
+		!containsString(result.OwnedPrefixes, "🐻 ") || !containsString(result.OwnedPrefixes, "✅✦ ") ||
+		!containsString(result.BlockedPrefixes, "🧵🐻") {
 		t.Fatalf("title policy = %#v, %v", result, err)
 	}
 	encoded, err := json.Marshal(result)
@@ -182,6 +199,19 @@ func TestUnsafeActiveCleanupTaskStaysSkipped(t *testing.T) {
 	item := cleanupItemByID(t, result.Items, testActiveID)
 	if item.Title != "" || item.DesiredTitle != "" || item.Outcome != cleanupSkipped {
 		t.Fatalf("unsafe active item = %#v", item)
+	}
+}
+
+func TestTitleCleanupPreparesInferredPrefixRemoval(t *testing.T) {
+	_, index := testIndex(t)
+	index.setTitle(t, testFirstID, "🚨✦ Exact subject bytes ")
+	result, err := runTitleCleanup(t.Context(), true, testActiveID)
+	if err != nil || result.Prepared != 1 || result.NeedsCleanup != 1 {
+		t.Fatalf("inferred cleanup = %#v, %v", result, err)
+	}
+	item := cleanupItemByID(t, result.Items, testFirstID)
+	if item.Title != "🚨✦ Exact subject bytes " || item.DesiredTitle != "Exact subject bytes " {
+		t.Fatalf("inferred cleanup item = %#v", item)
 	}
 }
 
