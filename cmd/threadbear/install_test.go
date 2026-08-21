@@ -148,17 +148,19 @@ func TestLifecycleNeverTouchesCodexHooks(t *testing.T) {
 		t.Fatalf("managed AGENTS content = %q", agents)
 	}
 	skill, _ := os.ReadFile(p.skill)
-	for label, text := range map[string]string{"AGENTS": string(agents), "skill": string(skill)} {
-		if strings.Count(text, "tools.codex_app__set_thread_title") != 1 {
-			t.Fatalf("%s must contain exactly one mounted app-native setter: %q", label, text)
-		}
+	if strings.Count(string(agents), "title-script --status STATUS") != 1 ||
+		strings.Contains(string(agents), "tools.codex_app__set_thread_title") ||
+		strings.Count(assets.OrdinaryTitleScript, "tools.codex_app__set_thread_title") != 1 {
+		t.Fatalf("installed AGENTS/program must define one loader and one mounted setter: AGENTS=%q program=%q", agents, assets.OrdinaryTitleScript)
+	}
+	for label, text := range map[string]string{"AGENTS": string(agents), "program": assets.OrdinaryTitleScript, "skill": string(skill)} {
 		for _, obsolete := range []string{"plan.updated", "plan.unconfirmed", "thread/name/set"} {
 			if strings.Contains(text, obsolete) {
 				t.Fatalf("%s contains obsolete detached-writer contract %q", label, obsolete)
 			}
 		}
 	}
-	if !strings.Contains(string(agents), "plan.owned_prefixes") || !strings.Contains(string(skill), `item.outcome === "prepared"`) {
+	if !strings.Contains(assets.OrdinaryTitleScript, "plan.owned_prefixes") || !strings.Contains(string(skill), `item.outcome === "prepared"`) {
 		t.Fatalf("installed guidance lacks planner/prepared contract: AGENTS=%q skill=%q", agents, skill)
 	}
 	for _, required := range []string{
@@ -168,8 +170,8 @@ func TestLifecycleNeverTouchesCodexHooks(t *testing.T) {
 		"decodeNative(await tools.codex_app__read_thread",
 		"decodeNative(await tools.codex_app__set_thread_title",
 	} {
-		if !strings.Contains(string(agents), required) {
-			t.Fatalf("installed AGENTS lacks JSON-string native result decoding %q: %q", required, agents)
+		if !strings.Contains(assets.OrdinaryTitleScript, required) {
+			t.Fatalf("embedded title program lacks JSON-string native result decoding %q: %q", required, assets.OrdinaryTitleScript)
 		}
 	}
 	for _, required := range []string{

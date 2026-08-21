@@ -10,3 +10,6 @@ var SkillManagedContent string
 
 //go:embed help.txt
 var HelpText string
+
+//go:embed ordinary-title.js
+var OrdinaryTitleScript string

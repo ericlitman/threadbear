@@ -296,26 +296,42 @@ func TestEmbeddedOrdinaryJavaScriptAcceptsStringAndObjectNativeResults(t *testin
 	if err != nil {
 		t.Fatal(err)
 	}
+	t.Setenv("CODEX_THREAD_ID", testTaskID)
+	var program, programErr strings.Builder
+	if code := run(t.Context(), []string{"title-script", "--status", "complete"}, strings.NewReader(""), &program, &programErr); code != 0 {
+		t.Fatalf("title-script code = %d, stdout %q, stderr %q", code, program.String(), programErr.String())
+	}
+	if strings.Contains(program.String(), "exec_command") ||
+		strings.Count(program.String(), "codex_app__read_thread") != 1 ||
+		strings.Count(program.String(), "codex_app__set_thread_title") != 1 {
+		t.Fatalf("title program did not keep one mounted read/write boundary: %s", program.String())
+	}
+	programJSON, err := json.Marshal(program.String())
+	if err != nil {
+		t.Fatal(err)
+	}
+	taskIDJSON, err := json.Marshal(testTaskID)
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	harness := fmt.Sprintf(`
 const source = %s;
-const policy = {ready:true,task_id:"current",status:"complete",icon:"✅",
-  owned_prefixes:["✅✦ ","➡️✦ ","🙋✦ ","🚨✦ ","🤖✦ ","✅ ","➡️ ","🙋 ","🚨 ","🤖 ","🐻 "],
-  blocked_prefixes:["➡ ","⏳ ","❔ ","🧵🐻"],
-  internal_markers:["<codex_delegation>"],max_title_units:60};
+const program = %s;
+const taskID = %s;
 const AsyncFunction = Object.getPrototypeOf(async function(){}).constructor;
-async function run(currentResult,setResult) {
+async function run(currentResult,setResult,helperResult={exit_code:0,output:program}) {
   const trace = [], outputs = [];
   const tools = {
     exec_command: async args => {
       trace.push("exec");
-      if (args.cmd !== "\"$HOME/.local/bin/threadbear\" title --status STATUS --json" ||
-          args.yield_time_ms !== 30000 || args.max_output_tokens !== 1000) throw new Error("bad helper args");
-      return {exit_code:0,output:JSON.stringify(policy)};
+      if (Object.keys(args).join(",") !== "cmd" ||
+          args.cmd !== "\"$HOME/.local/bin/threadbear\" title-script --status STATUS") throw new Error("bad helper args");
+      return helperResult;
     },
     codex_app__read_thread: async args => {
       trace.push("read");
-      if (args.threadId !== policy.task_id || args.includeOutputs !== false ||
+      if (args.threadId !== taskID || args.includeOutputs !== false ||
           args.turnLimit !== 1 || args.maxOutputCharsPerItem !== 1) throw new Error("bad read args");
       return currentResult;
     },
@@ -328,26 +344,29 @@ async function run(currentResult,setResult) {
   const text = value => outputs.push(typeof value === "string" ? value : JSON.stringify(value));
   class Exit extends Error {}
   const exit = () => { throw new Exit(); };
+  let error = "";
   try { await new AsyncFunction("tools","text","exit",source)(tools,text,exit); }
-  catch (error) { if (!(error instanceof Exit)) throw error; }
-  return {trace,outputs};
+  catch (caught) { if (!(caught instanceof Exit)) error = String(caught); }
+  return {trace,outputs,error};
 }
-const current = {thread:{id:"current",title:"🎉 exact subject"}};
-const expected = {threadId:"current",title:"✅ 🎉 exact subject"};
+const current = {thread:{id:taskID,title:"🎉 exact subject"}};
+const expected = {threadId:taskID,title:"✅ 🎉 exact subject"};
 const stringRun = await run(JSON.stringify(current),JSON.stringify(expected));
 const objectRun = await run(current,expected);
-const sparkleRun = await run(JSON.stringify({thread:{id:"current",title:"✅✦ exact subject"}}),
-  JSON.stringify({threadId:"current",title:"✅ exact subject"}));
+const sparkleRun = await run(JSON.stringify({thread:{id:taskID,title:"✅✦ exact subject"}}),
+  JSON.stringify({threadId:taskID,title:"✅ exact subject"}));
 const malformedRun = await run(JSON.stringify(current),"{malformed");
 const wrongIDRun = await run(JSON.stringify(current),JSON.stringify({...expected,threadId:"wrong"}));
 const wrongTitleRun = await run(JSON.stringify(current),JSON.stringify({...expected,title:"wrong"}));
-const noWriteRun = await run(JSON.stringify({thread:{id:"current",title:"✅ exact subject"}}),null);
+const noWriteRun = await run(JSON.stringify({thread:{id:taskID,title:"✅ exact subject"}}),null);
 const badReadRun = await run("{malformed",null);
 const wrongReadIDRun = await run(JSON.stringify({thread:{id:"other",title:"exact subject"}}),null);
-const blockedRun = await run(JSON.stringify({thread:{id:"current",title:"🧵🐻 needs input (you): approve"}}),null);
+const blockedRun = await run(JSON.stringify({thread:{id:taskID,title:"🧵🐻 needs input (you): approve"}}),null);
+const helperFailureRun = await run(null,null,{exit_code:1,output:"",error:"failed"});
+const malformedProgramRun = await run(null,null,{exit_code:0,output:"not valid JavaScript }"});
 process.stdout.write(JSON.stringify({stringRun,objectRun,sparkleRun,malformedRun,wrongIDRun,
-  wrongTitleRun,noWriteRun,badReadRun,wrongReadIDRun,blockedRun}));
-`, sourceJSON)
+  wrongTitleRun,noWriteRun,badReadRun,wrongReadIDRun,blockedRun,helperFailureRun,malformedProgramRun}));
+`, sourceJSON, programJSON, taskIDJSON)
 
 	output, err := exec.Command("node", "--input-type=module", "--eval", harness).CombinedOutput()
 	if err != nil {
@@ -355,16 +374,18 @@ process.stdout.write(JSON.stringify({stringRun,objectRun,sparkleRun,malformedRun
 	}
 
 	var got struct {
-		StringRun      javascriptRun `json:"stringRun"`
-		ObjectRun      javascriptRun `json:"objectRun"`
-		SparkleRun     javascriptRun `json:"sparkleRun"`
-		MalformedRun   javascriptRun `json:"malformedRun"`
-		WrongIDRun     javascriptRun `json:"wrongIDRun"`
-		WrongTitleRun  javascriptRun `json:"wrongTitleRun"`
-		NoWriteRun     javascriptRun `json:"noWriteRun"`
-		BadReadRun     javascriptRun `json:"badReadRun"`
-		WrongReadIDRun javascriptRun `json:"wrongReadIDRun"`
-		BlockedRun     javascriptRun `json:"blockedRun"`
+		StringRun           javascriptRun `json:"stringRun"`
+		ObjectRun           javascriptRun `json:"objectRun"`
+		SparkleRun          javascriptRun `json:"sparkleRun"`
+		MalformedRun        javascriptRun `json:"malformedRun"`
+		WrongIDRun          javascriptRun `json:"wrongIDRun"`
+		WrongTitleRun       javascriptRun `json:"wrongTitleRun"`
+		NoWriteRun          javascriptRun `json:"noWriteRun"`
+		BadReadRun          javascriptRun `json:"badReadRun"`
+		WrongReadIDRun      javascriptRun `json:"wrongReadIDRun"`
+		BlockedRun          javascriptRun `json:"blockedRun"`
+		HelperFailureRun    javascriptRun `json:"helperFailureRun"`
+		MalformedProgramRun javascriptRun `json:"malformedProgramRun"`
 	}
 	if err := json.Unmarshal(output, &got); err != nil {
 		t.Fatalf("decode ordinary JavaScript harness output: %v\n%s", err, output)
@@ -385,7 +406,7 @@ process.stdout.write(JSON.stringify({stringRun,objectRun,sparkleRun,malformedRun
 		if err := json.Unmarshal([]byte(run.Outputs[0]), &receipt); err != nil {
 			t.Fatalf("decode %s native result receipt: %v", name, err)
 		}
-		if !receipt.Ready || receipt.TaskID != "current" ||
+		if !receipt.Ready || receipt.TaskID != testTaskID ||
 			receipt.Title != "✅ 🎉 exact subject" || !receipt.Updated {
 			t.Fatalf("unexpected %s native result receipt: %+v", name, receipt)
 		}
@@ -426,11 +447,20 @@ process.stdout.write(JSON.stringify({stringRun,objectRun,sparkleRun,malformedRun
 			t.Fatalf("%s must stop before setter: %+v", name, run)
 		}
 	}
+	if !reflect.DeepEqual(got.HelperFailureRun.Trace, []string{"exec"}) ||
+		len(got.HelperFailureRun.Outputs) != 1 || got.HelperFailureRun.Error != "" {
+		t.Fatalf("failed title-script command must stop in the loader: %+v", got.HelperFailureRun)
+	}
+	if !reflect.DeepEqual(got.MalformedProgramRun.Trace, []string{"exec"}) ||
+		len(got.MalformedProgramRun.Outputs) != 0 || !strings.Contains(got.MalformedProgramRun.Error, "SyntaxError") {
+		t.Fatalf("malformed title program must fail before mounted reads or writes: %+v", got.MalformedProgramRun)
+	}
 }
 
 type javascriptRun struct {
 	Trace   []string `json:"trace"`
 	Outputs []string `json:"outputs"`
+	Error   string   `json:"error"`
 }
 
 func extractJavaScriptCell(t *testing.T, markdown string) string {

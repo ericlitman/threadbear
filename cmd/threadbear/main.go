@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strings"
 
 	"github.com/ericlitman/threadbear/assets"
 )
@@ -32,6 +33,28 @@ func run(ctx context.Context, args []string, _ io.Reader, stdout, stderr io.Writ
 		}
 		if err := runOnboardStream(ctx, os.Getenv("CODEX_THREAD_ID"), stdout); err != nil {
 			fmt.Fprintln(stderr, err)
+			return 1
+		}
+		return 0
+	}
+	if args[0] == "title-script" {
+		flags := flag.NewFlagSet("title-script", flag.ContinueOnError)
+		flags.SetOutput(stderr)
+		selectedStatus := flags.String("status", "", "emit the mounted title program for this status")
+		if flags.Parse(args[1:]) != nil || flags.NArg() != 0 {
+			return 2
+		}
+		plan, err := runCurrentTitle(ctx, os.Getenv("CODEX_THREAD_ID"), *selectedStatus)
+		if err != nil {
+			fmt.Fprintln(stderr, err)
+			return 1
+		}
+		encoded, err := json.Marshal(plan)
+		if err != nil {
+			fmt.Fprintln(stderr, err)
+			return 1
+		}
+		if _, err := fmt.Fprintf(stdout, "(%s)(%s)\n", strings.TrimSpace(assets.OrdinaryTitleScript), encoded); err != nil {
 			return 1
 		}
 		return 0

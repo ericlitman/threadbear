@@ -10,17 +10,17 @@ Exercise `complete`, `next_steps`, `needs_input`, `blocked`, and `automation`. I
 
 - there was no running title update;
 - one terminal JavaScript cell was the last tool action before the final response;
-- that cell ran exactly one stateless local `threadbear title --status ENUM --json` helper and parsed its complete JSON only after exit zero;
+- that cell ran exactly one stateless local `threadbear title-script --status ENUM` command and evaluated its complete embedded program only after exit zero;
 - the enum changed only the icon while the exact subject survived;
 - owners and actions remained in response prose;
-- the helper started no App Server, opened no task store, and wrote no Codex title;
+- the loader stayed under 250 source bytes; the command started no App Server, opened no task store, cached no program source, and wrote no Codex title;
 - the mounted app read the exact current task; when a change was needed, the cell made exactly one mounted setter call with `threadId` omitted and accepted only the exact returned task ID/title;
-- if the outer cell yielded after 30 seconds, the agent waited only for that same running cell; it never started another cell, polled the title, retried, or reconciled;
+- if the outer cell yielded after 30 seconds, the agent waited only for that same running cell; it never cached source, started another cell, polled the title, retried, or reconciled;
 - the active header and sidebar showed the exact expected title.
 
 Exercise a generated short title, continued task, user rename, non-reserved leading user emoji, user arrow, every reserved current ThreadBear prefix, every ambiguous old ThreadBear prefix, duplicate subject, maximum fitting subject, overlong subject, multiline or control text, and raw delegated envelope. Record both bounded prefix ambiguities; every other safe rename must survive byte-for-byte. Unsafe input must leave only that title unchanged without blocking the response.
 
-Force missing or malformed current task ID, malformed helper JSON, mounted read failure, wrong read ID, blank title, ambiguous old prefix, internal envelope, and a read-to-write rename race. For the mounted writer, cover normal raw JSON-text success, already-decoded object compatibility, a throw, undecodable text, decoded non-object, wrong task ID, wrong title, and a slow call that outlasts the initial 30-second outer yield before returning. Require the yielded case to resume only the same running cell. Require zero ordinary App Server starts, zero binary title writes, at most one mounted setter call, and no blind retry, alternate source, repair command, pending proposal, or global failure. Run the exact cell under Codex's built-in `:workspace` profile and prove it succeeds without escalation or any write outside the workspace.
+Force missing or malformed current task ID, title-script command failure, malformed emitted program, mounted read failure, wrong read ID, blank title, ambiguous old prefix, internal envelope, and a read-to-write rename race. For the mounted writer, cover normal raw JSON-text success, already-decoded object compatibility, a throw, undecodable text, decoded non-object, wrong task ID, wrong title, and a slow call that outlasts the initial 30-second outer yield before returning. Require the yielded case to resume only the same running cell. Require zero ordinary App Server starts, zero binary title writes, at most one mounted setter call, and no cache, blind retry, alternate source, repair command, pending proposal, or global failure. Run the exact loader under Codex's built-in `:workspace` profile and prove it succeeds without escalation or any write outside the workspace.
 
 Restart Codex after a successful write. Confirm the exact title remains in the sidebar and the next terminal turn still preserves the subject.
 

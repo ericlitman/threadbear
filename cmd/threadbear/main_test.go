@@ -28,6 +28,50 @@ func TestRunRejectsInvalidTitleStatusBeforeMutation(t *testing.T) {
 	}
 }
 
+func TestRunTitleScriptEmitsOneEmbeddedMountedProgram(t *testing.T) {
+	t.Setenv("CODEX_THREAD_ID", testTaskID)
+	var stdout, stderr bytes.Buffer
+	code := run(t.Context(), []string{"title-script", "--status", "complete"}, strings.NewReader(""), &stdout, &stderr)
+	if code != 0 || stderr.Len() != 0 {
+		t.Fatalf("title-script = code %d, stdout %q, stderr %q", code, stdout.String(), stderr.String())
+	}
+	value := stdout.String()
+	for _, required := range []string{testTaskID, `"status":"complete"`, `"icon":"✅"`,
+		"codex_app__read_thread", "codex_app__set_thread_title"} {
+		if !strings.Contains(value, required) {
+			t.Fatalf("title-script missing %q: %s", required, value)
+		}
+	}
+	for _, forbidden := range []string{"exec_command", "thread/name/set", "state_N.sqlite"} {
+		if strings.Contains(value, forbidden) {
+			t.Fatalf("title-script contains %q: %s", forbidden, value)
+		}
+	}
+	stdout.Reset()
+	stderr.Reset()
+	if code = run(t.Context(), []string{"title-script", "--status", "waiting"}, strings.NewReader(""), &stdout, &stderr); code != 1 ||
+		!strings.Contains(stderr.String(), `unsupported ThreadBear status "waiting"`) || stdout.Len() != 0 {
+		t.Fatalf("invalid title-script = code %d, stdout %q, stderr %q", code, stdout.String(), stderr.String())
+	}
+	for name, args := range map[string][]string{
+		"missing status": {"title-script"},
+		"extra argument": {"title-script", "--status", "complete", "extra"},
+	} {
+		stdout.Reset()
+		stderr.Reset()
+		if code = run(t.Context(), args, strings.NewReader(""), &stdout, &stderr); code == 0 || stdout.Len() != 0 {
+			t.Fatalf("%s = code %d, stdout %q, stderr %q", name, code, stdout.String(), stderr.String())
+		}
+	}
+	t.Setenv("CODEX_THREAD_ID", "")
+	stdout.Reset()
+	stderr.Reset()
+	if code = run(t.Context(), []string{"title-script", "--status", "complete"}, strings.NewReader(""), &stdout, &stderr); code != 1 ||
+		!strings.Contains(stderr.String(), "CODEX_THREAD_ID is unavailable or invalid") || stdout.Len() != 0 {
+		t.Fatalf("missing task ID = code %d, stdout %q, stderr %q", code, stdout.String(), stderr.String())
+	}
+}
+
 func TestRunHasNoOnboardCommand(t *testing.T) {
 	var stdout, stderr bytes.Buffer
 	code := run(context.Background(), []string{"onboard", "--json"}, strings.NewReader(""), &stdout, &stderr)
