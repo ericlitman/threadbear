@@ -256,7 +256,7 @@ After a successful install say:
 ~/.local/bin/threadbear update --json
 ```
 
-The managed guidance runs one injection-safe terminal JavaScript cell immediately before an ordinary final response. Replace only the status enum. The cell runs `title --status <complete|next_steps|needs_input|blocked|automation> --json` exactly once; the stateless helper returns the calling task ID and fixed title policy without starting App Server or writing state. The mounted app then reads that exact task, derives one safe desired title, and—only when it differs—calls `tools.codex_app__set_thread_title({title:desired})` once with `threadId` omitted. Exact returned task ID/title is required. If the outer cell yields after 30 seconds, wait only for that same cell; the yield does not cancel a slow native call. Never retry, start another cell, poll the title, or reconcile.
+The managed guidance runs one small terminal JavaScript loader immediately before an ordinary final response. Replace only the status enum. The loader runs `title-script --status <complete|next_steps|needs_input|blocked|automation>` exactly once. That stateless command binds the calling task ID and fixed policy into the reviewed JavaScript program embedded in the verified binary; Codex evaluates it inside the current in-app tool context instead of regenerating the program through the model. The program reads the exact current task through the mounted app and—only when the safe desired title differs—calls the mounted setter once with `threadId` omitted. Exact returned task ID/title is required. If the outer cell yields after 30 seconds, wait only for that same cell; the yield does not cancel a slow native call. Never cache source, retry, start another cell, poll the title, or reconcile.
 
 `update` verifies the official manifest, release URLs, architecture, checksum, embedded version, and candidate self-test before replacement. Network or verification failure leaves the old installation untouched. A later managed-surface write can truthfully leave a rerunnable partial; the binary is written last. Every successful update reports `restart_required`. The daily LaunchAgent runs only this command and never reads tasks or changes titles.
 
@@ -317,7 +317,7 @@ Before release, run unit and integration tests, race tests, both Darwin builds, 
 
 Release acceptance additionally requires one reviewed candidate live-tested end to end in Codex Desktop:
 
-- the stateless terminal helper works under Codex's default workspace permissions and starts no App Server or title-state write;
+- the stateless terminal loader works under Codex's default workspace permissions, remains under 250 source bytes, and starts no App Server or title-state write;
 - the mounted app-native reader supplies the exact current title, and the setter receives no explicit current-task ID and returns the exact task ID/title;
 - the rendered sidebar shows the expected title before and after a clean restart;
 - a full uninstall preview enumerates every unarchived task, confirmed preparation writes no title, and the consented serial app-native pass processes the initiating task last;

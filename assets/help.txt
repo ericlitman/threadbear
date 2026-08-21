@@ -17,8 +17,8 @@ Every command accepts --json.
 Title:
   threadbear title --status <complete|next_steps|needs_input|blocked|automation> --json
 
-The managed guidance runs title exactly once immediately before a final response.
-The helper is stateless. The mounted Codex app reads the exact current title and applies at most one icon change. A returned failure stays local and is never retried.
+The managed guidance loads one embedded title program immediately before a final response.
+The program is stateless. The mounted Codex app reads the exact current title and applies at most one icon change. A returned failure stays local and is never retried.
 
 Install flags:
   --dry-run         Preview without changing the machine

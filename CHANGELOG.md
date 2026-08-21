@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+## v3.0.3 - 2026-08-21
+
+### Fixed
+
+- Removed the multi-kilobyte model-generated title cell from every ordinary turn. ThreadBear now emits the same reviewed policy from its verified binary for a tiny in-app loader, while the mounted Codex app remains the sole title reader and writer.
+
 ### Added
 
 - Restored progressive existing-task onboarding after installation: exact historical statuses receive plain icons, conservative first reads receive a quiet `✦`, and unknown tasks stay untouched. Classification is one ephemeral sequential pass, while every title write remains a serial mounted Codex reread/set with exact acknowledgement and no retries or persisted onboarding state.

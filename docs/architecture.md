@@ -5,11 +5,11 @@ ThreadBear is one Go executable, one managed instruction block, one installed sk
 ## Ordinary turn
 
 1. The task writes its substantive response. Any owner or next action stays in that prose.
-2. Immediately before the final response, managed guidance runs one terminal JavaScript cell containing `threadbear title --status <enum> --json`.
-3. That stateless command validates the status and current task ID, then returns the fixed icon and safety policy. It starts no App Server and writes no state.
-4. The mounted Codex app reads the exact calling task. The cell rejects a wrong ID, blank or unsafe title, raw internal text, an ambiguous old ThreadBear prefix, or a title that cannot fit intact.
-5. The cell strips at most one of ThreadBear's five current status prefixes, five inferred `✦` prefixes, or the obsolete neutral bear prefix, preserves every other subject byte, and renders the selected plain status icon. If the title already matches, it stops. Otherwise it calls mounted `set_thread_title` once with no explicit task ID.
-6. Success requires the exact returned task ID and title. A throw, malformed response, or mismatch stays local. The task never starts another cell, polls the title, retries, or reconciles.
+2. Immediately before the final response, managed guidance runs one small terminal JavaScript loader containing `threadbear title-script --status <enum>`.
+3. That stateless command validates the status and current task ID, binds the fixed icon and safety policy into the reviewed JavaScript program embedded in the verified binary, and prints only that program. It starts no App Server and writes no state.
+4. Codex evaluates the emitted program inside the current in-app tool context. The mounted app reads the exact calling task; the program rejects a wrong ID, blank or unsafe title, raw internal text, an ambiguous old ThreadBear prefix, or a title that cannot fit intact.
+5. The program strips at most one of ThreadBear's five current status prefixes, five inferred `✦` prefixes, or the obsolete neutral bear prefix, preserves every other subject byte, and renders the selected plain status icon. If the title already matches, it stops. Otherwise it calls mounted `set_thread_title` once with no explicit task ID.
+6. Success requires the exact returned task ID and title. A command failure, throw, malformed response, or mismatch stays local. The task never starts another cell, caches program source, polls the title, retries, or reconciles.
 
 The enum controls only the icon and can emit exactly `✅ `, `➡️ `, `🙋 `, `🚨 `, or `🤖 `. ThreadBear also recognizes the five `✦` first-read prefixes and neutral `🐻 ` as removable decorations but never emits either during an ordinary turn. A title beginning with one of those exact prefixes is deliberately reserved. The obsolete `➡ `, `⏳ `, `❔ `, and `🧵🐻` forms are ambiguous after a clean v2 reset, so ThreadBear leaves the complete title unchanged rather than guessing whether its leading emoji is user-authored. Every other leading emoji remains user text.
 
@@ -29,7 +29,7 @@ Mounted Codex tools are the only ordinary title reader and the sole title writer
 
 The official `codex app-server --stdio` process is used for the installation first read and complete-catalog uninstall cleanup. ThreadBear launches it from a fixed Codex Desktop path, never ambient repository `PATH`, initializes one bounded client, follows every unarchived `thread/list` page, tolerates notifications, deduplicates IDs, and closes it. Onboarding additionally reads only `thread/turns/list` with a one-turn descending limit. Native `name` is the user-facing title. Null or blank names stay raw; `preview` is never adopted.
 
-Ordinary turns therefore work under Codex's default workspace permissions. Uninstall cleanup asks for one explicit command permission because App Server maintains Codex's own local state outside the workspace. ThreadBear never opens Codex SQLite, edits Desktop caches, runs an App Server daemon, keeps a shared client, retries a model call, or falls back to another title source.
+Ordinary turns therefore work under Codex's default workspace permissions. The local Go process cannot access mounted app tools; emitting the embedded program keeps the actual title read and write inside Codex without making the model reproduce that program on every turn. Uninstall cleanup asks for one explicit command permission because App Server maintains Codex's own local state outside the workspace. ThreadBear never opens Codex SQLite, edits Desktop caches, runs an App Server daemon, keeps a shared client, caches executable policy, retries a model call, or falls back to another title source.
 
 ## Uninstall title cleanup
 

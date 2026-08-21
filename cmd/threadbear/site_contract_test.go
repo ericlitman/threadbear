@@ -41,7 +41,9 @@ func TestPublishedInstallGuideMatchesCurrentProduct(t *testing.T) {
 		t.Fatal("INSTALL.md and site/install must be byte-identical")
 	}
 	requireText(t, guide,
-		"the stateless helper returns the calling task ID and fixed title policy",
+		"The loader runs `title-script --status <complete|next_steps|needs_input|blocked|automation>` exactly once.",
+		"reviewed JavaScript program embedded in the verified binary",
+		"Codex evaluates it inside the current in-app tool context",
 		"The check prints every fixed Codex Desktop command it finds",
 		"For every lifecycle action, write the lasting summary after all tool calls.",
 		"Nothing changes in this step.",
@@ -76,8 +78,7 @@ func TestPublishedInstallGuideMatchesCurrentProduct(t *testing.T) {
 		"with the initiating task last",
 		"Any missing, drifted, malformed, wrong-target, wrong-title, or thrown result blocks teardown",
 		"There is no final catalog scan, marker, queue, controller, or resume state.",
-		"tools.codex_app__set_thread_title({title:desired})",
-		"one injection-safe terminal JavaScript cell",
+		"one small terminal JavaScript loader",
 		"wait only for that same cell",
 		"yield does not cancel a slow native call",
 		"Exact returned task ID/title is required.",
@@ -130,24 +131,17 @@ func TestReleaseDocsKeepTheEstablishedImmediateRepaintGate(t *testing.T) {
 	rejectText(t, checklist, "if Codex keeps it cached, reopen the project once")
 }
 
-func TestInstalledGuidanceDefinesOneTerminalPlannerAndNativeWrite(t *testing.T) {
+func TestInstalledGuidanceDefinesOneTerminalLoaderAndNativeProgram(t *testing.T) {
 	guidance := readRepoFile(t, "assets", "AGENTS.threadbear.md")
+	program := readRepoFile(t, "assets", "ordinary-title.js")
 	requireText(t, guidance,
 		"Write the substantive response first.",
-		`\"$HOME/.local/bin/threadbear\" title --status STATUS --json`,
-		`// @exec: {"yield_time_ms": 30000, "max_output_tokens": 1000}`,
+		`\"$HOME/.local/bin/threadbear\" title-script --status STATUS`,
 		"Replace only `STATUS` with the exact enum",
-		"if (local.exit_code !== 0) { text(local); exit(); }",
-		"plan = JSON.parse(local.output)",
-		`typeof plan.icon !== "string"`,
-		"tools.codex_app__read_thread({threadId:plan.task_id",
-		"tools.codex_app__set_thread_title({title:desired})",
-		"const decodeNative = value =>",
-		`typeof value !== "string"`,
-		"renamed = decodeNative(await tools.codex_app__set_thread_title",
-		"renamed.threadId !== plan.task_id",
-		"renamed.title !== desired",
-		"mounted Codex app reads the exact current title and is the sole writer",
+		"if (source.exit_code !== 0) { text(source); exit(); }",
+		"await (0,eval)(source.output)({tools,text,exit});",
+		"verified local binary emits its embedded title program",
+		"mounted app reads the exact current title and is the sole writer",
 		"If the outer cell yields, wait only for that same cell",
 		"yield does not cancel a slow native call",
 		"Never start another cell, poll the title, retry, or reconcile.",
@@ -155,16 +149,29 @@ func TestInstalledGuidanceDefinesOneTerminalPlannerAndNativeWrite(t *testing.T) 
 		"The status controls only the visible icon.",
 		"It also recognizes the five `✦` first-read prefixes and the obsolete neutral bear prefix",
 	)
+	requireText(t, program,
+		"tools.codex_app__read_thread({",
+		"tools.codex_app__set_thread_title({title: desired})",
+		"const decodeNative = value =>",
+		"renamed.threadId !== plan.task_id",
+		"renamed.title !== desired",
+	)
 	if count := strings.Count(guidance, "```js"); count != 1 {
 		t.Fatalf("managed guidance contains %d JavaScript cells; want one", count)
 	}
-	if count := strings.Count(guidance, "title --status STATUS --json"); count != 1 {
-		t.Fatalf("managed guidance contains %d terminal planners; want one", count)
+	if count := strings.Count(guidance, "title-script --status STATUS"); count != 1 {
+		t.Fatalf("managed guidance contains %d terminal loaders; want one", count)
 	}
-	if count := strings.Count(guidance, "tools.codex_app__set_thread_title("); count != 1 {
-		t.Fatalf("managed guidance contains %d native title calls; want one", count)
+	if len([]byte(extractJavaScriptCell(t, guidance))) > 250 {
+		t.Fatalf("managed title loader is too large: %d bytes", len([]byte(extractJavaScriptCell(t, guidance))))
+	}
+	if count := strings.Count(program, "tools.codex_app__set_thread_title("); count != 1 {
+		t.Fatalf("embedded title program contains %d native title calls; want one", count)
 	}
 	rejectText(t, guidance,
+		"title --status STATUS --json",
+		"tools.codex_app__read_thread",
+		"tools.codex_app__set_thread_title",
 		"thread/name/set",
 		"Promise.race",
 		"setTimeout",

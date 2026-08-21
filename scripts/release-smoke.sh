@@ -662,16 +662,24 @@ python3 - "$codex_home/AGENTS.md" <<'PY'
 import sys
 
 text = open(sys.argv[1], encoding="utf-8").read()
-assert text.count("title --status STATUS --json") == 1, text
-assert text.count("tools.codex_app__set_thread_title") == 1, text
-assert text.count("tools.codex_app__read_thread") == 1, text
-assert "const decodeNative = value =>" in text, text
-assert "decodeNative(await tools.codex_app__read_thread" in text, text
-assert "decodeNative(await tools.codex_app__set_thread_title" in text, text
-assert "plan.owned_prefixes" in text and "plan.blocked_prefixes" in text, text
+assert text.count("title-script --status STATUS") == 1, text
+assert text.count("await (0,eval)(source.output)({tools,text,exit});") == 1, text
+assert "tools.codex_app__set_thread_title" not in text, text
+assert "tools.codex_app__read_thread" not in text, text
 assert "thread/name/set" not in text, text
 assert "PreToolUse" not in text and "PostToolUse" not in text, text
 PY
+run_threadbear title-script --status complete >"$root/title-complete-program.js"
+python3 - "$root/title-complete-program.js" <<'PY'
+import sys
+
+text = open(sys.argv[1], encoding="utf-8").read()
+assert text.count("tools.codex_app__set_thread_title") == 1, text
+assert text.count("tools.codex_app__read_thread") == 1, text
+assert "tools.exec_command" not in text, text
+assert "thread/name/set" not in text, text
+PY
+node --check "$root/title-complete-program.js" >/dev/null
 python3 - "$codex_home/skills/threadbear/SKILL.md" <<'PY'
 import sys
 
