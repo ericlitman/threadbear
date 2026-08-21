@@ -1,6 +1,6 @@
 # ThreadBear
 
-ThreadBear is a small local title decorator for Codex Desktop. Immediately before each ordinary final response, managed guidance runs one terminal cell: a stateless local helper returns the fixed icon policy, then the mounted Codex app reads and applies the title. ThreadBear changes only the leading status icon.
+ThreadBear is a small local title decorator for Codex Desktop. Immediately before each ordinary final response, managed guidance runs one tiny terminal loader: the verified local binary emits its reviewed fixed icon program, Codex evaluates it in the current tool context, and the mounted app reads and applies the title. ThreadBear changes only the leading status icon.
 
 | Mark | Meaning |
 | --- | --- |
@@ -32,7 +32,7 @@ threadbear version
 
 Every command accepts `--json`; the installed binary's `help` output is authoritative.
 
-The terminal `title` command accepts exactly `complete`, `next_steps`, `needs_input`, `blocked`, or `automation`. It returns the calling task ID and fixed icon/safety policy without reading Codex or writing state. In the same cell, the mounted app reads the exact current title, safely derives the subject, and—only when needed—applies one title to the calling task. The exact returned task ID and title must match. A failure stays local and is never retried.
+The public `title` command accepts exactly `complete`, `next_steps`, `needs_input`, `blocked`, or `automation` and returns the calling task ID plus fixed icon/safety policy for diagnostics. Ordinary managed guidance uses the internal `title-script` form instead: the verified binary binds that same typed plan into its embedded program, and the 219-byte loader evaluates the complete exit-zero output without caching it. The program reads the exact current title through the mounted app, safely derives the subject, and—only when needed—applies one title to the calling task with `threadId` omitted. The exact returned task ID and title must match. A failure stays local and is never retried.
 
 `uninstall --dry-run --json` asks once for permission to enumerate the complete unarchived App Server catalog and reports which exact ThreadBear prefixes will be removed before managed artifacts. After consent, `uninstall --prepare --noninteractive --confirm --json` takes one fresh complete snapshot. The mounted app rereads each prepared task and makes at most one exact prefix-removal write, with the initiating task last. Any drift or unconfirmed result stops before artifact removal; a fresh rerun makes a new plan. Successful cleanup is followed by `uninstall --commit --noninteractive --confirm --json`, with no final rescan or title call. A bare confirmed uninstall is refused.
 

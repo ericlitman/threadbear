@@ -1,13 +1,13 @@
 # Status convention
 
-Immediately before an ordinary final response, ThreadBear's managed guidance runs one terminal cell whose stateless local helper receives one of:
+Immediately before an ordinary final response, ThreadBear's managed guidance runs one tiny terminal loader whose stateless local command receives one of:
 
 ```text
-threadbear title --status complete --json
-threadbear title --status next_steps --json
-threadbear title --status needs_input --json
-threadbear title --status blocked --json
-threadbear title --status automation --json
+threadbear title-script --status complete
+threadbear title-script --status next_steps
+threadbear title-script --status needs_input
+threadbear title-script --status blocked
+threadbear title-script --status automation
 ```
 
 The status maps to one owned icon:
@@ -20,7 +20,7 @@ The status maps to one owned icon:
 | `blocked` | `🚨 <exact subject>` |
 | `automation` | `🤖 <exact subject>` |
 
-The enum controls only the icon. The helper returns the task ID and fixed policy without reading Codex or writing state. The mounted app reads the exact current title; when a change is needed, the same cell makes one native title call and accepts only the exact returned task ID/title. Any owner or next action stays in the substantive response. There is no current-turn footer, running icon, or neutral bear status.
+The enum controls only the icon. The verified binary binds the task ID and fixed policy into its embedded reviewed program without reading Codex or writing state. The loader evaluates that complete program uncached inside the current Codex tool context. The mounted app reads the exact current title; when a change is needed, the program makes one native title call with `threadId` omitted and accepts only the exact returned task ID/title. The public `title --status ENUM --json` command remains a data-only diagnostic for the same plan. Any owner or next action stays in the substantive response. There is no current-turn footer, running icon, or neutral bear status.
 
 During the one post-install existing-task first read, conservative historical inference uses the corresponding `✅✦ `, `➡️✦ `, `🙋✦ `, `🚨✦ `, or `🤖✦ ` prefix. `✦` means first read, not warning; the next ordinary turn strips it and writes one plain current prefix. Unknown history gets no decoration.
 

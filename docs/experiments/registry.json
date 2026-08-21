@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "updated_at": "2026-08-08",
+  "updated_at": "2026-08-21",
   "canonical_for": "ThreadBear title-path architecture and live experiments",
   "capabilities": [
     {
@@ -77,6 +77,17 @@
       ],
       "contradicted_by": [],
       "decision": "TB-EXP-0116-003 established the mounted-writer path, TB-EXP-0116-004 repeated it against corrected candidate b5cc0cbe, and TB-EXP-0116-006 closes the final BEAR-117 artifact gate. Exact candidate a1ecec67 repainted the current and controlled historical rows immediately through the mounted writer, preserved both exact titles across a clean Desktop restart, and kept the friendly preview and committed-removal recap visible after reopen and restart. TB-EXP-0119-001 and TB-EXP-0119-002 validate the cleanup and corrected commit-admission seams only; neither adds rendered repaint or restart-persistence evidence.",
+      "next_preflight": null
+    },
+    {
+      "id": "TB-CAP-BINARY-EMBEDDED-LOADER",
+      "premise": "A deterministic title program emitted by the verified ThreadBear binary can execute inside functions.exec, retain access to the mounted Codex title tools, fail closed before mutation on command or program failure, and visibly repaint Desktop without model regeneration of the policy.",
+      "status": "established",
+      "supported_by": [
+        "TB-EXP-0107-003"
+      ],
+      "contradicted_by": [],
+      "decision": "TB-EXP-0107-003 closes the loader capability boundary for exact v3.0.3 candidate binary SHA-256 21710ced. The 219-byte uncached loader evaluated the complete exit-zero embedded program inside Codex, the program used the mounted reader and sole mounted writer, exact acknowledgement matched the calling task and title, and the active header and sidebar repainted immediately. Command and malformed-program fixtures stopped before mounted reads or writes. The issued live operation completed in 0.3 to 1.0 seconds; broader model-start timing remains model-scheduling evidence rather than issued-operation latency.",
       "next_preflight": null
     },
     {
@@ -1337,9 +1348,73 @@
       "applicability": "Closes TB-PRE-0119-002 and validates the corrected BEAR-119 commit-admission seam for exact candidate 5f05b9f on Desktop 26.803.41515. It does not add rendered repaint or restart-persistence evidence to TB-CAP-MOUNTED-NATIVE-REPAINT.",
       "supersedes": [],
       "conflicts": []
+    },
+    {
+      "id": "TB-EXP-0107-003",
+      "date": "2026-08-21",
+      "issue": "BEAR-107",
+      "preflight_id": "TB-PRE-0107-003",
+      "question": "Can an exact v3.0.3 candidate replace the model-generated ordinary-turn policy with one binary-emitted program, evaluate it inside functions.exec, retain the mounted-only writer and visible repaint, and keep issued operations below five seconds?",
+      "invariant": "The mounted Codex reader and setter remain the only ordinary-turn title boundary; command or program failure stops before mutation; exact ID and title acknowledgement is mandatory; no source cache, alternate writer, retry, queue, controller, daemon, App Server, or SQLite path is allowed.",
+      "environment": {
+        "threadbear_version": "3.0.3 exact BEAR-107 local candidate; arm64 CGO=0 binary SHA-256 21710ced36b64b61ab20ca772fd1bcdcb8e21f22922f7216311d44ac2f69ef1f",
+        "git_sha": "32778b9dc2d0e6e710495816164459d3303d7df2",
+        "codex_version": "Desktop current on 2026-08-21; embedded CLI 0.149.0-alpha.4",
+        "codex_source": "vscode",
+        "host": "local macOS arm64",
+        "task_state": "one active mounted ThreadBear task with a controlled safe subject; exact status-prefix removal followed by one next_steps loader write and repeated no-write samples",
+        "restart_state": "clean Codex restart after exact candidate installation, visible canary, second exact install, and final clean restart",
+        "hook_fingerprint": "no ThreadBear title hook; ordinary title work used one functions.exec loader plus mounted app tools",
+        "guidance_fingerprint": "managed guidance SHA-256 336af25ac6405cb1aa1d4e70a2dd095f8e8573f7ccfc3e1f3841ddd66e6a2ff4; embedded program SHA-256 77c095dcbac18cf113d0671ae6306116b93828e303a2621099301e24317b4102"
+      },
+      "invocation": {
+        "outer_tool": "one 219-byte functions.exec loader calling the exact installed ThreadBear binary, followed by indirect eval in the same Codex V8",
+        "code": "run title-script --status next_steps once; require exit zero; evaluate complete stdout with tools, text, and exit; embedded program performs one exact mounted read and at most one mounted setter with omitted threadId",
+        "native_tool_identity": "codex_app__read_thread and codex_app__set_thread_title inside the evaluated embedded program",
+        "target_identity_mode": "calling task ID bound by the verified binary; exact read uses that ID; setter omits threadId so it can target only the caller"
+      },
+      "evidence": [
+        "linear:BEAR-107#comment-9ec2542f-13c7-4a03-bbd7-5f0709b6cd59",
+        "github-pr:129",
+        "git:32778b9dc2d0e6e710495816164459d3303d7df2",
+        "codex-rollout:01a025c4-5da5-7ab1-b952-4ac77b0cfecb"
+      ],
+      "result": {
+        "status": "observed",
+        "summary": "The exact candidate passed isolated release smoke twice and installed byte-identically. After restart, a mounted preparation write visibly removed the status prefix, then the exact loader returned the exact calling task ID and next_steps title and both the active header and sidebar repainted. The final restarted no-write loader returned the exact unchanged title. Focused fixtures proved nonzero command and malformed emitted program failures stop before any mounted read or write.",
+        "timing_ms": "300 to 1000 for issued loader operations; final restarted no-write executor 400; mounted read samples 53 to 85; changed mounted setter 682; model-start samples were recorded separately and included pre-tool deliberation outliers",
+        "hook_participation": "none; no ThreadBear title hook, App Server, or detached writer participated",
+        "rendered_proof": "The active header and project sidebar both rendered the bare controlled subject after preparation and the exact next_steps title immediately after the loader. Privacy-safe retained capture SHA-256 3793f56a86ca2bb00d29bc96e68664f6fdb4297c60694cb8f7282300ab2fa965; the exact title remained visible after the final clean restart."
+      },
+      "confidence": "high",
+      "applicability": "Establishes the binary-emitted uncached loader seam for exact candidate 21710ced on the recorded Desktop and CLI build. It does not authorize arbitrary binary stdout, cached executable source, detached writers, or a claim that general model deliberation is bounded by ThreadBear.",
+      "supersedes": [],
+      "conflicts": []
     }
   ],
   "preflights": [
+    {
+      "id": "TB-PRE-0107-003",
+      "issue": "BEAR-107",
+      "capability_id": "TB-CAP-BINARY-EMBEDDED-LOADER",
+      "status": "closed",
+      "consulted": [
+        "TB-EXP-0107-001",
+        "TB-EXP-0107-002",
+        "TB-EXP-0116-003",
+        "TB-EXP-0116-004",
+        "TB-EXP-0116-006"
+      ],
+      "remaining_unknown": "Whether code evaluated inside the current functions.exec V8 can load a deterministic program from the verified local binary, retain the mounted Codex tool object, and preserve exact visible title behavior while removing model regeneration of the multi-kilobyte policy.",
+      "single_changed_variable": "Policy source delivery: replace the inline model-generated title policy with the same reviewed policy emitted from the exact verified binary and evaluated uncached inside the current functions.exec V8.",
+      "held_constant": "Mounted codex_app reader and setter identities; current-task setter target by omitted threadId; existing typed title plan, prefix ownership, safety checks, exact acknowledgement, 60-unit limit, status enum, controlled subject, local macOS host, and no retry or alternate writer.",
+      "predicted_outcomes": [
+        "If the evaluated binary-emitted program retains the current mounted tool context, it will read the exact caller, return one exact mounted setter acknowledgement when the controlled prefix is absent, and the active header and sidebar will repaint immediately; command and malformed-program fixtures will stop before mutation.",
+        "If eval loses mounted access or the emitted boundary is incomplete, the program will fail before exact acknowledgement, call a different writer, or leave either rendered surface stale; the loader architecture must not ship."
+      ],
+      "stop_condition": "Stop the capability probe after one controlled exact loader write, immediate mounted header/sidebar inspection, and command/program failure fixtures. Use later no-write timing, restart, release-smoke, and full-suite checks only as seam and release evidence after recording the capability result; do not add a cache, retry, alternate writer, or second architectural variable.",
+      "result_experiment_id": "TB-EXP-0107-003"
+    },
     {
       "id": "TB-PRE-0108-001",
       "issue": "BEAR-108",
