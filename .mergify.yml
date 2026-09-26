@@ -1,6 +1,4 @@
-merge_queue:
-  mode: serial
-  max_parallel_checks: 1
+extends: mergify-config
 
 queue_rules:
   - name: default
@@ -9,8 +7,6 @@ queue_rules:
     merge_conditions: []
 
 merge_protections_settings:
-  reporting_method: check-runs
-  post_comment: false
   auto_merge_conditions:
     - or:
         - base = main
