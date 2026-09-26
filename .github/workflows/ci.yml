@@ -17,6 +17,8 @@ jobs:
   verify:
     runs-on: macos-14
     steps:
+      - name: Intentional MOB-1461 negative canary
+        run: exit 1
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
         with:
